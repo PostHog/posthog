@@ -97,7 +97,9 @@ class Resolver(TraversingVisitor):
             node.table.ref = self.visit(node.table)
             if node.alias is not None:
                 if node.alias in scope.tables:
-                    raise ResolverException(f'Already have joined a table called "{node.alias}". Can\'t redefine.')
+                    raise ResolverException(
+                        f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
+                    )
                 node.ref = ast.SelectQueryAliasRef(name=node.alias, ref=node.table.ref)
                 scope.tables[node.alias] = node.ref
             else:

@@ -58,26 +58,6 @@ export const loggerPlugin: () => KeaPlugin = () => ({
     },
 })
 
-/** warn about recursive data structures in actions, as these will crash the redux dev tools */
-export const warnRecursiveDataPlugin: () => KeaPlugin = () => ({
-    name: 'kea-warn-recursive',
-    events: {
-        beforeReduxStore(options) {
-            options.middleware.push(() => (next) => (action) => {
-                try {
-                    JSON.stringify(action)
-                } catch (e: any) {
-                    if ((e.name = 'TypeError')) {
-                        console.warn('KEA WARNING - action with recursive data structure detected: ', action, e)
-                    }
-                }
-
-                return next(action)
-            })
-        },
-    },
-})
-
 export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
     const plugins = [
         ...(beforePlugins || []),
@@ -115,7 +95,6 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
         }),
         subscriptionsPlugin,
         waitForPlugin,
-        warnRecursiveDataPlugin,
     ]
 
     if (window.JS_KEA_VERBOSE_LOGGING) {

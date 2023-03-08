@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { getColorVar } from 'lib/colors'
-import { Chart, ChartDataset, ChartItem } from 'chart.js'
+import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { DescriptionColumns } from './constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import './AppMetricsGraph.scss'
-import { lightenDarkenColor } from 'lib/utils'
+import { inStorybookTestRunner, lightenDarkenColor } from 'lib/utils'
 import { AppMetrics, AppMetricsTab } from './appMetricsSceneLogic'
 
 export interface AppMetricsGraphProps {
@@ -21,7 +21,7 @@ export function AppMetricsGraph({ tab, metrics, metricsLoading }: AppMetricsGrap
 
     useEffect(() => {
         let chart: Chart
-        if (canvasRef.current && metrics) {
+        if (canvasRef.current && metrics && !inStorybookTestRunner()) {
             chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
                 type: 'line',
                 data: {
@@ -78,10 +78,10 @@ export function AppMetricsGraph({ tab, metrics, metricsLoading }: AppMetricsGrap
                     },
                 },
             })
-        }
 
-        return () => {
-            chart?.destroy()
+            return () => {
+                chart?.destroy()
+            }
         }
     }, [metrics])
 

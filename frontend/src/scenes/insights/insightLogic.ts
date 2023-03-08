@@ -63,6 +63,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { dayjs, now } from 'lib/dayjs'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
+import { globalInsightLogic } from './globalInsightLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -110,9 +111,11 @@ export const insightLogic = kea<insightLogicType>([
             mathsLogic,
             ['mathDefinitions'],
             userLogic,
-            ['user', 'globalSessionFilters'],
+            ['user'],
+            globalInsightLogic,
+            ['globalInsightFilters'],
         ],
-        actions: [tagsModel, ['loadTags']],
+        actions: [tagsModel, ['loadTags'], globalInsightLogic, ['setGlobalInsightFilters']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
     }),
 
@@ -314,9 +317,7 @@ export const insightLogic = kea<insightLogicType>([
                         signal: cache.abortController.signal,
                     }
 
-                    const { filters: insightFilters } = values
-
-                    const filters = { ...values.globalSessionFilters, ...insightFilters }
+                    const { filters } = values
 
                     const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
 
@@ -844,6 +845,9 @@ export const insightLogic = kea<insightLogicType>([
     listeners(({ actions, selectors, values, cache }) => ({
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
+        },
+        setGlobalInsightFilters: ({ globalInsightFilters }) => {
+            actions.setFilters({ ...values.filters, ...globalInsightFilters })
         },
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)

@@ -9,7 +9,6 @@ from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-from posthog.hogql.constants import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -22,13 +21,28 @@ QUERY_DEFAULT_LIMIT = 100
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
 QUERY_MAXIMUM_LIMIT = 100_000
 
+# Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
+SELECT_STAR_FROM_EVENTS_FIELDS = [
+    "uuid",
+    "event",
+    "properties",
+    "timestamp",
+    "team_id",
+    "distinct_id",
+    "elements_chain",
+    "created_at",
+    "person_id",
+    "person.created_at",
+    "person.properties.name",
+    "person.properties.email",
+]
+
 
 def run_events_query(
     team: Team,
     query: EventsQuery,
 ) -> EventsQueryResponse:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
-    # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
 
     # limit & offset
     # adding +1 to the limit to check if there's a "next page" after the requested results
@@ -143,12 +157,16 @@ def run_events_query(
             new_result["person"] = {
                 "id": new_result["person_id"],
                 "created_at": new_result["person.created_at"],
-                "properties": json.loads(new_result["person.properties"]),
+                "properties": {
+                    "name": new_result["person.properties.name"],
+                    "email": new_result["person.properties.email"],
+                },
                 "distinct_ids": [new_result["distinct_id"]],
             }
             del new_result["person_id"]
             del new_result["person.created_at"]
-            del new_result["person.properties"]
+            del new_result["person.properties.name"]
+            del new_result["person.properties.email"]
             query_result.results[index][star_idx] = new_result
 
     # Convert person field from tuple to dict in each result

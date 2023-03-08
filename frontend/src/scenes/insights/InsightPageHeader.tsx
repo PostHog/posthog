@@ -30,6 +30,11 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { Tooltip } from 'antd'
+import { LemonSwitch } from '@posthog/lemon-ui'
+import { ThunderboltFilled } from '@ant-design/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { globalInsightLogic } from './globalInsightLogic'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -68,6 +73,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { globalInsightFilters } = useValues(globalInsightLogic)
+    const { setGlobalInsightFilters } = useActions(globalInsightLogic)
 
     const saveInsightHandler = isUsingDataExploration ? saveQueryBasedInsight : saveInsight
 
@@ -256,6 +264,40 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <LemonDivider vertical />
                             </>
                         )}
+                        {featureFlags[FEATURE_FLAGS.SAMPLING] ? (
+                            <>
+                                <Tooltip
+                                    title={
+                                        !!globalInsightFilters.sampling_factor
+                                            ? 'Turning on lightning mode will automatically enable 10% sampling for all insights you refresh, speeding up the calculation of results'
+                                            : ''
+                                    }
+                                    placement="bottom"
+                                >
+                                    <div>
+                                        <LemonSwitch
+                                            onChange={(checked) => {
+                                                const samplingFilter = checked
+                                                    ? { sampling_factor: 0.1 }
+                                                    : { sampling_factor: null }
+                                                setGlobalInsightFilters({ ...globalInsightFilters, ...samplingFilter })
+                                            }}
+                                            checked={!!globalInsightFilters.sampling_factor}
+                                            icon={
+                                                <ThunderboltFilled
+                                                    style={
+                                                        !!globalInsightFilters.sampling_factor
+                                                            ? { color: 'var(--primary)' }
+                                                            : {}
+                                                    }
+                                                />
+                                            }
+                                        />
+                                    </div>
+                                </Tooltip>
+                                <LemonDivider vertical />
+                            </>
+                        ) : null}
                         {insightMode === ItemMode.Edit && insight.saved && (
                             <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
                                 Cancel
