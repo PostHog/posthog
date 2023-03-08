@@ -152,7 +152,7 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict 
             if query_json.get("source"):
                 return process_query(team, query_json["source"], is_hogql_enabled)
             else:
-                raise ValidationError("Unsupported query kind: %s" % query_kind)
+                raise ValidationError(f"Unsupported query kind: {query_kind}")
     except Exception as e:
         raise ValidationError(str(e))
 
