@@ -50,7 +50,7 @@ class TrendsEventQueryBase(EventQuery):
         session_query, session_params = self._get_sessions_query()
         self.params.update(session_params)
 
-        sample_clause = "SAMPLE %(sampling_factors)s" if self._filter.sampling_factor else ""
+        sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})
 
         query = f"""
