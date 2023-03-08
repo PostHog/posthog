@@ -379,6 +379,10 @@ export const dateRangeForFilter = (source: FilterType | undefined): DateRange | 
     return { date_from: source.date_from, date_to: source.date_to }
 }
 
+export interface TimeToSeeDataSessionsQueryResponse {
+    results: Record<string, any>[]
+}
+
 export interface TimeToSeeDataSessionsQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataSessionsQuery
 
@@ -388,7 +392,7 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     /** Project to filter on. Defaults to current project */
     teamId?: number
 
-    response?: { results: Record<string, any>[] }
+    response?: TimeToSeeDataSessionsQueryResponse
 }
 
 export interface TimeToSeeDataQuery extends DataNode {

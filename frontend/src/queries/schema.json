@@ -2787,18 +2787,8 @@
                     "type": "string"
                 },
                 "response": {
-                    "additionalProperties": false,
-                    "description": "Cached query response",
-                    "properties": {
-                        "results": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
+                    "$ref": "#/definitions/TimeToSeeDataSessionsQueryResponse",
+                    "description": "Cached query response"
                 },
                 "teamId": {
                     "description": "Project to filter on. Defaults to current project",
@@ -2806,6 +2796,19 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "TimeToSeeDataSessionsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "TrendsFilter": {
