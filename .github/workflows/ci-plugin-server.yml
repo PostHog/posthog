@@ -327,7 +327,7 @@ jobs:
             - name: Set up postgres
               run: |
                   ./manage.py migrate
-                  ./manage.py setup_dev
+                  ./manage.py setup_dev --no-data
 
             - name: Run load test
               run: |
