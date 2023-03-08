@@ -263,6 +263,7 @@ jobs:
         runs-on: ubuntu-latest
 
         env:
+            DEBUG: 'true'
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
 
@@ -322,8 +323,6 @@ jobs:
                   pnpm build
 
             - name: Set up postgres
-              env:
-                  DEBUG: 'true'
               run: |
                   ./manage.py migrate
 
