@@ -4,11 +4,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { urls, Link, PersonHeader, AdHocInsight, TZLabel } from '@posthog/apps-common'
 import { LemonTable } from '@posthog/lemon-ui'
-// import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useActions, useValues } from 'kea'
 import { feedbackLogic } from './feedbackLogic'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-// import { Field, Form } from 'kea-forms'
 
 import './Feedback.scss'
 import { IconClose, IconHelpOutline, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
@@ -47,11 +45,12 @@ export function ExpandableSection({
     )
 }
 
-export function FeedbackInstructions(): JSX.Element {
-    // const formKey = 'newFeedbackEvent'
-    // const eventName = 'Feedback Sent'
-    // const feedbackProperties = ['$feedback']
+const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
+    api_host: 'YOUR API HOST',
+    opt_in_site_apps: true // <--- Add this line
+})`
 
+export function FeedbackInstructions(): JSX.Element {
     const { expandedSection } = useValues(feedbackLogic)
     const { setExpandedSection } = useActions(feedbackLogic)
 
@@ -84,10 +83,7 @@ export function FeedbackInstructions(): JSX.Element {
                             <div className="text-lg">2. Enable site apps</div>
                             <div className="ml-4 my-4">
                                 <CodeSnippet language={Language.JavaScript} wrap>
-                                    {`posthog.init('YOUR_PROJECT_API_KEY', {
-    api_host: 'YOUR API HOST',
-    opt_in_site_apps: true // <--- Add this line
-})`}
+                                    {OPT_IN_SNIPPET}
                                 </CodeSnippet>
                             </div>
                         </div>
@@ -139,69 +135,6 @@ export function FeedbackInstructions(): JSX.Element {
                                 </CodeSnippet>
                             </div>
                         </div>
-                        {/* <div>
-                            <div className="text-lg">2. Add your feedback properties</div>
-                            <div className="ml-4 max-w-200 my-4 FeedbackEventsTable">
-                                <LemonTable
-                                    dataSource={[
-                                        {
-                                            event: eventName,
-                                            properties: feedbackProperties,
-                                        },
-                                    ]}
-                                    columns={[
-                                        {
-                                            key: 'event',
-                                            title: 'Feedback Event',
-                                            render: (_, event) => {
-                                                return <div>{event.event}</div>
-                                            },
-                                        },
-                                        {
-                                            key: 'properties',
-                                            title: 'Feedback Properties',
-                                            render: (_, event) => {
-                                                return (
-                                                    <div>
-                                                        {event.properties.map((property: string, index: number) => (
-                                                            <div key={index}>{property}</div>
-                                                        ))}
-                                                    </div>
-                                                )
-                                            },
-                                        },
-                                    ]}
-                                />
-                                <Form logic={feedbackLogic} formKey={formKey} className="my-4">
-                                    <div className="flex gap-4">
-                                        <div className="flex-1">
-                                            <Field name="name">
-                                                <LemonInput placeholder="Feedback Sent" />
-                                            </Field>
-                                        </div>
-                                        <div className="flex-1">
-                                            <div className="flex gap-4">
-                                                <div className="flex-1">
-                                                    <Field name="properties">
-                                                        <LemonInput placeholder="$feedback,$feedback2" />
-                                                    </Field>
-                                                </div>
-                                                <div>
-                                                    <LemonButton
-                                                        type="primary"
-                                                        onClick={() => {
-                                                            feedbackLogic.actions.addFeedbackProperty()
-                                                        }}
-                                                    >
-                                                        Add
-                                                    </LemonButton>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </Form>
-                            </div>
-                        </div> */}
                     </div>
                 </div>
             </ExpandableSection>
@@ -236,7 +169,7 @@ function InAppFeedback({
 
     const { events } = useValues(feedbackLogic)
 
-    // TODO in next PR call the events endpoint to get the feedback events
+    // TODO call the events endpoint to get the feedback events and allow adding new events
 
     return (
         <>
@@ -327,9 +260,6 @@ function FeedbackWidgetTab({
 }
 
 export const Feedback = (): JSX.Element => {
-    // const { activeTab } = useValues(feedbackLogic)
-    // const { setTab } = useActions(feedbackLogic)
-
     return (
         <div className="Feedback">
             <PageHeader
@@ -337,7 +267,7 @@ export const Feedback = (): JSX.Element => {
                     <div className="flex items-center gap-2">
                         Feedback
                         <LemonTag type="warning" className="uppercase">
-                            Beta
+                            Alpha
                         </LemonTag>
                     </div>
                 }
@@ -349,31 +279,6 @@ export const Feedback = (): JSX.Element => {
                     feedbackProperty: '$feedback',
                 }}
             />
-            {/* <LemonTabs
-                activeKey={activeTab}
-                onChange={(key) => setTab(key)}
-                tabs={[
-                    {
-                        content: (
-                            <FeedbackWidgetTab
-                                config={{
-                                    eventName: 'Feedback Sent',
-                                    feedbackProperty: '$feedback',
-                                }}
-                            />
-                        ),
-                        key: 'in-app-feedback',
-                        label: 'In-app feedback',
-                        tooltip: 'Qualitative feedback sent from your app',
-                    },
-                    {
-                        content: <div>User interview scheduler</div>,
-                        key: 'user-interview-scheduler',
-                        label: 'Interview scheduler',
-                        tooltip: 'Schedule user interviews with your users',
-                    },
-                ]}
-            /> */}
         </div>
     )
 }

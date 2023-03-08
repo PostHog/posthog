@@ -34,12 +34,6 @@ export const feedbackLogic = kea<feedbackLogicType>([
                 },
             },
         ],
-        events: [
-            [] as EventType[],
-            {
-                loadEventsSuccess: (_, { events }) => events,
-            },
-        ],
     }),
     loaders({
         events: {
