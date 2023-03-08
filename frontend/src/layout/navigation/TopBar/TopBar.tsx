@@ -73,7 +73,7 @@ export function TopBar(): JSX.Element {
                     <ActivationSidebarToggle />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
-                    {featureFlags[FEATURE_FLAGS.SAMPLING] ? (
+                    {!!featureFlags[FEATURE_FLAGS.SAMPLING] && (
                         <Tooltip
                             title={
                                 !globalSessionFilters.sampling_factor
@@ -104,8 +104,8 @@ export function TopBar(): JSX.Element {
                                 />
                             </div>
                         </Tooltip>
-                    ) : null}
-
+                    )}
+                    {!!featureFlags[FEATURE_FLAGS.NOTEBOOKS] && null}
                     {!!featureFlags[FEATURE_FLAGS.FEEDBACK_BUTTON] && <FeedbackButton />}
                     {!!featureFlags[FEATURE_FLAGS.HOG_BOOK] && <NotificationBell />}
                     <HelpButton />

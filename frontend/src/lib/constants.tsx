@@ -146,6 +146,7 @@ export const FEATURE_FLAGS = {
     TEMPLUKES: 'templukes', // owner: @pauldambra and @lharries
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
+    NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
