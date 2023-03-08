@@ -1,3 +1,4 @@
+import { globalInsightLogic } from 'scenes/insights/globalInsightLogic'
 import { FEATURE_FLAGS } from './../../../lib/constants'
 import { featureFlagLogic } from './../../../lib/logic/featureFlagLogic'
 import { FilterType, InsightType } from './../../../types'
@@ -10,13 +11,6 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
 
 export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
-
-export const INSIGHT_TYPES_WITH_SAMPLING_SUPPORT = new Set([
-    InsightType.LIFECYCLE,
-    InsightType.FUNNELS,
-    InsightType.TRENDS,
-    InsightType.RETENTION,
-])
 
 export interface SamplingFilterLogicProps {
     insightProps: InsightLogicProps
@@ -36,10 +30,12 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
             ['setFilters as setFunnelFilters'],
             retentionLogic(props.insightProps),
             ['setFilters as setRetentionFilters'],
+            globalInsightLogic,
+            ['setGlobalInsightFilters'],
         ],
     })),
     actions(() => ({
-        setSamplingPercentage: (samplingPercentage: number) => ({ samplingPercentage }),
+        setSamplingPercentage: (samplingPercentage: number | null) => ({ samplingPercentage }),
     })),
     reducers(({ values }) => ({
         samplingPercentage: [
@@ -48,10 +44,13 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 // clicking on the active button untoggles it and disables sampling
                 setSamplingPercentage: (oldSamplingPercentage, { samplingPercentage }) =>
                     samplingPercentage === oldSamplingPercentage ? null : samplingPercentage,
+                setGlobalInsightFilters: (_, { globalInsightFilters }) => {
+                    return globalInsightFilters.sampling_factor ? globalInsightFilters.sampling_factor * 100 : null
+                },
             },
         ],
     })),
-    selectors(({ props }) => ({
+    selectors(() => ({
         suggestedSamplingPercentage: [
             (s) => [s.samplingPercentage],
             (samplingPercentage): number | null => {
@@ -72,9 +71,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
         samplingAvailable: [
             (s) => [s.featureFlags],
             (featureFlags: Record<string, boolean | string | undefined>): boolean =>
-                !!featureFlags[FEATURE_FLAGS.SAMPLING] &&
-                !!props.insightType &&
-                INSIGHT_TYPES_WITH_SAMPLING_SUPPORT.has(props.insightType),
+                !!featureFlags[FEATURE_FLAGS.SAMPLING],
         ],
     })),
     listeners(({ props, actions, values }) => ({
