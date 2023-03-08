@@ -83,17 +83,15 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
 
 export const createEmptyInsight = (
     insightId: InsightShortId | `new-${string}` | 'new',
-    baseFilters: Partial<FilterType> = {}
-): Partial<InsightModel> => {
-    return {
-        short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
-        name: '',
-        description: '',
-        tags: [],
-        filters: baseFilters,
-        result: null,
-    }
-}
+    filterTestAccounts: boolean
+): Partial<InsightModel> => ({
+    short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
+    name: '',
+    description: '',
+    tags: [],
+    filters: filterTestAccounts ? { filter_test_accounts: true } : {},
+    result: null,
+})
 
 export const insightLogic = kea<insightLogicType>([
     props({} as InsightLogicProps),
@@ -188,9 +186,10 @@ export const insightLogic = kea<insightLogicType>([
     loaders(({ actions, cache, values, props }) => ({
         insight: [
             props.cachedInsight ??
-                createEmptyInsight(props.dashboardItemId || 'new', {
-                    filter_test_accounts: values.currentTeam?.test_account_filters_default_checked || false,
-                }),
+                createEmptyInsight(
+                    props.dashboardItemId || 'new',
+                    values.currentTeam?.test_account_filters_default_checked || false
+                ),
             {
                 loadInsight: async ({ shortId }) => {
                     const load_query_insight_query_params = !!values.featureFlags[
@@ -1173,9 +1172,6 @@ export const insightLogic = kea<insightLogicType>([
     })),
     events(({ props, values, actions }) => ({
         afterMount: () => {
-            if (values.globalInsightFilters) {
-                actions.setFilters({ ...values.globalInsightFilters, ...values.filters })
-            }
             const hasDashboardItemId =
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-')
             const isCachedWithResultAndFilters =
