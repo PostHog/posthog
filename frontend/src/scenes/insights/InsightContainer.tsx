@@ -203,15 +203,22 @@ export function InsightContainer({
             >
                 <div>
                     {isFunnelsFilter(filters) ? (
-                        <Row
-                            className={clsx('insights-graph-header', {
-                                funnels: isFunnelsFilter(filters),
-                            })}
-                            align="middle"
-                            justify="space-between"
+                        <div
+                            className={clsx(
+                                'insights-graph-header',
+                                {
+                                    funnels: isFunnelsFilter(filters),
+                                },
+                                'justify-between',
+                                'items-center',
+                                'flex',
+                                'flex-row'
+                            )}
                         >
-                            <Col>{isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}</Col>
-                        </Row>
+                            <div className="flex flex-col">
+                                {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
+                            </div>
+                        </div>
                     ) : null}
 
                     <Row
