@@ -77,6 +77,10 @@ def get_cache_type(filter: Optional[FilterType], query: Optional[Dict]) -> Cache
     else:
         cache_type = CacheType.TRENDS
 
+    if cache_type is None:
+        logger.error("could_not_determine_cache_type_for_insight", filter=filter, query=query)
+        raise Exception("Could not determine cache type for insight")
+
     return cache_type
 
 
@@ -94,17 +98,17 @@ def calculate_result_by_insight(
         cache_key=cache_key,
     )
 
-    return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, insight.query, team)
+    if insight.query is not None:
+        # local import to avoid circular reference
+        from posthog.api.query import process_query
 
-
-def calculate_result_by_cache_type(
-    cache_type: CacheType, filter: Filter, query: Optional[Dict], team: Team
-) -> Dict | List[Dict]:
-    from posthog.api.query import process_query
-
-    if query is not None:
         # TODO need to properly check that hogql is enabled?
-        return process_query(team, query, True)
+        return cache_key, cache_type, process_query(team, insight.query, True)
+    else:
+        return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, team)
+
+
+def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> List[Dict[str, Any]]:
     if cache_type == CacheType.FUNNEL:
         return _calculate_funnel(filter, team)
     else:
