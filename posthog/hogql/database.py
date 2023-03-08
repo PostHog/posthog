@@ -278,6 +278,8 @@ class StaticCohortPeople(Table):
     cohort_id: IntegerDatabaseField = IntegerDatabaseField(name="cohort_id")
     team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
 
+    person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
+
     def avoid_asterisk_fields(self):
         return ["_timestamp", "_offset"]
 
