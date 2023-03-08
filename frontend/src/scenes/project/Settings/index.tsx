@@ -35,6 +35,7 @@ import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IngestionInfo } from './IngestionInfo'
+import { AutocaptureSettings } from './AutocaptureSettings'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -226,6 +227,8 @@ export function ProjectSettings(): JSX.Element {
                     right there on your website!
                 </p>
                 <ToolbarSettings />
+                <LemonDivider className="my-6" />
+                <AutocaptureSettings />
                 <LemonDivider className="my-6" />
                 <SessionRecording />
                 <LemonDivider className="my-6" />
