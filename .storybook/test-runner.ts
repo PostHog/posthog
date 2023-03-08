@@ -65,11 +65,6 @@ module.exports = {
 
         browserContext.setDefaultTimeout(1000) // Reduce the default timeout from 30 s to 1 s to pre-empt Jest timeouts
         if (!skip) {
-            await page.evaluate(() => {
-                // Stop all animations for consistent snapshots
-                document.body.classList.add('storybook-test-runner')
-            })
-
             const currentBrowser = browserContext.browser()!.browserType().name() as 'chromium' | 'firefox' | 'webkit'
             if (snapshotBrowsers.includes(currentBrowser)) {
                 await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
@@ -102,15 +97,15 @@ async function expectStoryToMatchSnapshot(
 
     // Wait for story to load
     await page.waitForSelector('.sb-show-preparing-story', { state: 'detached' })
+    await page.evaluate(() => {
+        // Stop all animations for consistent snapshots
+        document.body.classList.add('storybook-test-runner')
+    })
     if (waitForLoadersToDisappear) {
         await page.waitForTimeout(300) // Wait for initial UI to load
         await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
         if (typeof waitForLoadersToDisappear === 'string') {
             await page.waitForSelector(waitForLoadersToDisappear)
-            if (waitForLoadersToDisappear.split(' ').at(-1)?.startsWith('canvas')) {
-                // If waiting for a canvas, wait a bit more for it to be fully rendered and properly sized
-                await page.waitForTimeout(400)
-            }
         }
     }
     await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
