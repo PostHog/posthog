@@ -332,9 +332,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
-            parse_expr(
-                f"distinct_id IN (SELECT distinct_id FROM (SELECT distinct_id, argMax(person_id, version) as person_id FROM person_distinct_ids GROUP BY distinct_id HAVING argMax(is_deleted, version) = 0) WHERE person_id IN (SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort.pk}))"
-            ),
+            parse_expr(f"person_id IN (SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort.pk})"),
         )
 
     def test_cohort_filter_dynamic(self):
@@ -344,6 +342,6 @@ class TestProperty(BaseTest):
         self.assertEqual(
             property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             parse_expr(
-                f"distinct_id IN (SELECT distinct_id FROM (SELECT distinct_id, argMax(person_id, version) as person_id FROM person_distinct_ids GROUP BY distinct_id HAVING argMax(is_deleted, version) = 0) WHERE person_id IN (SELECT person_id FROM cohort_people WHERE cohort_id = {cohort.pk} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0))"
+                f"person_id IN (SELECT person_id FROM cohort_people WHERE cohort_id = {cohort.pk} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
             ),
         )
