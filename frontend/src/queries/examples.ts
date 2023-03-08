@@ -37,6 +37,7 @@ const Events: EventsQuery = {
     properties: [
         { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
     ],
+    after: '-24h',
     limit: 100,
 }
 
