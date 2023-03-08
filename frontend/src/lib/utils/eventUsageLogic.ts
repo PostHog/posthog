@@ -481,6 +481,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             capture_console_log_opt_in: boolean,
             capture_performance_opt_in: boolean
         ) => ({ session_recording_opt_in, capture_console_log_opt_in, capture_performance_opt_in }),
+        reportIngestionAutocaptureTurnedOff: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
         reportIngestionTryWithDemoDataClicked: true,
@@ -1167,6 +1168,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 session_recording_opt_in,
                 capture_console_log_opt_in,
                 capture_performance_opt_in,
+            })
+        },
+        reportIngestionAutocaptureTurnedOff: ({ autocapture_opt_in }) => {
+            posthog.capture('ingestion autocapture turned off', {
+                autocapture_opt_in,
             })
         },
         reportIngestionHelpClicked: ({ type }) => {
