@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useValues } from 'kea'
-import { Chart, ChartItem, TooltipModel } from 'chart.js'
+import { Chart, ChartItem, TooltipModel } from 'lib/Chart'
 import { range } from 'lib/utils'
 import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { teamLogic } from '../../teamLogic'
