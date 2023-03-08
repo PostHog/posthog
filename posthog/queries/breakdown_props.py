@@ -147,7 +147,8 @@ def get_breakdown_prop_values(
         cast_as_float=filter.using_histogram,
     )
 
-    sample_clause = f"SAMPLE {filter.sampling_factor}" if filter.sampling_factor else ""
+    sample_clause = "SAMPLE %(sampling_factor)s" if filter.sampling_factor else ""
+    sampling_params = {"sampling_factor": filter.sampling_factor}
 
     if filter.using_histogram:
         bucketing_expression = _to_bucketing_expression(cast(int, filter.breakdown_histogram_bin_count))
@@ -195,6 +196,7 @@ def get_breakdown_prop_values(
             **sessions_join_params,
             **extra_params,
             **date_params,
+            **sampling_params,
             **filter.hogql_context.values,
         },
         query_type="get_breakdown_prop_values",

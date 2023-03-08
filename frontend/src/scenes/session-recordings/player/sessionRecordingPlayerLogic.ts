@@ -33,6 +33,7 @@ import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { wrapConsole } from 'lib/utils/wrapConsole'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -695,11 +696,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     }),
     events(({ values, actions, cache }) => ({
         beforeUnmount: () => {
+            cache.resetConsoleWarn?.()
             values.player?.replayer?.pause()
             actions.setPlayer(null)
-            if (cache.originalWarning) {
-                console.warn = cache.originalWarning
-            }
             actions.reportRecordingViewedSummary({
                 viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
                 recording_duration_ms: values.sessionPlayerData?.metadata
@@ -723,13 +722,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             cache.openTime = performance.now()
-            cache.originalWarning = console.warn
-            console.warn = function (...args: Array<unknown>) {
+
+            cache.resetConsoleWarn = wrapConsole('warn', (args) => {
                 if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
                     actions.incrementWarningCount()
                 }
-                cache.originalWarning(...args)
-            }
+            })
         },
     })),
 ])

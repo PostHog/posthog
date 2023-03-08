@@ -1100,6 +1100,7 @@ export interface BillingV2Type {
     stripe_portal_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string
+    current_total_amount_usd_after_discount?: string
     products: BillingProductV2Type[]
     products_enterprise?: BillingProductV2Type[]
 
@@ -1114,6 +1115,8 @@ export interface BillingV2Type {
         plan: LicensePlan
     }
     available_plans?: BillingV2PlanType[]
+    discount_percent?: number
+    discount_amount_usd?: string
 }
 
 export interface BillingV2PlanType {

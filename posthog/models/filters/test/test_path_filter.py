@@ -14,6 +14,7 @@ class TestPathFilter(BaseTest):
                 "insight": "PATHS",
                 "start_point": "https://www.random.com/pricing/",
                 "step_limit": 3,
+                "sampling_factor": 0.1,
             }
         )
 
@@ -28,4 +29,5 @@ class TestPathFilter(BaseTest):
             "breakdown_attribution_type": "first_touch",
             "breakdown_normalize_url": False,
             "interval": "day",
+            "sampling_factor": 0.1,
         }

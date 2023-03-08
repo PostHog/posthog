@@ -13,6 +13,7 @@ import {
     IconFlag,
     IconGauge,
     IconLive,
+    IconMessages,
     IconOpenInApp,
     IconPerson,
     IconPinOutline,
@@ -174,6 +175,9 @@ function Pages(): JSX.Element {
                             identifier={Scene.WebPerformance}
                             to={urls.webPerformance()}
                         />
+                    )}
+                    {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
+                        <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
                     )}
                     <div className="SideBar__heading">Data</div>
 
