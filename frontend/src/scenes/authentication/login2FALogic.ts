@@ -1,7 +1,7 @@
 import { kea, path, connect, listeners, actions, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
-import { SSOProviders } from '~/types'
+import { SSOProvider } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { handleLoginRedirect } from './loginLogic'
@@ -15,7 +15,7 @@ export interface AuthenticateResponseType {
 }
 
 export interface PrecheckResponseType {
-    sso_enforcement?: SSOProviders | null
+    sso_enforcement?: SSOProvider | null
     saml_available: boolean
     status: 'pending' | 'completed'
 }
