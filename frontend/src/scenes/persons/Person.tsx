@@ -1,5 +1,5 @@
 import { Dropdown, Menu, Tabs, Tag } from 'antd'
-import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { DownOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
@@ -10,7 +10,7 @@ import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonsTabType, PersonType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -21,9 +21,9 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -34,6 +34,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DEFAULT_PERSON_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { IconInfo } from 'lib/lemon-ui/icons'
 
 const { TabPane } = Tabs
 
@@ -209,10 +210,10 @@ export function Person(): JSX.Element | null {
                 {groupsEnabled && person.uuid && (
                     <TabPane
                         tab={
-                            <span data-attr="persons-related-tab">
+                            <span className="flex items-center" data-attr="persons-related-tab">
                                 Related groups
                                 <Tooltip title="People and groups that have shared events with this person in the last 90 days.">
-                                    <InfoCircleOutlined style={{ marginLeft: 6, marginRight: 0 }} />
+                                    <IconInfo className="ml-1 text-base shrink-0" />
                                 </Tooltip>
                             </span>
                         }
@@ -226,11 +227,11 @@ export function Person(): JSX.Element | null {
                         tab={<span data-attr="persons-related-flags-tab">Feature flags</span>}
                         key={PersonsTabType.FEATURE_FLAGS}
                     >
-                        <div className="flex space-x-4 items-center mb-2">
-                            <div>
+                        <div className="flex space-x-2 items-center mb-2">
+                            <div className="flex items-center">
                                 Choose ID:
-                                <Tooltip title="Feature flags can have different values based on the persons IDs. Turn on persistence in feature flag settings if you'd like these to be constant always.">
-                                    <InfoCircleOutlined style={{ marginLeft: 6, marginRight: 0 }} />
+                                <Tooltip title="Feature flags values can depend on person distincts IDs. Turn on persistence in feature flag settings if you'd like these to be constant always.">
+                                    <IconInfo className="ml-1 text-base" />
                                 </Tooltip>
                             </div>
                             <LemonSelect
@@ -253,13 +254,10 @@ export function Person(): JSX.Element | null {
                         scope={ActivityScope.PERSON}
                         id={person.id}
                         caption={
-                            <div>
-                                <InfoCircleOutlined style={{ marginRight: '.25rem' }} />
-                                <span>
-                                    This page only shows changes made by users in the PostHog site. Automatic changes
-                                    from the API aren't shown here.
-                                </span>
-                            </div>
+                            <AlertMessage type="info">
+                                This page only shows changes made by users in the PostHog site. Automatic changes from
+                                the API aren't shown here.
+                            </AlertMessage>
                         }
                     />
                 </TabPane>

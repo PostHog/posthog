@@ -1,5 +1,5 @@
 import { Card, Col, Row } from 'antd'
-import { IconCheckmark, IconRadioButtonUnchecked } from 'lib/components/icons'
+import { IconCheckmark, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import './Experiment.scss'
 

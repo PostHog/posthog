@@ -43,9 +43,7 @@ class StickinessEventsQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
-        null_person_filter = (
-            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
-        )
+        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
 
         query = f"""
             SELECT
@@ -98,6 +96,7 @@ class StickinessEventsQuery(EventQuery):
                 if self._using_person_on_events
                 else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
                 person_id_joined_alias=f"{self.aggregation_target()}",
+                hogql_context=self._filter.hogql_context,
             )
         else:
             return "event = %(event)s", {"event": self._entity.id}

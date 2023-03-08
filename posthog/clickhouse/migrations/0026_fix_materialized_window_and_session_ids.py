@@ -1,7 +1,6 @@
 from infi.clickhouse_orm import migrations
 
 from posthog.clickhouse.materialized_columns import get_materialized_columns, materialize
-from posthog.clickhouse.replication.utils import clickhouse_is_replicated
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER
 
@@ -73,8 +72,7 @@ def materialize_session_and_window_id(database):
             possible_old_column_names.add(current_materialized_column_name)
 
         for possible_old_column_name in possible_old_column_names:
-            if clickhouse_is_replicated():
-                ensure_only_new_column_exists(database, "sharded_events", possible_old_column_name, property_name)
+            ensure_only_new_column_exists(database, "sharded_events", possible_old_column_name, property_name)
             ensure_only_new_column_exists(database, "events", possible_old_column_name, property_name)
 
 

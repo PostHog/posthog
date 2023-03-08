@@ -6,7 +6,7 @@ import {
     detectBoolean,
     HumanizedChange,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
@@ -14,6 +14,9 @@ import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { InsightQueryNode, QuerySchema } from '~/queries/schema'
+import { isInsightQueryNode } from '~/queries/utils'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
     const displayName = name || '(empty string)'
@@ -65,16 +68,13 @@ const insightActionsMapping: Record<
     filters: function onChangedFilter(change) {
         const filtersAfter = change?.after as Partial<FilterType>
 
-        return {
-            description: ['changed query definition'],
-            extendedDescription: (
-                <div className="summary-card">
-                    <QuerySummary filters={filtersAfter} />
-                    <FiltersSummary filters={filtersAfter} />
-                    {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}
-                </div>
-            ),
-        }
+        return summarizeChanges(filtersAfter)
+    },
+    query: function onChangedQuery(change) {
+        const query = change?.after as QuerySchema
+        return isInsightQueryNode(query)
+            ? summarizeChanges(queryNodeToFilter(change?.after as InsightQueryNode))
+            : { description: ["cannot yet summarize changes to this insight's query: " + query.kind] }
     },
     deleted: function onSoftDelete(change, logItem, asNotification) {
         const isDeleted = detectBoolean(change?.after)
@@ -202,13 +202,12 @@ const insightActionsMapping: Record<
     id: () => null,
     created_at: () => null,
     created_by: () => null,
-    filters_hash: () => null,
-    refreshing: () => null,
     updated_at: () => null,
     last_modified_at: () => null,
     order: () => null,
     result: () => null,
     last_refresh: () => null,
+    next_allowed_client_refresh: () => null,
     last_modified_by: () => null,
     next: () => null, // only used by frontend
     saved: () => null,
@@ -217,6 +216,20 @@ const insightActionsMapping: Record<
     effective_restriction_level: () => null, // read from dashboards
     effective_privilege_level: () => null, // read from dashboards
     disable_baseline: () => null,
+    dashboard_tiles: () => null, // changes are sent as dashboards
+}
+
+function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
+    return {
+        description: ['changed query definition'],
+        extendedDescription: (
+            <div className="summary-card">
+                <QuerySummary filters={filtersAfter} />
+                <FiltersSummary filters={filtersAfter} />
+                {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}
+            </div>
+        ),
+    }
 }
 
 export function insightActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -256,7 +269,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         )
 
         for (const change of logItem.detail.changes || []) {
-            if (!change?.field) {
+            if (!change?.field || !insightActionsMapping[change.field]) {
                 continue // insight updates have to have a "field" to be described
             }
 

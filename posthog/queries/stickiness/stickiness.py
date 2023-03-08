@@ -43,7 +43,7 @@ class Stickiness:
 
         counts = insight_sync_execute(
             query,
-            {**event_params, "num_intervals": filter.total_intervals},
+            {**event_params, **filter.hogql_context.values, "num_intervals": filter.total_intervals},
             query_type="stickiness",
             filter=filter,
         )

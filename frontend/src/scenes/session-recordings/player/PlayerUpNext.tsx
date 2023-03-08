@@ -3,8 +3,8 @@ import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '.
 import { SessionRecordingType } from '~/types'
 import { CSSTransition } from 'react-transition-group'
 import { useActions, useValues } from 'kea'
-import { IconPlay } from 'lib/components/icons'
-import { Tooltip } from 'lib/components/Tooltip'
+import { IconPlay } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { router } from 'kea-router'
@@ -38,6 +38,7 @@ export function PlayerUpNext({
     const goToRecording = (automatic: boolean): void => {
         reportNextRecordingTriggered(automatic)
         router.actions.push(router.values.currentLocation.pathname, router.values.currentLocation.searchParams, {
+            ...router.values.currentLocation.hashParams,
             sessionRecordingId: nextSessionRecording?.id,
         })
     }

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconRefresh } from 'lib/components/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 
 export function Reload(): JSX.Element {
     const { responseLoading } = useValues(dataNodeLogic)

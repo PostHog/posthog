@@ -5,29 +5,29 @@
             margin-bottom: 0.25rem;
         }
 
-        .definition-popup-timemeta {
+        .definition-popover-timemeta {
             display: inline;
             margin-top: 0.25rem;
             margin-bottom: 0.25rem;
 
-            .definition-popup-timemeta-user {
+            .definition-popover-timemeta-user {
                 display: inline-flex;
             }
 
-            .definition-popup-timemeta-spacer {
+            .definition-popover-timemeta-spacer {
                 margin-right: 4px;
             }
         }
 
-        .definition-popup-grid {
+        .definition-popover-grid {
             display: grid;
             grid-gap: 1rem;
 
-            .definition-popup-grid-card {
+            .definition-popover-grid-card {
                 display: flex;
                 flex-direction: column;
 
-                .definition-popup-grid-card-title {
+                .definition-popover-grid-card-title {
                     font-size: 11px;
                     font-weight: 600;
                     letter-spacing: 0.5px;
@@ -36,7 +36,7 @@
                     margin-bottom: 4px;
                 }
 
-                .definition-popup-grid-card-content {
+                .definition-popover-grid-card-content {
                     font-weight: 600;
                 }
             }

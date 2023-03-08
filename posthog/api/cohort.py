@@ -1,6 +1,6 @@
 import csv
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -32,7 +32,8 @@ from posthog.constants import (
     OFFSET,
 )
 from posthog.event_usage import report_user_action
-from posthog.models import Cohort
+from posthog.models import Cohort, FeatureFlag, User
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -127,12 +128,28 @@ class CohortSerializer(serializers.ModelSerializer):
     def validate_filters(self, request_filters: Dict):
 
         if isinstance(request_filters, dict) and "properties" in request_filters:
+            if self.context["request"].method == "PATCH":
+                parsed_filter = Filter(data=request_filters)
+                instance = cast(Cohort, self.instance)
+                cohort_id = instance.pk
+                flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
+                    team_id=self.context["team_id"], active=True, deleted=False
+                )
+                for prop in parsed_filter.property_groups.flat:
+                    if prop.type == "behavioral":
+                        if [flag for flag in flags if cohort_id in flag.cohort_ids]:
+                            raise serializers.ValidationError(
+                                detail=f"Behavioral filters cannot be added to cohorts used in feature flags.",
+                                code="behavioral_cohort_found",
+                            )
+
             return request_filters
         else:
             raise ValidationError("Filters must be a dictionary with a 'properties' key.")
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
+        user = cast(User, request.user)
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
@@ -144,6 +161,13 @@ class CohortSerializer(serializers.ModelSerializer):
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             cohort.deleted = deleted_state
+            if cohort.deleted is True:
+                AsyncDeletion.objects.create(
+                    deletion_type=DeletionType.Cohort_full,
+                    team_id=cohort.team.pk,
+                    key=f"{cohort.pk}_{cohort.version}",
+                    created_by=user,
+                )
 
         if not cohort.is_static and not is_deletion_change:
             cohort.is_calculating = True
@@ -204,13 +228,13 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
         if is_csv_request and not filter.limit:
-            filter = filter.with_data({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
+            filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
         elif not filter.limit:
-            filter = filter.with_data({LIMIT: 100})
+            filter = filter.shallow_clone({LIMIT: 100})
 
         query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
 
-        raw_result = sync_execute(query, params)
+        raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids, distinct_id_limit=10 if is_csv_request else None)
 

@@ -1,9 +1,9 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { IconUnfoldLess, IconUnfoldMore, IconInfo } from 'lib/components/icons'
-import { Tooltip } from 'lib/components/Tooltip'
+import { IconUnfoldLess, IconUnfoldMore, IconInfo } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils'
-import React, { Fragment, useState } from 'react'
+import React, { Fragment } from 'react'
 import { SessionRecordingType } from '~/types'
 import {
     SessionRecordingPlaylistItem,
@@ -12,7 +12,7 @@ import {
 } from './SessionRecordingsPlaylistItem'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
-import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export type SessionRecordingsListProps = {
@@ -26,15 +26,18 @@ export type SessionRecordingsListProps = {
     activeRecordingId?: SessionRecordingType['id']
     loading?: boolean
     loadingSkeletonCount?: number
-    collapsable?: boolean
+    collapsed?: boolean
+    onCollapse?: (collapsed: boolean) => void
     empty?: React.ReactNode
+    className?: string
 }
 
 export function SessionRecordingsList({
     listKey,
     titleRight,
     recordings,
-    collapsable,
+    collapsed,
+    onCollapse,
     title,
     loading,
     loadingSkeletonCount = 1,
@@ -43,8 +46,8 @@ export function SessionRecordingsList({
     onRecordingClick,
     onPropertyClick,
     activeRecordingId,
+    className,
 }: SessionRecordingsListProps): JSX.Element {
-    const [collapsed, setCollapsed] = useState(false)
     const { reportRecordingListVisibilityToggled } = useActions(eventUsageLogic)
 
     const logic = sessionRecordingsListPropertiesLogic({
@@ -65,21 +68,19 @@ export function SessionRecordingsList({
     )
 
     const setCollapsedWrapper = (val: boolean): void => {
-        setCollapsed(val)
+        onCollapse?.(val)
         reportRecordingListVisibilityToggled(listKey, !val)
     }
 
     return (
         <div
-            className={clsx('flex flex-col w-full border rounded bg-light', {
+            className={clsx('flex flex-col w-full border rounded bg-light', className, {
                 'border-dashed': !recordings?.length,
-                'flex-1': !collapsed && recordings?.length,
-                'flex-0': collapsed,
                 'overflow-hidden': recordings?.length,
             })}
         >
             <div className="shrink-0 relative flex justify-between items-center p-1 gap-1">
-                {collapsable ? (
+                {onCollapse ? (
                     <LemonButton
                         className="flex-1"
                         status="stealth"

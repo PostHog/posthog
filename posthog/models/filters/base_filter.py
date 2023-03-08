@@ -5,13 +5,17 @@ from typing import Any, Dict, Optional
 from rest_framework import request
 
 from posthog.models.filters.mixins.common import BaseParamMixin
+from posthog.models.filters.mixins.hogql import HogQLParamMixin
 from posthog.models.utils import sane_repr
 from posthog.utils import encode_get_request_params
 
 
-class BaseFilter(BaseParamMixin):
+class BaseFilter(BaseParamMixin, HogQLParamMixin):
     def __init__(
-        self, data: Optional[Dict[str, Any]] = None, request: Optional[request.Request] = None, **kwargs
+        self,
+        data: Optional[Dict[str, Any]] = None,
+        request: Optional[request.Request] = None,
+        **kwargs,
     ) -> None:
         if request:
             data = {**request.GET.dict(), **request.data, **(data if data else {})}
@@ -41,9 +45,9 @@ class BaseFilter(BaseParamMixin):
     def toJSON(self):
         return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
 
-    def with_data(self, overrides: Dict[str, Any]):
-        "Allow making copy of filter whilst preserving the class"
-        return type(self)(data={**self._data, **overrides}, **self.kwargs)
+    def shallow_clone(self, overrides: Dict[str, Any]):
+        "Clone the filter's data while sharing the HogQL context"
+        return type(self)(data={**self._data, **overrides}, **{**self.kwargs, "hogql_context": self.hogql_context})
 
     def query_tags(self) -> Dict[str, Any]:
         ret = {}

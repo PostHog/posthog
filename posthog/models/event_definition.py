@@ -1,5 +1,3 @@
-import os
-
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils import timezone
@@ -24,15 +22,11 @@ class EventDefinition(UUIDModel):
 
     class Meta:
         unique_together = ("team", "name")
-        indexes = (
-            [
-                GinIndex(
-                    name="index_event_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]
-                )  # To speed up DB-based fuzzy searching
-            ]
-            if not os.environ.get("SKIP_TRIGRAM_INDEX_FOR_TESTS")
-            else []
-        )  # This index breaks the --no-migrations option when running tests
+        indexes = [
+            GinIndex(
+                name="index_event_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]
+            )  # To speed up DB-based fuzzy searching
+        ]
 
     def __str__(self) -> str:
         return f"{self.name} / {self.team.name}"

@@ -10,18 +10,19 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
+from posthog.hogql.hogql import HogQLContext
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
     GET_COHORTS_BY_PERSON_UUID,
-    GET_DISTINCT_ID_BY_ENTITY_SQL,
-    GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
+    STALE_COHORTPEOPLE,
 )
 from posthog.models.person.sql import (
     GET_LATEST_PERSON_SQL,
@@ -30,6 +31,7 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 # temporary marker to denote when cohortpeople table started being populated
@@ -38,7 +40,7 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 logger = structlog.get_logger(__name__)
 
 
-def format_person_query(cohort: Cohort, index: int) -> Tuple[str, Dict[str, Any]]:
+def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
         return format_static_cohort_query(cohort.pk, index, prepend="")
 
@@ -49,7 +51,9 @@ def format_person_query(cohort: Cohort, index: int) -> Tuple[str, Dict[str, Any]
     from posthog.queries.cohort_query import CohortQuery
 
     query_builder = CohortQuery(
-        Filter(data={"properties": cohort.properties}, team=cohort.team), cohort.team, cohort_pk=cohort.pk
+        Filter(data={"properties": cohort.properties}, team=cohort.team, hogql_context=hogql_context),
+        cohort.team,
+        cohort_pk=cohort.pk,
     )
 
     query, params = query_builder.get_query()
@@ -69,43 +73,6 @@ def format_precalculated_cohort_query(cohort_id: int, index: int, prepend: str =
     return (filter_query, {f"{prepend}_cohort_id_{index}": cohort_id})
 
 
-def get_entity_cohort_subquery(
-    cohort: Cohort, cohort_group: Dict, group_idx: int, custom_match_field: str = "person_id"
-):
-    event_id = cohort_group.get("event_id")
-    action_id = cohort_group.get("action_id")
-    days = cohort_group.get("days")
-    start_time = cohort_group.get("start_date")
-    end_time = cohort_group.get("end_date")
-    count = cohort_group.get("count")
-    count_operator = cohort_group.get("count_operator")
-
-    date_query, date_params = get_date_query(days, start_time, end_time)
-    entity_query, entity_params = get_entity_query(event_id, action_id, cohort.team.pk, group_idx)
-
-    if count is not None:
-
-        is_negation = (
-            count_operator == "eq" or count_operator == "lte"
-        ) and count == 0  # = 0 means all people who never performed the event
-
-        count_operator = get_count_operator(count_operator)
-        pdi_query = get_team_distinct_ids_query(cohort.team_id)
-        extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
-            entity_query=entity_query,
-            date_query=date_query,
-            GET_TEAM_PERSON_DISTINCT_IDS=pdi_query,
-            count_condition="" if is_negation else f"HAVING count(*) {count_operator} %(count)s",
-        )
-
-        params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
-
-        return f"{'NOT' if is_negation else ''} {custom_match_field} IN ({extract_person})", params
-    else:
-        extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query)
-        return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
-
-
 def get_count_operator(count_operator: Optional[str]) -> str:
     if count_operator == "gte":
         return ">="
@@ -122,14 +89,18 @@ def get_count_operator(count_operator: Optional[str]) -> str:
 
 
 def get_entity_query(
-    event_id: Optional[str], action_id: Optional[int], team_id: int, group_idx: Union[int, str]
+    event_id: Optional[str],
+    action_id: Optional[int],
+    team_id: int,
+    group_idx: Union[int, str],
+    hogql_context: HogQLContext,
 ) -> Tuple[str, Dict[str, str]]:
     if event_id:
         return f"event = %({f'event_{group_idx}'})s", {f"event_{group_idx}": event_id}
     elif action_id:
         action = Action.objects.get(pk=action_id, team_id=team_id)
         action_filter_query, action_params = format_action_filter(
-            team_id=team_id, action=action, prepend="_{}_action".format(group_idx)
+            team_id=team_id, action=action, prepend="_{}_action".format(group_idx), hogql_context=hogql_context
         )
         return action_filter_query, action_params
     else:
@@ -186,8 +157,14 @@ def is_precalculated_query(cohort: Cohort) -> bool:
         return False
 
 
-def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distinct_id") -> Tuple[str, Dict[str, Any]]:
-    person_query, params = format_cohort_subquery(cohort, index, custom_match_field="person_id")
+def format_filter_query(
+    cohort: Cohort,
+    index: int,
+    hogql_context: HogQLContext,
+    id_column: str = "distinct_id",
+    custom_match_field="person_id",
+) -> Tuple[str, Dict[str, Any]]:
+    person_query, params = format_cohort_subquery(cohort, index, hogql_context, custom_match_field=custom_match_field)
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query,
@@ -197,12 +174,14 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
     return person_id_query, params
 
 
-def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="person_id") -> Tuple[str, Dict[str, Any]]:
+def format_cohort_subquery(
+    cohort: Cohort, index: int, hogql_context: HogQLContext, custom_match_field="person_id"
+) -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     if is_precalculated:
         query, params = format_precalculated_cohort_query(cohort.pk, index)
     else:
-        query, params = format_person_query(cohort, index)
+        query, params = format_person_query(cohort, index, hogql_context)
 
     person_query = f"{custom_match_field} IN ({query})"
     return person_query, params
@@ -211,12 +190,15 @@ def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="perso
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int] = None, offset: Optional[int] = None):
     from posthog.models.property.util import parse_prop_grouped_clauses
 
-    filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]})
+    filter = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]})
     filter_query, filter_params = parse_prop_grouped_clauses(
-        team_id=team.pk, property_group=filters.property_groups, table_name="pdi"
+        team_id=team.pk,
+        property_group=filter.property_groups,
+        table_name="pdi",
+        hogql_context=filter.hogql_context,
     )
 
-    results = sync_execute(
+    results = insight_sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
             person_query=GET_LATEST_PERSON_SQL,
             distinct_query=filter_query,
@@ -226,6 +208,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
             limit="ORDER BY _timestamp ASC LIMIT %(limit)s" if limit else "",
         ),
         {**filter_params, "team_id": team.pk, "offset": offset, "limit": limit},
+        query_type="get_person_ids_by_cohort_id",
     )
 
     return [str(row[0]) for row in results]
@@ -247,7 +230,8 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
-    cohort_query, cohort_params = format_person_query(cohort, 0)
+    hogql_context = HogQLContext(within_non_hogql_query=True)
+    cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
 
     before_count = get_cohort_size(cohort.pk, cohort.team_id)
 
@@ -260,7 +244,13 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
 
     sync_execute(
         recalcluate_cohortpeople_sql,
-        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version},
+        {
+            **cohort_params,
+            **hogql_context.values,
+            "cohort_id": cohort.pk,
+            "team_id": cohort.team_id,
+            "new_version": pending_version,
+        },
         settings={"optimize_on_insert": 0},
     )
 
@@ -276,6 +266,23 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
         )
 
     return count
+
+
+def clear_stale_cohortpeople(cohort: Cohort, current_version: int) -> None:
+
+    if cohort.version and cohort.version > 0:
+        stale_count_result = sync_execute(
+            STALE_COHORTPEOPLE,
+            {"cohort_id": cohort.pk, "team_id": cohort.team_id, "version": current_version},
+        )
+
+        if stale_count_result and len(stale_count_result) and len(stale_count_result[0]):
+            stale_count = stale_count_result[0][0]
+            if stale_count > 0:
+                # Don't do anything if it already exists
+                AsyncDeletion.objects.get_or_create(
+                    deletion_type=DeletionType.Cohort_stale, team_id=cohort.team.pk, key=f"{cohort.pk}_{cohort.version}"
+                )
 
 
 def get_cohort_size(cohort_id: int, team_id: int) -> Optional[int]:

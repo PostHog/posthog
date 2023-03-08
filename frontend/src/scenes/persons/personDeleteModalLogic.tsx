@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { PersonType } from '~/types'
 import { toParams } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import type { personDeleteModalLogicType } from './personDeleteModalLogicType'
 import { loaders } from 'kea-loaders'
 

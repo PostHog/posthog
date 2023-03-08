@@ -17,7 +17,7 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
-from posthog.settings import SITE_URL
+from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
@@ -125,6 +125,7 @@ class User(AbstractUser, UUIDClassicModel):
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
+    pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
 
@@ -136,6 +137,7 @@ class User(AbstractUser, UUIDClassicModel):
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
+    is_email_verified: models.BooleanField = models.BooleanField(null=True, blank=True)
     # DEPRECATED
     events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
 
@@ -270,6 +272,8 @@ class User(AbstractUser, UUIDClassicModel):
             "has_social_auth": self.social_auth.exists(),  # type: ignore
             "social_providers": list(self.social_auth.values_list("provider", flat=True)),  # type: ignore
             "instance_url": SITE_URL,
+            "instance_tag": INSTANCE_TAG,
+            "is_email_verified": self.is_email_verified,
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

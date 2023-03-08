@@ -7,7 +7,12 @@ from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.funnels.base import ClickhouseFunnelBase
 from posthog.queries.funnels.utils import get_funnel_order_class
-from posthog.queries.util import get_earliest_timestamp, get_interval_func_ch, get_trunc_func_ch, start_of_week_fix
+from posthog.queries.util import (
+    correct_result_for_sampling,
+    get_earliest_timestamp,
+    get_interval_func_ch,
+    get_trunc_func_ch,
+)
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
@@ -79,7 +84,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return f"""
             SELECT
                 aggregation_target,
-                {trunc_func}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix(self._filter.interval)}) AS entrance_period_start,
+                {trunc_func}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS entrance_period_start,
                 max(steps) AS steps_completed
                 {event_select_clause}
                 {breakdown_clause}
@@ -132,9 +137,9 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) data
             RIGHT OUTER JOIN (
                 SELECT
-                    {trunc_func}(toDateTime(%(formatted_date_from)s, %(timezone)s) + {interval_func}(number) {start_of_week_fix(self._filter.interval)}) AS entrance_period_start
+                    {trunc_func}(toDateTime(%(formatted_date_from)s, %(timezone)s) + {interval_func}(number)) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
-                FROM numbers(dateDiff(%(interval)s, toDateTime(%(formatted_date_from)s, %(timezone)s), toDateTime(%(formatted_date_to)s, %(timezone)s)) + 1) AS period_offsets
+                FROM numbers(dateDiff(%(interval)s, {trunc_func}(toDateTime(%(formatted_date_from)s, %(timezone)s)), {trunc_func}(toDateTime(%(formatted_date_to)s, %(timezone)s))) + 1) AS period_offsets
                 {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}
             ) fill
             USING (entrance_period_start {breakdown_clause})
@@ -162,11 +167,12 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
 
         summary = []
+
         for period_row in results:
             serialized_result = {
                 "timestamp": period_row[0],
-                "reached_from_step_count": period_row[1],
-                "reached_to_step_count": period_row[2],
+                "reached_from_step_count": correct_result_for_sampling(period_row[1], self._filter.sampling_factor),
+                "reached_to_step_count": correct_result_for_sampling(period_row[2], self._filter.sampling_factor),
                 "conversion_rate": period_row[3],
             }
 

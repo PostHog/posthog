@@ -82,6 +82,7 @@ describe('plugins', () => {
         const vm = await pluginConfig.vm!.resolveInternalVm
         expect(Object.keys(vm!.methods).sort()).toEqual([
             'exportEvents',
+            'getSettings',
             'onEvent',
             'onSnapshot',
             'processEvent',

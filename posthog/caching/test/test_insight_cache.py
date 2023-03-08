@@ -94,7 +94,7 @@ def test_fetch_states_in_need_of_updating(team: Team, user: User, params, expect
 
 @pytest.mark.django_db
 @freeze_time("2020-01-04T13:01:01Z")
-def test_update_cache(cache, team: Team, user: User):
+def test_update_cache(team: Team, user: User, cache):
     caching_state = create_insight_caching_state(team, user, refresh_attempt=1)
 
     update_cache(caching_state.pk)
@@ -112,7 +112,7 @@ def test_update_cache(cache, team: Team, user: User):
 
 @pytest.mark.django_db
 @freeze_time("2020-01-04T13:01:01Z")
-def test_update_cache_updates_identical_cache_keys(cache, team: Team, user: User):
+def test_update_cache_updates_identical_cache_keys(team: Team, user: User, cache):
     caching_state1 = create_insight_caching_state(team, user, refresh_attempt=1)
     caching_state2 = create_insight_caching_state(team, user, refresh_attempt=2)
 
@@ -133,7 +133,7 @@ def test_update_cache_updates_identical_cache_keys(cache, team: Team, user: User
 @patch("posthog.celery.update_cache_task")
 @patch("posthog.caching.insight_cache.calculate_result_by_insight")
 def test_update_cache_when_calculation_fails(
-    spy_calculate_result_by_insight, spy_update_cache_task, cache, team: Team, user: User
+    spy_calculate_result_by_insight, spy_update_cache_task, team: Team, user: User, cache
 ):
     caching_state = create_insight_caching_state(team, user, refresh_attempt=1)
     spy_calculate_result_by_insight.side_effect = Exception()

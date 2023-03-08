@@ -5,7 +5,7 @@ import { urlToAction } from 'kea-router'
 
 import type { confirmOrganizationLogicType } from './confirmOrganizationLogicType'
 import { forms } from 'kea-forms'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export interface ConfirmOrganizationFormValues {
     organization_name?: string

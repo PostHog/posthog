@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 from django.forms.models import model_to_dict
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
+from posthog.hogql.hogql import HogQLContext
 from posthog.models import Entity, Filter
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -15,6 +16,7 @@ from posthog.models.utils import PersonPropertiesMode
 def format_action_filter(
     team_id: int,
     action: Action,
+    hogql_context: HogQLContext,
     prepend: str = "action",
     use_loop: bool = False,
     filter_by_team=True,
@@ -56,6 +58,7 @@ def format_action_filter(
                 table_name=table_name,
                 person_properties_mode=person_properties_mode,
                 person_id_joined_alias=person_id_joined_alias,
+                hogql_context=hogql_context,
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
@@ -101,7 +104,12 @@ def filter_event(
 
 
 def format_entity_filter(
-    team_id: int, entity: Entity, person_id_joined_alias: str, prepend: str = "action", filter_by_team=True
+    team_id: int,
+    entity: Entity,
+    hogql_context: HogQLContext,
+    person_id_joined_alias: str,
+    prepend: str = "action",
+    filter_by_team=True,
 ) -> Tuple[str, Dict]:
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()
@@ -111,6 +119,7 @@ def format_entity_filter(
             prepend=prepend,
             filter_by_team=filter_by_team,
             person_id_joined_alias=person_id_joined_alias,
+            hogql_context=hogql_context,
         )
     else:
         key = f"{prepend}_event"

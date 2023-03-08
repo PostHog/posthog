@@ -2,13 +2,12 @@ import { ComponentMeta } from '@storybook/react'
 
 import { CompactList } from './CompactList'
 import { urls } from 'scenes/urls'
-import { LemonButton } from '../LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 
 export default {
     title: 'Components/Compact List',
     component: CompactList,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         loading: {
             control: {

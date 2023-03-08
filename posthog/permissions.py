@@ -168,10 +168,10 @@ class TeamMemberAccessPermission(BasePermission):
 
     def has_permission(self, request, view) -> bool:
         try:
-            team = view.team
+            view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
-        requesting_level = team.get_effective_membership_level(request.user.id)
+        requesting_level = view.user_permissions.current_team.effective_membership_level
         return requesting_level is not None
 
 
@@ -192,7 +192,7 @@ class TeamMemberLightManagementPermission(BasePermission):
                 team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
-        requesting_level = team.get_effective_membership_level(request.user.id)
+        requesting_level = view.user_permissions.team(team).effective_membership_level
         if requesting_level is None:
             return False
         minimum_level = (
@@ -210,8 +210,7 @@ class TeamMemberStrictManagementPermission(BasePermission):
     message = "You don't have sufficient permissions in the project."
 
     def has_permission(self, request, view) -> bool:
-        team = view.team
-        requesting_level = team.get_effective_membership_level(request.user.id)
+        requesting_level = view.user_permissions.current_team.effective_membership_level
         if requesting_level is None:
             return False
         minimum_level = (

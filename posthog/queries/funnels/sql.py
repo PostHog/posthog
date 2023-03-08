@@ -8,19 +8,3 @@ ORDER BY aggregation_target
 {limit}
 {offset}
 """
-
-FUNNEL_INNER_EVENT_STEPS_QUERY = """
-SELECT
-aggregation_target,
-timestamp,
-{steps}
-{select_prop}
-{extra_fields}
-FROM (
-    {event_query}
-) events
-{extra_join}
-WHERE (
-    {steps_condition}
-)
-"""

@@ -48,6 +48,7 @@ disable_paid_fs = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_ca
 INSTANCE_PREFERENCES = {"debug_queries": debug_queries, "disable_paid_fs": disable_paid_fs}
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
+INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 
 if DEBUG:
     JS_URL = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
@@ -74,6 +75,9 @@ NPM_TOKEN = os.getenv("NPM_TOKEN", None)
 # Whether to capture time-to-see-data metrics
 CAPTURE_TIME_TO_SEE_DATA = get_from_env("CAPTURE_TIME_TO_SEE_DATA", False, type_cast=str_to_bool)
 
+# Whether kea should be act in verbose mode
+KEA_VERBOSE_LOGGING = get_from_env("KEA_VERBOSE_LOGGING", False, type_cast=str_to_bool)
+
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_OVERRIDE = get_from_env("PERSON_ON_EVENTS_OVERRIDE", optional=True, type_cast=str_to_bool)
 
@@ -93,6 +97,7 @@ AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
 CONTAINER_HOSTNAME = os.getenv("HOSTNAME", "unknown")
 
+PROM_PUSHGATEWAY_ADDRESS = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

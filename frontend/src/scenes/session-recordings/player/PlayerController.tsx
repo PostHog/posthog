@@ -7,15 +7,13 @@ import {
 import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip } from 'scenes/session-recordings/player/PlayerControllerTime'
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconExport, IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/components/icons'
-import { Tooltip } from 'lib/components/Tooltip'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { IconExport, IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { More } from 'lib/components/LemonButton/More'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCheckbox } from '@posthog/lemon-ui'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
@@ -24,9 +22,6 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
 
     const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
     const { setSpeed, setSkipInactivitySetting, setIsFullScreen, setAutoplayEnabled } = useActions(playerSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const featureExport = !!featureFlags[FEATURE_FLAGS.RECORDINGS_EXPORT]
 
     return (
         <div className="p-3 bg-light flex flex-col select-none">
@@ -46,9 +41,9 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                 </div>
                 <div className="flex items-center gap-1 flex-1 justify-end">
                     <Tooltip title={'Playback speed'}>
-                        <LemonButtonWithPopup
+                        <LemonButtonWithDropdown
                             data-attr="session-recording-speed-select"
-                            popup={{
+                            dropdown={{
                                 overlay: (
                                     <div className="space-y-px">
                                         {PLAYBACK_SPEEDS.map((speedToggle) => (
@@ -73,7 +68,7 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                             status="primary-alt"
                         >
                             {speed}x
-                        </LemonButtonWithPopup>
+                        </LemonButtonWithDropdown>
                     </Tooltip>
 
                     <Tooltip title={`Skip inactivity (${skipInactivitySetting ? 'on' : 'off'})`}>
@@ -121,17 +116,15 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                                     Autoplay enabled
                                 </LemonButton>
 
-                                {featureExport && (
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() => exportRecordingToFile()}
-                                        fullWidth
-                                        sideIcon={<IconExport />}
-                                        tooltip="Export recording to a file. This can be loaded later into PostHog for playback."
-                                    >
-                                        Export to file
-                                    </LemonButton>
-                                )}
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => exportRecordingToFile()}
+                                    fullWidth
+                                    sideIcon={<IconExport />}
+                                    tooltip="Export recording to a file. This can be loaded later into PostHog for playback."
+                                >
+                                    Export to file
+                                </LemonButton>
                             </>
                         }
                     />

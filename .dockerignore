@@ -15,6 +15,7 @@
 !postcss.config.js
 !playwright.config.ts
 !.kearc
+!.storybook
 !tsconfig.json
 !frontend/@posthog
 !frontend/src

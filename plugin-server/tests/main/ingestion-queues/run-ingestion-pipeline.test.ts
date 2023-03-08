@@ -12,17 +12,20 @@ describe('workerTasks.runEventPipeline()', () => {
     let redis: Redis.Redis
     let closeHub: () => Promise<void>
     let piscinaTaskRunner: ({ task, args }) => Promise<any>
+    const OLD_ENV = process.env
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
         redis = await hub.redisPool.acquire()
         piscinaTaskRunner = createTaskRunner(hub)
         await hub.postgres.query(POSTGRES_DELETE_TABLES_QUERY) // Need to clear the DB to avoid unique constraint violations on ids
+        process.env = { ...OLD_ENV } // Make a copy
     })
 
     afterAll(async () => {
         await hub.redisPool.release(redis)
         await closeHub()
+        process.env = OLD_ENV // Restore old environment
     })
 
     beforeEach(() => {

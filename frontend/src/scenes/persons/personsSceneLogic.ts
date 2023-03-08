@@ -5,7 +5,7 @@ import equal from 'fast-deep-equal'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 import { urls } from 'scenes/urls'
 import { objectsEqual } from 'lib/utils'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
 

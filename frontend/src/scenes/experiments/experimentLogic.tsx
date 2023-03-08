@@ -18,9 +18,8 @@ import {
     TrendResult,
     FunnelStep,
     SecondaryExperimentMetric,
-    AvailableFeature,
     SignificanceCode,
-    SecondaryMetricResult,
+    SecondaryMetricAPIResult,
 } from '~/types'
 import type { experimentLogicType } from './experimentLogicType'
 import { router, urlToAction } from 'kea-router'
@@ -28,16 +27,15 @@ import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { userLogic } from 'scenes/userLogic'
-import { Tooltip } from 'lib/components/Tooltip'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { IconInfo } from 'lib/lemon-ui/icons'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -53,12 +51,23 @@ const NEW_EXPERIMENT: Experiment = {
         ],
     },
     secondary_metrics: [],
-    created_at: '',
+    created_at: null,
     created_by: null,
+    updated_at: null,
 }
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
+}
+
+interface SecondaryMetricResult {
+    insightType: InsightType
+    result: number
+}
+
+export interface TabularSecondaryMetricResults {
+    variant: string
+    results?: SecondaryMetricResult[]
 }
 
 export const experimentLogic = kea<experimentLogicType>([
@@ -66,14 +75,7 @@ export const experimentLogic = kea<experimentLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            userLogic,
-            ['hasAvailableFeature'],
-            groupsModel,
-            ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
-        ],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
         actions: [
             experimentsLogic,
             ['updateExperiments', 'addToExperiments'],
@@ -100,12 +102,12 @@ export const experimentLogic = kea<experimentLogicType>([
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
-        setSecondaryMetrics: (secondaryMetrics: SecondaryExperimentMetric[]) => ({ secondaryMetrics }),
         setExperimentResultCalculationError: (error: string) => ({ error }),
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setFlagAvailabilityWarning: (warning: boolean) => ({ warning }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         updateExperimentGoal: (filters: Partial<FilterType>) => ({ filters }),
+        updateExperimentSecondaryMetrics: (metrics: SecondaryExperimentMetric[]) => ({ metrics }),
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
@@ -201,6 +203,13 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 updateExperimentGoal: () => true,
                 loadExperimentResults: () => false,
+            },
+        ],
+        changingSecondaryMetrics: [
+            false,
+            {
+                updateExperimentSecondaryMetrics: () => true,
+                loadSecondaryMetricResults: () => false,
             },
         ],
         experimentResultCalculationError: [
@@ -363,6 +372,9 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ filters })
             actions.closeExperimentGoalModal()
         },
+        updateExperimentSecondaryMetrics: async ({ metrics }) => {
+            actions.updateExperiment({ secondary_metrics: metrics })
+        },
         closeExperimentGoalModal: () => {
             if (values.experimentChanged) {
                 actions.loadExperiment()
@@ -377,6 +389,10 @@ export const experimentLogic = kea<experimentLogicType>([
 
             if (values.changingGoalMetric) {
                 actions.loadExperimentResults()
+            }
+
+            if (values.changingSecondaryMetrics) {
+                actions.loadSecondaryMetricResults()
             }
         },
         setExperiment: async ({ experiment }) => {
@@ -509,7 +525,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
                         )
-                        return { ...response, itemID: Math.random().toString(36).substring(2, 15) }
+                        return { ...response, fakeInsightId: Math.random().toString(36).substring(2, 15) }
                     } catch (error: any) {
                         actions.setExperimentResultCalculationError(error.detail)
                         return null
@@ -518,7 +534,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         secondaryMetricResults: [
-            null as SecondaryMetricResult[] | null,
+            null as SecondaryMetricAPIResult[] | null,
             {
                 loadSecondaryMetricResults: async () => {
                     return await Promise.all(
@@ -547,6 +563,12 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment],
             (experiment): InsightType => {
                 return experiment?.filters?.insight || InsightType.TRENDS
+            },
+        ],
+        isExperimentRunning: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return !!experiment?.start_date
             },
         ],
         breadcrumbs: [
@@ -613,7 +635,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                     <>Current value is {((experimentResults?.expected_loss || 0) * 100)?.toFixed(2)}%</>
                                 }
                             >
-                                <InfoCircleOutlined style={{ padding: '4px 2px' }} />
+                                <IconInfo className="ml-1 text-muted text-xl" />
                             </Tooltip>
                             .
                         </>
@@ -628,7 +650,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 placement="right"
                                 title={<>Current value is {experimentResults?.p_value?.toFixed(3) || 1}.</>}
                             >
-                                <InfoCircleOutlined style={{ padding: '4px 2px' }} />
+                                <IconInfo className="ml-1 text-muted text-xl" />
                             </Tooltip>
                             .
                         </>
@@ -790,6 +812,28 @@ export const experimentLogic = kea<experimentLogicType>([
                 return []
             },
         ],
+        tabularSecondaryMetricResults: [
+            (s) => [s.experiment, s.secondaryMetricResults],
+            (experiment, secondaryMetricResults): TabularSecondaryMetricResults[] => {
+                const variantsWithResults: TabularSecondaryMetricResults[] = []
+                experiment?.parameters?.feature_flag_variants?.forEach((variant) => {
+                    const metricResults: SecondaryMetricResult[] = []
+                    experiment?.secondary_metrics?.forEach((metric, idx) => {
+                        metricResults.push({
+                            insightType: metric.filters.insight || InsightType.TRENDS,
+                            result: secondaryMetricResults?.[idx]?.[variant.key],
+                        })
+                    })
+
+                    variantsWithResults.push({
+                        variant: variant.key,
+                        results: metricResults,
+                    })
+                })
+
+                return variantsWithResults
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         experiment: {
@@ -817,10 +861,6 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/experiments/:id': ({ id }, _, __, currentLocation, previousLocation) => {
-            if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
-                router.actions.push('/experiments')
-                return
-            }
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
             actions.setEditExperiment(false)

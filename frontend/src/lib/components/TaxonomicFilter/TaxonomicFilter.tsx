@@ -1,12 +1,16 @@
 import './TaxonomicFilter.scss'
 import { useEffect, useMemo, useRef } from 'react'
-import { useValues, useActions, BindLogic } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
-import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
-import { IconKeyboard } from '../icons'
-import { Tooltip } from '../Tooltip'
+import {
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+    TaxonomicFilterProps,
+} from 'lib/components/TaxonomicFilter/types'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { IconKeyboard } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 
 let uniqueMemoizedIndex = 0
@@ -53,7 +57,9 @@ export function TaxonomicFilter({
     const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(logic)
 
     useEffect(() => {
-        window.setTimeout(() => focusInput(), 1)
+        if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
+            window.setTimeout(() => focusInput(), 1)
+        }
     }, [])
 
     const style = {

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import type { InsightLogicProps, InsightModel, QueryInsightEditorFilterGroup } from '~/types'
 import '../../../scenes/insights/EditorFilters/EditorFilterGroup.scss'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { slugify } from 'lib/utils'
-import { LemonBadge } from 'lib/components/LemonBadge/LemonBadge'
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { PureField } from 'lib/forms/Field'
 import { InsightQueryNode } from '~/queries/schema'
 
@@ -47,6 +47,11 @@ export function EditorFilterGroup({
             {isRowExpanded ? (
                 <div className="EditorFilterGroup__content">
                     {editorFilters.map(({ label: Label, tooltip, showOptional, key, component: Component }) => {
+                        if (Component && Component.name === 'component') {
+                            throw new Error(
+                                `Component for filter ${key} is an anonymous function, which is not a valid React component! Use a named function instead.`
+                            )
+                        }
                         return (
                             <div key={key}>
                                 <PureField

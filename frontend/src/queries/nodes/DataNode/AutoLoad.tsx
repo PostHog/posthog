@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { useEffect } from 'react'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 export function AutoLoad(): JSX.Element {
     const { autoLoadToggled, newDataLoading } = useValues(dataNodeLogic)

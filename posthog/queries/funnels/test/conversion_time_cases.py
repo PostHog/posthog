@@ -9,7 +9,7 @@ from posthog.test.test_journeys import journeys_for
 def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _create_person):
     class TestFunnelConversionTime(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
+            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
             _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
 
             return [val["id"] for val in serialized_result]
@@ -152,7 +152,7 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 [people["stopped_after_signup1"].uuid, people["stopped_after_signup3"].uuid],
             )
 
-            filter = filter.with_data({"funnel_window_interval": 5, "funnel_window_interval_unit": "minute"})
+            filter = filter.shallow_clone({"funnel_window_interval": 5, "funnel_window_interval_unit": "minute"})
 
             funnel = Funnel(filter, self.team)
             result4 = funnel.run()

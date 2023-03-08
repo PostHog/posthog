@@ -34,6 +34,10 @@
     z-index: 2147483032 !important;
 }
 
+.LemonModal__overlay--force-modal-above-popovers {
+    z-index: 2147483033 !important;
+}
+
 .ant-list-item {
     &:hover {
         background: #f0f0f0;
@@ -70,6 +74,6 @@
     }
 }
 
-.Popup {
+.Popover {
     z-index: 2147483020 !important;
 }

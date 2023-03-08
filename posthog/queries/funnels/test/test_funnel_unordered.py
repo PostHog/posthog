@@ -548,7 +548,7 @@ class TestFunnelUnorderedStepsConversionTime(ClickhouseTestMixin, funnel_convers
 
 class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-        person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
+        person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
         _, serialized_result, _ = ClickhouseFunnelUnorderedActors(person_filter, self.team).get_actors()
 
         return [val["id"] for val in serialized_result]
@@ -923,7 +923,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertRaises(ValidationError, lambda: ClickhouseFunnelUnordered(filter, self.team).run())
 
         # partial windows not allowed for unordered
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}]}
         )
         self.assertRaises(ValidationError, lambda: ClickhouseFunnelUnordered(filter, self.team).run())

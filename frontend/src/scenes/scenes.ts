@@ -66,11 +66,11 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.EventPropertyDefinitions]: {
+    [Scene.PropertyDefinitions]: {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.EventPropertyDefinition]: {
+    [Scene.PropertyDefinition]: {
         projectBased: true,
         name: 'Data Management',
     },
@@ -188,6 +188,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Login]: {
         onlyUnauthenticated: true,
     },
+    [Scene.Login2FA]: {
+        onlyUnauthenticated: true,
+    },
     [Scene.Signup]: {
         onlyUnauthenticated: true,
     },
@@ -231,19 +234,22 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         plain: true,
         allowUnauthenticated: true,
     },
-    [Scene.BillingLocked]: {
-        plain: true,
-        allowUnauthenticated: true,
-    },
     [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
     },
     [Scene.Query]: {
         projectBased: true,
     },
+    [Scene.VerifyEmail]: {
+        allowUnauthenticated: true,
+        plain: true,
+    },
 }
 
-export const redirects: Record<string, string | ((params: Params) => string)> = {
+export const redirects: Record<
+    string,
+    string | ((params: Params, searchParams: Params, hashParams: Params) => string)
+> = {
     '/': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
@@ -257,8 +263,15 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
     '/events/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
-    '/events/properties': urls.eventPropertyDefinitions(),
-    '/events/properties/:id': ({ id }) => urls.eventPropertyDefinition(id),
+    '/events/properties': urls.propertyDefinitions(),
+    '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
+    '/recordings': (_params, _searchParams, hashParams) => {
+        if (hashParams.sessionRecordingId) {
+            // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
+            return urls.sessionRecording(hashParams.sessionRecordingId)
+        }
+        return urls.sessionRecordings()
+    },
 }
 
 export const routes: Record<string, Scene> = {
@@ -281,8 +294,8 @@ export const routes: Record<string, Scene> = {
     [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
-    [urls.eventPropertyDefinitions()]: Scene.EventPropertyDefinitions,
-    [urls.eventPropertyDefinition(':id')]: Scene.EventPropertyDefinition,
+    [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
+    [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.webPerformance() + '/*']: Scene.WebPerformance,
@@ -319,7 +332,6 @@ export const routes: Record<string, Scene> = {
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.billingSubscribed()]: Scene.BillingSubscribed,
-    [urls.billingLocked()]: Scene.BillingLocked,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
     [urls.instanceLicenses()]: Scene.Licenses,
@@ -336,6 +348,7 @@ export const routes: Record<string, Scene> = {
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
+    [urls.login2FA()]: Scene.Login2FA,
     [urls.preflight()]: Scene.PreflightCheck,
     [urls.signup()]: Scene.Signup,
     [urls.inviteSignup(':id')]: Scene.InviteSignup,
@@ -343,6 +356,9 @@ export const routes: Record<string, Scene> = {
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
+    [urls.verifyEmail()]: Scene.VerifyEmail,
+    [urls.verifyEmail(':uuid')]: Scene.VerifyEmail,
+    [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
     [urls.query()]: Scene.Query,

@@ -92,7 +92,8 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
         }
 
         property_definitions: Dict[str, PropertyDefinition] = {
-            known_property.name: known_property for known_property in PropertyDefinition.objects.filter(team_id=team_id)
+            known_property.name: known_property
+            for known_property in PropertyDefinition.objects.filter(team_id=team_id, type=PropertyDefinition.Type.EVENT)
         }
 
         since = timezone.now() - timezone.timedelta(days=30)

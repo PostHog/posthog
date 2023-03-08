@@ -8,6 +8,8 @@ import {
     OrganizationMemberType,
     OrganizationType,
     PersonProperty,
+    PluginConfigWithPluginInfo,
+    PluginType,
     PropertyFilterType,
     PropertyOperator,
     TeamType,
@@ -16,6 +18,7 @@ import {
 } from '~/types'
 import { OrganizationMembershipLevel, PluginsAccessLevel } from './constants'
 import apiReal from 'lib/api'
+import { PluginInstallationType } from 'scenes/plugins/types'
 
 export const MOCK_USER_UUID: UserType['uuid'] = 'USER_UUID'
 export const MOCK_TEAM_ID: TeamType['id'] = 997
@@ -66,6 +69,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     },
     session_recording_opt_in: true,
     capture_console_log_opt_in: true,
+    session_recording_version: 'v1',
     capture_performance_opt_in: true,
     effective_membership_level: OrganizationMembershipLevel.Admin,
     access_control: true,
@@ -85,6 +89,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     updated_at: '2022-01-03T13:50:55.369557Z',
     membership_level: OrganizationMembershipLevel.Admin,
     plugins_access_level: PluginsAccessLevel.Root,
+    enforce_2fa: false,
     teams: [MOCK_DEFAULT_TEAM],
     available_features: [],
     is_member_join_email_enabled: true,
@@ -103,11 +108,11 @@ export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
 }
 
 export const MOCK_DEFAULT_USER: UserType = {
-    date_joined: '2022-03-11T13:03:32.333971Z',
+    date_joined: '2023-02-28T13:03:32.333971Z',
     uuid: MOCK_USER_UUID,
-    distinct_id: 'mock-user-178-distinct-id',
-    first_name: 'John',
-    email: 'john.doe@posthog.com',
+    distinct_id: MOCK_DEFAULT_BASIC_USER.uuid,
+    first_name: MOCK_DEFAULT_BASIC_USER.first_name,
+    email: MOCK_DEFAULT_BASIC_USER.email,
     email_opt_in: true,
     notification_settings: { plugin_disabled: false },
     anonymize_data: false,
@@ -115,6 +120,9 @@ export const MOCK_DEFAULT_USER: UserType = {
     has_password: true,
     is_staff: true,
     is_impersonated: false,
+    is_email_verified: true,
+    is_2fa_enabled: false,
+    has_social_auth: false,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
     organizations: [MOCK_DEFAULT_ORGANIZATION].map(({ id, name, slug, membership_level }) => ({
@@ -134,6 +142,26 @@ export const MOCK_DEFAULT_ORGANIZATION_MEMBER: OrganizationMemberType = {
     level: OrganizationMembershipLevel.Owner,
     joined_at: '2020-09-24T15:05:26.758796Z',
     updated_at: '2020-09-24T15:05:26.758837Z',
+    is_2fa_enabled: false,
+    has_social_auth: false,
+}
+
+export const MOCK_SECOND_BASIC_USER: UserBasicType = {
+    id: 202,
+    uuid: 'bf313676-e728-4221-a975-d8e90b9d168c',
+    distinct_id: 'mock-user-202-distinct-id',
+    first_name: 'Rose',
+    email: 'rose.dawson@posthog.com',
+}
+
+export const MOCK_SECOND_ORGANIZATION_MEMBER: OrganizationMemberType = {
+    id: '4622ae44-7818-4f4f-8dab-64894131d9e3',
+    user: MOCK_SECOND_BASIC_USER,
+    level: OrganizationMembershipLevel.Member,
+    joined_at: '2021-03-11T19:11:11Z',
+    updated_at: '2021-03-11T19:11:11Z',
+    is_2fa_enabled: false,
+    has_social_auth: false,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
@@ -194,3 +222,35 @@ export const MOCK_GROUP_TYPES: GroupType[] = [
         name_plural: 'projects',
     },
 ]
+
+export const MOCK_DEFAULT_PLUGIN: PluginType = {
+    id: 1,
+    plugin_type: PluginInstallationType.Custom,
+    name: 'Bazooka',
+    description: 'Blow your data up',
+    config_schema: [],
+    tag: 'b65bbbbe126883babffc6fb06f448bfc65b5be7a',
+    latest_tag: 'b65bbbbe126883babffc6fb06f448bfc65b5be7a',
+    is_global: false,
+    organization_id: MOCK_DEFAULT_ORGANIZATION.id,
+    organization_name: MOCK_DEFAULT_ORGANIZATION.name,
+    capabilities: {
+        jobs: [],
+        methods: ['processEvent'],
+        scheduled_tasks: ['runEveryHour'],
+    },
+    metrics: {},
+    public_jobs: {},
+}
+
+export const MOCK_DEFAULT_PLUGIN_CONFIG: PluginConfigWithPluginInfo = {
+    id: 1,
+    plugin: MOCK_DEFAULT_PLUGIN.id,
+    enabled: true,
+    order: 1,
+    config: {},
+    team_id: MOCK_TEAM_ID,
+    delivery_rate_24h: 0.999,
+    created_at: '2020-12-01T14:00:00.000Z',
+    plugin_info: MOCK_DEFAULT_PLUGIN,
+}

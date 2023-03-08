@@ -1,59 +1,33 @@
-import { useEffect, useState } from 'react'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import clsx from 'clsx'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { InsightsNav } from 'scenes/insights/InsightsNav'
-import { ItemMode } from '~/types'
 import { isFunnelsQuery } from '~/queries/utils'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
-import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { InsightQueryNode, InsightVizNode } from '../../schema'
 
 import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
+import { InsightLogicProps, ItemMode } from '~/types'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+/** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
+export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string => {
+    return `InsightViz.${keyForInsightLogicProps('new')(insightProps)}`
+}
 
 type InsightVizProps = {
     query: InsightVizNode
     setQuery?: (node: InsightVizNode) => void
 }
 
-let uniqueNode = 0
-
 export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
-    // TODO use same key as insight props
-    const [key] = useState(() => `InsightViz.${uniqueNode++}`)
+    const { insightProps } = useValues(insightLogic)
+    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key: insightVizDataNodeKey(insightProps) }
 
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
-    const { response, lastRefresh } = useValues(dataNodeLogic(dataNodeLogicProps))
-
-    // get values and actions from bound insight logic
-    const { insight, hasDashboardItemId } = useValues(insightLogic)
-    const { setInsight, setLastRefresh } = useActions(insightLogic)
-
-    const { insightMode } = useValues(insightSceneLogic) // TODO: Tight coupling -- remove or make optional
-
-    // TODO: use connected logic instead of useEffect?
-    useEffect(() => {
-        // TODO: this is hacky - we prevent overwriting the insight in case
-        // of a saved insight. instead we should handle loading a saved insight
-        // in a query as well. needs discussion around api and node schema.
-        if (response && !hasDashboardItemId) {
-            setInsight(
-                {
-                    ...insight,
-                    result: response.result,
-                    next: response.next,
-                    timezone: response.timezone,
-                    filters: queryNodeToFilter(query.source),
-                },
-                {}
-            )
-            setLastRefresh(lastRefresh)
-        }
-    }, [response])
+    const { insightMode } = useValues(insightSceneLogic)
 
     const isFunnels = isFunnelsQuery(query.source)
 
@@ -63,13 +37,12 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            {insightMode === ItemMode.Edit && <InsightsNav />}
             <div
                 className={clsx('insight-wrapper', {
                     'insight-wrapper--singlecolumn': isFunnels,
                 })}
             >
-                <EditorFilters query={query.source} setQuery={setQuerySource} />
+                <EditorFilters query={query.source} setQuery={setQuerySource} showing={insightMode === ItemMode.Edit} />
 
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer insightMode={insightMode} />

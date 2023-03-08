@@ -6,8 +6,8 @@ import { CohortType } from '~/types'
 import { PersonsSearch } from './PersonsSearch'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconExport } from 'lib/components/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconExport } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 
 interface PersonsProps {

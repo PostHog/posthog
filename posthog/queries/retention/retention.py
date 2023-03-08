@@ -3,15 +3,15 @@ from urllib.parse import urlencode
 
 import pytz
 
-from posthog.client import substitute_params
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.retention.actors_query import RetentionActorsByPeriod, build_actor_activity_query
-from posthog.queries.retention.event_query import RetentionEventsQuery
+from posthog.queries.retention.retention_events_query import RetentionEventsQuery
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_SQL
 from posthog.queries.retention.types import BreakdownValues, CohortKey
+from posthog.queries.util import correct_result_for_sampling
 
 
 class Retention:
@@ -32,9 +32,12 @@ class Retention:
         self, filter: RetentionFilter, team: Team
     ) -> Dict[CohortKey, Dict[str, Any]]:
 
-        actor_query = build_actor_activity_query(filter=filter, team=team, retention_events_query=self.event_query)
+        actor_query, actor_query_params = build_actor_activity_query(
+            filter=filter, team=team, retention_events_query=self.event_query
+        )
         result = insight_sync_execute(
             RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query),
+            {**actor_query_params, **filter.hogql_context.values},
             settings={"timeout_before_checking_execution_speed": 60},
             filter=filter,
             query_type="retention_by_breakdown_values",
@@ -42,7 +45,7 @@ class Retention:
 
         result_dict = {
             CohortKey(tuple(breakdown_values), intervals_from_base): {
-                "count": count,
+                "count": correct_result_for_sampling(count, filter.sampling_factor),
                 "people": [],
                 "people_url": self._construct_people_url_for_trend_breakdown_interval(
                     filter=filter, breakdown_values=breakdown_values, selected_interval=intervals_from_base
@@ -141,18 +144,16 @@ def build_returning_event_query(
     aggregate_users_by_distinct_id: Optional[bool] = None,
     using_person_on_events: bool = False,
     retention_events_query=RetentionEventsQuery,
-):
+) -> Tuple[str, Dict[str, Any]]:
     returning_event_query_templated, returning_event_params = retention_events_query(
-        filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
+        filter=filter.shallow_clone({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
         team=team,
         event_query_type=RetentionQueryType.RETURNING,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
         using_person_on_events=using_person_on_events,
     ).get_query()
 
-    query = substitute_params(returning_event_query_templated, returning_event_params)
-
-    return query
+    return returning_event_query_templated, returning_event_params
 
 
 def build_target_event_query(
@@ -161,7 +162,7 @@ def build_target_event_query(
     aggregate_users_by_distinct_id: Optional[bool] = None,
     using_person_on_events: bool = False,
     retention_events_query=RetentionEventsQuery,
-):
+) -> Tuple[str, Dict[str, Any]]:
     target_event_query_templated, target_event_params = retention_events_query(
         filter=filter,
         team=team,
@@ -174,6 +175,4 @@ def build_target_event_query(
         using_person_on_events=using_person_on_events,
     ).get_query()
 
-    query = substitute_params(target_event_query_templated, target_event_params)
-
-    return query
+    return target_event_query_templated, target_event_params

@@ -1,19 +1,20 @@
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useActions, useValues } from 'kea'
 import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
 import { urls } from 'scenes/urls'
 import './AddToDashboard.scss'
-import { IconCottage } from 'lib/components/icons'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { IconCottage } from 'lib/lemon-ui/icons'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { LemonButton } from 'lib/components/LemonButton'
-import { Link } from 'lib/components/Link'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
 import { DashboardType, InsightModel } from '~/types'
 import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonModal } from '../LemonModal'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { CSSProperties } from 'react'
 
 interface SaveToDashboardModalProps {
     isOpen: boolean
@@ -28,7 +29,7 @@ interface DashboardRelationRowProps {
     canEditInsight: boolean
     isHighlighted: boolean
     isAlreadyOnDashboard: boolean
-    style: React.CSSProperties
+    style: CSSProperties
 }
 
 const DashboardRelationRow = ({
@@ -51,6 +52,7 @@ const DashboardRelationRow = ({
     return (
         <div
             data-attr="dashboard-list-item"
+            /* eslint-disable-next-line react/forbid-dom-props */
             style={style}
             className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}
         >
@@ -64,7 +66,13 @@ const DashboardRelationRow = ({
             <LemonButton
                 type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
                 loading={dashboardWithActiveAPICall === dashboard.id}
-                disabled={!!dashboardWithActiveAPICall || !canEditInsight}
+                disabledReason={
+                    !canEditInsight
+                        ? "You don't have permission to edit this dashboard"
+                        : !!dashboardWithActiveAPICall
+                        ? 'Loading...'
+                        : ''
+                }
                 size="small"
                 onClick={(e) => {
                     e.preventDefault()
@@ -117,7 +125,15 @@ export function AddToDashboardModal({
             footer={
                 <>
                     <div className="flex-1">
-                        <LemonButton type="secondary" onClick={addNewDashboard} disabled={!canEditInsight}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={addNewDashboard}
+                            disabledReason={
+                                !canEditInsight
+                                    ? 'You do not have permission to add this Insight to dashboards'
+                                    : undefined
+                            }
+                        >
                             Add to a new dashboard
                         </LemonButton>
                     </div>
@@ -137,9 +153,11 @@ export function AddToDashboardModal({
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
                 <div className="text-muted-alt">
-                    This insight is referenced on <strong className="text-default">{insight.dashboards?.length}</strong>{' '}
-                    {pluralize(insight.dashboards?.length || 0, 'dashboard', 'dashboards', false)}
+                    This insight is referenced on{' '}
+                    <strong className="text-default">{insight.dashboard_tiles?.length}</strong>{' '}
+                    {pluralize(insight.dashboard_tiles?.length || 0, 'dashboard', 'dashboards', false)}
                 </div>
+                {/* eslint-disable-next-line react/forbid-dom-props */}
                 <div style={{ minHeight: 420 }}>
                     <AutoSizer>
                         {({ height, width }) => (

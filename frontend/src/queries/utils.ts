@@ -1,27 +1,34 @@
 import {
-    EventsNode,
     ActionsNode,
     DataTableNode,
-    LegacyQuery,
+    DateRange,
+    EventsNode,
+    EventsQuery,
+    HogQLQuery,
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,
     PathsQuery,
     StickinessQuery,
     LifecycleQuery,
-    UnimplementedQuery,
+    InsightFilter,
+    InsightFilterProperty,
+    InsightQueryNode,
+    InsightVizNode,
+    LegacyQuery,
     Node,
     NodeKind,
-    InsightQueryNode,
     PersonsNode,
-    InsightVizNode,
-    EventsQuery,
-    TimeToSeeDataSessionsQuery,
+    RecentPerformancePageViewNode,
+    TimeToSeeDataNode,
     TimeToSeeDataQuery,
+    TimeToSeeDataSessionsQuery,
+    InsightNodeKind,
 } from '~/queries/schema'
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
 export function isDataNode(node?: Node): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
-    return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node)
+    return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node) || isHogQLQuery(node)
 }
 
 export function isEventsNode(node?: Node): node is EventsNode {
@@ -52,6 +59,10 @@ export function isLegacyQuery(node?: Node): node is LegacyQuery {
     return node?.kind === NodeKind.LegacyQuery
 }
 
+export function isHogQLQuery(node?: Node): node is HogQLQuery {
+    return node?.kind === NodeKind.HogQLQuery
+}
+
 /*
  * Insight Queries
  */
@@ -80,16 +91,18 @@ export function isLifecycleQuery(node?: Node): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
 }
 
-export function isTimeToSeeDataSessionsQuery(node?: Node): node is TimeToSeeDataSessionsQuery {
-    return node?.kind === NodeKind.TimeToSeeDataSessionsQuery
+export function isInsightQueryWithDisplay(node?: Node): node is TrendsQuery | StickinessQuery {
+    return isTrendsQuery(node) || isStickinessQuery(node)
 }
 
-export function isTimeToSeeDataQuery(node?: Node): node is TimeToSeeDataQuery {
-    return node?.kind === NodeKind.TimeToSeeDataQuery
+export function isInsightQueryWithBreakdown(node?: Node): node is TrendsQuery | FunnelsQuery {
+    return isTrendsQuery(node) || isFunnelsQuery(node)
 }
 
-export function isUnimplementedQuery(node?: Node): node is UnimplementedQuery {
-    return node?.kind === NodeKind.UnimplementedQuery
+export function isInsightQueryWithSeries(
+    node?: Node
+): node is TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery {
+    return isTrendsQuery(node) || isFunnelsQuery(node) || isStickinessQuery(node) || isLifecycleQuery(node)
 }
 
 export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
@@ -99,7 +112,118 @@ export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node) ||
-        isUnimplementedQuery(node)
+        isLifecycleQuery(node)
+    )
+}
+
+export function isTimeToSeeDataSessionsQuery(node?: Node): node is TimeToSeeDataSessionsQuery {
+    return node?.kind === NodeKind.TimeToSeeDataSessionsQuery
+}
+
+export function isTimeToSeeDataQuery(node?: Node): node is TimeToSeeDataQuery {
+    return node?.kind === NodeKind.TimeToSeeDataQuery
+}
+
+export function isTimeToSeeDataSessionsNode(node?: Node): node is TimeToSeeDataNode {
+    return (
+        !!node?.kind &&
+        [NodeKind.TimeToSeeDataSessionsWaterfallNode, NodeKind.TimeToSeeDataSessionsJSONNode].includes(node?.kind)
+    )
+}
+
+export function isRecentPerformancePageViewNode(node?: Node): node is RecentPerformancePageViewNode {
+    return node?.kind === NodeKind.RecentPerformancePageViewNode
+}
+
+export function dateRangeFor(node?: Node): DateRange | undefined {
+    if (isInsightQueryNode(node)) {
+        return node.dateRange
+    } else if (isTimeToSeeDataQuery(node)) {
+        return {
+            date_from: node.sessionStart,
+            date_to: node.sessionEnd,
+        }
+    } else if (isRecentPerformancePageViewNode(node)) {
+        return undefined // convert from number of days to date range
+    } else if (isTimeToSeeDataSessionsQuery(node)) {
+        return node.dateRange
+    } else if (isLegacyQuery(node)) {
+        return {
+            date_from: node.filters?.date_from,
+            date_to: node.filters?.date_to,
+        }
+    } else if (isActionsNode(node)) {
+        return undefined
+    } else if (isEventsNode(node)) {
+        return undefined
+    } else if (isPersonsNode(node)) {
+        return undefined
+    } else if (isDataTableNode(node)) {
+        return undefined
+    } else if (isInsightVizNode(node)) {
+        return node.source.dateRange
+    }
+
+    return undefined
+}
+
+const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProperty> = {
+    [NodeKind.TrendsQuery]: 'trendsFilter',
+    [NodeKind.FunnelsQuery]: 'funnelsFilter',
+    [NodeKind.RetentionQuery]: 'retentionFilter',
+    [NodeKind.PathsQuery]: 'pathsFilter',
+    [NodeKind.StickinessQuery]: 'stickinessFilter',
+    [NodeKind.LifecycleQuery]: 'lifecycleFilter',
+}
+
+export function filterPropertyForQuery(node: InsightQueryNode): InsightFilterProperty {
+    return nodeKindToFilterProperty[node.kind]
+}
+
+export function filterForQuery(node: InsightQueryNode): InsightFilter | undefined {
+    const filterProperty = nodeKindToFilterProperty[node.kind]
+    return node[filterProperty]
+}
+
+export function taxonomicFilterToHogQl(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.EventProperties) {
+        return `properties.${value}`
+    }
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
+        return `person.properties.${value}`
+    }
+    if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
+        return `properties.${value}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    return null
+}
+
+export function hogQlToTaxonomicFilter(hogQl: string): [TaxonomicFilterGroupType, TaxonomicFilterValue] {
+    if (hogQl.startsWith('person.properties.')) {
+        return [TaxonomicFilterGroupType.PersonProperties, hogQl.substring(18)]
+    }
+    if (hogQl.startsWith('properties.$feature/')) {
+        return [TaxonomicFilterGroupType.EventFeatureFlags, hogQl.substring(11)]
+    }
+    if (hogQl.startsWith('properties.')) {
+        return [TaxonomicFilterGroupType.EventProperties, hogQl.substring(11)]
+    }
+    return [TaxonomicFilterGroupType.HogQLExpression, hogQl]
+}
+
+export function isHogQlAggregation(hogQl: string): boolean {
+    return (
+        hogQl.includes('count(') ||
+        hogQl.includes('any(') ||
+        hogQl.includes('sum(') ||
+        hogQl.includes('avg(') ||
+        hogQl.includes('min(') ||
+        hogQl.includes('max(')
     )
 }

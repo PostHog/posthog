@@ -6,13 +6,7 @@ from infi.clickhouse_orm import Database
 from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
 
-from posthog.settings import (
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_HTTP_URL,
-    CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_REPLICATION,
-    CLICKHOUSE_USER,
-)
+from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
@@ -77,7 +71,7 @@ class Command(BaseCommand):
                 )
             print("Migrations done")
         else:
-            database.migrate(MIGRATIONS_PACKAGE_NAME, options["upto"], replicated=CLICKHOUSE_REPLICATION)
+            database.migrate(MIGRATIONS_PACKAGE_NAME, options["upto"], replicated=True)
             print("✅ Migration successful")
 
     def get_migrations(self, database, upto):
@@ -92,4 +86,4 @@ class Command(BaseCommand):
                 break
 
     def get_applied_migrations(self, database):
-        return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=CLICKHOUSE_REPLICATION)
+        return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)

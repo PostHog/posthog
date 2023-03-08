@@ -4,7 +4,7 @@ import { useActions, useValues, BindLogic } from 'kea'
 import './MergeSplitPerson.scss'
 import { mergeSplitPersonLogic } from './mergeSplitPersonLogic'
 import { pluralize } from 'lib/utils'
-import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 
 export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Element {
     const logicProps = { person }
@@ -65,13 +65,11 @@ function SplitPerson(): JSX.Element | null {
                     </Select.Option>
                 ))}
             </Select>
-            <InlineMessage style={{ marginTop: 16 }} type="danger">
-                <div>
-                    This will create <strong>{person.distinct_ids.length - 1}</strong> new{' '}
-                    {pluralize(person.distinct_ids.length, 'person', undefined, false)}. This might change the numbers
-                    in your charts, even historically. Please be certain.
-                </div>
-            </InlineMessage>
+            <AlertMessage type="warning" className="mt-4">
+                This will create <strong>{person.distinct_ids.length - 1}</strong>{' '}
+                {pluralize(person.distinct_ids.length - 1, 'new person', undefined, false)}. This might change the
+                numbers in your charts, even historically. Please be certain.
+            </AlertMessage>
         </>
     )
 }

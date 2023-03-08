@@ -1,5 +1,4 @@
 import { kea, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -15,10 +14,15 @@ import { Navigation } from '~/layout/navigation/Navigation'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { ToastCloseButton } from 'lib/components/lemonToast'
+import { ToastCloseButton } from 'lib/lemon-ui/lemonToast'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonModal } from '@posthog/lemon-ui'
+import { Setup2FA } from './authentication/Setup2FA'
+import { membersLogic } from './organization/Settings/membersLogic'
+import { Prompt } from 'lib/logic/newPrompt/Prompt'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -113,6 +117,7 @@ function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
         (activeScene ? loadedScenes[activeScene]?.component : null) ||
@@ -143,10 +148,10 @@ function AppScene(): JSX.Element | null {
 
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
-            <Layout style={{ minHeight: '100vh' }}>
+            <>
                 {protectedBoundActiveScene}
                 {toastContainer}
-            </Layout>
+            </>
         ) : null
     }
 
@@ -155,6 +160,25 @@ function AppScene(): JSX.Element | null {
             <Navigation>{protectedBoundActiveScene}</Navigation>
             {toastContainer}
             <UpgradeModal />
+            {user.organization?.enforce_2fa && !user.is_2fa_enabled && (
+                <LemonModal title="Set up 2FA" closable={false}>
+                    <p>
+                        <b>Your organization requires you to set up 2FA.</b>
+                    </p>
+                    <p>
+                        <b>
+                            Use an authenticator app like Google Authenticator or 1Password to scan the QR code below.
+                        </b>
+                    </p>
+                    <Setup2FA
+                        onSuccess={() => {
+                            userLogic.actions.loadUser()
+                            membersLogic.actions.loadMembers()
+                        }}
+                    />
+                </LemonModal>
+            )}
+            {featureFlags[FEATURE_FLAGS.ENABLE_PROMPTS] && <Prompt />}
         </>
     )
 }

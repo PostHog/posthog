@@ -8,7 +8,7 @@ describe('PropertyNamesSelect', () => {
         initKeaTests()
     })
 
-    test('Can load, deselect property, hide popup and receive selection via onChange', async () => {
+    test('Can load, deselect property, hide popover and receive selection via onChange', async () => {
         const properties = ['Property A', 'Property B', 'Property C']
         const onChange = jest.fn()
         const { findByRole } = render(<PropertyNamesSelect onChange={onChange} allProperties={properties} />)

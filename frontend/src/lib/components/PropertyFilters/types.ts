@@ -1,4 +1,4 @@
-import { PropertyGroupFilter, AnyPropertyFilter, FilterLogicalOperator, PropertyFilter } from '~/types'
+import { PropertyGroupFilter, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -13,7 +13,7 @@ export interface PropertyFilterBaseProps {
 
 export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
     propertyFilters?: AnyPropertyFilter[] | null
-    onChange: (filters: PropertyFilter[]) => void
+    onChange: (filters: AnyPropertyFilter[]) => void
     sendAllKeyUpdates?: boolean
 }
 

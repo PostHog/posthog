@@ -7,16 +7,14 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import posthog from 'posthog-js'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { lemonToast } from 'lib/components/lemonToast'
-import { router } from 'kea-router'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { windowValues } from 'kea-window-values'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic as billingLogicV2 } from './v2/control/billingLogic'
+import { billingV2Logic } from './v2/billingV2Logic'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -25,7 +23,6 @@ export enum BillingAlertType {
     SetupBilling = 'setup_billing',
     UsageNearLimit = 'usage_near_limit',
     UsageLimitExceeded = 'usage_limit_exceeded',
-    FreeUsageNearLimit = 'free_usage_near_limit',
 }
 
 export const billingLogic = kea<billingLogicType>([
@@ -37,7 +34,7 @@ export const billingLogic = kea<billingLogicType>([
         referer: (referer: string) => ({ referer }),
     }),
     connect({
-        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], billingLogicV2, ['billingVersion']],
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], billingV2Logic, ['billingVersion']],
         actions: [eventUsageLogic, ['reportIngestionBillingCancelled']],
     }),
     reducers({
@@ -189,11 +186,6 @@ export const billingLogic = kea<billingLogicType>([
                 ) {
                     return BillingAlertType.UsageNearLimit
                 }
-
-                // Priority 4: Users on free account that are almost reaching free events threshold
-                if (!billing?.is_billing_active && billing?.current_usage && percentage > ALLOCATION_THRESHOLD_ALERT) {
-                    return BillingAlertType.FreeUsageNearLimit
-                }
             },
         ],
     }),
@@ -228,18 +220,6 @@ export const billingLogic = kea<billingLogicType>([
         loadBillingSuccess: () => {
             if (!values.billing) {
                 return
-            }
-
-            if (
-                values.billingVersion === 'v1' &&
-                values.billing.event_allocation &&
-                (values.billing.current_usage || 0) > values.billing.event_allocation &&
-                values.billing.should_setup_billing &&
-                router.values.location.pathname !== '/organization/billing/locked' &&
-                values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
-            ) {
-                posthog.capture('billing locked screen shown')
-                router.actions.replace(urls.billingLocked())
             }
         },
     })),

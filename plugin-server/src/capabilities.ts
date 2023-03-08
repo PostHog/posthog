@@ -8,16 +8,46 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
     switch (mode) {
         case null:
             return {
+                mmdb: true,
                 ingestion: true,
+                ingestionOverflow: true,
                 pluginScheduledTasks: true,
                 processPluginJobs: true,
                 processAsyncHandlers: true,
+                sessionRecordingIngestion: true,
                 ...sharedCapabilities,
             }
         case 'ingestion':
-            return { ingestion: true, ...sharedCapabilities }
+            // NOTE: this mode will be removed in the future and replaced with
+            // `analytics-ingestion` and `recordings-ingestion` modes.
+            return {
+                mmdb: true,
+                ingestion: true,
+                sessionRecordingIngestion: true,
+                ...sharedCapabilities,
+            }
+        case 'ingestion-overflow':
+            return {
+                mmdb: true,
+                ingestionOverflow: true,
+                ...sharedCapabilities,
+            }
+        case 'analytics-ingestion':
+            return {
+                mmdb: true,
+                ingestion: true,
+                ...sharedCapabilities,
+            }
+        case 'recordings-ingestion':
+            return {
+                mmdb: false,
+                sessionRecordingIngestion: true,
+                ...sharedCapabilities,
+            }
+
         case 'async':
             return {
+                mmdb: true,
                 processPluginJobs: true,
                 processAsyncHandlers: true,
                 pluginScheduledTasks: true,
@@ -25,17 +55,20 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             }
         case 'exports':
             return {
+                mmdb: true,
                 processAsyncHandlers: true,
                 ...sharedCapabilities,
             }
         case 'jobs': {
             return {
+                mmdb: true,
                 processPluginJobs: true,
                 ...sharedCapabilities,
             }
         }
         case 'scheduler':
             return {
+                mmdb: true,
                 pluginScheduledTasks: true,
                 ...sharedCapabilities,
             }

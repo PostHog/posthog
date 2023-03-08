@@ -11,17 +11,17 @@ import {
     AsyncMigrationsTab,
     AsyncMigrationStatus,
 } from './asyncMigrationsLogic'
-import { Tooltip } from 'lib/components/Tooltip'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
 import { SettingUpdateField } from './SettingUpdateField'
-import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { AsyncMigrationDetails } from './AsyncMigrationDetails'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { More } from 'lib/components/LemonButton/More'
-import { LemonButton } from 'lib/components/LemonButton'
-import { LemonTag, LemonTagPropsType } from 'lib/components/LemonTag/LemonTag'
-import { IconRefresh, IconReplay } from 'lib/components/icons'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTag, LemonTagPropsType } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
 import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
 
 const { TabPane } = Tabs

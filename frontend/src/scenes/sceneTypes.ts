@@ -15,8 +15,8 @@ export enum Scene {
     DataManagement = 'DataManagement',
     EventDefinitions = 'EventDefinitionsTable',
     EventDefinition = 'EventDefinition',
-    EventPropertyDefinitions = 'EventPropertyDefinitionsTable',
-    EventPropertyDefinition = 'EventPropertyDefinition',
+    PropertyDefinitions = 'PropertyDefinitionsTable',
+    PropertyDefinition = 'PropertyDefinition',
     IngestionWarnings = 'IngestionWarnings',
     SessionRecordings = 'SessionsRecordings',
     SessionRecording = 'SessionRecording',
@@ -44,7 +44,6 @@ export enum Scene {
     Annotations = 'Annotations',
     Billing = 'Billing',
     BillingSubscribed = 'BillingSubscribed',
-    BillingLocked = 'BillingLocked',
     Plugins = 'Plugins',
     FrontendAppScene = 'FrontendAppScene',
     AppMetrics = 'AppMetrics',
@@ -54,6 +53,7 @@ export enum Scene {
     IntegrationsRedirect = 'IntegrationsRedirect',
     // Authentication, onboarding & initialization routes
     Login = 'Login',
+    Login2FA = 'Login2FA',
     Signup = 'Signup',
     InviteSignup = 'InviteSignup',
     PasswordReset = 'PasswordReset',
@@ -63,6 +63,7 @@ export enum Scene {
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
     Query = 'Query',
+    VerifyEmail = 'VerifyEmail',
 }
 
 export type SceneProps = Record<string, any>

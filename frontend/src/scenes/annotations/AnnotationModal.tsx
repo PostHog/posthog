@@ -5,7 +5,7 @@ import { Field } from 'lib/forms/Field'
 import { DatePicker } from 'lib/components/DatePicker'
 import { annotationScopeToName, annotationModalLogic, ANNOTATION_DAYJS_FORMAT } from './annotationModalLogic'
 import { AnnotationScope } from '~/types'
-import { IconWarning } from 'lib/components/icons'
+import { IconWarning } from 'lib/lemon-ui/icons'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 

@@ -2,8 +2,8 @@ import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { combineUrl, router } from 'kea-router'
-import { lemonToast } from 'lib/components/lemonToast'
-import { AnyPropertyFilter, EventType, PropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { AnyPropertyFilter, EventType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
@@ -45,7 +45,7 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
     properties: {},
 })
 
-const makePropertyFilter = (value: string = randomString()): PropertyFilter => ({
+const makePropertyFilter = (value: string = randomString()): AnyPropertyFilter => ({
     key: value,
     operator: PropertyOperator.Exact,
     type: PropertyFilterType.Person,
@@ -426,7 +426,7 @@ describe('eventsTableLogic', () => {
                         },
                     })
 
-                    const eventName = randomString()
+                    const eventName = `random-event-name-${randomString()}`
                     await expectLogic(logic, () => {
                         logic.actions.setEventFilter(eventName)
                     }).toDispatchActions(['fetchEventsSuccess'])
@@ -725,7 +725,7 @@ describe('eventsTableLogic', () => {
             })
 
             it('writes event filter to the URL', async () => {
-                const eventFilter = randomString()
+                const eventFilter = `random-filter-string-${randomString()}`
                 await expectLogic(logic, () => {
                     logic.actions.setEventFilter(eventFilter)
                 })

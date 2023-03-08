@@ -1,8 +1,8 @@
 import { systemStatusLogic } from './systemStatusLogic'
 import { useValues } from 'kea'
 import { SystemStatusRow, SystemStatusSubrows } from '~/types'
-import { IconOpenInNew } from 'lib/components/icons'
-import { Link } from 'lib/components/Link'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { RenderMetricValue } from './RenderMetricValue'
 import { LemonTable } from '@posthog/lemon-ui'
 

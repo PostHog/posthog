@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Sequence, Set, Tuple
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.hogql.hogql import HogQLContext
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.utils import PersonPropertiesMode
@@ -9,6 +10,7 @@ from posthog.models.utils import PersonPropertiesMode
 def get_entity_filtering_params(
     allowed_entities: Sequence[Entity],
     team_id: int,
+    hogql_context: HogQLContext,
     table_name: str = "",
     *,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
@@ -36,6 +38,7 @@ def get_entity_filtering_params(
                 table_name=table_name,
                 person_properties_mode=person_properties_mode,
                 person_id_joined_alias=person_id_joined_alias,
+                hogql_context=hogql_context,
             )
             params.update(action_params)
             entity_clauses.append(action_query)

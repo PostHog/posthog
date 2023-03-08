@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { Field } from 'lib/forms/Field'
-import { LemonButton } from 'lib/components/LemonButton'
-import { LemonModal } from 'lib/components/LemonModal'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Form } from 'kea-forms'
-import { LemonCheckbox } from 'lib/components/LemonCheckbox'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
 export function DuplicateDashboardModal(): JSX.Element {

@@ -1,7 +1,15 @@
-import { AnyPartialFilterType, DashboardType, FilterType, InsightShortId, SessionRecordingsTabs } from '~/types'
+import {
+    AnyPartialFilterType,
+    DashboardType,
+    FilterType,
+    InsightShortId,
+    PerformancePageView,
+    SessionRecordingsTabs,
+} from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
 import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
+import { PluginTab } from './plugins/types'
 
 /**
  * To add a new URL to the front end:
@@ -31,8 +39,8 @@ export const urls = {
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
-    eventPropertyDefinitions: (): string => '/data-management/event-properties',
-    eventPropertyDefinition: (id: string | number): string => `/data-management/event-properties/${id}`,
+    propertyDefinitions: (): string => '/data-management/properties',
+    propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
     events: (): string => '/events',
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null): string =>
@@ -43,9 +51,16 @@ export const urls = {
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
-    savedInsights: (): string => '/insights',
+    savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     webPerformance: (): string => '/web-performance',
-    webPerformanceWaterfall: (id: string): string => `/web-performance/${id}/waterfall`,
+    webPerformanceWaterfall: (pageview?: PerformancePageView): string => {
+        // KLUDGE: only allow no pageview param for urlToAction in the logic
+        const queryParams = !!pageview
+            ? `?sessionId=${pageview.session_id}&pageviewId=${pageview.pageview_id}&timestamp=${pageview.timestamp}`
+            : ''
+        return `/web-performance/waterfall${queryParams}`
+    },
+
     sessionRecordings: (tab?: SessionRecordingsTabs, filters?: Partial<FilterType>): string =>
         combineUrl(tab ? `/recordings/${tab}` : '/recordings/recent', filters ? { filters } : {}).url,
     sessionRecordingPlaylist: (id: string, filters?: Partial<FilterType>): string =>
@@ -63,10 +78,10 @@ export const urls = {
     cohorts: (): string => '/cohorts',
     experiment: (id: string | number): string => `/experiments/${id}`,
     experiments: (): string => '/experiments',
-    featureFlags: (): string => '/feature_flags',
+    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     annotations: (): string => '/annotations',
-    projectApps: (): string => '/project/apps',
+    projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,
     projectAppLogs: (id: string | number): string => `/project/apps/${id}/logs`,
     projectAppSource: (id: string | number): string => `/project/apps/${id}/source`,
@@ -86,16 +101,19 @@ export const urls = {
     toolbarLaunch: (): string => '/toolbar',
     // Onboarding / setup routes
     login: (): string => '/login',
+    login2FA: (): string => '/login/2fa',
+    login2FASetup: (): string => '/login/2fa_setup',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
     signup: (): string => '/signup',
+    verifyEmail: (userUuid: string = '', token: string = ''): string =>
+        `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     ingestion: (): string => '/ingestion',
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     billingSubscribed: (): string => '/organization/billing/subscribed',
-    billingLocked: (): string => '/organization/billing/locked',
     // Self-hosted only
     instanceLicenses: (): string => '/instance/licenses',
     instanceStatus: (): string => '/instance/status',

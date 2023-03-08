@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 
 export function InsightSaveButton({
     saveAs,
@@ -26,7 +26,7 @@ export function InsightSaveButton({
             disabled={disabled}
             loading={!disabled && insightSaving}
             sideAction={{
-                popup: {
+                dropdown: {
                     placement: 'bottom-end',
                     overlay: (
                         <>

@@ -50,7 +50,7 @@
         {
             "id": 1526,
             "name": "",
-            "key": "london-banner",
+            "key": "croatia-banner",
             "filters": {
                 "groups": [
                     {
@@ -58,7 +58,7 @@
                             {
                                 "key": "$geoip_country_name",
                                 "type": "person",
-                                "value": ["United Kingdom"],
+                                "value": ["Croatia"],
                                 "operator": "exact"
                             }
                         ],

@@ -1,7 +1,7 @@
 import { getCurrentHub, ErrorBoundary as SentryErrorBoundary } from '@sentry/react'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import { IconArrowDropDown } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { IconArrowDropDown } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './ErrorBoundary.scss'
 
 export function ErrorBoundary({ children }: { children: React.ReactElement }): JSX.Element {

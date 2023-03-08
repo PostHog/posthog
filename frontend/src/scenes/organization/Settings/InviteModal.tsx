@@ -3,15 +3,15 @@ import './InviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from './inviteLogic'
-import { IconDelete, IconOpenInNew, IconPlus } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { IconDelete, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { LemonTextArea, LemonInput } from '@posthog/lemon-ui'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { OrganizationInviteType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { LemonModal } from 'lib/components/LemonModal'
-import { LemonDialog } from 'lib/components/LemonDialog'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -122,6 +122,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                     resetInviteRows()
                     onClose()
                 }}
+                width={800}
                 title={<>Invite others to {user?.organization?.name || 'PostHog'}</>}
                 description={
                     preflight?.email_service_available ? (

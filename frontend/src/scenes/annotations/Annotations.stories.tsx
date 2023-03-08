@@ -8,12 +8,20 @@ import annotations from './__mocks__/annotations.json'
 
 export default {
     title: 'Scenes-App/Annotations',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        testOptions: {
+            excludeNavigationFromSnapshot: true,
+        },
+        viewMode: 'story',
+        mockDate: '2023-01-28', // To stabilize relative dates
+    },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId/annotations': annotations,
-                '/api/projects/:projectId/annotations/:annotationId/': (req) => [
+                '/api/projects/:team_id/annotations/': annotations,
+                '/api/projects/:team_id/annotations/:annotationId/': (req) => [
                     200,
                     annotations.results.find((r) => r.id === Number(req.params['annotationId'])),
                 ],

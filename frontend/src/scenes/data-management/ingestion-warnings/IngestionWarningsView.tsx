@@ -4,9 +4,9 @@ import { urls } from 'scenes/urls'
 import { PageHeader } from 'lib/components/PageHeader'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
-import { LemonTable } from 'lib/components/LemonTable'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { WarningEventsGraph } from './WarningEventsGraph'
 
 export const scene: SceneExport = {
@@ -19,6 +19,8 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
+    event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
+    ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -73,6 +75,39 @@ const WARNING_TYPE_RENDERER = {
             </>
         )
     },
+    event_timestamp_in_future: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            timestamp: string
+            sentAt: string
+            offset: string
+            now: string
+            result: string
+        }
+        return (
+            <>
+                The event timestamp computed too far in the future, so the capture time was used instead. Event values:
+                <ul>
+                    <li>Computed timestamp: {details.result}</li>
+                    {details.timestamp ? <li>Client provided timestamp: {details.timestamp}</li> : ''}
+                    {details.sentAt ? <li>Client provided sent_at: {details.sentAt}</li> : ''}
+                    {details.offset ? <li>Client provided time offset: {details.offset}</li> : ''}
+                    <li>PostHog server capture time: {details.now}</li>
+                </ul>
+            </>
+        )
+    },
+    ingestion_capacity_overflow: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            overflowDistinctId: string
+        }
+        return (
+            <>
+                Event ingestion has overflowed capacity for distinct_id{' '}
+                <Link to={urls.person(details.overflowDistinctId)}>{details.overflowDistinctId}</Link>. Events will
+                still be processed, but are likely to be delayed longer than usual.
+            </>
+        )
+    },
 }
 
 export function IngestionWarningsView(): JSX.Element {
@@ -104,6 +139,7 @@ export function IngestionWarningsView(): JSX.Element {
                                     <Link
                                         to={`https://posthog.com/manual/data-management#${type
                                             .toLowerCase()
+                                            .replace(',', '')
                                             .split(' ')
                                             .join('-')}`}
                                     >

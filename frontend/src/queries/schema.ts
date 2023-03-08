@@ -10,6 +10,7 @@ import {
     BaseMathType,
     PropertyMathType,
     CountPerActorMathType,
+    GroupMathType,
     FilterType,
     TrendsFilterType,
     FunnelsFilterType,
@@ -20,12 +21,26 @@ import {
     LifecycleToggle,
 } from '~/types'
 
+/**
+ * PostHog Query Schema definition.
+ *
+ * This file acts as the source of truth for:
+ *
+ * - frontend/src/queries/schema.json
+ *   - generated from typescript via "pnpm run generate:schema:json"
+ *
+ * - posthog/schema.py
+ *   - generated from json the above json via "pnpm run generate:schema:python"
+ * */
+
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
-    EventsQuery = 'EventsQuery',
     ActionsNode = 'ActionsNode',
+    NewEntityNode = 'NewEntityNode',
+    EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
+    HogQLQuery = 'HogQLQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -43,17 +58,18 @@ export enum NodeKind {
     // Time to see data
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
     TimeToSeeDataQuery = 'TimeToSeeDataQuery',
+    TimeToSeeDataSessionsJSONNode = 'TimeToSeeDataSessionsJSONNode',
+    TimeToSeeDataSessionsWaterfallNode = 'TimeToSeeDataSessionsWaterfallNode',
 
-    /** Used for insights that haven't been converted to the new query format yet */
-    UnimplementedQuery = 'UnimplementedQuery',
+    /** Performance */
+    RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
 }
+
+export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
-    | EventsNode
-    | EventsQuery
-    | ActionsNode
-    | PersonsNode
+    | AnyDataNode
 
     // Interface nodes
     | DataTableNode
@@ -67,6 +83,9 @@ export type QuerySchema =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+
+    // Performance
+    | RecentPerformancePageViewNode
 
     // Misc
     | TimeToSeeDataSessionsQuery
@@ -83,10 +102,24 @@ export interface DataNode extends Node {
     response?: Record<string, any>
 }
 
+export interface HogQLQueryResponse {
+    query?: string
+    hogql?: string
+    clickhouse?: string
+    results?: any[]
+    types?: any[]
+    columns?: any[]
+}
+
+export interface HogQLQuery extends DataNode {
+    kind: NodeKind.HogQLQuery
+    query: string
+    response?: HogQLQueryResponse
+}
 export interface EntityNode extends DataNode {
     name?: string
     custom_name?: string
-    math?: BaseMathType | PropertyMathType | CountPerActorMathType
+    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType
     math_property?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */
@@ -108,6 +141,23 @@ export interface EventsNode extends EntityNode {
     }
 }
 
+export interface ActionsNode extends EntityNode {
+    kind: NodeKind.ActionsNode
+    id: number
+}
+
+export interface NewEntityNode extends EntityNode {
+    kind: NodeKind.NewEntityNode
+    event?: string | null
+}
+
+export interface EventsQueryResponse {
+    columns: any[]
+    types: string[]
+    results: any[][]
+    hasMore?: boolean
+}
+
 export interface EventsQuery extends DataNode {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
@@ -120,9 +170,20 @@ export interface EventsQuery extends DataNode {
     fixedProperties?: AnyPropertyFilter[]
     /** Limit to events matching this string */
     event?: string
-    /** Number of rows to return */
+    /**
+     * Number of rows to return
+     * @asType integer
+     */
     limit?: number
-    /** Show events matching a given action */
+    /**
+     * Number of rows to skip before returning rows
+     * @asType integer
+     */
+    offset?: number
+    /**
+     * Show events matching a given action
+     * @asType integer
+     */
     actionId?: number
     /** Show events for a given person */
     personId?: string
@@ -133,17 +194,7 @@ export interface EventsQuery extends DataNode {
     /** Columns to order by */
     orderBy?: string[]
 
-    response?: {
-        columns: string[]
-        types: string[]
-        results: any[][]
-        hasMore?: boolean
-    }
-}
-
-export interface ActionsNode extends EntityNode {
-    kind: NodeKind.ActionsNode
-    id: number
+    response?: EventsQueryResponse
 }
 
 export interface PersonsNode extends DataNode {
@@ -161,10 +212,18 @@ export interface PersonsNode extends DataNode {
 
 // Data table node
 
+export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | EventsQuery | PersonsNode
+    source:
+        | EventsNode
+        | EventsQuery
+        | PersonsNode
+        | RecentPerformancePageViewNode
+        | HogQLQuery
+        | TimeToSeeDataSessionsQuery
+
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -177,8 +236,12 @@ export interface DataTableNode extends Node {
     showSearch?: boolean
     /** Include a property filter above the table */
     showPropertyFilter?: boolean
+    /** Include a HogQL query editor above HogQL tables */
+    showHogQLEditor?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean
+    /** Show date range selector */
+    showDateRange?: boolean
     /** Show the export button */
     showExport?: boolean
     /** Show a reload button */
@@ -187,6 +250,8 @@ export interface DataTableNode extends Node {
     showElapsedTime?: boolean
     /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean
+    /** Shows a list of saved queries */
+    showSavedQueries?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
     /** Link properties via the URL (default: false) */
@@ -207,15 +272,18 @@ export interface InsightVizNode extends Node {
 }
 
 // Base class should not be used directly
-interface InsightsQueryBase extends Node {
+export interface InsightsQueryBase extends Node {
     /** Date range for the query */
     dateRange?: DateRange
     /** Exclude internal and test users by applying the respective filters */
     filterTestAccounts?: boolean
     /** Property filters for all series */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    /** Groups aggregation */
+    aggregation_group_type_index?: number
 }
 
+export type TrendsFilter = Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 export interface TrendsQuery extends InsightsQueryBase {
     kind: NodeKind.TrendsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -223,11 +291,12 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Events and actions to include */
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the trends insight */
-    trendsFilter?: Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
     breakdown?: BreakdownFilter
 }
 
+export type FunnelsFilter = Omit<FunnelsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 export interface FunnelsQuery extends InsightsQueryBase {
     kind: NodeKind.FunnelsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -235,23 +304,26 @@ export interface FunnelsQuery extends InsightsQueryBase {
     /** Events and actions to include */
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the funnels insight */
-    funnelsFilter?: Omit<FunnelsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
     breakdown?: BreakdownFilter
 }
 
+export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 export interface RetentionQuery extends InsightsQueryBase {
     kind: NodeKind.RetentionQuery
     /** Properties specific to the retention insight */
-    retentionFilter?: Omit<RetentionFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    retentionFilter?: RetentionFilter
 }
 
+export type PathsFilter = Omit<PathsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
     /** Properties specific to the paths insight */
-    pathsFilter?: Omit<PathsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    pathsFilter?: PathsFilter
 }
 
+export type StickinessFilter = Omit<StickinessFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 export interface StickinessQuery extends InsightsQueryBase {
     kind: NodeKind.StickinessQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -259,8 +331,14 @@ export interface StickinessQuery extends InsightsQueryBase {
     /** Events and actions to include */
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the stickiness insight */
-    stickinessFilter?: Omit<StickinessFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    stickinessFilter?: StickinessFilter
 }
+
+export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
+    /** Lifecycles that have been removed from display are not included in this array */
+    toggledLifecycles?: LifecycleToggle[]
+} // using everything except what it inherits from FilterType
+
 export interface LifecycleQuery extends InsightsQueryBase {
     kind: NodeKind.LifecycleQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -268,13 +346,37 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Events and actions to include */
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the lifecycle insight */
-    lifecycleFilter?: Omit<LifecycleFilterType, keyof FilterType> & {
-        /** Lifecycles that have been removed from display */
-        toggledLifecycles?: LifecycleToggle[]
-    } // using everything except what it inherits from FilterType
+    lifecycleFilter?: LifecycleFilter
 }
-export interface UnimplementedQuery extends InsightsQueryBase {
-    kind: NodeKind.UnimplementedQuery
+
+export type InsightQueryNode =
+    | TrendsQuery
+    | FunnelsQuery
+    | RetentionQuery
+    | PathsQuery
+    | StickinessQuery
+    | LifecycleQuery
+export type InsightNodeKind = InsightQueryNode['kind']
+export type InsightFilterProperty =
+    | 'trendsFilter'
+    | 'funnelsFilter'
+    | 'retentionFilter'
+    | 'pathsFilter'
+    | 'stickinessFilter'
+    | 'lifecycleFilter'
+export type InsightFilter =
+    | TrendsFilter
+    | FunnelsFilter
+    | RetentionFilter
+    | PathsFilter
+    | StickinessFilter
+    | LifecycleFilter
+
+export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
+    if (!source) {
+        return undefined
+    }
+    return { date_from: source.date_from, date_to: source.date_to }
 }
 
 export interface TimeToSeeDataSessionsQuery extends DataNode {
@@ -285,6 +387,8 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
 
     /** Project to filter on. Defaults to current project */
     teamId?: number
+
+    response?: Record<string, any>[]
 }
 
 export interface TimeToSeeDataQuery extends DataNode {
@@ -301,16 +405,22 @@ export interface TimeToSeeDataQuery extends DataNode {
     sessionEnd?: string
 }
 
-export type InsightQueryNode =
-    | TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | PathsQuery
-    | StickinessQuery
-    | LifecycleQuery
-    | UnimplementedQuery
-export type InsightNodeKind = InsightQueryNode['kind']
-export type SupportedNodeKind = Exclude<InsightNodeKind, NodeKind.UnimplementedQuery>
+export interface TimeToSeeDataJSONNode {
+    kind: NodeKind.TimeToSeeDataSessionsJSONNode
+    source: TimeToSeeDataQuery
+}
+
+export interface TimeToSeeDataWaterfallNode {
+    kind: NodeKind.TimeToSeeDataSessionsWaterfallNode
+    source: TimeToSeeDataQuery
+}
+
+export type TimeToSeeDataNode = TimeToSeeDataJSONNode | TimeToSeeDataWaterfallNode
+
+export interface RecentPerformancePageViewNode extends DataNode {
+    kind: NodeKind.RecentPerformancePageViewNode
+    dateRange: DateRange
+}
 
 export type HogQLExpression = string
 
@@ -342,7 +452,9 @@ export interface BreakdownFilter {
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext {
     /** Column templates for the DataTable */
-    columns: Record<string, QueryContextColumn>
+    columns?: Record<string, QueryContextColumn>
+
+    readonly?: boolean
 }
 
 interface QueryContextColumn {

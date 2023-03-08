@@ -10,7 +10,6 @@ import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
-    LogLevel,
     Plugin,
     PluginConfigId,
     PluginsServerConfig,
@@ -48,21 +47,6 @@ export function bufferToStream(binary: Buffer): Readable {
     })
 
     return readableInstanceStream
-}
-
-export function setLogLevel(logLevel: LogLevel): void {
-    for (const loopLevel of ['debug', 'info', 'log', 'warn', 'error']) {
-        if (loopLevel === logLevel) {
-            break
-        }
-        const logFunction = (console as any)[loopLevel]
-        if (logFunction) {
-            const originalFunction = logFunction._original || logFunction
-            // eslint-disable-next-line @typescript-eslint/no-empty-function
-            ;(console as any)[loopLevel] = () => {}
-            ;(console as any)[loopLevel]._original = originalFunction
-        }
-    }
 }
 
 export function cloneObject<T>(obj: T): T {
@@ -378,7 +362,10 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
     return redis
 }
 
-export function pluginDigest(plugin: Plugin, teamId?: number): string {
+export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {
+    if (typeof plugin === 'number') {
+        return `plugin ID ${plugin} (unknown)`
+    }
     const extras = []
     if (teamId) {
         extras.push(`team ID ${teamId}`)

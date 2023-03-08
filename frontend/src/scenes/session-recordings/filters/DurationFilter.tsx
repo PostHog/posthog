@@ -1,7 +1,7 @@
 import { PropertyOperator, RecordingDurationFilter } from '~/types'
 import { Row, Space } from 'antd'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { durationFilterLogic } from './durationFilterLogic'
 import { useActions, useValues } from 'kea'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
@@ -18,7 +18,7 @@ export function DurationFilter({ initialFilter, onChange, pageKey }: Props): JSX
     const { setValue, setIsOpen, setOperator } = useActions(durationFilterLogicInstance)
     const { durationString, value, operator, isOpen } = useValues(durationFilterLogicInstance)
     return (
-        <Popup
+        <Popover
             visible={isOpen}
             placement={'bottom-end'}
             fallbackPlacements={['bottom-start']}
@@ -48,6 +48,6 @@ export function DurationFilter({ initialFilter, onChange, pageKey }: Props): JSX
             >
                 {durationString}
             </LemonButton>
-        </Popup>
+        </Popover>
     )
 }

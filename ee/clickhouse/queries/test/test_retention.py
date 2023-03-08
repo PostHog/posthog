@@ -8,8 +8,8 @@ from posthog.queries.test.test_retention import _create_events, _date, pluck
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 
 
@@ -109,7 +109,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
             [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
         )
 
-        actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+        actor_result, _ = Retention().actors_in_period(filter.shallow_clone({"selected_interval": 0}), self.team)
         self.assertCountEqual([actor["person"]["id"] for actor in actor_result], ["org:5", "org:6"])
 
         filter = RetentionFilter(
@@ -142,7 +142,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+        actor_result, _ = Retention().actors_in_period(filter.shallow_clone({"selected_interval": 0}), self.team)
 
         self.assertEqual(actor_result[0]["person"]["id"], "org:5")
         self.assertEqual(actor_result[0]["appearances"], [1, 1, 1, 1, 1, 0, 0])
@@ -150,7 +150,9 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(actor_result[1]["person"]["id"], "org:6")
         self.assertEqual(actor_result[1]["appearances"], [1, 1, 0, 1, 1, 0, 1])
 
-    @test_with_materialized_columns(group_properties=[(0, "industry")], materialize_only_with_person_on_events=True)
+    @also_test_with_materialized_columns(
+        group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
+    )
     @snapshot_clickhouse_queries
     def test_groups_filtering_person_on_events(self):
         self._create_groups_and_events()
@@ -202,7 +204,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
                 [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
             )
 
-    @test_with_materialized_columns(group_properties=[(0, "industry")])
+    @also_test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_groups_aggregating_person_on_events(self):
         self._create_groups_and_events()
@@ -225,7 +227,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
                 [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
             )
 
-            actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+            actor_result, _ = Retention().actors_in_period(filter.shallow_clone({"selected_interval": 0}), self.team)
 
             self.assertCountEqual([actor["person"]["id"] for actor in actor_result], ["org:5", "org:6"])
 
@@ -245,7 +247,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
                 [[1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [1, 0, 0, 1], [0, 0, 0], [0, 0], [1]],
             )
 
-    @test_with_materialized_columns(group_properties=[(0, "industry")])
+    @also_test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_groups_in_period_person_on_events(self):
         from posthog.models.team import util
@@ -264,7 +266,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+            actor_result, _ = Retention().actors_in_period(filter.shallow_clone({"selected_interval": 0}), self.team)
 
             self.assertTrue(actor_result[0]["person"]["id"] == "org:5")
             self.assertEqual(actor_result[0]["appearances"], [1, 1, 1, 1, 1, 0, 0])

@@ -1,5 +1,4 @@
 import { useValues, BindLogic, useActions } from 'kea'
-import '../../../scenes/actions/Actions.scss'
 import {
     PropertyGroupFilter,
     FilterLogicalOperator,
@@ -13,10 +12,10 @@ import './PropertyGroupFilters.scss'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { IconCopy, IconDelete, IconPlusMini } from '../icons'
-import { LemonButton } from '../LemonButton'
+import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
-import { LemonDivider } from '../LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import React from 'react'
 import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 
@@ -58,6 +57,7 @@ export function PropertyGroupFilters({
         <div className="space-y-2 property-group-filters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
+                    <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
                     {showHeader ? (
                         <>
                             <div className="flex items-center justify-between">
@@ -67,13 +67,13 @@ export function PropertyGroupFilters({
                                         value={propertyGroupFilter.type}
                                         onChange={(value) => setOuterPropertyGroupsType(value)}
                                         topLevelFilter={true}
+                                        suffix="groups"
                                     />
                                 )}
                             </div>
                             <LemonDivider className="my-4" />
                         </>
                     ) : null}
-                    <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
                     {propertyGroupFilter.values?.length ? (
                         <div>
                             {propertyGroupFilter.values?.map(

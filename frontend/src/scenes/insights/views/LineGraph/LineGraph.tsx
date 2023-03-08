@@ -16,6 +16,7 @@ import {
     TooltipOptions,
     ScriptableLineSegmentContext,
 } from 'chart.js'
+import ChartDataLabels from 'chartjs-plugin-datalabels'
 import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
@@ -242,6 +243,7 @@ export function LineGraph_({
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
+    const [isAwaitingFirstRender, setIsAwaitingFirstRender] = useState(true)
 
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
@@ -356,12 +358,37 @@ export function LineGraph_({
         const options: ChartOptions = {
             responsive: true,
             maintainAspectRatio: false,
+            animation: {
+                onComplete() {
+                    setIsAwaitingFirstRender(false)
+                },
+            },
             elements: {
                 line: {
                     tension: 0,
                 },
             },
             plugins: {
+                datalabels: {
+                    color: 'white',
+                    anchor: (context) => {
+                        const datum = context.dataset.data[context.dataIndex]
+                        return typeof datum !== 'number' ? 'end' : datum > 0 ? 'end' : 'start'
+                    },
+                    backgroundColor: (context) => {
+                        return (context.dataset.borderColor as string) || 'black'
+                    },
+                    display: (context) => {
+                        const datum = context.dataset.data[context.dataIndex]
+                        return filters?.show_values_on_series === true && typeof datum === 'number' && datum !== 0
+                            ? 'auto'
+                            : false
+                    },
+                    formatter: (value: number) => formatAggregationAxisValue(filters, value),
+                    borderWidth: 2,
+                    borderRadius: 4,
+                    borderColor: 'white',
+                },
                 legend: {
                     display: false,
                 },
@@ -576,6 +603,7 @@ export function LineGraph_({
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
             options,
+            plugins: [ChartDataLabels],
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()
@@ -586,7 +614,7 @@ export function LineGraph_({
             className={`w-full h-full overflow-hidden ${shouldAutoResize ? 'mx-6 mb-6' : 'LineGraph absolute'}`}
             data-attr={dataAttr}
         >
-            <canvas ref={canvasRef} />
+            <canvas ref={canvasRef} aria-busy={isAwaitingFirstRender} />
             {showAnnotations && myLineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
                     chart={myLineChart}

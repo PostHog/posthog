@@ -1,17 +1,18 @@
 GET_ELEMENTS = """
 SELECT
-    elements_chain, count(1) as count
+    elements_chain, count() as count, event as event_type
 FROM events
+SAMPLE %(sample_rows_count)s
 WHERE
     team_id = %(team_id)s AND
-    event = '$autocapture' AND
+    event in %(filter_event_types)s AND
     elements_chain != ''
     {date_from}
     {date_to}
     {query}
-GROUP BY elements_chain
+GROUP BY elements_chain, event
 ORDER BY count DESC
-LIMIT {limit};
+LIMIT {limit} OFFSET {offset};
 """
 
 GET_VALUES = """

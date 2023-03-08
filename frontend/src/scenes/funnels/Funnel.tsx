@@ -11,10 +11,9 @@ import { FunnelBarGraph } from './FunnelBarGraph'
 
 export function Funnel(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { filters, barGraphLayout } = useValues(funnelLogic(insightProps))
-    const { funnel_viz_type } = filters
+    const { filters } = useValues(funnelLogic(insightProps))
+    const { funnel_viz_type, layout } = filters
 
-    // Funnel Viz
     if (funnel_viz_type == FunnelVizType.Trends) {
         return <FunnelLineGraph {...props} />
     }
@@ -25,7 +24,11 @@ export function Funnel(props: ChartParams): JSX.Element {
 
     return (
         <BindLogic logic={funnelLogic} props={insightProps}>
-            {barGraphLayout === FunnelLayout.vertical ? <FunnelBarChart {...props} /> : <FunnelBarGraph {...props} />}
+            {(layout || FunnelLayout.vertical) === FunnelLayout.vertical ? (
+                <FunnelBarChart {...props} />
+            ) : (
+                <FunnelBarGraph {...props} />
+            )}
         </BindLogic>
     )
 }

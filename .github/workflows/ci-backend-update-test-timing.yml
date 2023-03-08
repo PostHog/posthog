@@ -25,6 +25,7 @@ jobs:
                   # so fix this if you want to use this
                   concurrency: 1
                   group: 1
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Save test durations
               uses: stefanzweifel/git-auto-commit-action@v4

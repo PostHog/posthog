@@ -5,7 +5,7 @@
     "results": [
         {
             "id": 1,
-            "name": "My App Dashboard",
+            "name": "🔑 Key metrics",
             "description": "",
             "pinned": true,
             "items": null,
@@ -25,7 +25,7 @@
         },
         {
             "id": 3,
-            "name": "Empty dashboard",
+            "name": "💸 Revenue",
             "description": "",
             "pinned": false,
             "items": null,
@@ -37,14 +37,14 @@
                 "first_name": "Marius",
                 "email": "marius@posthog.com"
             },
-            "is_shared": false,
+            "is_shared": true,
             "deleted": false,
             "creation_mode": "default",
             "filters": {},
             "tags": [],
-            "restriction_level": 21,
-            "effective_restriction_level": 21,
-            "effective_privilege_level": 37
+            "restriction_level": 37,
+            "effective_restriction_level": 37,
+            "effective_privilege_level": 21
         }
     ]
 }

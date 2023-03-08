@@ -1,4 +1,3 @@
-from posthog.settings.base_variables import E2E_TESTING, TEST
 from posthog.settings.utils import get_from_env, str_to_bool
 
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
@@ -10,6 +9,11 @@ CONSTANCE_CONFIG = {
     "RECORDINGS_TTL_WEEKS": (
         3,
         "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
+        int,
+    ),
+    "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS": (
+        3,
+        "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
         int,
     ),
     "MATERIALIZED_COLUMNS_ENABLED": (
@@ -28,7 +32,7 @@ CONSTANCE_CONFIG = {
         str,
     ),
     "PERSON_ON_EVENTS_ENABLED": (
-        get_from_env("PERSON_ON_EVENTS_ENABLED", not TEST and not E2E_TESTING, type_cast=str_to_bool),
+        get_from_env("PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
         "Whether to use query path using person_id and person_properties on events or the old query",
         bool,
     ),
@@ -150,6 +154,16 @@ CONSTANCE_CONFIG = {
         "Used to enable the running of experimental async migrations",
         bool,
     ),
+    "RATE_LIMIT_ENABLED": (
+        get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool),
+        "Whether rate limiting is enabled",
+        bool,
+    ),
+    "RATE_LIMITING_ALLOW_LIST_TEAMS": (
+        get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
+        "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
+        str,
+    ),
     "SENTRY_AUTH_TOKEN": (
         get_from_env("SENTRY_AUTH_TOKEN", default=""),
         "Used to enable Sentry error tracking in PostHog",
@@ -160,10 +174,16 @@ CONSTANCE_CONFIG = {
         "Used to enable Sentry error tracking in PostHog",
         str,
     ),
+    "HEATMAP_SAMPLE_N": (
+        get_from_env("HEATMAP_SAMPLE_N", 2_000_000, type_cast=int),
+        "The number of rows that the heatmap query tries to sample.",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "RECORDINGS_TTL_WEEKS",
+    "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
@@ -189,8 +209,11 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_SIGNING_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
+    "RATE_LIMIT_ENABLED",
+    "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "SENTRY_AUTH_TOKEN",
     "SENTRY_ORGANIZATION",
+    "HEATMAP_SAMPLE_N",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

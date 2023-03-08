@@ -7,7 +7,7 @@ import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import clsx from 'clsx'
 
 export function Exporter(props: ExportedData): JSX.Element {

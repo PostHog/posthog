@@ -1,5 +1,5 @@
-import { IconErrorOutline } from 'lib/components/icons'
-import { LemonLabel } from '../components/LemonLabel/LemonLabel'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/components'
 import clsx from 'clsx'
 

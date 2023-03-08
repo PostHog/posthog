@@ -11,7 +11,7 @@ export default {
                     'Animations are [LottieFiles.com](https://lottiefiles.com/) animations that we load asynchronously.',
             },
         },
-        chromatic: { disableSnapshot: false },
+        testOptions: { skip: true }, // Animations aren't particularly snapshotable
     },
     argTypes: {
         size: {

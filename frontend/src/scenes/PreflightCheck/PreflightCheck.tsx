@@ -4,7 +4,7 @@ import { PreflightCheckStatus, PreflightItem, preflightLogic } from './preflight
 import './PreflightCheck.scss'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import {
     IconCheckCircleOutline,
     IconErrorOutline,
@@ -12,11 +12,11 @@ import {
     IconUnfoldMore,
     IconRefresh,
     IconWarning,
-} from 'lib/components/icons'
+} from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import { LemonRow } from 'lib/components/LemonRow'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 
 export const scene: SceneExport = {

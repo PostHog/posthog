@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
-import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 

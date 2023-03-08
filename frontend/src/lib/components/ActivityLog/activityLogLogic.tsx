@@ -10,7 +10,7 @@ import {
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 
 import type { activityLogLogicType } from './activityLogLogicType'
-import { PaginationManual } from 'lib/components/PaginationControl'
+import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'

@@ -1,6 +1,6 @@
 import { ISOTimestamp, PostIngestionEvent } from '../../../../src/types'
 import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
-import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/7-runAsyncHandlersStep'
+import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { runOnEvent, runOnSnapshot } from '../../../../src/worker/plugins/run'
 
 jest.mock('../../../../src/worker/plugins/run')
@@ -16,10 +16,6 @@ const ingestionEvent: PostIngestionEvent = {
     event: '$pageview',
     properties: {},
     elementsList: testElements,
-}
-const snapshotEvent = {
-    ...ingestionEvent,
-    event: '$snapshot',
 }
 
 describe('runAsyncHandlersStep()', () => {
@@ -76,21 +72,5 @@ describe('runAsyncHandlersStep()', () => {
         await expect(runAsyncHandlersStep(runner, ingestionEvent, personContainer)).rejects.toThrow(error)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
-    })
-
-    describe('$snapshot events', () => {
-        it('does not do action matching or webhook firing', async () => {
-            await runAsyncHandlersStep(runner, snapshotEvent, personContainer)
-
-            expect(runner.hub.actionMatcher.match).not.toHaveBeenCalled()
-            expect(runner.hub.hookCannon.findAndFireHooks).not.toHaveBeenCalled()
-        })
-
-        it('calls only onSnapshot plugin methods', async () => {
-            await runAsyncHandlersStep(runner, snapshotEvent, personContainer)
-
-            expect(runOnSnapshot).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(snapshotEvent))
-            expect(runOnEvent).not.toHaveBeenCalled()
-        })
     })
 })

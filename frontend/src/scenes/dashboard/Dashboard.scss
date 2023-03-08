@@ -1,11 +1,5 @@
 @import '../../styles/mixins';
 
-.dashboard {
-    .dashboard-items-action-icon {
-        margin-right: 6px;
-    }
-}
-
 .dashboard-header {
     display: flex;
     justify-content: space-between;
@@ -38,9 +32,4 @@
             justify-content: flex-end;
         }
     }
-}
-
-#auto-refresh-check {
-    padding: 5px 12px;
-    cursor: pointer;
 }

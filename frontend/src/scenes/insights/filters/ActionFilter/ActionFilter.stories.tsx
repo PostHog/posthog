@@ -74,6 +74,7 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
                 ...groupsTaxonomicTypes,
                 TaxonomicFilterGroupType.Cohorts,
                 TaxonomicFilterGroupType.Elements,
+                TaxonomicFilterGroupType.HogQLExpression,
             ]}
             {...props}
         />

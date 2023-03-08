@@ -40,9 +40,6 @@ class MergeTreeEngine:
     def __str__(self):
         replication_scheme = self.replication_scheme
 
-        if not settings.CLICKHOUSE_REPLICATION:
-            replication_scheme = ReplicationScheme.NOT_SHARDED
-
         if replication_scheme == ReplicationScheme.NOT_SHARDED:
             return self.ENGINE.format(**self.kwargs)
 

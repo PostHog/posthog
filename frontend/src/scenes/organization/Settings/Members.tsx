@@ -1,23 +1,28 @@
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
-import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import {
     getReasonForAccessLevelChangeProhibition,
     organizationMembershipLevelIntegers,
     membershipLevelToName,
 } from 'lib/utils/permissioning'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonButton } from 'lib/components/LemonButton'
-import { More } from 'lib/components/LemonButton/More'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { LemonDivider } from 'lib/components/LemonDivider'
-import { LemonInput } from '@posthog/lemon-ui'
-import { LemonDialog } from 'lib/components/LemonDialog'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { Row } from 'antd'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useState } from 'react'
+import { Setup2FA } from 'scenes/authentication/Setup2FA'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -135,7 +140,11 @@ export interface MembersProps {
 
 export function Members({ user }: MembersProps): JSX.Element {
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { setSearch } = useActions(membersLogic)
+    const { updateOrganization } = useActions(organizationLogic)
+    const [is2FAModalVisible, set2FAModalVisible] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -155,7 +164,23 @@ export function Members({ user }: MembersProps): JSX.Element {
         {
             title: 'Email',
             key: 'user_email',
-            render: (_, member) => member.user.email,
+            render: (_, member) => {
+                return (
+                    <>
+                        {member.user.email}
+                        {!member.user.is_email_verified &&
+                            !member.has_social_auth &&
+                            featureFlags[FEATURE_FLAGS.REQUIRE_EMAIL_VERIFICATION] === 'test' && (
+                                <>
+                                    {' '}
+                                    <LemonTag type={'highlight'} data-attr="pending-email-verification">
+                                        pending email verification
+                                    </LemonTag>
+                                </>
+                            )}
+                    </>
+                )
+            },
             sorter: (a, b) => a.user.email.localeCompare(b.user.email),
         },
         {
@@ -172,6 +197,48 @@ export function Members({ user }: MembersProps): JSX.Element {
                 )
             },
             sorter: (a, b) => a.level - b.level,
+        },
+        {
+            title: '2FA',
+            dataIndex: 'is_2fa_enabled',
+            key: 'is_2fa_enabled',
+            render: function LevelRender(_, member) {
+                return (
+                    <>
+                        {member.user.uuid == user.uuid && is2FAModalVisible && (
+                            <LemonModal title="Set up or manage 2FA" onClose={() => set2FAModalVisible(false)}>
+                                <Setup2FA
+                                    onSuccess={() => {
+                                        set2FAModalVisible(false)
+                                        userLogic.actions.updateUser({})
+                                        membersLogic.actions.loadMembers()
+                                    }}
+                                />
+                            </LemonModal>
+                        )}
+                        <Tooltip
+                            title={
+                                member.user.uuid == user.uuid && !member.is_2fa_enabled
+                                    ? 'Click to setup 2FA for your account'
+                                    : ''
+                            }
+                        >
+                            <LemonTag
+                                onClick={
+                                    member.user.uuid == user.uuid && !member.is_2fa_enabled
+                                        ? () => set2FAModalVisible(true)
+                                        : undefined
+                                }
+                                data-attr="2fa-enabled"
+                                type={member.is_2fa_enabled ? 'success' : 'warning'}
+                            >
+                                {member.is_2fa_enabled ? '2FA enabled' : '2FA not enabled'}
+                            </LemonTag>
+                        </Tooltip>
+                    </>
+                )
+            },
+            sorter: (a, b) => (a.is_2fa_enabled != b.is_2fa_enabled ? 1 : 0),
         },
         {
             title: 'Joined',
@@ -196,7 +263,16 @@ export function Members({ user }: MembersProps): JSX.Element {
     return (
         <>
             <h2 className="subtitle">Members</h2>
-            <LemonInput type="search" placeholder="Search for members" value={search} onChange={setSearch} />
+            <Row align="middle" justify="space-between">
+                <LemonInput type="search" placeholder="Search for members" value={search} onChange={setSearch} />
+                <LemonSwitch
+                    label="Enforce 2FA"
+                    bordered
+                    checked={currentOrganization?.enforce_2fa ? true : false}
+                    onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
+                />
+            </Row>
+
             <LemonTable
                 dataSource={filteredMembers}
                 columns={columns}

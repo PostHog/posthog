@@ -37,7 +37,15 @@ export const insight = {
         // wait for save to complete and URL to change and include short id
         cy.url().should('not.include', '/new')
     },
-    addInsightToDashboard: (dashboardName: string): void => {
+    create: (insightName: string): void => {
+        cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
+        cy.get('[data-attr="insight-save-button"]').click() // Save the insight
+        cy.url().should('not.include', '/new') // wait for insight to complete and update URL
+        cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
+        cy.get('[data-attr="insight-name"] input').type(insightName)
+        cy.get('[data-attr="insight-name"] [title="Save"]').click()
+    },
+    addInsightToDashboard: (dashboardName: string, options: { visitAfterAdding: boolean }): void => {
         cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
 
         cy.get('[data-attr="save-to-dashboard-button"]').click()
@@ -46,7 +54,10 @@ export const insight = {
             // force clicks rather than mess around scrolling rows that exist into view
             cy.contains('button', 'Add to dashboard').click({ force: true })
             cy.wait('@patchInsight').then(() => {
-                cy.contains('a', dashboardName).click({ force: true })
+                cy.contains('Added').should('exist')
+                if (options?.visitAfterAdding) {
+                    cy.contains('a', dashboardName).click({ force: true })
+                }
             })
         })
     },
@@ -69,7 +80,7 @@ export const dashboards = {
         cy.get('button[data-attr="dashboard-submit-and-go"]').click()
     },
     visitDashboard: (dashboardName: string): void => {
-        cy.get('[placeholder="Search for dashboards"]').type(dashboardName)
+        cy.get('[placeholder="Search for dashboards"]').clear().type(dashboardName)
 
         cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
             cy.get('a').click()
@@ -93,6 +104,15 @@ export const dashboard = {
 
         cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
         cy.wait('@postInsight')
+    },
+    addAnyFilter(): void {
+        cy.get('.PropertyFilterButton').should('have.length', 0)
+        cy.get('[data-attr="property-filter-0"]').click()
+        cy.get('[data-attr="taxonomic-filter-searchfield"]').click()
+        cy.get('[data-attr="prop-filter-event_properties-1"]').click({ force: true })
+        cy.get('[data-attr="prop-val"]').click()
+        cy.get('[data-attr="prop-val-0"]').click({ force: true })
+        cy.get('.PropertyFilterButton').should('have.length', 1)
     },
 }
 

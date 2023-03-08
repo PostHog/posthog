@@ -2,6 +2,7 @@ import { RetentionLineGraph } from './RetentionLineGraph'
 import { RetentionTable } from './RetentionTable'
 import './RetentionContainer.scss'
 import { LemonDivider } from '@posthog/lemon-ui'
+import { RetentionModal } from './RetentionModal'
 
 export function RetentionContainer({
     inCardView,
@@ -21,6 +22,7 @@ export function RetentionContainer({
                     <div className="overflow-x-auto">
                         <RetentionTable inCardView={inCardView} />
                     </div>
+                    <RetentionModal />
                 </>
             )}
         </div>

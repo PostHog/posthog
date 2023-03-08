@@ -1,15 +1,15 @@
 import { useValues, useActions } from 'kea'
 import { OrganizationInviteType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { inviteLogic } from './inviteLogic'
 import { EmailUnavailableMessage } from './InviteModal'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconClose } from 'lib/components/icons'
-import { LemonDialog } from 'lib/components/LemonDialog'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconClose } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href

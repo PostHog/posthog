@@ -13,7 +13,7 @@ from posthog.models.organization import OrganizationMembership
 class UserBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "uuid", "distinct_id", "first_name", "email"]
+        fields = ["id", "uuid", "distinct_id", "first_name", "email", "is_email_verified"]
 
 
 class TeamBasicSerializer(serializers.ModelSerializer):
@@ -21,8 +21,6 @@ class TeamBasicSerializer(serializers.ModelSerializer):
     Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
     Also used for nested serializers.
     """
-
-    effective_membership_level = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Team
@@ -37,11 +35,7 @@ class TeamBasicSerializer(serializers.ModelSerializer):
             "is_demo",
             "timezone",
             "access_control",
-            "effective_membership_level",
         )
-
-    def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
-        return team.get_effective_membership_level(self.context["request"].user.id)
 
 
 class OrganizationBasicSerializer(serializers.ModelSerializer):

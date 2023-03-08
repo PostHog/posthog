@@ -10,12 +10,20 @@ import { AvailableFeature } from '~/types'
 
 export default {
     title: 'Scenes-App/Feature Flags',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' }, // scene mode
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        testOptions: {
+            excludeNavigationFromSnapshot: true,
+        },
+        viewMode: 'story',
+        mockDate: '2023-01-28', // To stabilize relative dates
+    },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId/feature_flags': featureFlags,
-                '/api/projects/:projectId/feature_flags/:flagId/': (req) => [
+                '/api/projects/:team_id/feature_flags': featureFlags,
+                '/api/projects/:team_id/feature_flags/:flagId/': (req) => [
                     200,
                     featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
                 ],

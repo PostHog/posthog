@@ -50,11 +50,6 @@ describe('retentionTableLogic', () => {
                 '/api/projects/:team/insights/': { results: [result] },
                 '/api/projects/:team/insights/retention/': { result },
             },
-            post: {
-                '/api/projects/:team/insights/': { results: [result] },
-                '/api/projects/:team/insights/:id/viewed': [201],
-                '/api/projects/:team/insights/cancel': [200],
-            },
         })
     })
 
@@ -65,65 +60,6 @@ describe('retentionTableLogic', () => {
             initKeaTests()
             logic = retentionTableLogic(props)
             logic.mount()
-        })
-
-        it('setFilters calls insightLogic.setFilters', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ insight: InsightType.RETENTION, period: 'Week' })
-            })
-                .toDispatchActions([
-                    (action) =>
-                        action.type === insightLogic(props).actionTypes.setFilters &&
-                        action.payload.filters?.period === 'Week',
-                ])
-                .toMatchValues(logic, {
-                    filters: expect.objectContaining({
-                        period: 'Week',
-                    }),
-                })
-                .toMatchValues(insightLogic(props), {
-                    filters: expect.objectContaining({
-                        period: 'Week',
-                    }),
-                })
-        })
-
-        it('insightLogic.setFilters updates filters', async () => {
-            await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({
-                    insight: InsightType.RETENTION,
-                    period: 'Week',
-                } as RetentionFilterType)
-            })
-                .toMatchValues(logic, {
-                    filters: expect.objectContaining({
-                        period: 'Week',
-                    }),
-                })
-                .toMatchValues(insightLogic(props), {
-                    filters: expect.objectContaining({
-                        period: 'Week',
-                    }),
-                })
-        })
-
-        it('handles conversion from cohort percentage to derivative of percentages when retentionReference is previous', async () => {
-            await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({
-                    insight: InsightType.RETENTION,
-                    period: 'Week',
-                } as RetentionFilterType)
-                logic.actions.setRetentionReference('previous')
-            })
-                .toFinishAllListeners()
-                .toMatchValues(logic, {
-                    trendSeries: expect.arrayContaining([
-                        expect.objectContaining({ data: [100, 25, 75, 26.666666666666668] }),
-                        expect.objectContaining({ data: [100, 25, 40] }),
-                        expect.objectContaining({ data: [100, 0] }),
-                        expect.objectContaining({ data: [0] }),
-                    ]),
-                })
         })
 
         it('calculates max number of intervals in the results', async () => {

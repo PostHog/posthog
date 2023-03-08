@@ -44,7 +44,7 @@ describe('definitionLogic', () => {
 
     describe('event property definition', () => {
         it('load definition on mount', async () => {
-            router.actions.push(urls.eventPropertyDefinition('1'))
+            router.actions.push(urls.propertyDefinition('1'))
             logic = definitionLogic({ id: '1' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadDefinition', 'loadDefinitionSuccess']).toMatchValues({
@@ -53,7 +53,7 @@ describe('definitionLogic', () => {
         })
 
         it('load new definition on mount', async () => {
-            router.actions.push(urls.eventPropertyDefinition('new'))
+            router.actions.push(urls.propertyDefinition('new'))
             logic = definitionLogic({ id: 'new' })
             logic.mount()
             await expectLogic(logic)

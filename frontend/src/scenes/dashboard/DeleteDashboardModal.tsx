@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { LemonModal } from 'lib/components/LemonModal'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Form } from 'kea-forms'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { Field } from 'lib/forms/Field'
-import { LemonCheckbox } from 'lib/components/LemonCheckbox'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 export function DeleteDashboardModal(): JSX.Element {
     const { hideDeleteDashboardModal } = useActions(deleteDashboardLogic)

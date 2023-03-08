@@ -8,8 +8,8 @@ import {
     FeaturePropertyFilter,
     FilterLogicalOperator,
     GroupPropertyFilter,
+    HogQLPropertyFilter,
     PersonPropertyFilter,
-    PropertyFilter,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -24,7 +24,7 @@ import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
 export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {
     if (!propertyFilter.type) {
         return {
-            ...propertyFilter,
+            ...(propertyFilter as any), // TS error with spreading a union
             type: PropertyFilterType.Event,
         }
     }
@@ -32,7 +32,7 @@ export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPr
 }
 
 export function parseProperties(
-    input: AnyPropertyFilter[] | PropertyGroupFilter | Record<string, string> | null | undefined
+    input: AnyPropertyFilter[] | PropertyGroupFilter | Record<string, any> | null | undefined
 ): AnyPropertyFilter[] {
     if (Array.isArray(input) || !input) {
         return input || []
@@ -53,11 +53,13 @@ export function parseProperties(
 }
 
 /** Checks if the AnyPropertyFilter is a filled PropertyFilter */
-export function isValidPropertyFilter(filter: AnyPropertyFilter): filter is PropertyFilter {
+export function isValidPropertyFilter(
+    filter: AnyPropertyFilter | AnyFilterLike | Record<string, any>
+): filter is AnyPropertyFilter {
     return (
         !!filter && // is not falsy
         'key' in filter && // has a "key" property
-        Object.values(filter).some((v) => !!v) // contains some properties with values
+        ((filter.type === 'hogql' && !!filter.key) || Object.values(filter).some((v) => !!v)) // contains some properties with values
     )
 }
 
@@ -89,6 +91,9 @@ export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is 
 }
 export function isFeaturePropertyFilter(filter?: AnyFilterLike | null): filter is FeaturePropertyFilter {
     return filter?.type === PropertyFilterType.Feature
+}
+export function isHogQLPropertyFilter(filter?: AnyFilterLike | null): filter is HogQLPropertyFilter {
+    return filter?.type === PropertyFilterType.HogQL
 }
 
 export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is AnyPropertyFilter {
@@ -126,10 +131,6 @@ export function isPropertyFilterWithOperator(
     )
 }
 
-export function isValidPathCleanFilter(filter: Record<string, any>): boolean {
-    return filter.alias && filter.regex
-}
-
 export function filterMatchesItem(
     filter?: AnyPropertyFilter | null,
     item?: EventDefinition | null,
@@ -148,6 +149,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.Sessions,
+    [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
 }
 
 export function propertyFilterTypeToTaxonomicFilterType(

@@ -22,6 +22,7 @@ export interface OperatorValueSelectProps {
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
     operatorSelectProps?: Omit<LemonSelectProps<any>, 'onChange'>
+    eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
 }
@@ -62,6 +63,7 @@ export function OperatorValueSelect({
     onChange,
     operatorSelectProps,
     propertyDefinitions = [],
+    eventNames = [],
     defaultOpen,
 }: OperatorValueSelectProps): JSX.Element {
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
@@ -76,15 +78,15 @@ export function OperatorValueSelect({
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
-        const isAutocaptureElementProperty = propkey === 'selector'
+        const limitedElementProperty = propkey === 'selector' || propkey === 'tag_name'
         const operatorMapping: Record<string, string> = chooseOperatorMap(
-            isAutocaptureElementProperty ? PropertyType.Selector : propertyDefinition?.property_type
+            limitedElementProperty ? PropertyType.Selector : propertyDefinition?.property_type
         )
-        setOperators(Object.keys(operatorMapping) as Array<PropertyOperator>)
+        const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
+        setOperators(operators)
         if (currentOperator !== operator) {
             setCurrentOperator(startingOperator)
-        }
-        if (isAutocaptureElementProperty) {
+        } else if (limitedElementProperty && !operators.includes(currentOperator)) {
             setCurrentOperator(PropertyOperator.Exact)
         }
     }, [propertyDefinition, propkey, operator])
@@ -133,6 +135,7 @@ export function OperatorValueSelect({
                         operator={currentOperator || PropertyOperator.Exact}
                         placeholder={placeholder}
                         value={value}
+                        eventNames={eventNames}
                         onSet={(newValue: string | number | string[] | null) => {
                             const tentativeValidationError =
                                 currentOperator && newValue

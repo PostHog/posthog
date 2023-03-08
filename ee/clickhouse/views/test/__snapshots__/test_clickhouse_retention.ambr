@@ -1,7 +1,7 @@
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people
   '
   /* user_id:0 request:_snapshot_ */ WITH actor_query AS
-    (WITH 'day' as period,
+    (WITH 'Day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -21,7 +21,7 @@
                           dateDiff(
                               'Day',
                               toStartOfDay(toDateTime('2020-01-01 00:00:00' , 'UTC')),
-                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) )
+                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))
                           )
                       ] as breakdown_values
         FROM events e
@@ -63,7 +63,7 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'day' as period,
+    (WITH 'Day' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -90,7 +90,7 @@
                           dateDiff(
                               'Day',
                               toStartOfDay(toDateTime('2020-01-01 00:00:00' , 'UTC')),
-                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) )
+                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))
                           )
                       ] as breakdown_values
         FROM events e
@@ -135,7 +135,7 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'day' as period,
+    (WITH 'Day' as period,
           [1] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -162,7 +162,7 @@
                           dateDiff(
                               'Day',
                               toStartOfDay(toDateTime('2020-01-01 00:00:00' , 'UTC')),
-                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) )
+                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))
                           )
                       ] as breakdown_values
         FROM events e
@@ -204,7 +204,7 @@
 # name: RetentionTests.test_retention_test_account_filters
   '
   /* user_id:0 request:_snapshot_ */ WITH actor_query AS
-    (WITH 'day' as period,
+    (WITH 'Day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -243,7 +243,7 @@
                           dateDiff(
                               'Day',
                               toStartOfDay(toDateTime('2020-01-01 00:00:00' , 'UTC')),
-                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) )
+                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))
                           )
                       ] as breakdown_values
         FROM events e
@@ -304,7 +304,7 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'day' as period,
+    (WITH 'Day' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -343,7 +343,7 @@
                           dateDiff(
                               'Day',
                               toStartOfDay(toDateTime('2020-01-01 00:00:00' , 'UTC')),
-                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) )
+                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))
                           )
                       ] as breakdown_values
         FROM events e
@@ -400,7 +400,7 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'day' as period,
+    (WITH 'Day' as period,
           [1] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -439,7 +439,7 @@
                           dateDiff(
                               'Day',
                               toStartOfDay(toDateTime('2020-01-01 00:00:00' , 'UTC')),
-                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) )
+                              toStartOfDay(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))
                           )
                       ] as breakdown_values
         FROM events e

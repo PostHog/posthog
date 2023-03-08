@@ -1,8 +1,8 @@
 import './CompactList.scss'
-import { LemonDivider } from '../LemonDivider'
-import { LemonButton } from '../LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { EmptyMessage, EmptyMessageProps } from '../EmptyMessage/EmptyMessage'
-import { LemonSkeleton } from '../LemonSkeleton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 interface CompactListProps {
     title: string
@@ -22,7 +22,7 @@ export function CompactList({
     renderRow,
 }: CompactListProps): JSX.Element {
     return (
-        <div className="compact-list">
+        <div className="compact-list border">
             <div className="compact-list-header">
                 <h3>{title}</h3>
                 {viewAllURL && <LemonButton to={viewAllURL}>View all</LemonButton>}

@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { getSlackAppManifest, integrationsLogic } from './integrationsLogic'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { IconDelete, IconSlack } from 'lib/components/icons'
+import { IconDelete, IconSlack } from 'lib/lemon-ui/icons'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { LemonDialog } from 'lib/components/LemonDialog'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export function SlackIntegration(): JSX.Element {
     const { slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)

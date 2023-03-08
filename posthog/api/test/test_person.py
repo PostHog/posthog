@@ -1,6 +1,7 @@
 import json
 from typing import Dict, List, Optional, cast
 from unittest import mock
+from unittest.mock import patch
 
 from django.utils import timezone
 from freezegun.api import freeze_time
@@ -11,14 +12,16 @@ from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.util import create_person
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 
 
@@ -77,7 +80,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_data[1]["name"], "$browser")
         self.assertEqual(response_data[1]["count"], 1)
 
-    @test_with_materialized_columns(person_properties=["random_prop"])
+    @also_test_with_materialized_columns(person_properties=["random_prop"])
     @snapshot_clickhouse_queries
     def test_person_property_values(self):
         _create_person(
@@ -104,7 +107,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()[0]["name"], "qwerty")
         self.assertEqual(response.json()[0]["count"], 1)
 
-    @test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
+    @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_filter_person_email(self):
 
@@ -169,7 +172,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Filter by distinct ID
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(11):
             response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
@@ -568,7 +571,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(10):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -578,6 +581,70 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
+
+    @patch("posthog.api.person.PersonsThrottle.rate", new="6/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_rate_limits_for_persons_are_independent(self, rate_limit_enabled_mock, incr_mock):
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        for _ in range(5):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}"
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Call to flags gets rate limited
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        incr_mock.assert_any_call(
+            "rate_limit_exceeded",
+            tags={
+                "team_id": self.team.pk,
+                "scope": "burst",
+                "rate": "5/minute",
+                "path": f"/api/projects/TEAM_ID/feature_flags",
+            },
+        )
+
+        incr_mock.reset_mock()
+
+        # but not call to persons
+        for _ in range(3):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/persons/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/persons/values/?key=whatever",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 0)
+
+        incr_mock.reset_mock()
+
+        # until the limit is reached
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/persons/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        incr_mock.assert_any_call(
+            "rate_limit_exceeded",
+            tags={
+                "team_id": self.team.pk,
+                "scope": "persons",
+                "rate": "6/minute",
+                "path": f"/api/projects/TEAM_ID/persons/",
+            },
+        )
 
     def _get_person_activity(self, person_id: Optional[str] = None, *, expected_status: int = status.HTTP_200_OK):
         if person_id:

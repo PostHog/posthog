@@ -5,37 +5,49 @@ import {
     ActionType,
     ActorType,
     AnyCohortCriteriaType,
+    AnyFilterLike,
+    AnyFilterType,
     AnyPropertyFilter,
     BehavioralCohortType,
     BehavioralEventType,
+    ChartDisplayType,
     CohortCriteriaGroupFilter,
     CohortType,
     DateMappingOption,
+    EmptyPropertyFilter,
     EventType,
     FilterLogicalOperator,
-    FilterType,
+    FunnelVizType,
     GroupActorType,
+    InsightType,
     IntervalType,
-    PropertyFilter,
     PropertyFilterValue,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
     PropertyType,
     TimeUnitType,
+    TrendsFilterType,
 } from '~/types'
 import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
-import { WEBHOOK_SERVICES } from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES, WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from './utils/getAppContext'
-import { isPropertyFilterWithOperator, isValidPropertyFilter } from './components/PropertyFilters/utils'
-import { IconCopy } from './components/icons'
-import { lemonToast } from './components/lemonToast'
+import {
+    isHogQLPropertyFilter,
+    isPropertyFilterWithOperator,
+    isValidPropertyFilter,
+} from './components/PropertyFilters/utils'
+import { IconCopy } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { urls } from 'scenes/urls'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -95,13 +107,13 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
 // taken from https://stackoverflow.com/questions/10420352/converting-file-size-in-bytes-to-human-readable-string/10420404
 export const humanizeBytes = (fileSizeInBytes: number): string => {
     let i = -1
-    const byteUnits = [' kB', ' MB', ' GB', ' TB', 'PB', 'EB', 'ZB', 'YB']
+    const byteUnits = ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
     do {
         fileSizeInBytes = fileSizeInBytes / 1024
         i++
     } while (fileSizeInBytes > 1024)
 
-    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + byteUnits[i]
+    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + ' ' + byteUnits[i]
 }
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
@@ -358,6 +370,9 @@ export function formatPropertyLabel(
     keyMapping: KeyMappingInterface,
     valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
+    if (isHogQLPropertyFilter(item as AnyFilterLike)) {
+        return extractExpressionComment(item.key)
+    }
     const { value, key, operator, type } = item
     return type === 'cohort'
         ? cohortsById[value]?.name || `ID ${value}`
@@ -400,6 +415,33 @@ export function objectClean<T extends Record<string | number | symbol, unknown>>
     const response = { ...obj }
     Object.keys(response).forEach((key) => {
         if (response[key] === undefined) {
+            delete response[key]
+        }
+    })
+    return response
+}
+export function objectCleanWithEmpty<T extends Record<string | number | symbol, unknown>>(obj: T): T {
+    const response = { ...obj }
+    Object.keys(response).forEach((key) => {
+        // remove undefined values
+        if (response[key] === undefined) {
+            delete response[key]
+        }
+        // remove empty arrays i.e. []
+        if (
+            typeof response[key] === 'object' &&
+            Array.isArray(response[key]) &&
+            (response[key] as unknown[]).length === 0
+        ) {
+            delete response[key]
+        }
+        // remove empty objects i.e. {}
+        if (
+            typeof response[key] === 'object' &&
+            !Array.isArray(response[key]) &&
+            response[key] !== null &&
+            Object.keys(response[key] as Record<string | number | symbol, unknown>).length === 0
+        ) {
             delete response[key]
         }
     })
@@ -464,6 +506,17 @@ export function humanFriendlyNumber(d: number, precision: number = 2): string {
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
+export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
+    if (typeof timestamp !== 'number') {
+        return undefined
+    }
+
+    if (timestamp < 1000) {
+        return `${Math.ceil(timestamp)}ms`
+    }
+
+    return `${(timestamp / 1000).toFixed(2)}s`
+}
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
@@ -497,8 +550,8 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null,
-    formatDate = 'MMMM DD, YYYY',
-    formatTime = 'h:mm:ss A'
+    formatDate = 'MMMM DD, YYYY',
+    formatTime = 'h:mm:ss A'
 ): string {
     if (!date) {
         return 'Never'
@@ -511,9 +564,9 @@ export function humanFriendlyDetailedTime(
     }
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = `[Today] ${formatTime}`
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = `[Yesterday] ${formatTime}`
+        formatString = `[Yesterday] ${formatTime}`
     } else {
         formatString = `${formatDate} ${formatTime}`
     }
@@ -616,8 +669,7 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    // Regex by regextester.com/115236
-    const regexp = /^(?:http(s)?:\/\/)([\w*.-])+(?:[\w*\.-]+)+([\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.])+$/
+    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*\.-]+[\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.]+$/
     return !!input.trim().match(regexp)
 }
 
@@ -674,6 +726,10 @@ export function autoCaptureEventToDescription(
         }
         if (event.properties.$event_type === 'submit') {
             return 'submitted'
+        }
+
+        if (event.properties.$event_type === 'touch') {
+            return 'pressed'
         }
         return 'interacted with'
     }
@@ -885,7 +941,7 @@ export function dateFilterToText(
         if (dateOption && counter) {
             let date = null
             switch (dateOption) {
-                case 'quarter':
+                case 'quarters':
                     date = dayjs().subtract(counter * 3, 'M')
                     break
                 case 'months':
@@ -1139,10 +1195,18 @@ export const disableHourFor: Record<string, boolean> = {
     other: false,
 }
 
-export function autocorrectInterval(filters: Partial<FilterType>): IntervalType {
+export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalType | undefined {
+    if ('display' in filters && filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)) {
+        // Non-time-series insights should not have an interval
+        return undefined
+    }
+    if (isFunnelsFilter(filters) && filters.funnel_viz_type !== FunnelVizType.Trends) {
+        // Only trend funnels support intervals
+        return undefined
+    }
     if (!filters.interval) {
         return 'day'
-    } // undefined/uninitialized
+    }
 
     // @ts-expect-error - Old legacy interval support
     const minute_disabled = filters.interval === 'minute'
@@ -1220,10 +1284,11 @@ export function endWithPunctation(text?: string | null): string {
 export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     const date = atDate ? new Date(atDate) : new Date()
     try {
-        const localeTimeString = date
+        const localeTimeStringParts = date
             .toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone: timeZone || undefined })
             .replace('GMT', 'UTC')
-        return localeTimeString.split(' ')[2]
+            .split(' ')
+        return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
         Sentry.captureException(e)
         return null
@@ -1239,6 +1304,11 @@ export function humanTzOffset(timezone?: string): string {
     const hourForm = absoluteOffset === 1 ? 'hour' : 'hours'
     const direction = offset > 0 ? 'ahead' : 'behind'
     return `${absoluteOffset} ${hourForm} ${direction}`
+}
+
+/** Join array of string into a list ("a, b, and c"). Uses the Oxford comma, but only if there are at least 3 items. */
+export function humanList(arr: string[]): string {
+    return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.slice(-1) : arr.join(' and ')
 }
 
 export function resolveWebhookService(webhookUrl: string): string {
@@ -1390,7 +1460,14 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 }
 
 export function isPropertyGroup(
-    properties: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter[] | undefined | AnyPropertyFilter
+    properties:
+        | PropertyGroupFilter
+        | PropertyGroupFilterValue
+        | AnyPropertyFilter[]
+        | AnyPropertyFilter
+        | Record<string, any>
+        | null
+        | undefined
 ): properties is PropertyGroupFilter {
     return (
         (properties as PropertyGroupFilter)?.type !== undefined &&
@@ -1402,7 +1479,7 @@ export function flattenPropertyGroup(
     flattenedProperties: AnyPropertyFilter[],
     propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
 ): AnyPropertyFilter[] {
-    const obj: AnyPropertyFilter = {}
+    const obj: AnyPropertyFilter = {} as EmptyPropertyFilter
     Object.keys(propertyGroup).forEach(function (k) {
         obj[k] = propertyGroup[k]
     })
@@ -1430,7 +1507,7 @@ export function convertPropertiesToPropertyGroup(
 /** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
 export function convertPropertyGroupToProperties(
     properties?: PropertyGroupFilter | AnyPropertyFilter[]
-): PropertyFilter[] | undefined {
+): AnyPropertyFilter[] | undefined {
     if (isPropertyGroup(properties)) {
         return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
     }
@@ -1541,4 +1618,49 @@ export function downloadFile(file: File): void {
         URL.revokeObjectURL(link.href)
         link?.parentNode?.removeChild(link)
     }, 0)
+}
+
+export function insightUrlForEvent(event: EventType): string | undefined {
+    let insightParams: Partial<TrendsFilterType> | undefined
+    if (event.event === '$pageview') {
+        insightParams = {
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            display: ChartDisplayType.ActionsLineGraph,
+            actions: [],
+            events: [
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    properties: [
+                        {
+                            key: '$current_url',
+                            value: event.properties.$current_url,
+                            type: 'event',
+                        },
+                    ],
+                },
+            ],
+        }
+    } else if (event.event !== '$autocapture') {
+        insightParams = {
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            display: ChartDisplayType.ActionsLineGraph,
+            actions: [],
+            events: [
+                {
+                    id: event.event,
+                    name: event.event,
+                    type: 'events',
+                    order: 0,
+                    properties: [],
+                },
+            ],
+        }
+    }
+
+    return insightParams ? urls.insightNew(insightParams) : undefined
 }

@@ -7,8 +7,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
-import { Lettermark } from 'lib/components/Lettermark/Lettermark'
-import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
 import { Breadcrumb } from '~/types'
@@ -105,7 +105,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     breadcrumbs.push({
                         name: currentOrganization.name,
                         symbol: <Lettermark name={currentOrganization.name} />,
-                        popup:
+                        popover:
                             otherOrganizations?.length || preflight?.can_create_org
                                 ? {
                                       overlay: <OrganizationSwitcherOverlay />,
@@ -121,7 +121,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     }
                     breadcrumbs.push({
                         name: currentTeam.name,
-                        popup: {
+                        popover: {
                             overlay: <ProjectSwitcherOverlay />,
                             actionable: true,
                         },

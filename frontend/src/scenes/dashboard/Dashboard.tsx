@@ -16,6 +16,8 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { DashboardHeader } from './DashboardHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LemonDivider } from '@posthog/lemon-ui'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { groupsModel } from '../../models/groupsModel'
 
 interface Props {
     id?: string
@@ -43,7 +45,8 @@ export function Dashboard({ id, dashboard, placement }: Props = {}): JSX.Element
 function DashboardScene(): JSX.Element {
     const {
         placement,
-        dashboard,
+        // dashboard on dashboardLogic isn't the dashboard on dashboardLogic (╯°□°)╯︵ ┻━┻
+        allItems: dashboard,
         canEditDashboard,
         tiles,
         itemsLoading,
@@ -53,6 +56,8 @@ function DashboardScene(): JSX.Element {
     } = useValues(dashboardLogic)
     const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery } =
         useActions(dashboardLogic)
+
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     useEffect(() => {
         reportDashboardViewed()
@@ -102,11 +107,15 @@ function DashboardScene(): JSX.Element {
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !tiles || tiles.length === 0 ? (
-                <EmptyDashboardComponent loading={itemsLoading} />
+                <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
                     <div className="flex space-x-4 justify-between">
-                        {![DashboardPlacement.Public, DashboardPlacement.Export].includes(placement) && (
+                        {![
+                            DashboardPlacement.Public,
+                            DashboardPlacement.Export,
+                            DashboardPlacement.FeatureFlag,
+                        ].includes(placement) && (
                             <div className="flex space-x-4">
                                 <div className="flex items-center h-8">
                                     <DateFilter
@@ -127,6 +136,14 @@ function DashboardScene(): JSX.Element {
                                     onChange={setProperties}
                                     pageKey={'dashboard_' + dashboard?.id}
                                     propertyFilters={dashboard?.filters.properties}
+                                    taxonomicGroupTypes={[
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                        TaxonomicFilterGroupType.EventFeatureFlags,
+                                        ...groupsTaxonomicTypes,
+                                        TaxonomicFilterGroupType.Cohorts,
+                                        TaxonomicFilterGroupType.Elements,
+                                    ]}
                                 />
                             </div>
                         )}

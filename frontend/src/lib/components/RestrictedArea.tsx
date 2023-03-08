@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 import { organizationLogic } from '../../scenes/organizationLogic'
 import { OrganizationMembershipLevel } from '../constants'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { EitherMembershipLevel, membershipLevelToName } from '../utils/permissioning'
 import { teamLogic } from '../../scenes/teamLogic'
 

@@ -24,7 +24,7 @@ BASE_APP_METRICS_COLUMNS = """
 
 APP_METRICS_DATA_TABLE_SQL = (
     lambda: f"""
-CREATE TABLE sharded_app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -38,7 +38,7 @@ ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp),
 
 DISTRIBUTED_APP_METRICS_TABLE_SQL = (
     lambda: f"""
-CREATE TABLE app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+CREATE TABLE IF NOT EXISTS app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -49,7 +49,7 @@ ENGINE={Distributed(data_table="sharded_app_metrics", sharding_key="rand()")}
 
 KAFKA_APP_METRICS_TABLE_SQL = (
     lambda: f"""
-CREATE TABLE kafka_app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 (
     team_id Int64,
     timestamp DateTime64(6, 'UTC'),
@@ -69,7 +69,7 @@ ENGINE={kafka_engine(topic=KAFKA_APP_METRICS)}
 
 APP_METRICS_MV_TABLE_SQL = (
     lambda: f"""
-CREATE MATERIALIZED VIEW app_metrics_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
 TO {settings.CLICKHOUSE_DATABASE}.sharded_app_metrics
 AS SELECT
 team_id,
@@ -125,11 +125,13 @@ SELECT
 """
 
 QUERY_APP_METRICS_DELIVERY_RATE = """
-SELECT plugin_config_id, (sum(successes) + sum(successes_on_retry)) / (sum(successes) + sum(successes_on_retry) + sum(failures)) AS rate
-FROM app_metrics
-WHERE team_id = %(team_id)s
-  AND timestamp > %(from_date)s
-GROUP BY plugin_config_id
+SELECT plugin_config_id, if(total > 0, success/total, 1) as rate FROM (
+    SELECT plugin_config_id, sum(successes) + sum(successes_on_retry) AS success, sum(successes) + sum(successes_on_retry) + sum(failures) AS total
+    FROM app_metrics
+    WHERE team_id = %(team_id)s
+        AND timestamp > %(from_date)s
+    GROUP BY plugin_config_id
+)
 """
 
 QUERY_APP_METRICS_TIME_SERIES = """
@@ -141,19 +143,6 @@ FROM (
         sum(successes_on_retry) AS successes_on_retry,
         sum(failures) AS failures
     FROM (
-        SELECT
-            dateTrunc(%(interval)s, toDateTime(%(date_from)s) + {interval_function}(number), %(timezone)s) AS date,
-            0 AS successes,
-            0 AS successes_on_retry,
-            0 AS failures
-        FROM numbers(
-            dateDiff(
-                %(interval)s,
-                dateTrunc(%(interval)s, toDateTime(%(date_from)s), %(timezone)s),
-                dateTrunc(%(interval)s, toDateTime(%(date_to)s) + {interval_function}(1), %(timezone)s)
-            )
-        )
-        UNION ALL
         SELECT
             dateTrunc(%(interval)s, timestamp, %(timezone)s) AS date,
             sum(successes) AS successes,
@@ -170,6 +159,10 @@ FROM (
     )
     GROUP BY date
     ORDER BY date
+    WITH FILL
+        FROM dateTrunc(%(interval)s, toDateTime(%(date_from)s), %(timezone)s)
+        TO dateTrunc(%(interval)s, toDateTime(%(date_to)s) + {interval_function}(1), %(timezone)s)
+        STEP %(with_fill_step)s
 )
 """
 

@@ -9,7 +9,7 @@ import { useValues } from 'kea'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import clsx from 'clsx'
 import { groupsModel } from '~/models/groupsModel'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export enum IconSize {
     Small = 'small',

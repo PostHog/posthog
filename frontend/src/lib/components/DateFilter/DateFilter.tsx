@@ -2,14 +2,14 @@ import { useRef } from 'react'
 import { dateMapping, dateFilterToText, uuid } from 'lib/utils'
 import { DateMappingOption } from '~/types'
 import { dayjs } from 'lib/dayjs'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { useActions, useValues } from 'kea'
-import { LemonButtonWithPopup, LemonDivider, LemonButton } from '@posthog/lemon-ui'
-import { IconCalendar } from '../icons'
-import { LemonCalendarSelect } from 'lib/components/LemonCalendar/LemonCalendarSelect'
-import { LemonCalendarRange } from 'lib/components/LemonCalendarRange/LemonCalendarRange'
+import { LemonButtonWithDropdown, LemonDivider, LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { IconCalendar } from 'lib/lemon-ui/icons'
+import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 
 export interface DateFilterProps {
@@ -22,6 +22,7 @@ export interface DateFilterProps {
     getPopupContainer?: () => HTMLElement
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
+    size?: LemonButtonProps['size']
 }
 interface RawDateFilterProps extends DateFilterProps {
     dateFrom?: string | null | dayjs.Dayjs
@@ -40,6 +41,7 @@ export function DateFilter({
     dateTo,
     dateOptions = dateMapping,
     isDateFormatted = true,
+    size,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
@@ -58,13 +60,13 @@ export function DateFilter({
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
 
-    const popupOverlay =
+    const popoverOverlay =
         view === DateFilterView.FixedRange ? (
             <LemonCalendarRange
-                value={[(rangeDateTo ?? dayjs()).format('YYYY-MM-DD'), (rangeDateTo ?? dayjs()).format('YYYY-MM-DD')]}
+                value={[rangeDateTo ?? dayjs(), rangeDateTo ?? dayjs()]}
                 onChange={([from, to]) => {
-                    setRangeDateFrom(from ? dayjs(from) : null)
-                    setRangeDateTo(to ? dayjs(to) : null)
+                    setRangeDateFrom(from)
+                    setRangeDateTo(to)
                     applyRange()
                 }}
                 onClose={open}
@@ -72,9 +74,9 @@ export function DateFilter({
             />
         ) : view === DateFilterView.DateToNow ? (
             <LemonCalendarSelect
-                value={(rangeDateFrom as any) ?? dayjs().format('YYYY-MM-DD')}
+                value={rangeDateFrom ?? dayjs()}
                 onChange={(date) => {
-                    setRangeDateFrom(dayjs(date))
+                    setRangeDateFrom(date)
                     setRangeDateTo(null)
                     applyRange()
                 }}
@@ -123,7 +125,7 @@ export function DateFilter({
                             setDate(fromDate, '')
                         }}
                         makeLabel={makeLabel}
-                        popup={{
+                        popover={{
                             ref: rollingDateRangeRef,
                         }}
                     />
@@ -139,19 +141,19 @@ export function DateFilter({
         )
 
     return (
-        <LemonButtonWithPopup
+        <LemonButtonWithDropdown
             data-attr="date-filter"
             id="daterange_selector"
             onClick={isVisible ? close : open}
             disabled={disabled}
             className={className}
-            size={'small'}
+            size={size ?? 'small'}
             type={'secondary'}
             status="stealth"
-            popup={{
+            dropdown={{
                 onClickOutside: close,
                 visible: isVisible,
-                overlay: popupOverlay,
+                overlay: popoverOverlay,
                 placement: 'bottom-start',
                 actionable: true,
                 closeOnClickInside: false,
@@ -161,6 +163,6 @@ export function DateFilter({
             icon={<IconCalendar />}
         >
             {label}
-        </LemonButtonWithPopup>
+        </LemonButtonWithDropdown>
     )
 }

@@ -1,7 +1,8 @@
 import urllib.parse
-from datetime import datetime
-from typing import Any, Callable, Dict, List, Tuple
+from datetime import date, datetime
+from typing import Any, Callable, Dict, List, Tuple, Union
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
     MONTHLY_ACTIVE,
     NON_TIME_SERIES_DISPLAY_TYPES,
@@ -26,6 +27,7 @@ from posthog.queries.trends.sql import (
     VOLUME_PER_ACTOR_SQL,
     VOLUME_SQL,
 )
+from posthog.queries.trends.trends_actors import offset_time_series_date_by_interval
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
@@ -36,7 +38,7 @@ from posthog.queries.trends.util import (
     parse_response,
     process_math,
 )
-from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch, start_of_week_fix
+from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch
 from posthog.utils import encode_get_request_params
 
 
@@ -74,44 +76,51 @@ class TrendsTotalVolume:
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
+            tag_queries(trend_volume_display="non_time_series")
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                tag_queries(trend_volume_type="active_users")
                 content_sql = ACTIVE_USERS_AGGREGATE_SQL.format(
                     event_query_base=event_query_base,
                     aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
-                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
             elif entity.math in PROPERTY_MATH_FUNCTIONS and entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
+                tag_queries(trend_volume_type="session_duration_math")
                 content_sql = SESSION_DURATION_AGGREGATE_SQL.format(
                     event_query_base=event_query_base, **content_sql_params
                 )
             elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
+                tag_queries(trend_volume_type="count_per_actor")
                 content_sql = VOLUME_PER_ACTOR_AGGREGATE_SQL.format(
                     event_query_base=event_query_base,
                     **content_sql_params,
                     aggregator=determine_aggregator(entity, team),
                 )
             else:
+                tag_queries(trend_volume_type="volume_aggregate")
                 content_sql = VOLUME_AGGREGATE_SQL.format(event_query_base=event_query_base, **content_sql_params)
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
         else:
+            tag_queries(trend_volume_display="time_series")
+            null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                tag_queries(trend_volume_type="active_users")
                 content_sql = ACTIVE_USERS_SQL.format(
                     event_query_base=event_query_base,
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
                     aggregator=determine_aggregator(entity, team),  # TODO: Support groups officialy and with tests
-                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
             elif filter.display == TRENDS_CUMULATIVE and entity.math in (UNIQUE_USERS, UNIQUE_GROUPS):
                 # :TODO: Consider using bitmap-per-date to speed this up
+                tag_queries(trend_volume_type="cumulative_actors")
                 cumulative_sql = CUMULATIVE_SQL.format(
                     actor_expression=determine_aggregator(entity, team),
                     event_query_base=event_query_base,
@@ -120,39 +129,33 @@ class TrendsTotalVolume:
                 content_sql = VOLUME_SQL.format(
                     timestamp_column="first_seen_timestamp",
                     event_query_base=f"FROM ({cumulative_sql})",
-                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
             elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
+                tag_queries(trend_volume_type="count_per_actor")
                 # Calculate average number of events per actor
                 # (only including actors with at least one matching event in a period)
                 content_sql = VOLUME_PER_ACTOR_SQL.format(
                     event_query_base=event_query_base,
-                    start_of_week_fix=start_of_week_fix(filter.interval),
                     aggregator=determine_aggregator(entity, team),
                     **content_sql_params,
                 )
             elif entity.math_property == "$session_duration":
+                tag_queries(trend_volume_type="session_duration_math")
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_SQL.format(
                     event_query_base=event_query_base,
-                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
             else:
+                tag_queries(trend_volume_type="volume")
                 content_sql = VOLUME_SQL.format(
                     timestamp_column="timestamp",
                     event_query_base=event_query_base,
-                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
 
-            null_sql = NULL_SQL.format(
-                trunc_func=trunc_func,
-                interval_func=interval_func,
-                start_of_week_fix=start_of_week_fix(filter.interval),
-            )
             params["interval"] = filter.interval
 
             # If we have a smoothing interval > 1 then add in the sql to
@@ -175,6 +178,7 @@ class TrendsTotalVolume:
                 smoothing_operation=smoothing_operation,
                 aggregate="count" if filter.smoothing_intervals < 2 else "floor(count)",
             )
+
             return final_query, params, self._parse_total_volume_result(filter, entity, team)
 
     def _parse_total_volume_result(self, filter: Filter, entity: Entity, team: Team) -> Callable:
@@ -182,8 +186,14 @@ class TrendsTotalVolume:
             parsed_results = []
             if result is not None:
                 for stats in result:
-                    parsed_result = parse_response(stats, filter)
-                    parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team.pk, stats[0])})
+                    parsed_result = parse_response(stats, filter, entity=entity)
+                    point_dates: List[Union[datetime, date]] = stats[0]
+                    # Ensure we have datetimes for all points
+                    point_datetimes: List[datetime] = [
+                        datetime.combine(d, datetime.min.time()) if not isinstance(d, datetime) else d
+                        for d in point_dates
+                    ]
+                    parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team, point_datetimes)})
                     parsed_results.append(parsed_result)
                     parsed_result.update({"filter": filter.to_dict()})
             return parsed_results
@@ -219,17 +229,17 @@ class TrendsTotalVolume:
         return _parse
 
     def _get_persons_url(
-        self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime]
+        self, filter: Filter, entity: Entity, team: Team, point_datetimes: List[datetime]
     ) -> List[Dict[str, Any]]:
         persons_url = []
-        for date in dates:
+        for point_datetime in point_datetimes:
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
-                "date_to": date,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else point_datetime,
+                "date_to": offset_time_series_date_by_interval(point_datetime, filter=filter, team=team),
                 "entity_order": entity.order,
             }
 
@@ -237,7 +247,7 @@ class TrendsTotalVolume:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
+                    "url": f"api/projects/{team.pk}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
                 }
             )
         return persons_url

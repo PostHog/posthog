@@ -7,11 +7,11 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { Field } from 'lib/forms/Field'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import PasswordStrength from 'lib/components/PasswordStrength'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Form } from 'kea-forms'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { IconErrorOutline } from 'lib/components/icons'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: PasswordResetComplete,

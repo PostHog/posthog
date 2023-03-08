@@ -1,27 +1,29 @@
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic, FeatureFlagsTabs } from './featureFlagsLogic'
-import { Tabs } from 'antd'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { AvailableFeature, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { LemonButton } from 'lib/components/LemonButton'
-import { LemonDivider } from 'lib/components/LemonDivider'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
-import { More } from 'lib/components/LemonButton/More'
-import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/components/Tooltip'
-import { IconLock } from 'lib/components/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconLock } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { userLogic } from 'scenes/userLogic'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -33,6 +35,7 @@ function OverViewTab(): JSX.Element {
     const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } =
         useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(featureFlagsLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -74,13 +77,29 @@ function OverViewTab(): JSX.Element {
                 )
             },
         },
+        ...(hasAvailableFeature(AvailableFeature.TAGGING)
+            ? [
+                  {
+                      title: 'Tags',
+                      dataIndex: 'tags' as keyof FeatureFlagType,
+                      render: function Render(tags: FeatureFlagType['tags']) {
+                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
+                      },
+                  } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
+              ]
+            : []),
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         {
             title: 'Release conditions',
             width: 100,
             render: function Render(_, featureFlag: FeatureFlagType) {
-                return groupFilters(featureFlag.filters.groups)
+                const releaseText = groupFilters(featureFlag.filters.groups)
+                return releaseText == '100% of all users' ? (
+                    <LemonTag type="highlight">{releaseText}</LemonTag>
+                ) : (
+                    releaseText
+                )
             },
         },
         {
@@ -200,6 +219,34 @@ function OverViewTab(): JSX.Element {
                         value={searchTerm}
                     />
                     <div className="flex items-center gap-2">
+                        {hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
+                            <>
+                                <span>
+                                    <b>Type</b>
+                                </span>
+                                <LemonSelect
+                                    onChange={(type) => {
+                                        if (type) {
+                                            if (type === 'all') {
+                                                if (filters) {
+                                                    const { type, ...restFilters } = filters
+                                                    setFeatureFlagsFilters(restFilters, true)
+                                                }
+                                            } else {
+                                                setFeatureFlagsFilters({ type })
+                                            }
+                                        }
+                                    }}
+                                    options={[
+                                        { label: 'All', value: 'all' },
+                                        { label: 'Boolean', value: 'boolean' },
+                                        { label: 'Multiple variants', value: 'multivariant' },
+                                        { label: 'Experiment', value: 'experiment' },
+                                    ]}
+                                    value="all"
+                                />
+                            </>
+                        )}
                         <span>
                             <b>Status</b>
                         </span>
@@ -222,7 +269,6 @@ function OverViewTab(): JSX.Element {
                                 { label: 'Disabled', value: 'false' },
                             ]}
                             value="all"
-                            dropdownMaxContentWidth
                         />
                         <span className="ml-1">
                             <b>Created by</b>
@@ -250,6 +296,11 @@ function OverViewTab(): JSX.Element {
                 dataSource={searchedFeatureFlags}
                 columns={columns}
                 rowKey="key"
+                defaultSorting={{
+                    columnKey: 'created_at',
+                    order: -1,
+                }}
+                noSortingCancellation
                 loading={featureFlagsLoading}
                 pagination={{ pageSize: 100 }}
                 nouns={['feature flag', 'feature flags']}
@@ -273,15 +324,22 @@ export function FeatureFlags(): JSX.Element {
                     </LemonButton>
                 }
             />
-
-            <Tabs activeKey={activeTab} destroyInactiveTabPane onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}>
-                <Tabs.TabPane tab="Overview" key="overview">
-                    <OverViewTab />
-                </Tabs.TabPane>
-                <Tabs.TabPane tab="History" key="history">
-                    <ActivityLog scope={ActivityScope.FEATURE_FLAG} />
-                </Tabs.TabPane>
-            </Tabs>
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={(newKey) => setActiveTab(newKey)}
+                tabs={[
+                    {
+                        key: FeatureFlagsTabs.OVERVIEW,
+                        label: 'Overview',
+                        content: <OverViewTab />,
+                    },
+                    {
+                        key: FeatureFlagsTabs.HISTORY,
+                        label: 'History',
+                        content: <ActivityLog scope={ActivityScope.FEATURE_FLAG} />,
+                    },
+                ]}
+            />
         </div>
     )
 }

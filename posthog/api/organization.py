@@ -1,10 +1,11 @@
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
+from posthog import settings
 from posthog.api.shared import TeamBasicSerializer
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -20,6 +21,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     extract_organization,
 )
+from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -58,7 +60,7 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         )
 
 
-class OrganizationSerializer(serializers.ModelSerializer):
+class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
     membership_level = serializers.SerializerMethodField()
     teams = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
@@ -78,6 +80,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "is_member_join_email_enabled",
             "metadata",
             "customer_id",
+            "enforce_2fa",
         ]
         read_only_fields = [
             "id",
@@ -105,23 +108,21 @@ class OrganizationSerializer(serializers.ModelSerializer):
         return organization
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
-        membership = OrganizationMembership.objects.filter(
-            organization=organization,
-            user=self.context["request"].user,
-        ).first()
+        membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.level if membership is not None else None
 
     def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
         teams = cast(
             List[Dict[str, Any]], TeamBasicSerializer(instance.teams.all(), context=self.context, many=True).data
         )
-        visible_teams = [team for team in teams if team["effective_membership_level"] is not None]
-        return visible_teams
+        visible_team_ids = set(self.user_permissions.team_ids_visible_for_user)
+        return [team for team in teams if team["id"] in visible_team_ids]
 
-    def get_metadata(self, instance: Organization) -> Dict[str, int]:
+    def get_metadata(self, instance: Organization) -> Dict[str, Union[str, int, object]]:
         output = {
             "taxonomy_set_events_count": 0,
             "taxonomy_set_properties_count": 0,
+            "instance_tag": settings.INSTANCE_TAG,
         }
 
         try:
@@ -188,3 +189,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             ],
             ignore_conflicts=True,
         )
+
+    def get_serializer_context(self) -> Dict[str, Any]:
+        return {**super().get_serializer_context(), "user_permissions": UserPermissions(cast(User, self.request.user))}

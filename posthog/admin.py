@@ -27,8 +27,25 @@ admin.site.register(Element)
 admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
-admin.site.register(Insight)
 admin.site.register(InstanceSetting)
+
+
+@admin.register(Insight)
+class InsightAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "short_id",
+        "team",
+        "organization",
+        "created_at",
+        "created_by",
+    )
+    search_fields = ("id", "name", "short_id", "team__name", "team__organization__name")
+    ordering = ("-created_at",)
+
+    def organization(self, insight: Insight):
+        return insight.team.organization.name
 
 
 @admin.register(Plugin)
@@ -42,7 +59,17 @@ class PluginAdmin(admin.ModelAdmin):
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "organization_link", "organization_id")
-    search_fields = ("name", "organization__id", "organization__name")
+    search_fields = ("id", "name", "organization__id", "organization__name")
+    readonly_fields = ["primary_dashboard", "test_account_filters"]
+    exclude = [
+        "event_names",
+        "event_names_with_usage",
+        "plugins_opt_in",
+        "event_properties",
+        "event_properties_with_usage",
+        "event_properties_numerical",
+        "session_recording_retention_period_days",
+    ]
 
     def organization_link(self, team: Team):
         return format_html(
@@ -52,8 +79,21 @@ class TeamAdmin(admin.ModelAdmin):
 
 @admin.register(PluginConfig)
 class PluginConfigAdmin(admin.ModelAdmin):
-    list_display = ("plugin_id", "team_id")
+    list_select_related = ("plugin", "team")
+    list_display = ("id", "plugin_name", "team_name", "enabled")
+    list_filter = (
+        ("enabled", admin.BooleanFieldListFilter),
+        ("updated_at", admin.DateFieldListFilter),
+        ("plugin", admin.RelatedOnlyFieldListFilter),
+    )
+    search_fields = ("team__name", "team__organization__name", "plugin__name")
     ordering = ("-created_at",)
+
+    def plugin_name(self, config: PluginConfig):
+        return format_html(f"{config.plugin.name} ({config.plugin_id})")
+
+    def team_name(self, config: PluginConfig):
+        return format_html(f"{config.team.name} ({config.team_id})")
 
 
 class UserChangeForm(DjangoUserChangeForm):
@@ -75,7 +115,7 @@ class UserChangeForm(DjangoUserChangeForm):
 class OrganizationMemberInline(admin.TabularInline):
     extra = 0
     model = OrganizationMembership
-    readonly_fields = ("joined_at", "updated_at")
+    readonly_fields = ("user", "joined_at", "updated_at")
     autocomplete_fields = ("user", "organization")
 
 
@@ -155,6 +195,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
+        "usage",
     ]
     inlines = [OrganizationTeamInline, OrganizationMemberInline]
     readonly_fields = [
@@ -164,6 +205,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
+        "usage",
     ]
     search_fields = ("name", "members__email")
     list_display = (

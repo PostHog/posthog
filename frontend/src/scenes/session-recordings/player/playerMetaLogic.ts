@@ -81,7 +81,10 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
                 // Go through the events in reverse to find thelatest pageview
                 for (let i = events.length - 1; i >= 0; i--) {
                     const event = events[i]
-                    if (event.event === '$pageview' && (event.playerTime ?? 0) < playerTimeClosestSecond) {
+                    if (
+                        (event.event === '$screen' || event.event === '$pageview') &&
+                        (event.playerTime ?? 0) < playerTimeClosestSecond
+                    ) {
                         return event
                     }
                 }

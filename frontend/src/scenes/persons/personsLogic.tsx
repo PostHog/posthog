@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 
 export interface PersonPaginatedResponse {
@@ -180,9 +180,9 @@ export const personsLogic = kea<personsLogicType>({
                 }
 
                 actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
-                // :KLUDGE: Person properties are updated asynchronosly in the plugin server - the response won't reflect
-                //      the 'updated' properties yet.
-                await api.persons.updateProperty(person.id, key, newValue)
+                // :KLUDGE: Person properties are updated asynchronously in the plugin server - the response won't reflect
+                //      the _updated_ properties yet.
+                await api.persons.updateProperty(person.id, key, parsedValue)
                 lemonToast.success(`Person property ${action}`)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated(

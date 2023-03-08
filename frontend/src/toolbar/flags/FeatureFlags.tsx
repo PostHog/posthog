@@ -3,10 +3,10 @@ import './featureFlags.scss'
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { Radio, Switch, Row, Typography, List, Input } from 'antd'
-import { AnimatedCollapsible } from '../../lib/components/AnimatedCollapsible'
+import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { urls } from 'scenes/urls'
-import { IconOpenInNew } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 export function FeatureFlags(): JSX.Element {
     const { searchTerm, filteredFlags } = useValues(featureFlagsLogic)

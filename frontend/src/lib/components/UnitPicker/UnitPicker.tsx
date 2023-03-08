@@ -1,12 +1,14 @@
 import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS, axisLabel } from 'scenes/insights/aggregationAxisFormat'
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useMemo, useRef, useState } from 'react'
 import { ItemMode, TrendsFilterType } from '~/types'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { CustomUnitModal } from 'lib/components/UnitPicker/CustomUnitModal'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 interface UnitPickerProps {
     filters: TrendsFilterType
@@ -26,6 +28,8 @@ export interface HandleUnitChange {
 }
 
 export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { updateInsightFilter } = useActions(insightDataLogic(insightProps))
     const { reportAxisUnitsChanged } = useActions(eventUsageLogic)
     const [isVisible, setIsVisible] = useState(false)
     const [localAxisFormat, setLocalAxisFormat] = useState(filters.aggregation_axis_format || undefined)
@@ -50,6 +54,12 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
 
         setFilters({
             ...filters,
+            aggregation_axis_format: format,
+            aggregation_axis_prefix: prefix,
+            aggregation_axis_postfix: postfix,
+        })
+
+        updateInsightFilter({
             aggregation_axis_format: format,
             aggregation_axis_prefix: prefix,
             aggregation_axis_postfix: postfix,
@@ -92,13 +102,13 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                 onClose={() => setCustomUnitModal(null)}
                 overlayRef={(ref) => (customUnitModalRef.current = ref)}
             />
-            <LemonButtonWithPopup
+            <LemonButtonWithDropdown
                 onClick={() => setIsVisible(!isVisible)}
                 size={'small'}
                 type={'secondary'}
                 status="stealth"
                 data-attr="chart-aggregation-axis-format"
-                popup={{
+                dropdown={{
                     onClickOutside: () => setIsVisible(false),
                     additionalRefs: [customUnitModalRef],
                     visible: isVisible,
@@ -149,7 +159,7 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                 }}
             >
                 {display}
-            </LemonButtonWithPopup>
+            </LemonButtonWithDropdown>
         </>
     )
 }

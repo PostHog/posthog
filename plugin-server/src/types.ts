@@ -5,6 +5,7 @@ import {
     PluginAttachment,
     PluginConfigSchema,
     PluginEvent,
+    PluginSettings,
     ProcessedPluginEvent,
     Properties,
 } from '@posthog/plugin-scaffold'
@@ -71,11 +72,11 @@ export enum KafkaSaslMechanism {
     ScramSha512 = 'scram-sha-512',
 }
 
-export interface PluginsServerConfig extends Record<string, any> {
-    WORKER_CONCURRENCY: number
-    TASKS_PER_WORKER: number
-    TASK_TIMEOUT: number
-    DATABASE_URL: string
+export interface PluginsServerConfig {
+    WORKER_CONCURRENCY: number // number of concurrent worker threads
+    TASKS_PER_WORKER: number // number of parallel tasks per worker thread
+    TASK_TIMEOUT: number // how many seconds until tasks are timed out
+    DATABASE_URL: string // Postgres database URL
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
@@ -86,9 +87,12 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_DATABASE: string
     CLICKHOUSE_USER: string
     CLICKHOUSE_PASSWORD: string | null
-    CLICKHOUSE_CA: string | null
-    CLICKHOUSE_SECURE: boolean
-    KAFKA_HOSTS: string
+    CLICKHOUSE_CA: string | null // ClickHouse CA certs
+    CLICKHOUSE_SECURE: boolean // whether to secure ClickHouse connection
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
+    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
+    KAFKA_HOSTS: string // comma-delimited Kafka hosts
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
     KAFKA_TRUSTED_CERT_B64: string | null
@@ -97,6 +101,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_SASL_USER: string | null
     KAFKA_SASL_PASSWORD: string | null
     KAFKA_CONSUMPTION_TOPIC: string | null
+    KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
@@ -105,62 +110,71 @@ export interface PluginsServerConfig extends Record<string, any> {
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
     POSTHOG_REDIS_PORT: number
-    BASE_DIR: string
-    PLUGINS_RELOAD_PUBSUB_CHANNEL: string
+    BASE_DIR: string // base path for resolving local plugins
+    PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
-    SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number
+    SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
     STATSD_HOST: string | null
     STATSD_PORT: number
     STATSD_PREFIX: string
-    SCHEDULE_LOCK_TTL: number
-    REDIS_POOL_MIN_SIZE: number
-    REDIS_POOL_MAX_SIZE: number
-    DISABLE_MMDB: boolean
+    SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
+    REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
+    REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
+    DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
-    EVENT_PROPERTY_LRU_SIZE: number
-    INTERNAL_MMDB_SERVER_PORT: number
-    JOB_QUEUES: string
-    JOB_QUEUE_GRAPHILE_URL: string
-    JOB_QUEUE_GRAPHILE_SCHEMA: string
-    JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean
+    EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
+    INTERNAL_MMDB_SERVER_PORT: number // port of the internal server used for IP location (0 means random)
+    JOB_QUEUES: string // retry queue engine and fallback queues
+    JOB_QUEUE_GRAPHILE_URL: string // use a different postgres connection in the graphile worker
+    JOB_QUEUE_GRAPHILE_SCHEMA: string // the postgres schema that the graphile worker
+    JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean // enable this to increase job queue throughput if not using pgbouncer
     JOB_QUEUE_S3_AWS_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_REGION: string
     JOB_QUEUE_S3_BUCKET_NAME: string
-    JOB_QUEUE_S3_PREFIX: string
-    CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
-    STALENESS_RESTART_SECONDS: number
-    HEALTHCHECK_MAX_STALE_SECONDS: number
-    PISCINA_USE_ATOMICS: boolean
-    PISCINA_ATOMICS_TIMEOUT: number
+    JOB_QUEUE_S3_PREFIX: string // S3 filename prefix for the S3 job queue
+    CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
+    STALENESS_RESTART_SECONDS: number // trigger a restart if no event ingested for this duration
+    HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
+    PISCINA_USE_ATOMICS: boolean // corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)
+    PISCINA_ATOMICS_TIMEOUT: number // (advanced) corresponds to the length of time a piscina worker should block for when looking for tasks
     SITE_URL: string | null
-    MAX_PENDING_PROMISES_PER_WORKER: number
-    KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
-    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
-    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
-    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    MAX_PENDING_PROMISES_PER_WORKER: number // (advanced) maximum number of promises that a worker can have running at once in the background. currently only targets the exportEvents buffer.
+    KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
+    RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY: number
     CONVERSION_BUFFER_ENABLED: boolean
     CONVERSION_BUFFER_ENABLED_TEAMS: string
     CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
     BUFFER_CONVERSION_SECONDS: number
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
-    OBJECT_STORAGE_ENABLED: boolean
-    OBJECT_STORAGE_ENDPOINT: string
+    OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
+    OBJECT_STORAGE_ENDPOINT: string // minio endpoint
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
-    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
-    OBJECT_STORAGE_BUCKET: string
-    PLUGIN_SERVER_MODE: 'ingestion' | 'async' | 'exports' | 'jobs' | 'scheduler' | null
+    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string // the top level folder for storing session recordings inside the storage bucket
+    OBJECT_STORAGE_BUCKET: string // the object storage bucket name
+    PLUGIN_SERVER_MODE:
+        | 'ingestion'
+        | 'ingestion-overflow'
+        | 'async'
+        | 'exports'
+        | 'jobs'
+        | 'scheduler'
+        | 'analytics-ingestion'
+        | 'recordings-ingestion'
+        | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
-    HISTORICAL_EXPORTS_ENABLED: boolean
+    HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
     HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
     HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
-    APP_METRICS_GATHERED_FOR_ALL: boolean
+    APP_METRICS_GATHERED_FOR_ALL: boolean // whether to gather app metrics for all teams
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
-    USE_KAFKA_FOR_SCHEDULED_TASKS: boolean
+    USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
+    EVENT_OVERFLOW_BUCKET_CAPACITY: number
+    EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -204,14 +218,19 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
+    // functions
+    enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
 }
 
 export interface PluginServerCapabilities {
     ingestion?: boolean
+    ingestionOverflow?: boolean
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean
+    sessionRecordingIngestion?: boolean
     http?: boolean
+    mmdb?: boolean
 }
 
 export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
@@ -401,6 +420,7 @@ export type WorkerMethods = {
 export type VMMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
+    getSettings?: () => PluginSettings
     onEvent?: (event: ProcessedPluginEvent) => Promise<void>
     onSnapshot?: (event: ProcessedPluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
@@ -496,6 +516,9 @@ export interface RawEventMessage extends BaseEventMessage {
     sent_at: string
     /** JSON-encoded number. */
     kafka_offset: string
+    /** Messages may have a token instead of a team_id, to be used e.g. to
+     * resolve to a team_id */
+    token?: string
 }
 
 /** Usable event message. */
@@ -839,6 +862,117 @@ export interface RawSessionRecordingEvent {
     created_at: string
 }
 
+export interface RawPerformanceEvent {
+    uuid: string
+    team_id: number
+    distinct_id: string
+    session_id: string
+    window_id: string
+    pageview_id: string
+    current_url: string
+
+    // BASE_EVENT_COLUMNS
+    time_origin: number
+    timestamp: string
+    entry_type: string
+    name: string
+
+    // RESOURCE_EVENT_COLUMNS
+    start_time: number
+    redirect_start: number
+    redirect_end: number
+    worker_start: number
+    fetch_start: number
+    domain_lookup_start: number
+    domain_lookup_end: number
+    connect_start: number
+    secure_connection_start: number
+    connect_end: number
+    request_start: number
+    response_start: number
+    response_end: number
+    decoded_body_size: number
+    encoded_body_size: number
+    duration: number
+
+    initiator_type: string
+    next_hop_protocol: string
+    render_blocking_status: string
+    response_status: number
+    transfer_size: number
+
+    // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
+    largest_contentful_paint_element: string
+    largest_contentful_paint_render_time: number
+    largest_contentful_paint_load_time: number
+    largest_contentful_paint_size: number
+    largest_contentful_paint_id: string
+    largest_contentful_paint_url: string
+
+    // NAVIGATION_EVENT_COLUMNS
+    dom_complete: number
+    dom_content_loaded_event: number
+    dom_interactive: number
+    load_event_end: number
+    load_event_start: number
+    redirect_count: number
+    navigation_type: string
+    unload_event_end: number
+    unload_event_start: number
+}
+
+export const PerformanceEventReverseMapping: { [key: number]: keyof RawPerformanceEvent } = {
+    // BASE_PERFORMANCE_EVENT_COLUMNS
+    0: 'entry_type',
+    1: 'time_origin',
+    2: 'name',
+
+    // RESOURCE_EVENT_COLUMNS
+    3: 'start_time',
+    4: 'redirect_start',
+    5: 'redirect_end',
+    6: 'worker_start',
+    7: 'fetch_start',
+    8: 'domain_lookup_start',
+    9: 'domain_lookup_end',
+    10: 'connect_start',
+    11: 'secure_connection_start',
+    12: 'connect_end',
+    13: 'request_start',
+    14: 'response_start',
+    15: 'response_end',
+    16: 'decoded_body_size',
+    17: 'encoded_body_size',
+    18: 'initiator_type',
+    19: 'next_hop_protocol',
+    20: 'render_blocking_status',
+    21: 'response_status',
+    22: 'transfer_size',
+
+    // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
+    23: 'largest_contentful_paint_element',
+    24: 'largest_contentful_paint_render_time',
+    25: 'largest_contentful_paint_load_time',
+    26: 'largest_contentful_paint_size',
+    27: 'largest_contentful_paint_id',
+    28: 'largest_contentful_paint_url',
+
+    // NAVIGATION_EVENT_COLUMNS
+    29: 'dom_complete',
+    30: 'dom_content_loaded_event',
+    31: 'dom_interactive',
+    32: 'load_event_end',
+    33: 'load_event_start',
+    34: 'redirect_count',
+    35: 'navigation_type',
+    36: 'unload_event_end',
+    37: 'unload_event_start',
+
+    // Added after v1
+    39: 'duration',
+    40: 'timestamp',
+}
+
 export enum TimestampFormat {
     ClickHouseSecondPrecision = 'clickhouse-second-precision',
     ClickHouse = 'clickhouse',
@@ -896,6 +1030,12 @@ export enum PropertyType {
     Boolean = 'Boolean',
 }
 
+export enum PropertyDefinitionTypeEnum {
+    Event = 1,
+    Person = 2,
+    Group = 3,
+}
+
 export interface PropertyDefinitionType {
     id: string
     name: string
@@ -904,6 +1044,8 @@ export interface PropertyDefinitionType {
     query_usage_30_day: number | null
     team_id: number
     property_type?: PropertyType
+    type: PropertyDefinitionTypeEnum
+    group_type_index: number | null
 }
 
 export interface EventPropertyType {

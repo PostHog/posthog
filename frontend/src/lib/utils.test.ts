@@ -32,6 +32,8 @@ import {
     midEllipsis,
     numericOperatorMap,
     objectDiffShallow,
+    objectClean,
+    objectCleanWithEmpty,
     pluralize,
     range,
     reverseColonDelimitedDuration,
@@ -39,9 +41,11 @@ import {
     selectorOperatorMap,
     stringOperatorMap,
     toParams,
+    shortTimeZone,
 } from './utils'
 import {
     ActionFilter,
+    AnyPropertyFilter,
     ElementType,
     EventType,
     FilterLogicalOperator,
@@ -188,6 +192,11 @@ describe('isURL()', () => {
         expect(isURL(1)).toEqual(false)
         expect(isURL(true)).toEqual(false)
         expect(isURL(null)).toEqual(false)
+        expect(
+            isURL(
+                'https://client.rrrr.alpha.dev.foo.bar/9RvDy6gCmic_srrKs1db?sourceOrigin=rrrr&embedded={%22hostContext%22:%22landing%22,%22hostType%22:%22web%22,%22type%22:%22popsync%22}&share=1&wrapperUrl=https%3A%2F%2Fuat.rrrr.io%2F9RvDy6gCmicxyz&save=1&initialSearch={%22sites%22:%22google.com,gettyimages.com%22,%22safe%22:true,%22q%22:%22Perro%22}&opcid=4360f861-ffff-4444-9999-5257065a7dc3&waitForToken=1'
+            )
+        ).toEqual(false)
     })
 })
 
@@ -587,6 +596,32 @@ describe('objectDiffShallow()', () => {
     })
 })
 
+describe('objectClean()', () => {
+    it('removes undefined values', () => {
+        expect(objectClean({ a: 1, b: 'b', c: null, d: {}, e: [], f: undefined })).toStrictEqual({
+            a: 1,
+            b: 'b',
+            c: null,
+            d: {},
+            e: [],
+        })
+    })
+})
+
+describe('objectCleanWithEmpty()', () => {
+    it('removes undefined and empty values', () => {
+        expect(
+            objectCleanWithEmpty({ a: 1, b: 'b', c: null, d: {}, e: [], f: undefined, g: { x: 1 }, h: [1] })
+        ).toStrictEqual({
+            a: 1,
+            b: 'b',
+            c: null,
+            g: { x: 1 },
+            h: [1],
+        })
+    })
+})
+
 describe('eventToName()', () => {
     const baseEvent = {
         elements: [],
@@ -705,14 +740,25 @@ describe('convertPropertyGroupToProperties()', () => {
         const propertyGroup = {
             type: FilterLogicalOperator.And,
             values: [
-                { type: FilterLogicalOperator.And, values: [{ key: '$browser' }, { key: '$current_url' }] },
-                { type: FilterLogicalOperator.And, values: [{ key: '$lib' }] },
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        { key: '$browser', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+                        { key: '$current_url', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+                    ] as AnyPropertyFilter[],
+                },
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        { key: '$lib', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+                    ] as AnyPropertyFilter[],
+                },
             ],
         }
         expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([
-            { key: '$browser' },
-            { key: '$current_url' },
-            { key: '$lib' },
+            { key: '$browser', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+            { key: '$current_url', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+            { key: '$lib', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
         ])
     })
 
@@ -722,9 +768,9 @@ describe('convertPropertyGroupToProperties()', () => {
             values: [
                 {
                     type: FilterLogicalOperator.And,
-                    values: [{ type: FilterLogicalOperator.And, values: [{ key: '$lib' }] }],
+                    values: [{ type: FilterLogicalOperator.And, values: [{ key: '$lib' } as any] }],
                 },
-                { type: FilterLogicalOperator.And, values: [{ key: '$browser' }] },
+                { type: FilterLogicalOperator.And, values: [{ key: '$browser' } as any] },
             ],
         }
         expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([{ key: '$lib' }, { key: '$browser' }])
@@ -733,7 +779,7 @@ describe('convertPropertyGroupToProperties()', () => {
 
 describe('convertPropertiesToPropertyGroup', () => {
     it('converts properties to one AND operator property group', () => {
-        const properties = [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }]
+        const properties: any[] = [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }]
         expect(convertPropertiesToPropertyGroup(properties)).toEqual({
             type: FilterLogicalOperator.And,
             values: [
@@ -776,4 +822,12 @@ describe('range', () => {
     it('creates offset range', () => {
         expect(range(1, 5)).toEqual([1, 2, 3, 4])
     })
+})
+
+test('shortTimezone', () => {
+    expect(shortTimeZone('UTC')).toEqual('UTC')
+    // All timezones below don't observe DST for simplicity
+    expect(shortTimeZone('America/Phoenix')).toEqual('MST')
+    expect(shortTimeZone('Europe/Moscow')).toEqual('UTC+3')
+    expect(shortTimeZone('Asia/Tokyo')).toEqual('UTC+9')
 })

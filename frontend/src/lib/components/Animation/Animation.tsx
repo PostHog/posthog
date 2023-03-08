@@ -3,7 +3,7 @@ import { Player } from '@lottiefiles/react-lottie-player'
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { AnimationType, getAnimationSource, animations } from 'lib/animations/animations'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 export interface AnimationProps {
     /** Animation to show */

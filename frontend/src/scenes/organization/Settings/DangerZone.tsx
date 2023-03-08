@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
+import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { Dispatch, SetStateAction, useState } from 'react'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
-import { IconDelete } from 'lib/components/icons'
+import { IconDelete } from 'lib/lemon-ui/icons'
 
 export function DeleteOrganizationModal({
     isOpen,

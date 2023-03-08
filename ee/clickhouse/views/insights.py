@@ -1,4 +1,4 @@
-from typing import Any, Dict, cast
+from typing import Any, Dict
 
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -11,7 +11,7 @@ from ee.clickhouse.queries.retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from posthog.api.insight import InsightViewSet
 from posthog.decorators import cached_function
-from posthog.models import Insight, User
+from posthog.models import Insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import Filter
 
@@ -23,7 +23,7 @@ class CanEditInsight(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
-        return insight.get_effective_privilege_level(cast(User, request.user).id) == Dashboard.PrivilegeLevel.CAN_EDIT
+        return view.user_permissions.insight(insight).effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):

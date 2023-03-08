@@ -6,7 +6,7 @@ import { posthog } from '~/toolbar/posthog'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import type { PostHog } from 'posthog-js'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'toolbarLogic']),

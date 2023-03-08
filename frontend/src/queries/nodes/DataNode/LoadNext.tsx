@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DataNode } from '~/queries/schema'
 import { isPersonsNode } from '~/queries/utils'
 

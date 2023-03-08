@@ -1,0 +1,59 @@
+#
+# This workflow builds and pushes to DockerHub the container images:
+#
+# - posthog/posthog:foss-latest-release
+# - posthog/posthog:foss-release-[version]
+#
+name: Container image for the FOSS stable release
+
+on:
+    push:
+        tags:
+            - '*.**'
+
+jobs:
+    build-push:
+        name: Build & push container release image
+        if: github.repository == 'PostHog/posthog-foss'
+        runs-on: ubuntu-latest
+        permissions:
+            id-token: write # allow issuing OIDC tokens for this workflow run
+            contents: read # allow at least reading the repo contents, add other permissions if necessary
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v3
+
+            - name: Update git SHA
+              run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
+
+            - name: Get tag name
+              run: echo "TAG_NAME=$(echo ${GITHUB_REF#refs/tags/} | tr / -)" >> $GITHUB_ENV
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v2
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v2
+
+            - name: Login to DockerHub
+              uses: docker/login-action@v2
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Build and push release
+              id: build
+              uses: docker/build-push-action@v2
+              with:
+                  cache-from: type=gha # always pull the layers from GHA
+                  cache-to: type=gha,mode=max # always push the layers to GHA
+                  context: .
+                  push: true
+                  tags: |
+                      posthog/posthog-foss:latest-release
+                      posthog/posthog-foss:release-${{ env.TAG_NAME  }}
+                  platforms: linux/amd64,linux/arm64
+
+            - name: Image digest
+              run: |
+                  echo "Pushed FOSS stable release: ${{ steps.build.outputs.digest }}"

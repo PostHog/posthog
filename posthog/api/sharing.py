@@ -17,15 +17,18 @@ from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_co
 from posthog.models.insight import Insight
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 
 
 # NOTE: We can't use a standard permission system as we are using Detail view on a non-detail route
-def check_can_edit_sharing_configuration(request: Request, sharing: SharingConfiguration) -> bool:
+def check_can_edit_sharing_configuration(
+    view: "SharingConfigurationViewSet", request: Request, sharing: SharingConfiguration
+) -> bool:
     if request.method in SAFE_METHODS:
         return True
 
-    if sharing.dashboard and not sharing.dashboard.can_user_edit(cast(User, request.user).id):
+    if sharing.dashboard and not view.user_permissions.dashboard(sharing.dashboard).can_edit:
         raise PermissionDenied("You don't have edit permissions for this dashboard.")
 
     return True
@@ -99,7 +102,7 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
             self.team_id, dashboard=context.get("dashboard"), insight=context.get("insight")
         )
 
-        check_can_edit_sharing_configuration(request, instance)
+        check_can_edit_sharing_configuration(self, request, instance)
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -154,7 +157,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             raise NotFound()
 
         embedded = "embedded" in request.GET or "/embedded/" in request.path
-        context = {"view": self, "request": request}
+        context = {
+            "view": self,
+            "request": request,
+            "user_permissions": UserPermissions(cast(User, request.user), resource.team),
+            "is_shared": True,
+        }
         exported_data: Dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
         if asset:

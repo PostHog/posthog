@@ -1,6 +1,6 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { pluralize } from 'lib/utils'
 import { SystemStatusRow } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
@@ -86,6 +86,15 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                             Changing your recordings TTL requires ClickHouse to have enough free space to perform the
                             operation (even when reducing this value). In addition, please mind that removing old
                             recordings will be removed asynchronously, not immediately.
+                        </>
+                    </AlertMessage>
+                )}
+                {Object.keys(instanceConfigEditingState).includes('RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS') && (
+                    <AlertMessage type="warning">
+                        <>
+                            Changing your performance events TTL requires ClickHouse to have enough free space to
+                            perform the operation (even when reducing this value). In addition, please mind that
+                            removing old recordings will be removed asynchronously, not immediately.
                         </>
                     </AlertMessage>
                 )}

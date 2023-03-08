@@ -67,6 +67,7 @@ class License(models.Model):
         AvailableFeature.APP_METRICS,
         AvailableFeature.RECORDINGS_PLAYLISTS,
         AvailableFeature.RECORDINGS_FILE_EXPORT,
+        AvailableFeature.RECORDINGS_PERFORMANCE,
     ]
 
     ENTERPRISE_PLAN = "enterprise"

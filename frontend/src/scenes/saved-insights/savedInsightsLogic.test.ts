@@ -32,7 +32,6 @@ const createInsight = (id: number, string = 'hi'): InsightModel =>
         dashboard: null,
         deleted: false,
         saved: true,
-        filters_hash: 'hash',
         filters: {},
     } as any as InsightModel)
 const createSavedInsights = (string = 'hello'): InsightsResult => ({

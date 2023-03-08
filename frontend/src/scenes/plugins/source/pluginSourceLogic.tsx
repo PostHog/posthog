@@ -4,7 +4,7 @@ import type { pluginSourceLogicType } from './pluginSourceLogicType'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { validateJson } from 'lib/utils'
 import { FormErrors } from 'lib/forms/Errors'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -48,13 +48,13 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
             errors: (values) => ({
                 'plugin.json': !validateJson(values['plugin.json']) ? 'Not valid JSON' : '',
             }),
-            preSubmit: () => {
+            preSubmit: async () => {
                 const changes = {}
                 const errors = {}
                 for (const [file, source] of Object.entries(values.pluginSource)) {
                     if (source && file.match(/\.(ts|tsx|js|jsx|json)$/)) {
                         try {
-                            const prettySource = formatSource(file, source)
+                            const prettySource = await formatSource(file, source)
                             if (prettySource !== source) {
                                 changes[file] = prettySource
                             }

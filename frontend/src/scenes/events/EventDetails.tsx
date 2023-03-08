@@ -1,15 +1,15 @@
 import { useState } from 'react'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { EventElements } from 'scenes/events/EventElements'
+import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { Tabs } from 'antd'
 import { EventJSON } from 'scenes/events/EventJSON'
 import { EventType } from '../../types'
 import { Properties } from '@posthog/plugin-scaffold'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pluralize } from 'lib/utils'
-import { LemonTableProps } from 'lib/components/LemonTable'
+import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import ReactJson from 'react-json-view'
 
 const { TabPane } = Tabs
@@ -76,7 +76,7 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
             </TabPane>
             {event.elements && event.elements.length > 0 && (
                 <TabPane tab="Elements" key="elements">
-                    <EventElements event={event} />
+                    <HTMLElementsDisplay elements={event.elements} />
                 </TabPane>
             )}
         </Tabs>

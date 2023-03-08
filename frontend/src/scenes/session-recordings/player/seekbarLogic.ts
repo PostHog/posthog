@@ -18,6 +18,7 @@ import {
     THUMB_OFFSET,
     THUMB_SIZE,
 } from './playerUtils'
+
 export const seekbarLogic = kea<seekbarLogicType>({
     path: (key) => ['scenes', 'session-recordings', 'player', 'seekbarLogic', key],
     props: {} as SessionRecordingPlayerLogicProps,
@@ -87,6 +88,13 @@ export const seekbarLogic = kea<seekbarLogicType>({
         ],
     },
     selectors: {
+        endTimeMs: [
+            (selectors) => [selectors.sessionPlayerData],
+            (sessionPlayerData) => {
+                return sessionPlayerData?.metadata?.recordingDurationMs ?? 0
+            },
+        ],
+
         bufferPercent: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {

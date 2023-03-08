@@ -126,6 +126,18 @@
   WHERE team_id = 2
   '
 ---
+# name: TestAsyncDeletion.test_delete_cohortpeople
+  '
+  SELECT count()
+  FROM cohortpeople
+  '
+---
+# name: TestAsyncDeletion.test_delete_cohortpeople_version
+  '
+  SELECT count()
+  FROM cohortpeople
+  '
+---
 # name: TestAsyncDeletion.test_delete_group
   '
   

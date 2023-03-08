@@ -1,5 +1,5 @@
 import { Field } from 'lib/forms/Field'
-import { LemonSelect } from './LemonSelect'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 export default function SignupRoleSelect({ className }: { className?: string }): JSX.Element {
     return (
@@ -18,11 +18,11 @@ export default function SignupRoleSelect({ className }: { className?: string }):
                     },
                     {
                         label: 'Executive',
-                        value: 'executive',
+                        value: 'leadership',
                     },
                     {
                         label: 'Customer Success',
-                        value: 'customer-success',
+                        value: 'customer_service',
                     },
                     {
                         label: 'Sales',

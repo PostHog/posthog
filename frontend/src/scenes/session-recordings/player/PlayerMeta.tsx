@@ -1,6 +1,6 @@
 import './PlayerMeta.scss'
 import { dayjs } from 'lib/dayjs'
-import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { useActions, useValues } from 'kea'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
@@ -9,13 +9,13 @@ import { percentage } from 'lib/utils'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import clsx from 'clsx'
-import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { CSSTransition } from 'react-transition-group'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
@@ -66,11 +66,11 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                     'px-3 p-1 text-xs': isFullScreen,
                 })}
             >
-                <div className="mr-2 ph-no-capture">
+                <div className="ph-no-capture">
                     {!sessionPerson ? (
-                        <LemonSkeleton.Circle className="w-12 h-12" />
+                        <LemonSkeleton.Circle className="w-10 h-10" />
                     ) : (
-                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xxl' : 'md'} />
+                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xl' : 'md'} />
                     )}
                 </div>
                 <div className="overflow-hidden ph-no-capture flex-1">
@@ -121,14 +121,24 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                                     />
                                     {!isFullScreen ? iconProperties['$os'] : null}
                                 </span>
-                                <span className="flex items-center gap-1 whitespace-nowrap">
-                                    <PropertyIcon
-                                        noTooltip={!isFullScreen}
-                                        property="$geoip_country_code"
-                                        value={iconProperties['$geoip_country_code']}
-                                    />
-                                    {!isFullScreen ? iconProperties['$geoip_city_name'] : null}
-                                </span>
+                                {iconProperties['$geoip_country_code'] && (
+                                    <span className="flex items-center gap-1 whitespace-nowrap">
+                                        <PropertyIcon
+                                            noTooltip={!isFullScreen}
+                                            property="$geoip_country_code"
+                                            value={iconProperties['$geoip_country_code']}
+                                        />
+                                        {
+                                            isFullScreen &&
+                                                [
+                                                    iconProperties['$geoip_city_name'],
+                                                    iconProperties['$geoip_subdivision_1_code'],
+                                                ]
+                                                    .filter((x) => x)
+                                                    .join(', ') /* [city, state] */
+                                        }
+                                    </span>
+                                )}
                             </div>
                         ) : null}
                     </div>
@@ -139,10 +149,16 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                     status="stealth"
                     active={isMetadataExpanded}
                     onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
-                    icon={isMetadataExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                     tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
                     tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
-                />
+                    size="small"
+                >
+                    {isMetadataExpanded ? (
+                        <IconUnfoldLess className="text-lg text-muted-alt" />
+                    ) : (
+                        <IconUnfoldMore className="text-lg text-muted-alt" />
+                    )}
+                </LemonButton>
 
                 {props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}
             </div>
@@ -167,7 +183,7 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                 className={clsx(
                     'PlayerMeta__bottom flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden',
                     {
-                        'p-3': !isFullScreen,
+                        'p-2': !isFullScreen,
                         'p-1 px-3 text-xs h-12': isFullScreen,
                     }
                 )}
@@ -201,6 +217,14 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                                             iconStyle={{ color: 'var(--muted-alt)' }}
                                         />
                                     </span>
+                                </span>
+                            </span>
+                        )}
+                        {lastPageviewEvent?.properties?.['$screen_name'] && (
+                            <span className="flex items-center gap-2 truncate">
+                                <span>·</span>
+                                <span className="flex items-center gap-1 truncate">
+                                    {lastPageviewEvent?.properties['$screen_name']}
                                 </span>
                             </span>
                         )}

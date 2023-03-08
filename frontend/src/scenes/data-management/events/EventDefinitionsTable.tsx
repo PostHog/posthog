@@ -1,6 +1,6 @@
 import './EventDefinitionsTable.scss'
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { EventDefinition, EventDefinitionType } from '~/types'
 import {
     EVENT_DEFINITIONS_PER_PAGE,
@@ -15,13 +15,16 @@ import { EventDefinitionProperties } from 'scenes/data-management/events/EventDe
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import {
+    ThirtyDayQueryCountTitle,
+    ThirtyDayVolumeTitle,
+} from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { More } from 'lib/components/LemonButton/More'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { urls } from 'scenes/urls'
 import { combineUrl } from 'kea-router'
-import { IconPlayCircle } from 'lib/components/icons'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },

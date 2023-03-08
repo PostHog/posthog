@@ -5,7 +5,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { TeamType, UserType, FusedTeamMemberType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
 import {
     getReasonForAccessLevelChangeProhibition,
@@ -15,9 +15,9 @@ import {
 import { AddMembersModalWithButton } from './AddMembersModal'
 import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
 import { LemonButton, LemonSelect, LemonSelectOption, LemonTable } from '@posthog/lemon-ui'
-import { LemonTableColumns } from 'lib/components/LemonTable'
-import { Tooltip } from 'lib/components/Tooltip'
-import { LemonDialog } from 'lib/components/LemonDialog'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)

@@ -157,6 +157,30 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     return (period_start, period_end)
 
 
+def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
+    """
+    Returns a pair of datetimes, representing the start and end of the current day.
+    `at` is the datetime to use as a reference point.
+    """
+
+    if not at:
+        at = timezone.now()
+
+    period_end: datetime.datetime = datetime.datetime.combine(
+        at,
+        datetime.time.max,
+        tzinfo=pytz.UTC,
+    )  # very end of the previous day
+
+    period_start: datetime.datetime = datetime.datetime.combine(
+        period_end,
+        datetime.time.min,
+        tzinfo=pytz.UTC,
+    )  # very start of the previous day
+
+    return (period_start, period_end)
+
+
 def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
@@ -309,18 +333,13 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
+    context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
-
-    try:
-        year_in_hog_url = f"/year_in_posthog/2022/{str(request.user.uuid)}"  # type: ignore
-    except:
-        year_in_hog_url = None
 
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
         "week_start": 1,  # Monday
-        "year_in_hog_url": year_in_hog_url,
     }
 
     from posthog.api.geoip import get_geoip_properties  # avoids circular import
@@ -337,6 +356,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.team import TeamSerializer
         from posthog.api.user import User, UserSerializer
+        from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
         posthog_app_context = {
@@ -349,14 +369,19 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         }
 
         if request.user.pk:
-            user_serialized = UserSerializer(request.user, context={"request": request}, many=False)
+            user = cast(User, request.user)
+            user_permissions = UserPermissions(user=user, team=user.team)
+            user_serialized = UserSerializer(
+                request.user, context={"request": request, "user_permissions": user_permissions}, many=False
+            )
             posthog_app_context["current_user"] = user_serialized.data
             posthog_distinct_id = user_serialized.data.get("distinct_id")
-            team = cast(User, request.user).team
-            if team:
-                team_serialized = TeamSerializer(team, context={"request": request}, many=False)
+            if user.team:
+                team_serialized = TeamSerializer(
+                    user.team, context={"request": request, "user_permissions": user_permissions}, many=False
+                )
                 posthog_app_context["current_team"] = team_serialized.data
-                posthog_app_context["frontend_apps"] = get_frontend_apps(team.pk)
+                posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
@@ -964,12 +989,8 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
     return result
 
 
-def should_refresh(request: Request) -> bool:
+def refresh_requested_by_client(request: Request) -> bool:
     return _request_has_key_set("refresh", request)
-
-
-def should_ignore_dashboard_items_field(request: Request) -> bool:
-    return _request_has_key_set("no_items_field", request)
 
 
 def _request_has_key_set(key: str, request: Request) -> bool:

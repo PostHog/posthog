@@ -8,7 +8,7 @@ import { router } from 'kea-router'
 
 import { PureField } from 'lib/forms/Field'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { IconCheckmark } from 'lib/components/icons'
+import { IconCheckmark } from 'lib/lemon-ui/icons'
 
 const sections = [
     {

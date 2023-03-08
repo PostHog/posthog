@@ -37,7 +37,11 @@ class TeamManager:
 
     @instance_memoize
     def event_properties(self, team_id: str) -> Set[str]:
-        return set(PropertyDefinition.objects.filter(team_id=team_id).values_list("name", flat=True))
+        return set(
+            PropertyDefinition.objects.filter(team_id=team_id, type=PropertyDefinition.Type.EVENT).values_list(
+                "name", flat=True
+            )
+        )
 
     @instance_memoize
     def person_on_events_properties(self, team_id: str) -> Set[str]:

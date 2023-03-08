@@ -15,19 +15,34 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
+function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
+    func: F,
+    waitFor: number
+): (...args: Parameters<F>) => void {
+    let timeout: ReturnType<typeof setTimeout>
+    return (...args: Parameters<F>): void => {
+        clearTimeout(timeout)
+        timeout = setTimeout(() => func(...args), waitFor)
+    }
+}
+
 export const elementsLogic = kea<elementsLogicType>({
     path: ['toolbar', 'elements', 'elementsLogic'],
     actions: {
         enableInspect: true,
         disableInspect: true,
 
-        selectElement: (element: HTMLElement | null) => ({ element }),
+        selectElement: (element: HTMLElement | null) => ({
+            element,
+        }),
         createAction: (element: HTMLElement) => ({ element }),
 
         updateRects: true,
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         setHighlightElement: (element: HTMLElement | null) => ({ element }),
         setSelectedElement: (element: HTMLElement | null) => ({ element }),
+
+        setRelativePositionCompensation: (compensation: number) => ({ compensation }),
     },
 
     reducers: () => ({
@@ -51,6 +66,7 @@ export const elementsLogic = kea<elementsLogicType>({
                 enableInspect: () => null,
                 disableInspect: () => null,
                 createAction: () => null,
+                selectElement: () => null,
             },
         ],
         highlightElement: [
@@ -82,17 +98,28 @@ export const elementsLogic = kea<elementsLogicType>({
                 [heatmapLogic.actionTypes.enableHeatmap]: () => 'heatmap',
             },
         ],
+        relativePositionCompensation: [
+            0,
+            {
+                setRelativePositionCompensation: (_, { compensation }) => compensation,
+            },
+        ],
     }),
 
     selectors: {
+        activeMetaIsSelected: [
+            (s) => [s.selectedElementMeta, s.activeMeta],
+            (selectedElementMeta, activeMeta) =>
+                !!selectedElementMeta && !!activeMeta && selectedElementMeta.element === activeMeta.element,
+        ],
         inspectEnabled: [
             (s) => [
                 s.inspectEnabledRaw,
                 actionsTabLogic.selectors.inspectingElement,
                 actionsTabLogic.selectors.buttonActionsVisible,
             ],
-            (inpsectEnabledRaw, inspectingElement, buttonActionsVisible) =>
-                inpsectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
+            (inspectEnabledRaw, inspectingElement, buttonActionsVisible) =>
+                inspectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
         ],
 
         heatmapEnabled: [() => [heatmapLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],
@@ -136,6 +163,7 @@ export const elementsLogic = kea<elementsLogicType>({
                             })
                         }
                     })
+                    return steps
                 }
                 return [] as ElementWithMetadata[]
             },
@@ -154,21 +182,12 @@ export const elementsLogic = kea<elementsLogicType>({
             (heatmapElements, inspectElements, actionElements, actionsListElements): ElementMap => {
                 const elementMap = new Map<HTMLElement, ElementWithMetadata>()
 
-                inspectElements.forEach((e) => {
-                    elementMap.set(e.element, e)
-                })
-                heatmapElements.forEach((e) => {
+                ;[...inspectElements, ...heatmapElements, ...actionElements, ...actionsListElements].forEach((e) => {
+                    const elementWithMetadata: ElementWithMetadata = { ...e }
                     if (elementMap.get(e.element)) {
-                        elementMap.set(e.element, { ...elementMap.get(e.element), ...e })
+                        elementMap.set(e.element, { ...elementMap.get(e.element), ...elementWithMetadata })
                     } else {
-                        elementMap.set(e.element, e)
-                    }
-                })
-                ;[...actionElements, ...actionsListElements].forEach((e) => {
-                    if (elementMap.get(e.element)) {
-                        elementMap.set(e.element, { ...elementMap.get(e.element), ...e })
-                    } else {
-                        elementMap.set(e.element, e)
+                        elementMap.set(e.element, elementWithMetadata)
                     }
                 })
                 return elementMap
@@ -311,15 +330,31 @@ export const elementsLogic = kea<elementsLogicType>({
                 return null
             },
         ],
+        activeMeta: [
+            (s) => [s.selectedElementMeta, s.hoverElementMeta],
+            (selectedElementMeta, hoverElementMeta) => {
+                return selectedElementMeta || hoverElementMeta
+            },
+        ],
     },
 
     events: ({ cache, values, actions }) => ({
         afterMount: () => {
+            cache.updateRelativePosition = debounce(() => {
+                const relativePositionCompensation =
+                    window.getComputedStyle(document.body).position === 'relative'
+                        ? document.documentElement.getBoundingClientRect().y - document.body.getBoundingClientRect().y
+                        : 0
+                if (relativePositionCompensation !== values.relativePositionCompensation) {
+                    actions.setRelativePositionCompensation(relativePositionCompensation)
+                }
+            }, 100)
             cache.onClick = () => actions.updateRects()
             cache.onScrollResize = () => {
                 window.clearTimeout(cache.clickDelayTimeout)
                 actions.updateRects()
                 cache.clickDelayTimeout = window.setTimeout(actions.updateRects, 100)
+                cache.updateRelativePosition()
             }
             cache.onKeyDown = (e: KeyboardEvent) => {
                 if (e.keyCode !== 27) {
@@ -349,6 +384,7 @@ export const elementsLogic = kea<elementsLogicType>({
             window.addEventListener('resize', cache.onScrollResize)
             window.addEventListener('keydown', cache.onKeyDown)
             window.document.addEventListener('scroll', cache.onScrollResize, true)
+            cache.updateRelativePosition()
         },
         beforeUnmount: () => {
             window.removeEventListener('click', cache.onClick)
@@ -367,10 +403,10 @@ export const elementsLogic = kea<elementsLogicType>({
             posthog.capture('toolbar mode triggered', { mode: 'inspect', enabled: false })
         },
         selectElement: ({ element }) => {
-            const inpsectForAction =
+            const inspectForAction =
                 actionsTabLogic.values.buttonActionsVisible && actionsTabLogic.values.inspectingElement !== null
 
-            if (inpsectForAction) {
+            if (inspectForAction) {
                 actions.setHoverElement(null)
                 if (element) {
                     actionsTabLogic.actions.inspectElementSelected(element, actionsTabLogic.values.inspectingElement)

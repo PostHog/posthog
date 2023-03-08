@@ -5,7 +5,6 @@ import structlog
 from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
-from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -14,19 +13,23 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.serializer_helpers import ReturnDict
 
+from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.constants import INSIGHT_TRENDS, AvailableFeature
+from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
+from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
+from posthog.models.dashboard_templates import DashboardTemplate
+from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.utils import should_ignore_dashboard_items_field
+from posthog.user_permissions import UserPermissionsSerializerMixin
 
 logger = structlog.get_logger(__name__)
 
@@ -37,7 +40,7 @@ class CanEditDashboard(BasePermission):
     def has_object_permission(self, request: Request, view, dashboard) -> bool:
         if request.method in SAFE_METHODS:
             return True
-        return dashboard.can_user_edit(cast(User, request.user).id)
+        return view.user_permissions.dashboard(dashboard).can_edit
 
 
 class TextSerializer(serializers.ModelSerializer):
@@ -57,7 +60,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DashboardTile
-        exclude = ["dashboard", "deleted"]
+        exclude = ["dashboard", "deleted", "filters_hash", "last_refresh", "refreshing", "refresh_attempt"]
         read_only_fields = ["id", "insight"]
         depth = 1
 
@@ -72,14 +75,14 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         return representation
 
 
-class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
-    items = serializers.SerializerMethodField()
+class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserPermissionsSerializerMixin):
     tiles = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
     delete_insights = serializers.BooleanField(write_only=True, required=False, default=False)
     effective_privilege_level = serializers.SerializerMethodField()
+    effective_restriction_level = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
 
     class Meta:
@@ -88,7 +91,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             "id",
             "name",
             "description",
-            "items",
             "pinned",
             "created_at",
             "created_by",
@@ -143,12 +145,16 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     error=error,
                     exc_info=True,
                 )
-                raise serializers.ValidationError({"use_template": "Invalid value provided."})
+                raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
 
         elif use_dashboard:
             try:
                 existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
-                existing_tiles = DashboardTile.objects.filter(dashboard=existing_dashboard).select_related("insight")
+                existing_tiles = (
+                    DashboardTile.objects.filter(dashboard=existing_dashboard)
+                    .exclude(deleted=True)
+                    .select_related("insight")
+                )
                 for existing_tile in existing_tiles:
                     if self.initial_data.get("duplicate_tiles", False):
                         self._deep_duplicate_tiles(dashboard, existing_tile)
@@ -214,8 +220,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             )
 
     def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
-        user = cast(User, self.context["request"].user)
-        can_user_restrict = instance.can_user_restrict(user.id)
+        can_user_restrict = self.user_permissions.dashboard(instance).can_restrict
         if "restriction_level" in validated_data and not can_user_restrict:
             raise exceptions.PermissionDenied(
                 "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
@@ -229,11 +234,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         initial_data = dict(self.initial_data)
 
-        instance = super().update(instance, validated_data)
-
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
 
+        instance = super().update(instance, validated_data)
+
+        user = cast(User, self.context["request"].user)
         tiles = initial_data.pop("tiles", [])
         for tile_data in tiles:
             self._update_tiles(instance, tile_data, user)
@@ -241,6 +247,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
 
+        self.user_permissions.reset_insights_dashboard_cached_results()
         return instance
 
     @staticmethod
@@ -281,16 +288,16 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if delete_related_insights:
             insights_to_update = []
             for insight in Insight.objects.filter(dashboard_tiles__dashboard=instance.id):
-                if insight.dashboard_tiles.exclude(deleted=True).count() == 1:
+                if insight.dashboard_tiles.count() == 1:
                     insight.deleted = True
                     insights_to_update.append(insight)
 
             Insight.objects.bulk_update(insights_to_update, ["deleted"])
-        DashboardTile.objects.filter(dashboard__id=instance.id).update(deleted=True)
+        DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
-        DashboardTile.objects.filter(dashboard__id=instance.id).update(deleted=False)
+        DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=False)
         insights_to_undelete = []
         for tile in DashboardTile.objects.filter(dashboard__id=instance.id):
             if tile.insight and tile.insight.deleted:
@@ -307,52 +314,33 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         serialized_tiles = []
 
-        for tile in DashboardTile.dashboard_queryset(dashboard.tiles):
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles).prefetch_related(
+            Prefetch(
+                "insight__tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
+            )
+        )
+        self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
+
+        for tile in tiles:
             self.context.update({"dashboard_tile": tile})
 
             if isinstance(tile.layouts, str):
                 tile.layouts = json.loads(tile.layouts)
-            self.context.update({"filters_hash": tile.filters_hash})
+
             tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
             serialized_tiles.append(tile_data)
 
         return serialized_tiles
 
-    @extend_schema(deprecated=True, description="items is deprecated, use tiles instead")
-    def get_items(self, dashboard: Dashboard):
-        if self.context["view"].action == "list" or should_ignore_dashboard_items_field(self.context["request"]):
-            return None
-
-        # used by insight serializer to load insight filters in correct context
-        self.context.update({"dashboard": dashboard})
-
-        insights = []
-        for tile in dashboard.tiles.all():
-            self.context.update({"dashboard_tile": tile})
-            if tile.insight:
-                insight = tile.insight
-                layouts = tile.layouts
-                # workaround because DashboardTiles layouts were migrated as stringified JSON :/
-                if isinstance(layouts, str):
-                    layouts = json.loads(layouts)
-
-                color = tile.color
-
-                # Make sure all items have an insight set
-                if not insight.filters.get("insight"):
-                    insight.filters["insight"] = INSIGHT_TRENDS
-                    insight.save(update_fields=["filters"])
-
-                self.context.update({"filters_hash": tile.filters_hash})
-                insight_data = InsightSerializer(insight, many=False, context=self.context).data
-                insight_data["layouts"] = layouts
-                insight_data["color"] = color
-                insights.append(insight_data)
-
-        return insights
+    def get_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
+        if self.context.get("is_shared"):
+            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        return self.user_permissions.dashboard(dashboard).effective_restriction_level
 
     def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
-        return dashboard.get_effective_privilege_level(self.context["request"].user.id)
+        if self.context.get("is_shared"):
+            return Dashboard.PrivilegeLevel.CAN_VIEW
+        return self.user_permissions.dashboard(dashboard).effective_privilege_level
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
@@ -379,12 +367,18 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
     ]
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-        if not self.action.endswith("update"):
-            # Soft-deleted dashboards can be brought back with a PATCH request
-            queryset = queryset.filter(deleted=False)
+        if (
+            self.action == "partial_update"
+            and "deleted" in self.request.data
+            and not self.request.data.get("deleted")
+            and len(self.request.data) == 1
+        ):
+            # a dashboard can be un-deleted by patching {"deleted": False}
+            queryset = Dashboard.objects_including_soft_deleted
+        else:
+            queryset = super().get_queryset()
 
-        queryset = queryset.prefetch_related("sharingconfiguration_set",).select_related(
+        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
             "team__organization",
             "created_by",
         )
@@ -395,12 +389,11 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                     "caching_states",
                     Prefetch(
                         "insight__dashboards",
-                        queryset=Dashboard.objects.exclude(deleted=True)
-                        .filter(
-                            id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
-                        )
-                        .select_related("team__organization"),
+                        queryset=Dashboard.objects.filter(
+                            id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
+                        ).select_related("team__organization"),
                     ),
+                    "insight__dashboard_tiles__dashboard",
                 )
             )
             try:
@@ -444,6 +437,19 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             Dashboard.objects.get(id=from_dashboard), context={"view": self, "request": request}
         )
         return Response(serializer.data)
+
+    @action(methods=["POST"], detail=False, parser_classes=[DashboardTemplateCreationJSONSchemaParser])
+    def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = Dashboard.objects.create(team_id=self.team_id)
+
+        try:
+            dashboard_template = DashboardTemplate(**request.data["template"])
+            create_from_template(dashboard, dashboard_template)
+        except Exception as e:
+            dashboard.delete()
+            raise e
+
+        return Response(DashboardSerializer(dashboard, context={"view": self, "request": request}).data)
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):

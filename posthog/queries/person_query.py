@@ -181,6 +181,7 @@ class PersonQuery:
             group_properties_joined=False,
             person_properties_mode=PersonPropertiesMode.DIRECT,
             prepend=prepend,
+            hogql_context=self._filter.hogql_context,
         )
 
     def _get_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
@@ -192,6 +193,7 @@ class PersonQuery:
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_PERSONS,
             prepend=prepend,
             table_name="person",
+            hogql_context=self._filter.hogql_context,
         )
 
     def _get_cohort_query(self) -> Tuple[str, Dict]:
@@ -274,6 +276,7 @@ class PersonQuery:
                 group_properties_joined=False,
                 person_properties_mode=PersonPropertiesMode.DIRECT,
                 _top_level=False,
+                hogql_context=self._filter.hogql_context,
             )
 
             distinct_id_param = f"distinct_id_{prepend}"

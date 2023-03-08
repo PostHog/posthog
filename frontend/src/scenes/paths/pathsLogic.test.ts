@@ -5,8 +5,6 @@ import { InsightShortId, InsightType, PathsFilterType } from '~/types'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-jest.mock('lib/api')
-
 const Insight123 = '123' as InsightShortId
 
 describe('pathsLogic', () => {

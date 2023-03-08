@@ -8,7 +8,7 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,
@@ -20,16 +20,18 @@ import {
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
-import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
-import { Tooltip } from 'lib/components/Tooltip'
+import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { InsightLegendButton } from 'lib/components/InsightLegend/InsightLegendButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 import { FunnelInsight } from './views/Funnels/FunnelInsight'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -57,21 +59,20 @@ export function InsightContainer({
         insightProps,
         canEditInsight,
         insightLoading,
-        activeView,
-        loadedView,
         filters,
-        showTimeoutMessage,
-        showErrorMessage,
+        timedOutQueryId,
+        erroredQueryId,
         exporterResourceParams,
         isUsingSessionAnalysis,
     } = useValues(insightLogic)
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
-        funnelLogic(insightProps)
-    )
+
+    const { activeView } = useValues(insightNavLogic(insightProps))
+
+    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
+        if (insightLoading && timedOutQueryId === null) {
             return (
                 <div className="text-center">
                     <Animation type={AnimationType.LaptopHog} />
@@ -79,24 +80,31 @@ export function InsightContainer({
             )
         }
         // Insight specific empty states - note order is important here
-        if (loadedView === InsightType.FUNNELS) {
-            if (!areFiltersValid) {
+        if (activeView === InsightType.FUNNELS) {
+            if (!isFunnelWithEnoughSteps) {
                 return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !insightLoading) {
+            if (!hasFunnelResults && !insightLoading) {
                 return <InsightEmptyState />
             }
         }
 
         // Insight agnostic empty states
-        if (showErrorMessage) {
-            return <InsightErrorState />
+        if (!!erroredQueryId) {
+            return <InsightErrorState queryId={erroredQueryId} />
         }
-        if (showTimeoutMessage) {
-            return <InsightTimeoutState isLoading={insightLoading} />
+        if (!!timedOutQueryId) {
+            return (
+                <InsightTimeoutState
+                    isLoading={insightLoading}
+                    queryId={timedOutQueryId}
+                    insightType={activeView}
+                    insightProps={insightProps}
+                />
+            )
         }
 
         return null
@@ -105,10 +113,10 @@ export function InsightContainer({
     function renderTable(): JSX.Element | null {
         if (
             isFunnelsFilter(filters) &&
-            !showErrorMessage &&
-            !showTimeoutMessage &&
-            areFiltersValid &&
-            isValidFunnel &&
+            erroredQueryId === null &&
+            timedOutQueryId === null &&
+            isFunnelWithEnoughSteps &&
+            hasFunnelResults &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
             !disableTable
         ) {
@@ -122,7 +130,7 @@ export function InsightContainer({
 
         // InsightsTable is loaded for all trend views (except below), plus the sessions view.
         // Exclusions:
-        // 1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+        // 1. Table view. Because table is already loaded anyway in `Trends.tsx` as the main component.
         // 2. Bar value chart. Because this view displays data in completely different dimensions.
         if (
             isTrendsFilter(filters) &&
@@ -228,9 +236,7 @@ export function InsightContainer({
                 </div>
             </Card>
             {renderTable()}
-            {!disableCorrelationTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
-                <FunnelCorrelation />
-            )}
+            {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }

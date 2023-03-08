@@ -23,6 +23,9 @@ describe('personsModalLogic', () => {
                 propertiesTimelineFilterFromUrl: {
                     date_from: '2022-12-01T00:00:00+00:00',
                     date_to: '2022-12-13T00:00:00+00:00',
+                    display: 'ActionsLineGraph',
+                    insight: 'TRENDS',
+                    interval: 'day',
                     events: [
                         {
                             custom_name: null,

@@ -1,7 +1,7 @@
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { InstanceSetting, SystemStatusRow } from '~/types'
-import { IconLock } from 'lib/components/icons'
+import { IconLock } from 'lib/lemon-ui/icons'
 
 const TIMESTAMP_VALUES = new Set(['last_event_ingested_timestamp'])
 

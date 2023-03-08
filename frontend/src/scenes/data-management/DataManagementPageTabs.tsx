@@ -2,8 +2,8 @@ import { kea, useActions, useValues } from 'kea'
 import { Tabs } from 'antd'
 import { urls } from 'scenes/urls'
 import type { eventsTabsLogicType } from './DataManagementPageTabsType'
-import { Tooltip } from 'lib/components/Tooltip'
-import { IconInfo } from 'lib/components/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconInfo } from 'lib/lemon-ui/icons'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,12 +11,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 export enum DataManagementTab {
     Actions = 'actions',
     EventDefinitions = 'events',
-    EventPropertyDefinitions = 'properties',
+    PropertyDefinitions = 'properties',
     IngestionWarnings = 'warnings',
 }
 
 const tabUrls = {
-    [DataManagementTab.EventPropertyDefinitions]: urls.eventPropertyDefinitions(),
+    [DataManagementTab.PropertyDefinitions]: urls.propertyDefinitions(),
     [DataManagementTab.EventDefinitions]: urls.eventDefinitions(),
     [DataManagementTab.Actions]: urls.actions(),
     [DataManagementTab.IngestionWarnings]: urls.ingestionWarnings(),
@@ -95,10 +95,10 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                         }
                         data-attr="data-management-event-properties-tab"
                     >
-                        Event Properties
+                        Properties
                     </TitleWithIcon>
                 }
-                key={DataManagementTab.EventPropertyDefinitions}
+                key={DataManagementTab.PropertyDefinitions}
             />
             {showWarningsTab && (
                 <Tabs.TabPane

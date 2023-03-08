@@ -1,6 +1,6 @@
 from collections import Counter
 from typing import Counter as TCounter
-from typing import List, Set, Union, cast
+from typing import Generator, List, Set, Union, cast
 
 from posthog.clickhouse.materialized_columns import ColumnName, get_materialized_columns
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
@@ -88,7 +88,7 @@ class FOSSColumnOptimizer:
             return True
 
         # Both entities and funnel exclusions can contain nested elements_chain inclusions
-        for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
+        for entity in self.entities_used_in_filter():
             if has_element_type_property(entity.property_groups.flat):
                 return True
 
@@ -106,7 +106,7 @@ class FOSSColumnOptimizer:
         "Returns collection of properties + types that this query would use"
         counter: TCounter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
 
-        if not isinstance(self.filter, (StickinessFilter, PropertiesTimelineFilter)):
+        if not isinstance(self.filter, StickinessFilter):
             # Some breakdown types read properties
             #
             # See ee/clickhouse/queries/trends/breakdown.py#get_query or
@@ -123,7 +123,7 @@ class FOSSColumnOptimizer:
                 counter[(breakdown["property"], breakdown["type"], self.filter.breakdown_group_type_index)] += 1
 
         # Both entities and funnel exclusions can contain nested property filters
-        for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
+        for entity in self.entities_used_in_filter():
             counter += extract_tables_and_properties(entity.property_groups.flat)
 
             # Math properties are also implicitly used.
@@ -157,3 +157,11 @@ class FOSSColumnOptimizer:
                 if type == property_type
             }
         )
+
+    def entities_used_in_filter(self) -> Generator[Entity, None, None]:
+        yield from self.filter.entities
+        yield from cast(List[Entity], self.filter.exclusions)
+
+        if isinstance(self.filter, RetentionFilter):
+            yield self.filter.target_entity
+            yield self.filter.returning_entity

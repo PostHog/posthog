@@ -1,5 +1,5 @@
 import { capitalizeFirstLetter } from 'lib/utils'
-import { Link } from '../Link'
+import { Link } from 'lib/lemon-ui/Link'
 import './NotFound.scss'
 
 interface NotFoundProps {

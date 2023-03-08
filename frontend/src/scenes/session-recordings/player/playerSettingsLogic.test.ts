@@ -1,16 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { initKeaTests } from '~/test/init'
 import { playerSettingsLogic } from './playerSettingsLogic'
 
 describe('playerSettingsLogic', () => {
     let logic: ReturnType<typeof playerSettingsLogic.build>
-    let ffLogic: ReturnType<typeof featureFlagLogic.build>
+    let eventLogic: ReturnType<typeof eventUsageLogic.build>
 
     beforeEach(() => {
         initKeaTests()
-        ffLogic = featureFlagLogic()
-        ffLogic.mount()
+        eventLogic = eventUsageLogic()
+        eventLogic.mount()
         logic = playerSettingsLogic()
         logic.mount()
     })

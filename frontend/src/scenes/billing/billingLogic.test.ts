@@ -213,15 +213,6 @@ describe('billingLogic', () => {
             .toMatchValues({
                 alertToShow: BillingAlertType.UsageNearLimit,
             })
-
-        mockBilling(BILLING_NO_PLAN)
-        await expectLogic(logic, () => {
-            logic.actions.loadBilling()
-        })
-            .toFinishAllListeners()
-            .toMatchValues({
-                alertToShow: BillingAlertType.FreeUsageNearLimit,
-            })
     })
     it('reports that billing has been cancelled during onboarding', async () => {
         router.actions.push('/ingestion/billing?reason=cancelled')

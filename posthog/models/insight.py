@@ -3,7 +3,6 @@ from typing import Optional
 import structlog
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models.signals import pre_save
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
@@ -11,10 +10,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
-from posthog.models.signals import mutable_receiver
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
+
+
+class InsightManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
 
 
 class Insight(models.Model):
@@ -23,12 +26,16 @@ class Insight(models.Model):
     reports or part of a dashboard.
     """
 
+    objects = InsightManager()
+    objects_including_soft_deleted = models.Manager()
+
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     filters: models.JSONField = models.JSONField(default=dict)
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    query: models.JSONField = models.JSONField(null=True, blank=True)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
     saved: models.BooleanField = models.BooleanField(default=False)
@@ -92,7 +99,8 @@ class Insight(models.Model):
         unique_together = ("team", "short_id")
 
     def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
-        if dashboard:
+        # TODO dashboard filtering needs to know how to override query date ranges😱
+        if dashboard and not self.query:
             dashboard_filters = {**dashboard.filters}
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
 
@@ -134,31 +142,6 @@ class Insight(models.Model):
             return self.filters
 
     @property
-    def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
-        dashboards = list(self.dashboards.all())
-        if not dashboards:
-            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-
-        restrictions = [d.effective_restriction_level for d in dashboards]
-        restriction_set_to_only_collaborators = next(
-            (x for x in restrictions if x == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT), None
-        )
-        if restriction_set_to_only_collaborators:
-            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        else:
-            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-
-    def get_effective_privilege_level(self, user_id: int) -> Dashboard.PrivilegeLevel:
-        if self.dashboards.count() == 0:
-            return Dashboard.PrivilegeLevel.CAN_EDIT
-
-        edit_permissions = [d.can_user_edit(user_id) for d in self.dashboards.all()]
-        if any(edit_permissions):
-            return Dashboard.PrivilegeLevel.CAN_EDIT
-        else:
-            return Dashboard.PrivilegeLevel.CAN_VIEW
-
-    @property
     def url(self):
         return absolute_uri(f"/insights/{self.short_id}")
 
@@ -172,18 +155,6 @@ class InsightViewed(models.Model):
     user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
     insight: models.ForeignKey = models.ForeignKey(Insight, on_delete=models.CASCADE)
     last_viewed_at: models.DateTimeField = models.DateTimeField()
-
-
-@mutable_receiver(pre_save, sender=Insight)
-def insight_saving(sender, instance: Insight, **kwargs):
-    update_fields = kwargs.get("update_fields")
-    if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"}), frozenset({"filters"})]:
-        # Don't always update the filters_hash
-        return
-
-    # ensure there's a filters hash
-    if instance.filters and instance.filters != {}:
-        instance.filters_hash = generate_insight_cache_key(instance, None)
 
 
 @timed("generate_insight_cache_key")

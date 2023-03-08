@@ -29,6 +29,7 @@ import {
     DashboardLayoutSize,
     DashboardMode,
     DashboardPlacement,
+    DashboardTemplateEditorType,
     DashboardTile,
     DashboardType,
     FilterType,
@@ -44,9 +45,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { dayjs, now } from 'lib/dayjs'
-import { lemonToast } from 'lib/components/lemonToast'
-import { Link } from 'lib/components/Link'
+import { dayjs, now, Dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { Link } from 'lib/lemon-ui/Link'
 import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { getResponseBytes, sortDates } from '../insights/utils'
 import { loaders } from 'kea-loaders'
@@ -60,6 +61,8 @@ export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
 export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
 export const MIN_ITEM_WIDTH_UNITS = 3
 export const MIN_ITEM_HEIGHT_UNITS = 5
+
+export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -76,7 +79,7 @@ export interface RefreshStatus {
     timer?: Date | null
 }
 
-export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
+export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 
 export type LoadDashboardItemsProps = { refresh?: boolean; action: string }
 
@@ -230,7 +233,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             filters: values.filters,
-                            no_items_field: true,
                         })
                     } catch (e) {
                         lemonToast.error('Could not update dashboardFilters: ' + e)
@@ -245,7 +247,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tileId, color }],
-                        no_items_field: true,
                     })
                     const matchingTile = values.tiles.find((tile) => tile.id === tileId)
                     if (matchingTile) {
@@ -257,7 +258,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [{ id: tile.id, deleted: true }],
-                            no_items_field: true,
                         })
                         dashboardsModel.actions.tileRemovedFromDashboard({
                             tile: tile,
@@ -282,7 +282,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                         return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [newTile],
-                            no_items_field: true,
                         } as Partial<InsightModel>)
                     } catch (e) {
                         lemonToast.error('Could not duplicate tile: ' + e)
@@ -302,7 +301,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             {
                                 tile,
                                 toDashboard,
-                                no_items_field: true,
                             }
                         )
                     }
@@ -557,7 +555,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 interval: number
                 enabled: boolean
             },
-            { persist: true, prefix: '1_' },
+            { persist: true, prefix: '2_' },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
@@ -602,50 +600,50 @@ export const dashboardLogic = kea<dashboardLogicType>([
     selectors(() => ({
         asDashboardTemplate: [
             (s) => [s.allItems],
-            (dashboard: DashboardType): string => {
+            (dashboard: DashboardType): DashboardTemplateEditorType | undefined => {
                 return dashboard
-                    ? JSON.stringify(
-                          {
-                              template_name: dashboard.name,
-                              description: dashboard.description,
-                              dashboard_filters: dashboard.filters,
-                              tags: dashboard.tags || [],
-                              tiles: dashboard.tiles.map((tile) => {
-                                  if (!!tile.text) {
-                                      return {
-                                          type: 'TEXT',
-                                          body: tile.text.body,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
+                    ? {
+                          template_name: dashboard.name,
+                          dashboard_description: dashboard.description,
+                          dashboard_filters: dashboard.filters,
+                          tags: dashboard.tags || [],
+                          tiles: dashboard.tiles.map((tile) => {
+                              if (!!tile.text) {
+                                  return {
+                                      type: 'TEXT',
+                                      body: tile.text.body,
+                                      layouts: tile.layouts,
+                                      color: tile.color,
                                   }
-                                  if (!!tile.insight) {
-                                      return {
-                                          type: 'INSIGHT',
-                                          name: tile.insight.name,
-                                          description: tile.insight.description || '',
-                                          filters: tile.insight.filters,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
+                              }
+                              if (!!tile.insight) {
+                                  return {
+                                      type: 'INSIGHT',
+                                      name: tile.insight.name,
+                                      description: tile.insight.description || '',
+                                      filters: tile.insight.filters,
+                                      query: tile.insight.query,
+                                      layouts: tile.layouts,
+                                      color: tile.color,
                                   }
-                                  throw new Error('Unknown tile type')
-                              }),
-                          },
-                          undefined,
-                          4
-                      )
-                    : ''
+                              }
+                              throw new Error('Unknown tile type')
+                          }),
+                          variables: [],
+                      }
+                    : undefined
             },
         ],
-        placement: [() => [(_, props) => props.placement], (placement) => placement ?? DashboardPlacement.Dashboard],
+        placement: [
+            () => [(_, props) => props.placement],
+            (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
+        ],
         apiUrl: [
             () => [(_, props) => props.id],
             (id) => {
                 return (refresh?: boolean) =>
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
-                        no_items_field: true,
                     })}`
             },
         ],
@@ -668,7 +666,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         lastRefreshed: [
             (s) => [s.insightTiles],
-            (insightTiles) => {
+            (insightTiles): Dayjs | null => {
                 if (!insightTiles || !insightTiles.length) {
                     return null
                 }
@@ -676,6 +674,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const oldest = sortDates(insightTiles.map((i) => i.last_refresh))
                 const candidateShortest = oldest.length > 0 ? dayjs(oldest[0]) : null
                 return candidateShortest?.isValid() ? candidateShortest : null
+            },
+        ],
+        blockRefresh: [
+            (s) => [s.lastRefreshed, s.placement],
+            (lastRefreshed: Dayjs, placement: DashboardPlacement) => {
+                return (
+                    !!lastRefreshed &&
+                    !(placement === DashboardPlacement.FeatureFlag) &&
+                    now()
+                        .subtract(DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
+                        .isBefore(lastRefreshed)
+                )
             },
         ],
         dashboard: [
@@ -861,7 +871,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 tiles: layoutsToUpdate,
-                no_items_field: true,
             })
         },
         moveToDashboardSuccess: ({ payload }) => {
@@ -1080,7 +1089,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // Initial load of actual data for dashboard items after general dashboard is fetched
             if (
                 values.lastRefreshed &&
-                values.lastRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours'))
+                values.lastRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours')) &&
+                !process.env.STORYBOOK // allow mocking of date in storybook without triggering refresh
             ) {
                 actions.refreshAllDashboardItems({ action: 'refresh_above_threshold', initialLoad, dashboardQueryId })
                 allLoaded = false

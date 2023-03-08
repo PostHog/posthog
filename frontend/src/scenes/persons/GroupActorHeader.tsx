@@ -1,6 +1,6 @@
 import { GroupActorType } from '~/types'
 import './PersonHeader.scss'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 export interface GroupActorHeaderProps {

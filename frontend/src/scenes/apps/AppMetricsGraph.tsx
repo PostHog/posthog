@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { getColorVar } from 'lib/colors'
 import { Chart, ChartDataset, ChartItem } from 'chart.js'
 import { DescriptionColumns } from './constants'
-import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import './AppMetricsGraph.scss'
 import { lightenDarkenColor } from 'lib/utils'

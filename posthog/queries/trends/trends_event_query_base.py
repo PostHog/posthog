@@ -50,8 +50,11 @@ class TrendsEventQueryBase(EventQuery):
         session_query, session_params = self._get_sessions_query()
         self.params.update(session_params)
 
+        sample_clause = f"SAMPLE {self._filter.sampling_factor}" if self._filter.sampling_factor else ""
+
         query = f"""
             FROM events {self.EVENT_TABLE_ALIAS}
+            {sample_clause}
             {self._get_distinct_id_query()}
             {person_query}
             {groups_query}
@@ -82,7 +85,7 @@ class TrendsEventQueryBase(EventQuery):
     def _get_not_null_actor_condition(self) -> str:
         if self._entity.math_group_type_index is None:
             # If aggregating by person, exclude events with null/zero person IDs
-            return f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
+            return f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
         else:
             # If aggregating by group, exclude events that aren't associated with a group
             return f"""AND "$group_{self._entity.math_group_type_index}" != ''"""
@@ -125,6 +128,7 @@ class TrendsEventQueryBase(EventQuery):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self._using_person_on_events
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            hogql_context=self._filter.hogql_context,
         )
 
         return entity_format_params["entity_query"], entity_params

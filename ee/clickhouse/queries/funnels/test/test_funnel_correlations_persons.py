@@ -96,7 +96,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         filter, success_target_persons, failure_target_persons, person_fail, person_succ = self._setup_basic_test()
 
         # test positively_related successes
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {
                 "funnel_correlation_person_entity": {"id": "positively_related", "type": "events"},
                 "funnel_correlation_person_converted": "TrUe",
@@ -107,7 +107,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual([str(val["id"]) for val in serialized_actors], success_target_persons)
 
         # test negatively_related failures
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {
                 "funnel_correlation_person_entity": {"id": "negatively_related", "type": "events"},
                 "funnel_correlation_person_converted": "falsE",
@@ -119,7 +119,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual([str(val["id"]) for val in serialized_actors], failure_target_persons)
 
         # test positively_related failures
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {
                 "funnel_correlation_person_entity": {"id": "positively_related", "type": "events"},
                 "funnel_correlation_person_converted": "False",
@@ -130,7 +130,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(person_fail.uuid)])
 
         # test negatively_related successes
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {
                 "funnel_correlation_person_entity": {"id": "negatively_related", "type": "events"},
                 "funnel_correlation_person_converted": "trUE",
@@ -141,7 +141,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(person_succ.uuid)])
 
         # test all positively_related
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {
                 "funnel_correlation_person_entity": {"id": "positively_related", "type": "events"},
                 "funnel_correlation_person_converted": None,
@@ -154,7 +154,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         # test all negatively_related
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {
                 "funnel_correlation_person_entity": {"id": "negatively_related", "type": "events"},
                 "funnel_correlation_person_converted": None,

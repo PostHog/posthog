@@ -1,27 +1,46 @@
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { DataTableNode, QueryContext } from '~/queries/schema'
-import { isEventsQuery, isPersonsNode } from '~/queries/utils'
+import { DataTableNode, HasPropertiesNode, QueryContext } from '~/queries/schema'
+import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuery } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 import ReactJson from 'react-json-view'
+import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 export function renderColumn(
     key: string,
     value: any,
-    record: EventType | PersonType | any[],
+    record: Record<string, any> | any[],
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext
 ): JSX.Element | string {
-    if (key === 'event' && isEventsQuery(query.source)) {
+    if (value === loadingColumn) {
+        return <Spinner />
+    } else if (value === errorColumn) {
+        return <LemonTag color="red">Error</LemonTag>
+    } else if (isHogQLQuery(query.source)) {
+        if (typeof value === 'string') {
+            try {
+                if ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']'))) {
+                    return <ReactJson src={JSON.parse(value)} name={key} collapsed={1} />
+                }
+            } catch (e) {}
+            if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}/)) {
+                return <TZLabel time={value} showSeconds />
+            }
+        }
+        return <Property value={value} />
+    } else if (key === 'event' && isEventsQuery(query.source)) {
         const resultRow = record as any[]
         const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
 
@@ -38,7 +57,7 @@ export function renderColumn(
                 content
             )
         }
-    } else if (key === 'timestamp' || key === 'created_at') {
+    } else if (key === 'timestamp' || key === 'created_at' || key === 'session_start' || key === 'session_end') {
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
         const propertyKey = key.substring(11)
@@ -76,7 +95,7 @@ export function renderColumn(
                             source: {
                                 ...query.source,
                                 properties: newProperties,
-                            },
+                            } as HasPropertiesNode,
                         })
                     }}
                 >
@@ -122,7 +141,7 @@ export function renderColumn(
                             source: {
                                 ...query.source,
                                 properties: newProperties,
-                            },
+                            } as HasPropertiesNode,
                         })
                     }}
                 >
@@ -133,12 +152,13 @@ export function renderColumn(
         return <Property value={eventRecord.person?.properties?.[propertyKey]} />
     } else if (key === 'person' && isEventsQuery(query.source)) {
         const personRecord = value as PersonType
-        return (
+        return !!personRecord.distinct_ids.length ? (
             <Link to={urls.person(personRecord.distinct_ids[0])}>
                 <PersonHeader noLink withIcon person={personRecord} />
             </Link>
+        ) : (
+            <PersonHeader noLink withIcon person={value} />
         )
-        return <PersonHeader noLink withIcon person={value} />
     } else if (key === 'person' && isPersonsNode(query.source)) {
         const personRecord = record as PersonType
         return (
@@ -162,8 +182,11 @@ export function renderColumn(
                 {String(value)}
             </CopyToClipboardInline>
         )
+    } else if (key.startsWith('user.') && isTimeToSeeDataSessionsQuery(query.source)) {
+        const [parent, child] = key.split('.')
+        return typeof record === 'object' ? record[parent][child] : 'unknown'
     } else {
-        if (typeof value === 'object') {
+        if (typeof value === 'object' && value !== null) {
             return <ReactJson src={value} name={key} collapsed={1} />
         }
         return String(value)

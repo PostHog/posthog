@@ -7,10 +7,10 @@ import { PersonalAPIKeyType } from '~/types'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { ColumnsType } from 'antd/lib/table'
-import { LemonButton } from '../LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput, LemonModal } from '@posthog/lemon-ui'
-import { AlertMessage } from '../AlertMessage'
-import { IconPlus } from '../icons'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { IconPlus } from 'lib/lemon-ui/icons'
 
 function CreateKeyModal({
     isOpen,

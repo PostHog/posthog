@@ -4,19 +4,17 @@ import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tabs } from 'antd'
 import { SessionRecordingsTabs } from '~/types'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
-import { Spinner } from 'lib/components/Spinner/Spinner'
-import { IconSettings } from 'lib/components/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconSettings } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { SessionRecordingFilePlayback } from './file-playback/SessionRecodingFilePlayback'
+import { SessionRecordingFilePlayback } from './file-playback/SessionRecordingFilePlayback'
 import { createPlaylist } from './playlist/playlistUtils'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -25,14 +23,7 @@ export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { tab } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-    const { featureFlags } = useValues(featureFlagLogic)
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
-
-    const visibleTabs = [SessionRecordingsTabs.Recent, SessionRecordingsTabs.Playlists]
-
-    if (!featureFlags[FEATURE_FLAGS.RECORDINGS_EXPORT]) {
-        visibleTabs.push(SessionRecordingsTabs.FilePlayback)
-    }
 
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({}, true)

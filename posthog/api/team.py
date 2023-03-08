@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, Dict, List, Optional, Type, cast
 
 from django.core.cache import cache
@@ -13,18 +14,20 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import groups_on_events_querying_enabled
+from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminAnyPermissions,
     OrganizationAdminWritePermissions,
+    OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
+from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -64,7 +67,30 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
             return True
 
 
-class TeamSerializer(serializers.ModelSerializer):
+class CachingTeamSerializer(serializers.ModelSerializer):
+    """
+    This serializer is used for caching teams.
+    Currently used only in `/decide` endpoint.
+    Has all parameters needed for a successful decide request.
+    """
+
+    class Meta:
+        model = Team
+        fields = [
+            "id",
+            "uuid",
+            "name",
+            "api_token",
+            "capture_performance_opt_in",
+            "capture_console_log_opt_in",
+            "session_recording_opt_in",
+            "session_recording_version",
+            "recording_domains",
+            "inject_web_apps",
+        ]
+
+
+class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     groups_on_events_querying_enabled = serializers.SerializerMethodField()
@@ -95,6 +121,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "session_recording_opt_in",
             "capture_console_log_opt_in",
             "capture_performance_opt_in",
+            "session_recording_version",
             "effective_membership_level",
             "access_control",
             "has_group_types",
@@ -103,6 +130,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "recording_domains",
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
+            "inject_web_apps",
         )
         read_only_fields = (
             "id",
@@ -119,7 +147,7 @@ class TeamSerializer(serializers.ModelSerializer):
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
-        return team.get_effective_membership_level(self.context["request"].user.id)
+        return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
@@ -145,6 +173,10 @@ class TeamSerializer(serializers.ModelSerializer):
             if org_membership.level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied(OrganizationAdminAnyPermissions.message)
 
+        if "session_recording_version" in attrs:
+            if attrs["session_recording_version"] not in ["v1", "v2"]:
+                raise exceptions.ValidationError("Invalid session recording version")
+
         return super().validate(attrs)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
@@ -153,7 +185,9 @@ class TeamSerializer(serializers.ModelSerializer):
         organization = self.context["view"].organization  # Use the org we used to validate permissions
         if validated_data.get("is_demo", False):
             team = Team.objects.create(**validated_data, organization=organization)
-            create_data_for_demo_team.delay(team.pk, request.user.pk)
+            cache_key = f"is_generating_demo_data_{team.pk}"
+            cache.set(cache_key, "True")  # create an item in the cache that we can use to see if the demo data is ready
+            create_data_for_demo_team.delay(team.pk, request.user.pk, cache_key)
         else:
             team = Team.objects.create_with_data(**validated_data, organization=organization)
         request.user.current_team = team
@@ -169,7 +203,8 @@ class TeamSerializer(serializers.ModelSerializer):
         if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
             self._handle_timezone_update(instance)
 
-        return super().update(instance, validated_data)
+        updated_team = super().update(instance, validated_data)
+        return updated_team
 
 
 class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
@@ -191,13 +226,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         # This is actually what ensures that a user cannot read/update a project for which they don't have permission
-        visible_teams_ids = [
-            team.id
-            for team in super()
-            .get_queryset()
-            .filter(organization__in=cast(User, self.request.user).organizations.all())
-            if team.get_effective_membership_level(self.request.user.id) is not None
-        ]
+        visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
         return super().get_queryset().filter(id__in=visible_teams_ids)
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
@@ -219,7 +248,10 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
                     raise exceptions.ValidationError("You need to belong to an organization.")
                 # To be used later by OrganizationAdminWritePermissions and TeamSerializer
                 self.organization = organization
-                base_permissions.append(OrganizationAdminWritePermissions())
+                if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
+                    base_permissions.append(OrganizationAdminWritePermissions())
+                elif "is_demo" in self.request.data:
+                    base_permissions.append(OrganizationMemberPermissions())
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
                 base_permissions.append(TeamMemberLightManagementPermission())
@@ -276,6 +308,26 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
+        old_token = team.api_token
         team.api_token = generate_random_token_project()
         team.save()
+        set_team_in_cache(old_token, None)
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["GET"],
+        detail=True,
+        permission_classes=[
+            permissions.IsAuthenticated,
+            ProjectMembershipNecessaryPermissions,
+        ],
+    )
+    def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        cache_key = f"is_generating_demo_data_{team.pk}"
+        return response.Response({"is_generating_demo_data": cache.get(cache_key) == "True"})
+
+    @cached_property
+    def user_permissions(self):
+        team = self.get_object() if self.action == "reset_token" else None
+        return UserPermissions(cast(User, self.request.user), team)

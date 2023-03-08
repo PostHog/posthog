@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Tabs } from 'antd'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { LemonButton } from 'lib/components/LemonButton'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { LemonInput } from '@posthog/lemon-ui'
@@ -14,6 +13,8 @@ import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { NoDashboards } from 'scenes/dashboard/dashboards/NoDashboards'
 import { DashboardsTable } from 'scenes/dashboard/dashboards/DashboardsTable'
+import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -23,7 +24,7 @@ export const scene: SceneExport = {
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
-    const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
+    const { dashboards, searchTerm, currentTab, templatesTabIsVisible } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
 
@@ -47,16 +48,32 @@ export function Dashboards(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <Tabs
+            <LemonTabs
                 activeKey={currentTab}
-                style={{ borderColor: '#D9D9D9' }}
-                onChange={(tab) => setCurrentTab(tab as DashboardsTab)}
-            >
-                <Tabs.TabPane tab="All Dashboards" key={DashboardsTab.All} />
-                <Tabs.TabPane tab="Your Dashboards" key={DashboardsTab.Yours} />
-                <Tabs.TabPane tab="Pinned" key={DashboardsTab.Pinned} />
-                <Tabs.TabPane tab="Shared" key={DashboardsTab.Shared} />
-            </Tabs>
+                onChange={(newKey) => setCurrentTab(newKey)}
+                tabs={[
+                    {
+                        key: DashboardsTab.All,
+                        label: 'All dashboards',
+                    },
+                    {
+                        key: DashboardsTab.Yours,
+                        label: 'Your dashboards',
+                    },
+                    {
+                        key: DashboardsTab.Pinned,
+                        label: 'Pinned',
+                    },
+                    {
+                        key: DashboardsTab.Shared,
+                        label: 'Shared',
+                    },
+                    templatesTabIsVisible && {
+                        key: DashboardsTab.Templates,
+                        label: 'Templates',
+                    },
+                ]}
+            />
             <div className="flex">
                 <LemonInput
                     type="search"
@@ -67,7 +84,9 @@ export function Dashboards(): JSX.Element {
                 <div />
             </div>
             <LemonDivider className="my-4" />
-            {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
+            {currentTab === DashboardsTab.Templates ? (
+                <DashboardTemplatesTable />
+            ) : dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <DashboardsTable />
             ) : (
                 <NoDashboards />

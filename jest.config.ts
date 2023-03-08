@@ -7,7 +7,7 @@ process.env.TZ = process.env.TZ || 'UTC'
  * https://jestjs.io/docs/en/configuration.html
  */
 
-const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook']
+const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv']
 
 const config: Config = {
     // All imported modules in your tests should be mocked automatically
@@ -65,9 +65,6 @@ const config: Config = {
     // A path to a module which exports an async function that is triggered once after all test suites
     // globalTeardown: undefined,
 
-    // A set of global variables that need to be available in all test environments
-    // globals: {},
-
     // The maximum amount of workers used to run your tests. Can be specified as % or a number. E.g. maxWorkers: 10% will use 10% of your CPU amount + 1 as the maximum worker number. maxWorkers: 2 will use a maximum of 2 workers.
     // maxWorkers: "50%",
 
@@ -96,6 +93,8 @@ const config: Config = {
         '^scenes/(.*)$': '<rootDir>/scenes/$1',
         '^antd/es/(.*)$': 'antd/lib/$1',
         '^react-virtualized/dist/es/(.*)$': 'react-virtualized/dist/commonjs/$1',
+        d3: '<rootDir>/../../node_modules/d3/dist/d3.min.js',
+        '^d3-(.*)$': `d3-$1/dist/d3-$1`,
     },
 
     // An array of regexp pattern strings, matched against all module paths before considered 'visible' to the module loader
@@ -189,7 +188,7 @@ const config: Config = {
 
     // A map from regular expressions to paths to transformers
     transform: {
-        '\\.[jt]sx?$': 'esbuild-jest',
+        '\\.[jt]sx?$': '@sucrase/jest-plugin',
     },
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation

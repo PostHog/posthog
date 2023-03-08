@@ -496,7 +496,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return new_plugin_config
 
     def get_plugin_info(self, plugin_config: PluginConfig):
-        if self.context["view"].action == "retrieve":
+        if "view" in self.context and self.context["view"].action == "retrieve":
             return PluginSerializer(instance=plugin_config.plugin).data
         else:
             return None

@@ -2,7 +2,7 @@ import '~/styles'
 import '~/initKea'
 
 export * from 'lib/components/AdHocInsight/AdHocInsight'
-export * from 'lib/components/Link'
+export * from 'lib/lemon-ui/Link'
 export * from 'lib/components/TZLabel'
 export * from 'scenes/persons/PersonHeader'
 export * from 'scenes/urls'

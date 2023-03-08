@@ -50,7 +50,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             } as TextTileForm,
             errors: ({ body }) => {
                 return {
-                    body: !body ? 'A text tile must have text content.' : null,
+                    body: !body ? 'This card would be empty! Type something first' : null,
                 }
             },
             submit: (formValues) => {

@@ -5,11 +5,13 @@ import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 export function SmoothingFilter(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters } = useActions(trendsLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightDataLogic(insightProps))
 
     if (!filters.interval || !isTrendsFilter(filters)) {
         return null
@@ -38,6 +40,9 @@ export function SmoothingFilter(): JSX.Element | null {
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
                 setFilters({ ...filters, smoothing_intervals: key })
+                updateInsightFilter({
+                    smoothing_intervals: key,
+                })
             }}
             data-attr="smoothing-filter"
             options={options}

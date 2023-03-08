@@ -8,11 +8,11 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 import sqlparse
 from clickhouse_driver import Client as SyncClient
-from clickhouse_driver.util.escape import escape_params
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
 from posthog.clickhouse.client.connection import Workload, get_pool
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.settings import TEST
@@ -24,21 +24,40 @@ QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
 thread_local_storage = threading.local()
 
+# As of CH 22.8 - more algorithms have been added on newer versions
+CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
+    "default",
+    "hash",
+    "parallel_hash",
+    "direct",
+    "full_sorting_merge",
+    "partial_merge",
+    "auto",
+]
+
+is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS
+
 
 @lru_cache(maxsize=1)
 def default_settings() -> Dict:
-    from posthog.version_requirement import ServiceVersionRequirement
-
     # On CH 22.3 we need to disable optimize_move_to_prewhere due to a bug. This is verified fixed on 22.8 (LTS),
     # so we only disable on versions below that.
     # This is calculated once per deploy
-    clickhouse_at_least_228, _ = ServiceVersionRequirement(
-        service="clickhouse", supported_version=">=22.8.0"
-    ).is_service_in_accepted_version()
-    if clickhouse_at_least_228:
-        return {}
+    if clickhouse_at_least_228():
+        return {"join_algorithm": "direct,parallel_hash", "distributed_replica_max_ignored_errors": 1000}
     else:
         return {"optimize_move_to_prewhere": 0}
+
+
+@lru_cache(maxsize=1)
+def clickhouse_at_least_228() -> bool:
+    from posthog.version_requirement import ServiceVersionRequirement
+
+    is_ch_version_228_or_above, _ = ServiceVersionRequirement(
+        service="clickhouse", supported_version=">=22.8.0"
+    ).is_service_in_accepted_version()
+
+    return is_ch_version_228_or_above
 
 
 def validated_client_query_id() -> Optional[str]:
@@ -59,7 +78,7 @@ def sync_execute(
     with_column_types=False,
     flush=True,
     *,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
 ):
     if TEST and flush:
         try:
@@ -74,15 +93,17 @@ def sync_execute(
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
 
-        settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
-
+        query_id = validated_client_query_id()
+        core_settings = {**default_settings(), **(settings or {})}
+        tags["query_settings"] = core_settings
+        settings = {**core_settings, "log_comment": json.dumps(tags, separators=(",", ":"))}
         try:
             result = client.execute(
                 prepared_sql,
                 params=prepared_args,
                 settings=settings,
                 with_column_types=with_column_types,
-                query_id=validated_client_query_id(),
+                query_id=query_id,
             )
         except Exception as err:
             err = wrap_query_error(err)
@@ -108,7 +129,7 @@ def query_with_columns(
     columns_to_remove: Optional[Sequence[str]] = None,
     columns_to_rename: Optional[Dict[str, str]] = None,
     *,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
 ) -> List[Dict]:
     if columns_to_remove is None:
         columns_to_remove = []
@@ -129,27 +150,8 @@ def query_with_columns(
     return rows
 
 
-def substitute_params(query, params):
-    """
-    Helper method to ease rendering of sql clickhouse queries progressively.
-    For example, there are many places where we construct queries to be used
-    as subqueries of others. Each time we generate a subquery we also pass
-    up the "bound" parameters to be used to render the query, which
-    otherwise only happens at the point of calling clickhouse via the
-    clickhouse_driver `Client`.
-
-    This results in sometimes large lists of parameters with no relevance to
-    the containing query being passed up. Rather than do this, we can
-    instead "render" the subqueries prior to using as a subquery, so our
-    containing code is only responsible for it's parameters, and we can
-    avoid any potential param collisions.
-    """
-    escaped = escape_params(params)
-    return query % escaped
-
-
 @patchable
-def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.ONLINE):
+def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.DEFAULT):
     """
     Given a string query with placeholders we do one of two things:
 
@@ -186,7 +188,7 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Wo
     else:
         # Else perform the substitution so we can perform operations on the raw
         # non-templated SQL
-        rendered_sql = client.substitute_params(query, args)
+        rendered_sql = substitute_params(query, args)
         prepared_args = None
 
     formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)

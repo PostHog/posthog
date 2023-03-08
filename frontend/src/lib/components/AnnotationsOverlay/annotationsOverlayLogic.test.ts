@@ -12,14 +12,17 @@ jest.spyOn(Storage.prototype, 'getItem')
 const MOCK_INSIGHT_SHORT_ID = 'abcdef' as InsightShortId
 const MOCK_INSIGHT_NUMERIC_ID = 1
 
-const BASE_MOCK_ANNOTATION = {
+const BASE_MOCK_ANNOTATION: Pick<
+    RawAnnotationType,
+    'creation_type' | 'created_at' | 'created_by' | 'updated_at' | 'deleted'
+> = {
     creation_type: 'USR',
     created_by: {
         id: 5,
         uuid: '0182cb27-8dfc-0000-1f45-c16dc0de95ea',
         distinct_id: 'XoBG3ygtKV8635pAFkEWHKboT6me1MTVaJETde7dm8V',
         first_name: 'Employee 427',
-        email: 'michael@posthog.com',
+        email: 'test@posthog.com',
     },
     created_at: '2022-08-26T12:22:00.892304Z',
     updated_at: '2022-08-29T11:21:25.022540Z',

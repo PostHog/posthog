@@ -48,18 +48,6 @@ FROM cohortpeople
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(new_version)s AND sign = 1
 """
 
-GET_DISTINCT_ID_BY_ENTITY_SQL = """
-SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {entity_query}
-"""
-
-GET_PERSON_ID_BY_ENTITY_COUNT_SQL = """
-SELECT pdi.person_id as person_id FROM events
-INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi
-ON events.distinct_id = pdi.distinct_id
-WHERE team_id = %(team_id)s {date_query} AND {entity_query}
-GROUP BY person_id {count_condition}
-"""
-
 # NOTE: Group by version id to ensure that signs are summed between corresponding rows.
 # Version filtering is not necessary as only positive rows of the latest version will be selected by sum(sign) > 0
 
@@ -95,4 +83,9 @@ SELECT person_id
 FROM {PERSON_STATIC_COHORT_TABLE}
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id
+"""
+
+STALE_COHORTPEOPLE = f"""
+SELECT count() FROM cohortpeople
+WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(version)s
 """

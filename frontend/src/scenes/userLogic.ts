@@ -1,3 +1,4 @@
+import { FilterType } from './../types'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { userLogicType } from './userLogicType'
@@ -5,10 +6,9 @@ import { AvailableFeature, OrganizationBasicType, UserType } from '~/types'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
-import { urlToAction } from 'kea-router'
 
 export interface UserDetailsFormType {
     first_name: string
@@ -26,6 +26,7 @@ export const userLogic = kea<userLogicType>([
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
+        setGlobalSessionFilters: (globalSessionFilters: Partial<FilterType>) => ({ globalSessionFilters }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -90,6 +91,12 @@ export const userLogic = kea<userLogicType>([
                 }),
             },
         ],
+        globalSessionFilters: [
+            {} as Partial<FilterType>,
+            {
+                setGlobalSessionFilters: (_, { globalSessionFilters }) => globalSessionFilters,
+            },
+        ],
     }),
     listeners(({ values }) => ({
         logout: () => {
@@ -124,6 +131,7 @@ export const userLogic = kea<userLogicType>([
                             ingested_event: user.team.ingested_event,
                             is_demo: user.team.is_demo,
                             timezone: user.team.timezone,
+                            instance_tag: user.organization?.metadata?.instance_tag,
                         })
                     }
 
@@ -147,6 +155,11 @@ export const userLogic = kea<userLogicType>([
         updateUserSuccess: () => {
             lemonToast.dismiss('updateUser')
             lemonToast.success('Preferences saved', {
+                toastId: 'updateUser',
+            })
+        },
+        updateUserFailure: () => {
+            lemonToast.error(`Error saving preferences`, {
                 toastId: 'updateUser',
             })
         },
@@ -196,15 +209,4 @@ export const userLogic = kea<userLogicType>([
             actions.loadUser()
         }
     }),
-
-    urlToAction(({ values }) => ({
-        '/year_in_posthog/2022': () => {
-            if (window.POSTHOG_APP_CONTEXT?.year_in_hog_url) {
-                window.location.href = `${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`
-            }
-            if (values.user?.uuid) {
-                window.location.href = `${window.location.origin}/year_in_posthog/2022/${values.user?.uuid}`
-            }
-        },
-    })),
 ])

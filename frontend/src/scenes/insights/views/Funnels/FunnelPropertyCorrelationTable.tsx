@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Col, Row, Table } from 'antd'
+import { Col, ConfigProvider, Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -10,14 +10,15 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
-import { IconSelectProperties } from 'lib/components/icons'
+import { IconSelectProperties } from 'lib/lemon-ui/icons'
 import './FunnelCorrelationTable.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { Popup } from 'lib/components/Popup/Popup'
-import { LemonButton } from 'lib/components/LemonButton'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -35,6 +36,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         allProperties,
         filters,
         aggregationTargetLabel,
+        loadedPropertyCorrelationsTableOnce,
     } = useValues(logic)
 
     const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal, loadPropertyCorrelations } =
@@ -44,10 +46,14 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 
     // Load correlations only if this component is mounted, and then reload if filters change
     useEffect(() => {
-        if (propertyNames.length === 0) {
-            setPropertyNames(allProperties)
+        // We only automatically refresh results when filters change after the user has manually asked for the first results to be loaded
+        if (loadedPropertyCorrelationsTableOnce) {
+            if (propertyNames.length === 0) {
+                setPropertyNames(allProperties)
+            }
+
+            loadPropertyCorrelations({})
         }
-        loadPropertyCorrelations({})
     }, [filters])
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
@@ -192,82 +198,97 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                         pointerEvents: 'none',
                                     }}
                                 >
-                                    Dropoff
+                                    Drop-off
                                 </Checkbox>
                             </div>
                         </Row>
                     </Col>
                 </Row>
-                <Table
-                    dataSource={propertyCorrelationValues}
-                    loading={propertyCorrelationsLoading}
-                    scroll={{ x: 'max-content' }}
-                    size="small"
-                    rowKey={(record: FunnelCorrelation) => record.event.event}
-                    pagination={{
-                        pageSize: 5,
-                        hideOnSinglePage: true,
-                        onChange: (page, page_size) =>
-                            reportCorrelationInteraction(FunnelCorrelationResultsType.Properties, 'pagination change', {
-                                page,
-                                page_size,
-                            }),
-                    }}
+                <ConfigProvider
+                    renderEmpty={() => (
+                        <FunnelCorrelationTableEmptyState
+                            infoMessage="Correlated properties highlights properties users have that are likely to have affected their conversion
+                        rate within the funnel."
+                            showLoadResultsButton={!loadedPropertyCorrelationsTableOnce}
+                            loadResults={() => loadPropertyCorrelations({})}
+                        />
+                    )}
                 >
-                    <Column
-                        title={`${capitalizeFirstLetter(aggregationTargetLabel.singular)} property`}
-                        key="propertName"
-                        render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
-                        align="left"
-                    />
-                    <Column
-                        title={
-                            <div className="flex items-center">
-                                Completed
-                                <Tooltip
-                                    title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                        filters.aggregation_group_type_index != undefined ? 'that' : 'who'
-                                    } have this property and completed the entire funnel.`}
-                                >
-                                    <InfoCircleOutlined className="column-info" />
-                                </Tooltip>
-                            </div>
-                        }
-                        key="success_count"
-                        render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
-                        width={90}
-                        align="center"
-                    />
-                    <Column
-                        title={
-                            <div className="flex items-center">
-                                Dropped off
-                                <Tooltip
-                                    title={
-                                        <>
-                                            {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                                            {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} have
-                                            this property and did <b>not complete</b> the entire funnel.
-                                        </>
+                    <Table
+                        dataSource={propertyCorrelationValues}
+                        loading={propertyCorrelationsLoading}
+                        scroll={{ x: 'max-content' }}
+                        size="small"
+                        rowKey={(record: FunnelCorrelation) => record.event.event}
+                        pagination={{
+                            pageSize: 5,
+                            hideOnSinglePage: true,
+                            onChange: (page, page_size) =>
+                                reportCorrelationInteraction(
+                                    FunnelCorrelationResultsType.Properties,
+                                    'pagination change',
+                                    {
+                                        page,
+                                        page_size,
                                     }
-                                >
-                                    <InfoCircleOutlined className="column-info" />
-                                </Tooltip>
-                            </div>
-                        }
-                        key="failure_count"
-                        render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
-                        width={120}
-                        align="center"
-                    />
-                    <Column
-                        title=""
-                        key="actions"
-                        render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
-                        align="center"
-                        width={30}
-                    />
-                </Table>
+                                ),
+                        }}
+                    >
+                        <Column
+                            title={`${capitalizeFirstLetter(aggregationTargetLabel.singular)} property`}
+                            key="propertName"
+                            render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
+                            align="left"
+                        />
+                        <Column
+                            title={
+                                <div className="flex items-center">
+                                    Completed
+                                    <Tooltip
+                                        title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
+                                            filters.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                        } have this property and completed the entire funnel.`}
+                                    >
+                                        <InfoCircleOutlined className="column-info" />
+                                    </Tooltip>
+                                </div>
+                            }
+                            key="success_count"
+                            render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
+                            width={90}
+                            align="center"
+                        />
+                        <Column
+                            title={
+                                <div className="flex items-center">
+                                    Dropped off
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
+                                                {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
+                                                have this property and did <b>not complete</b> the entire funnel.
+                                            </>
+                                        }
+                                    >
+                                        <InfoCircleOutlined className="column-info" />
+                                    </Tooltip>
+                                </div>
+                            }
+                            key="failure_count"
+                            render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
+                            width={120}
+                            align="center"
+                        />
+                        <Column
+                            title=""
+                            key="actions"
+                            render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                            align="center"
+                            width={30}
+                        />
+                    </Table>
+                </ConfigProvider>
             </div>
         </VisibilitySensor>
     ) : null
@@ -284,7 +305,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
 
     return (
         <Row style={{ justifyContent: 'flex-end' }}>
-            <Popup
+            <Popover
                 visible={popoverOpen}
                 actionable
                 onClickOutside={() => setPopoverOpen(false)}
@@ -306,12 +327,9 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                 }
             >
                 <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
-                    <EllipsisOutlined
-                        style={{ color: 'var(--primary)', fontSize: 24 }}
-                        className="insight-dropdown-actions"
-                    />
+                    <EllipsisOutlined className="insight-dropdown-actions" />
                 </LemonButton>
-            </Popup>
+            </Popover>
         </Row>
     )
 }

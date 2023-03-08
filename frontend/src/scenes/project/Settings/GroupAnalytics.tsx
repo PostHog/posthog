@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { GroupType } from '~/types'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { groupAnalyticsConfigLogic } from 'scenes/project/Settings/groupAnalyticsConfigLogic'
-import { InfoCircleOutlined } from '@ant-design/icons'
-import { Tooltip } from 'lib/components/Tooltip'
-import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 
 export function GroupAnalytics(): JSX.Element | null {
     const { groupTypes, groupTypesLoading, singularChanges, pluralChanges, hasChanges } =
@@ -14,19 +13,15 @@ export function GroupAnalytics(): JSX.Element | null {
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    if (groupsAccessStatus !== GroupsAccessStatus.AlreadyUsing) {
-        // Hide settings unless actually using the feature
+    if (groupsAccessStatus === GroupsAccessStatus.NoAccess) {
+        // Hide settings if the user doesn't have access
         return null
     }
 
     const columns: LemonTableColumns<GroupType> = [
         {
-            title: (
-                <Tooltip title="As used in code">
-                    Group type
-                    <InfoCircleOutlined className="ml-2" />
-                </Tooltip>
-            ),
+            title: 'Group type',
+            tooltip: 'As used in code',
             dataIndex: 'group_type',
             key: 'name',
             render: function RenderName(name) {
@@ -74,6 +69,18 @@ export function GroupAnalytics(): JSX.Element | null {
                 This project has access to group analytics. Below you can configure how various group types are
                 displayed throughout the app.
             </p>
+
+            {groupsAccessStatus !== GroupsAccessStatus.HasGroupTypes && (
+                <AlertMessage type="info" className="mb-4">
+                    Group types will show up here after you send your first event associated with a group. Take a look
+                    at{' '}
+                    <Link to={`https://posthog.com/manual/group-analytics`} target="_blank">
+                        this guide
+                    </Link>
+                    for more information on getting started.
+                </AlertMessage>
+            )}
+
             <LemonTable columns={columns} dataSource={groupTypes} loading={groupTypesLoading} />
 
             <div className="flex gap-2 mt-4">

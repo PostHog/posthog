@@ -201,7 +201,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         url = api.propertyDefinitions.determineListEndpoint({
                             event_names: [definition.name],
                             excluded_properties: keyMappingKeys,
-                            is_event_property: true,
+                            filter_by_event_names: true,
                             is_feature_flag: false,
                             limit: PROPERTY_DEFINITIONS_PER_EVENT,
                         })

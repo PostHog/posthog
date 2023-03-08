@@ -296,6 +296,38 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][6], "7 days")
             self.assertEqual(response[0]["data"][6], 0)
 
+        def test_stickiness_hogql_filter(self):
+            self._create_multiple_people()
+
+            with freeze_time("2020-01-08T13:01:01Z"):
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
+                        "shown_as": "Stickiness",
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-08",
+                        "events": [{"id": "watched movie"}],
+                        "properties": [
+                            {
+                                "key": "properties.$browser == 'Chrome' and like(person.properties.name, '%person%')",
+                                "type": "hogql",
+                            }
+                        ],
+                    },
+                )
+                response = stickiness_response["result"]
+
+            self.assertEqual(response[0]["count"], 3)
+            self.assertEqual(response[0]["labels"][0], "1 day")
+            self.assertEqual(response[0]["data"][0], 1)
+            self.assertEqual(response[0]["labels"][1], "2 days")
+            self.assertEqual(response[0]["data"][1], 1)
+            self.assertEqual(response[0]["labels"][2], "3 days")
+            self.assertEqual(response[0]["data"][2], 1)
+            self.assertEqual(response[0]["labels"][6], "7 days")
+            self.assertEqual(response[0]["data"][6], 0)
+
         def test_stickiness_entity_filter(self):
             self._create_multiple_people()
 

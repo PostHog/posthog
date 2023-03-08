@@ -30,7 +30,15 @@ export class StorybookStoryPage {
 
     async goto(storyId: string): Promise<void> {
         const storyUrl = `${STORYBOOK_URL}/iframe.html?id=${storyId}&viewMode=story`
-        await this.page.goto(storyUrl)
+        await this.page.goto(storyUrl, { waitUntil: 'networkidle' })
+    }
+
+    async resizeToMobile(): Promise<void> {
+        await this.page.setViewportSize({ width: 375, height: 667 }) // iPhone 6/7/8
+    }
+
+    async expectFullPageScreenshot(): Promise<void> {
+        await expect(this.page).toHaveScreenshot({ maxDiffPixelRatio: 0.01 })
     }
 
     async expectSceneScreenshot(): Promise<void> {

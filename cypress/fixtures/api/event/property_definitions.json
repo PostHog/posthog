@@ -9,7 +9,7 @@
             "is_numerical": true,
             "query_usage_30_day": null,
             "property_type": null,
-            "is_event_property": null
+            "is_seen_on_filtered_events": null
         },
         {
             "id": "017dde0e-1cc9-0000-ed91-26909937767f",
@@ -17,7 +17,7 @@
             "is_numerical": true,
             "query_usage_30_day": null,
             "property_type": "DateTime",
-            "is_event_property": null
+            "is_seen_on_filtered_events": null
         }
     ]
 }

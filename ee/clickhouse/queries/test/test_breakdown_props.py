@@ -13,13 +13,15 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 
 
 class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
-    @test_with_materialized_columns(event_properties=["$host", "distinct_id"], person_properties=["$browser", "email"])
+    @also_test_with_materialized_columns(
+        event_properties=["$host", "distinct_id"], person_properties=["$browser", "email"]
+    )
     @snapshot_clickhouse_queries
     def test_breakdown_person_props(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})

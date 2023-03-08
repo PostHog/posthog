@@ -56,13 +56,6 @@ describe('sessionRecordingsListLogic', () => {
                                 results: ['Recordings filtered by duration'],
                             },
                         ]
-                    } else if (searchParams.get('static_recordings')) {
-                        return [
-                            200,
-                            {
-                                results: ['Recordings belonging to static playlist'],
-                            },
-                        ]
                     }
                     return [
                         200,

@@ -46,7 +46,13 @@ def requires_flag_warning(filter: Filter, team: Team) -> bool:
         {date_query}
         GROUP BY event
         """,
-        {"team_id": team.pk, "limit": filter.limit or 20, **date_params, **entity_params},
+        {
+            "team_id": team.pk,
+            "limit": filter.limit or 20,
+            **date_params,
+            **entity_params,
+            **filter.hogql_context.values,
+        },
     )
 
     requires_flag_warning = True

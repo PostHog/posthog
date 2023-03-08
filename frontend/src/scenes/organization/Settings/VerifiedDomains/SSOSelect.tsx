@@ -1,6 +1,6 @@
 import { Select } from 'antd'
 import { useValues } from 'kea'
-import { SocialLoginIcon } from 'lib/components/SocialLoginButton/control/SocialLoginIcon'
+import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SSOProviders } from '~/types'

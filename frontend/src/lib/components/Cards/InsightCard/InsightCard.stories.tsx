@@ -29,12 +29,11 @@ const EXAMPLE_TRENDS: InsightModel = {
         insight: InsightType.TRENDS,
         interval: 'day',
     },
-    filters_hash: 'cache_10242f26e25fd30ec2c9721e4f90a018',
     deleted: false,
     dashboards: [1],
+    dashboard_tiles: [{ id: 1, dashboard_id: 1 }],
     order: 0,
     last_refresh: '2021-12-14T12:57:57.125157Z',
-    refreshing: false,
     result: [
         {
             action: {
@@ -182,7 +181,7 @@ const EXAMPLE_TRENDS: InsightModel = {
         uuid: uuid(),
         distinct_id: 'xyz',
         first_name: 'Michael',
-        email: 'michael@posthog.com',
+        email: 'michael@example.com',
     },
     description: 'Shows the number of unique users that use your app every day.',
     updated_at: '2021-12-14T12:58:26.665942Z',
@@ -221,12 +220,11 @@ const EXAMPLE_FUNNEL: InsightModel = {
         properties: [],
         funnel_viz_type: FunnelVizType.Steps,
     } as FunnelsFilterType,
-    filters_hash: 'cache_efe341a46f090f397007fe97d8faf263',
     order: 1,
     deleted: false,
     dashboards: [6],
+    dashboard_tiles: [{ id: 2, dashboard_id: 6 }],
     last_refresh: null,
-    refreshing: false,
     result: [
         {
             action_id: '$pageview',
@@ -264,7 +262,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
         uuid: '017ef865-19da-0000-3b60-1506093bf40f',
         distinct_id: '7Qj57yoNMQfmdFnZEn0Lb68RzNh7Rh5AgkubTCKK7FZ',
         first_name: 'Michael',
-        email: 'michael@posthog.com',
+        email: 'michael@example.com',
     },
     description: '',
     updated_at: '2022-02-16T19:49:55.741547Z',
@@ -277,7 +275,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
         uuid: '017ef865-19da-0000-3b60-1506093bf40f',
         distinct_id: '7Qj57yoNMQfmdFnZEn0Lb68RzNh7Rh5AgkubTCKK7FZ',
         first_name: 'Michael',
-        email: 'michael@posthog.com',
+        email: 'michael@example.com',
     },
     is_sample: false,
     effective_restriction_level: 21,
@@ -287,9 +285,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
 export default {
     title: 'Components/Cards/Insight Card',
     component: InsightCardComponent,
-    parameters: {
-        chromatic: { disableSnapshot: false },
-    },
+    parameters: {},
     argTypes: {
         insightName: {
             control: { type: 'text' },
@@ -319,7 +315,8 @@ export const InsightCard: Story = (args) => {
     const [wasItemRemoved, setWasItemRemoved] = useState(false)
 
     return (
-        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)' }}>
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)', minWidth: '50rem' }}>
             {!wasItemRemoved && (
                 <InsightCardComponent
                     insight={{

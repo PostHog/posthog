@@ -69,7 +69,7 @@ class ClickhouseTrendExperimentResult:
                 experiment_end_date.astimezone(pytz.timezone(team.timezone)) if experiment_end_date else None
             )
 
-        query_filter = filter.with_data(
+        query_filter = filter.shallow_clone(
             {
                 "display": TRENDS_CUMULATIVE,
                 "date_from": start_date_in_project_timezone,
@@ -82,7 +82,7 @@ class ClickhouseTrendExperimentResult:
             }
         )
 
-        exposure_filter = filter.with_data(
+        exposure_filter = filter.shallow_clone(
             {
                 "display": TRENDS_CUMULATIVE,
                 "date_from": experiment_start_date,

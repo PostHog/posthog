@@ -5,15 +5,19 @@ export type ElementsEventType = {
     count: number
     elements: ElementType[]
     hash: string
+    type: '$autocapture' | '$rageclick'
 }
 
 export interface CountedHTMLElement {
-    count: number
+    count: number // total of types of clicks
+    clickCount: number // autocapture clicks
+    rageclickCount: number
     element: HTMLElement
     hash: string
     selector: string
     position?: number
     actionStep?: ActionStepType
+    type: '$autocapture' | '$rageclick'
 }
 
 export interface ElementWithMetadata {
@@ -21,6 +25,8 @@ export interface ElementWithMetadata {
     rect?: DOMRect
     index?: number
     count?: number
+    clickCount?: number
+    rageclickCount?: number
     position?: number
 }
 

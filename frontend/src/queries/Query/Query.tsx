@@ -3,8 +3,8 @@ import {
     isDataTableNode,
     isLegacyQuery,
     isInsightQueryNode,
-    isTimeToSeeDataQuery,
     isInsightVizNode,
+    isTimeToSeeDataSessionsNode,
 } from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
@@ -28,7 +28,7 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
 }
 
 export function Query(props: QueryProps): JSX.Element {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly, context } = props
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly } = props
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
         if (propsQuery !== localQuery) {
@@ -38,6 +38,11 @@ export function Query(props: QueryProps): JSX.Element {
 
     const query = readOnly ? propsQuery : localQuery
     const setQuery = readOnly ? undefined : propsSetQuery ?? localSetQuery
+
+    const queryContext = props.context || {}
+    if (!!props.readOnly) {
+        queryContext.readonly = true
+    }
 
     if (typeof query === 'string') {
         try {
@@ -51,14 +56,14 @@ export function Query(props: QueryProps): JSX.Element {
     if (isLegacyQuery(query)) {
         component = <LegacyInsightQuery query={query} />
     } else if (isDataTableNode(query)) {
-        component = <DataTable query={query} setQuery={setQuery} context={context} />
+        component = <DataTable query={query} setQuery={setQuery} context={queryContext} />
     } else if (isDataNode(query)) {
         component = <DataNode query={query} />
     } else if (isInsightVizNode(query)) {
         component = <InsightViz query={query} setQuery={setQuery} />
     } else if (isInsightQueryNode(query)) {
         component = <InsightQuery query={query} />
-    } else if (isTimeToSeeDataQuery(query)) {
+    } else if (isTimeToSeeDataSessionsNode(query)) {
         component = <TimeToSeeData query={query} />
     }
 

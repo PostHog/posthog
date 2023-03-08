@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import pytz
 from django.utils import timezone
@@ -81,6 +81,15 @@ def get_interval_func_ch(period: Optional[str]) -> str:
     return ch_function
 
 
+def get_time_in_seconds_for_period(period: Optional[str]) -> str:
+    if period is None:
+        period = "day"
+    seconds_in_period = TIME_IN_SECONDS.get(period.lower())
+    if seconds_in_period is None:
+        raise ValidationError(f"Interval {period} is unsupported.")
+    return seconds_in_period
+
+
 def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
     for key in params:
         if isinstance(params[key], dict) or isinstance(params[key], list):
@@ -88,17 +97,25 @@ def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
     return params
 
 
-def start_of_week_fix(interval: Optional[str]) -> str:
-    """
-    toStartOfWeek is the only trunc function that takes three arguments:
-      toStartOfWeek(timestamp, mode, timezone)
-    Mode is whether the week starts on sunday or monday, with 0 being sunday.
-    This function adds mode to the trunc_func, but only if the interval is week
-    """
-    return ", 0" if interval and interval.lower() == "week" else ""
-
-
 def convert_to_datetime_aware(date_obj):
     if date_obj.tzinfo is None:
         date_obj = date_obj.replace(tzinfo=timezone.utc)
     return date_obj
+
+
+def correct_result_for_sampling(
+    value: Union[int, float], sampling_factor: Optional[float], entity_math: Optional[str] = None
+) -> Union[int, float]:
+    from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
+
+    # We don't adjust results for sampling if:
+    # - There's no sampling_factor specified i.e. the query isn't sampled
+    # - The query performs a math operation other than 'sum' because statistical math operations
+    # on sampled data yield results in the correct format
+    if (not sampling_factor) or (
+        entity_math is not None and entity_math != "sum" and entity_math in ALL_SUPPORTED_MATH_FUNCTIONS
+    ):
+        return value
+
+    result = round(value * (1 / sampling_factor))
+    return result

@@ -2,10 +2,10 @@ import { Button, Col, Divider, Row, Statistic } from 'antd'
 import { useValues, useActions } from 'kea'
 import { deadLetterQueueLogic } from './deadLetterQueueLogic'
 import { userLogic } from 'scenes/userLogic'
-import { LemonTable } from 'lib/components/LemonTable'
-import { LemonButton } from 'lib/components/LemonButton'
-import { Spinner } from 'lib/components/Spinner/Spinner'
-import { IconRefresh } from 'lib/components/icons'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 
 // keep in sync with posthog/api/dead_letter_queue.py
 const ROWS_LIMIT = 10

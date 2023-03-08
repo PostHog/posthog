@@ -3,7 +3,7 @@ import { Node } from '~/queries/schema'
 
 import type { queryEditorLogicType } from './queryEditorLogicType'
 import { QueryEditorProps } from '~/queries/QueryEditor/QueryEditor'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 function prettyJSON(source: string): string {
     try {

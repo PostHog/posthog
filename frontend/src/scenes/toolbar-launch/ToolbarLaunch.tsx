@@ -1,14 +1,13 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import './ToolbarLaunch.scss'
-import { SearchOutlined } from '@ant-design/icons'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { IconFlag, IconGroupedEvents, IconHeatmap } from 'lib/components/icons'
-import { AuthorizedUrlList } from '../../lib/components/AuthorizedUrlList/AuthorizedUrlList'
-import { AuthorizedUrlListType } from '../../lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { LemonDivider } from 'lib/components/LemonDivider'
-import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { IconFlag, IconGroupedEvents, IconHeatmap, IconMagnifier } from 'lib/lemon-ui/icons'
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
@@ -39,7 +38,7 @@ function ToolbarLaunch(): JSX.Element {
         {
             title: 'Inspect',
             caption: 'Inspect clickable elements on your website.',
-            icon: <SearchOutlined />,
+            icon: <IconMagnifier />,
         },
     ]
 

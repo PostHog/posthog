@@ -7,7 +7,7 @@ import {
     IconPHP,
     IconPython,
     IconRuby,
-} from 'lib/components/icons'
+} from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 import { CaretDownOutlined } from '@ant-design/icons'

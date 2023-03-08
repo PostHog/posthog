@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
-import { IconSettings } from 'lib/components/icons'
+import { IconSettings } from 'lib/lemon-ui/icons'
 import { InsightQueryNode } from '~/queries/schema'
 
 type TestAccountFilterProps = {

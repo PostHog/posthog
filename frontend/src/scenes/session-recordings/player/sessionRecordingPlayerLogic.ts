@@ -17,6 +17,7 @@ import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     comparePlayerPositions,
+    deleteRecording,
     getPlayerPositionFromPlayerTime,
     getPlayerTimeFromPlayerPosition,
     getSegmentFromPlayerPosition,
@@ -26,9 +27,13 @@ import equal from 'fast-deep-equal'
 import { downloadFile, fromParamsGivenUrl } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
 import { delay } from 'kea-test-utils'
-import { ExportedSessionRecordingFile } from '../file-playback/sessionRecodingFilePlaybackLogic'
+import { ExportedSessionRecordingFile } from '../file-playback/sessionRecordingFilePlaybackLogic'
 import { userLogic } from 'scenes/userLogic'
 import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { wrapConsole } from 'lib/utils/wrapConsole'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -59,9 +64,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerData',
                 'sessionPlayerSnapshotDataLoading',
                 'sessionPlayerMetaDataLoading',
-                'loadMetaTimeMs',
-                'loadFirstSnapshotTimeMs',
-                'loadAllSnapshotsTimeMs',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'isFullScreen'],
@@ -121,6 +123,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
         updateFromMetadata: true,
         exportRecordingToFile: true,
+        deleteRecording: true,
     }),
     reducers(({ props }) => ({
         rootFrame: [
@@ -322,7 +325,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const initialSegment = values.sessionPlayerData?.metadata?.segments[0]
             if (initialSegment) {
                 actions.setCurrentSegment(initialSegment)
-                actions.setCurrentPlayerPosition(initialSegment.startPlayerPosition)
+
+                // Ensure seek time initialized from url doesn't get overwritten
+                if (!cache.initializedFromUrl) {
+                    actions.setCurrentPlayerPosition(initialSegment.startPlayerPosition)
+                }
 
                 if (!values.player) {
                     actions.tryInitReplayer()
@@ -377,6 +384,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         loadRecordingSnapshotsFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
+                console.error('PostHog Recording Playback Error: No snapshots loaded')
                 actions.setErrorPlayerState(true)
             }
         },
@@ -414,6 +422,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setErrorPlayerState: ({ show }) => {
             if (show) {
+                actions.incrementErrorCount()
                 actions.stopAnimation()
             }
         },
@@ -456,6 +465,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ) {
                 values.player?.replayer?.pause()
                 actions.endBuffer()
+                console.error("Error: Player tried to seek to a position that hasn't loaded yet")
                 actions.setErrorPlayerState(true)
             }
 
@@ -586,6 +596,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ) {
                 values.player?.replayer?.pause()
                 actions.endBuffer()
+                console.error('PostHog Recording Playback Error: Tried to access snapshot that is not loaded yet')
                 actions.setErrorPlayerState(true)
             }
 
@@ -656,20 +667,38 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 pending: 'Exporting recording...',
             })
         },
+        deleteRecording: async () => {
+            await deleteRecording(props.sessionRecordingId)
+
+            // Handles locally updating recordings sidebar so that we don't have to call expensive load recordings every time.
+            const listLogic =
+                !!props.playlistShortId &&
+                sessionRecordingsListLogic.isMounted({ playlistShortId: props.playlistShortId })
+                    ? // On playlist page
+                      sessionRecordingsListLogic({ playlistShortId: props.playlistShortId })
+                    : // In any other context with a list of recordings (recent recordings)
+                      sessionRecordingsListLogic.findMounted({ updateSearchParams: true })
+
+            if (listLogic) {
+                listLogic.actions.loadAllRecordings()
+                // Reset selected recording to first one in the list
+                listLogic.actions.setSelectedRecordingId(null)
+            } else if (router.values.location.pathname.includes('/recordings')) {
+                // On a page that displays a single recording `recordings/:id` that doesn't contain a list
+                router.actions.push(urls.sessionRecordings())
+            } else {
+                // No-op a modal session recording. Delete icon is hidden in modal contexts since modals should be read only views.
+            }
+        },
     })),
     windowValues({
         isSmallScreen: (window: any) => window.innerWidth < getBreakpoint('md'),
     }),
     events(({ values, actions, cache }) => ({
         beforeUnmount: () => {
+            cache.resetConsoleWarn?.()
             values.player?.replayer?.pause()
             actions.setPlayer(null)
-            if (cache.originalWarning) {
-                console.warn = cache.originalWarning
-            }
-            if (cache.errorHandler) {
-                window.removeEventListener('error', cache.errorHandler)
-            }
             actions.reportRecordingViewedSummary({
                 viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
                 recording_duration_ms: values.sessionPlayerData?.metadata
@@ -682,13 +711,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                                   (1000 * 60 * 60 * 24)
                           )
                         : undefined,
-                meta_data_load_time_ms: values.loadMetaTimeMs ?? undefined,
-                first_snapshot_load_time_ms: values.loadFirstSnapshotTimeMs ?? undefined,
-                first_snapshot_and_meta_load_time_ms:
-                    values.loadFirstSnapshotTimeMs !== null && values.loadMetaTimeMs !== null
-                        ? Math.max(values.loadFirstSnapshotTimeMs, values.loadMetaTimeMs)
-                        : undefined,
-                all_snapshots_load_time_ms: values.loadAllSnapshotsTimeMs ?? undefined,
                 rrweb_warning_count: values.warningCount,
                 error_count_during_recording_playback: values.errorCount,
             })
@@ -701,17 +723,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             cache.openTime = performance.now()
 
-            cache.errorHandler = () => {
-                actions.incrementErrorCount()
-            }
-            window.addEventListener('error', cache.errorHandler)
-            cache.originalWarning = console.warn
-            console.warn = function (...args: Array<unknown>) {
+            cache.resetConsoleWarn = wrapConsole('warn', (args) => {
                 if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
                     actions.incrementWarningCount()
                 }
-                cache.originalWarning(...args)
-            }
+            })
         },
     })),
 ])

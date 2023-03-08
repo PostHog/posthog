@@ -1,14 +1,13 @@
 import { CSSProperties, useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
-import '../../../scenes/actions/Actions.scss'
-import { AnyPropertyFilter, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 import { PathItemSelector } from './components/PathItemSelector'
 import { PropertyFilterButton } from './components/PropertyFilterButton'
 import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconPlusMini } from '../icons'
+import { IconPlusMini } from 'lib/lemon-ui/icons'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -33,7 +32,7 @@ export function PathItemFilters({
 
     useEffect(() => {
         if (propertyFilters && !objectsEqual(propertyFilters, filtersWithNew)) {
-            setFilters([...propertyFilters, {}])
+            setFilters([...propertyFilters, {} as EmptyPropertyFilter])
         }
     }, [propertyFilters])
 
@@ -45,7 +44,12 @@ export function PathItemFilters({
                         <PathItemSelector
                             pathItem={filter.value as string | undefined}
                             onChange={(pathItem) =>
-                                setFilter(index, { key: pathItem, value: pathItem, type: PropertyFilterType.Event })
+                                setFilter(index, {
+                                    key: pathItem,
+                                    value: pathItem,
+                                    type: PropertyFilterType.Event,
+                                    operator: PropertyOperator.Exact,
+                                })
                             }
                             index={index}
                             taxonomicGroupTypes={taxonomicGroupTypes}

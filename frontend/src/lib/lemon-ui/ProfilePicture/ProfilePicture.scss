@@ -1,0 +1,96 @@
+.profile-package {
+    display: inline-flex;
+    align-items: center;
+    &:not(:first-child) {
+        margin-left: 0.375rem;
+    }
+}
+
+.profile-name {
+    margin-left: 0.375rem;
+    font-weight: 500;
+}
+
+.profile-picture {
+    flex-shrink: 0;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    line-height: 32px;
+    background-color: var(--purple-light);
+    color: #5f1903;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 18px; // 2/3 of width/height in the smallest size, 1/2 in the biggest, interpolated in between
+    user-select: none;
+
+    &.xxl {
+        width: 48px;
+        height: 48px;
+        line-height: 48px;
+        font-size: 20px;
+    }
+
+    &.xl {
+        width: 40px;
+        height: 40px;
+        line-height: 40px;
+        font-size: 20px;
+    }
+
+    &.md {
+        width: 24px;
+        height: 24px;
+        line-height: 24px;
+        font-size: 14px;
+    }
+
+    &.sm {
+        width: 18px;
+        height: 18px;
+        line-height: 18px;
+        font-size: 12px;
+    }
+
+    &.xs {
+        width: 16px;
+        height: 16px;
+        line-height: 16px;
+        font-size: 11px;
+    }
+
+    .Lettermark {
+        width: inherit;
+        height: inherit;
+        line-height: inherit;
+        font-size: inherit;
+    }
+}
+
+.ProfileBubbles {
+    display: flex;
+    align-items: center;
+    > * {
+        outline: 0.125rem solid #fff;
+    }
+    > :not(:first-child) {
+        margin-left: -0.125rem;
+    }
+}
+
+.ProfileBubbles__more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 1.5rem;
+    width: 1.5rem;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #fff;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: -0.05em;
+    user-select: none;
+}

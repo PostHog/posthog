@@ -20,7 +20,12 @@ const toolbarParams: ToolbarParams = {
 
 export default {
     title: 'Scenes-Other/Toolbar',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        testOptions: { skip: true }, // This story is not valuable to snapshot as is
+    },
 } as Meta
 
 function useToolbarStyles(): void {

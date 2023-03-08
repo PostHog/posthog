@@ -7,7 +7,7 @@ import type { dashboardsModelType } from './dashboardsModelType'
 import { DashboardType, InsightShortId, DashboardTile, InsightModel } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { tagsModel } from '~/models/tagsModel'
 
 export const dashboardsModel = kea<dashboardsModelType>({

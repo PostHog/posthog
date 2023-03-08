@@ -1,6 +1,8 @@
-import * as prettier from 'prettier/standalone'
-import * as parserTypeScript from 'prettier/parser-typescript'
-export function formatSource(filename: string, source: string): string {
+export async function formatSource(filename: string, source: string): Promise<string> {
+    // Lazy-load prettier, as it's pretty big and its only use is formatting app source code
+    const prettier = (await import('prettier/standalone')).default
+    const parserTypeScript = (await import('prettier/parser-typescript')).default
+
     if (filename.endsWith('.json')) {
         return JSON.stringify(JSON.parse(source), null, 4) + '\n'
     }
@@ -9,7 +11,7 @@ export function formatSource(filename: string, source: string): string {
         filepath: filename,
         parser: 'typescript',
         plugins: [parserTypeScript],
-        // coped from .prettierrc
+        // copied from .prettierrc
         semi: false,
         trailingComma: 'es5',
         singleQuote: true,

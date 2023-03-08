@@ -4,49 +4,103 @@ import { DateTime, Duration } from 'luxon'
 
 import { status } from '../../utils/status'
 
-type InvalidTimestampCallback = (field: string, value: string, reason: string) => void
+type IngestionWarningCallback = (type: string, details: Record<string, any>) => void
 
-export function parseEventTimestamp(data: PluginEvent, callback?: InvalidTimestampCallback): DateTime {
+const FutureEventHoursCutoffMillis = 23 * 3600 * 1000 // 23 hours
+
+export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarningCallback): DateTime {
     const now = DateTime.fromISO(data['now']).toUTC() // now is set by the capture endpoint and assumed valid
 
     let sentAt: DateTime | null = null
     if (data['sent_at']) {
         sentAt = DateTime.fromISO(data['sent_at']).toUTC()
         if (!sentAt.isValid) {
-            callback?.('sent_at', data['sent_at'], sentAt.invalidExplanation || 'unknown error')
+            callback?.('ignored_invalid_timestamp', {
+                field: 'sent_at',
+                value: data['sent_at'],
+                reason: sentAt.invalidExplanation || 'unknown error',
+            })
             sentAt = null
         }
     }
 
-    const parsedTs = handleTimestamp(data, now, sentAt)
+    const parsedTs = handleTimestamp(data, now, sentAt, callback)
     if (!parsedTs.isValid) {
-        callback?.('timestamp', data['timestamp'] ?? '', parsedTs.invalidExplanation || 'unknown error')
+        callback?.('ignored_invalid_timestamp', {
+            field: 'timestamp',
+            value: data['timestamp'] ?? '',
+            reason: parsedTs.invalidExplanation || 'unknown error',
+        })
         return DateTime.utc()
     }
+
     return parsedTs
 }
 
-function handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null): DateTime {
+function handleTimestamp(
+    data: PluginEvent,
+    now: DateTime,
+    sentAt: DateTime | null,
+    callback?: IngestionWarningCallback
+): DateTime {
+    let parsedTs: DateTime = now
+    let timestamp: DateTime = now
+
     if (data['timestamp']) {
-        const timestamp = parseDate(data['timestamp'])
-        if (sentAt && timestamp.isValid) {
-            // sent_at - timestamp == now - x
-            // x = now + (timestamp - sent_at)
-            try {
-                // timestamp and sent_at must both be in the same format: either both with or both without timezones
-                // otherwise we can't get a diff to add to now
-                return now.plus(timestamp.diff(sentAt))
-            } catch (error) {
-                status.error('⚠️', 'Error when handling timestamp:', { error: error.message })
-                Sentry.captureException(error, { extra: { data, now, sentAt } })
-            }
+        timestamp = parseDate(data['timestamp'])
+
+        if (!sentAt || !timestamp.isValid) {
+            return timestamp
         }
-        return timestamp
+
+        // To handle clock skew between the client and server, we attempt
+        // to compute the skew based on the difference between the
+        // client-generated `sent_at` and the server-generated `now`
+        // filled by the capture endpoint.
+        //
+        // We calculate the skew as:
+        //
+        //      skew = sent_at - now
+        //
+        // And adjust the timestamp accordingly.
+
+        // sent_at - timestamp == now - x
+        // x = now + (timestamp - sent_at)
+        try {
+            // timestamp and sent_at must both be in the same format: either both with or both without timezones
+            // otherwise we can't get a diff to add to now
+            parsedTs = now.plus(timestamp.diff(sentAt))
+        } catch (error) {
+            status.error('⚠️', 'Error when handling timestamp:', { error: error.message })
+            Sentry.captureException(error, { extra: { data, now, sentAt } })
+            return timestamp
+        }
     }
+
     if (data['offset']) {
-        return now.minus(Duration.fromMillis(data['offset']))
+        parsedTs = now.minus(Duration.fromMillis(data['offset']))
     }
-    return now
+
+    const nowDiff = parsedTs.toUTC().diff(now).toMillis()
+
+    // Events in the future would indicate an instrumentation bug, lets' ingest them
+    // but publish an integration warning to help diagnose such issues.
+    // We will also 'fix' the date to be now()
+    if (nowDiff > FutureEventHoursCutoffMillis) {
+        callback?.('event_timestamp_in_future', {
+            timestamp: data['timestamp'] ?? '',
+            sentAt: data['sent_at'] ?? '',
+            offset: data['offset'] ?? '',
+            now: data['now'],
+            result: parsedTs.toISO(),
+            eventUuid: data['uuid'],
+            eventName: data['event'],
+        })
+
+        parsedTs = now
+    }
+
+    return parsedTs
 }
 
 export function parseDate(supposedIsoString: string): DateTime {

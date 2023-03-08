@@ -1,3 +1,4 @@
+import datetime as dt
 import inspect
 import re
 import threading
@@ -14,14 +15,13 @@ from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
-from django.utils.timezone import now
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_cloud_cache
-from posthog.models import Organization, Team, User
+from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from posthog.models.event.util import bulk_create_events
@@ -42,7 +42,6 @@ from posthog.models.session_recording_event.sql import (
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
-from posthog.settings import CLICKHOUSE_REPLICATION
 from posthog.settings.utils import get_from_env, str_to_bool
 
 persons_cache_tests: List[Dict[str, Any]] = []
@@ -251,7 +250,7 @@ def cleanup_materialized_columns():
         sync_execute(f"ALTER TABLE groups DROP COLUMN {column_name}")
 
 
-def test_with_materialized_columns(
+def also_test_with_materialized_columns(
     event_properties=[],
     person_properties=[],
     group_properties=[],
@@ -327,6 +326,13 @@ class QueryMatchingTest:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
             query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)
 
+        # hog ql checks team ids differently
+        query = re.sub(
+            r"equals\(team_id, \d+\)",
+            "equals(team_id, 2)",
+            query,
+        )
+
         # Replace organization_id lookups, for postgres
         query = re.sub(
             rf"""("organization_id"|"posthog_organization"\."id") = '[^']+'::uuid""",
@@ -348,6 +354,21 @@ class QueryMatchingTest:
 
         query = re.sub(rf"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""", r"""user_id:0 request:_snapshot_""", query)
 
+        # ee license check has varying datetime
+        # e.g. WHERE "ee_license"."valid_until" >= '2023-03-02T21:13:59.298031+00:00'::timestamptz
+        query = re.sub(
+            r"ee_license\"\.\"valid_until\" >= '\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d.\d{6}\+\d\d:\d\d'::timestamptz",
+            '"ee_license"."valid_until">=\'LICENSE-TIMESTAMP\'::timestamptz"',
+            query,
+        )
+
+        # insight cache key varies with team id
+        query = re.sub(
+            r"WHERE \(\"posthog_insightcachingstate\".\"cache_key\" = 'cache_\w{32}'",
+            """WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_THE_CACHE_KEY'""",
+            query,
+        )
+
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run
@@ -355,7 +376,9 @@ class QueryMatchingTest:
 
 
 @contextmanager
-def snapshot_postgres_queries_context(testcase: QueryMatchingTest, replace_all_numbers: bool = True):
+def snapshot_postgres_queries_context(
+    testcase: QueryMatchingTest, replace_all_numbers: bool = True, using: str = "default"
+):
     """
     Captures and snapshots select queries from test using `syrupy` library.
     Requires queries to be stable to avoid flakiness.
@@ -382,12 +405,12 @@ def snapshot_postgres_queries_context(testcase: QueryMatchingTest, replace_all_n
                 # Run some code that generates queries
 
     """
-    with CaptureQueriesContext(connections["default"]) as context:
+    with CaptureQueriesContext(connections[using]) as context:
         yield context
 
     for query_with_time in context.captured_queries:
         query = query_with_time["sql"]
-        if "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
+        if query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
@@ -482,12 +505,24 @@ def flush_persons_and_events():
 
 def _create_event(**kwargs):
     """
-    Create an event in tests. NOTE: all events get batched and only created when sync_execute is called
+    Create an event in tests.
+
+    Timezone support works as follows here:
+    If a `timestamp` kwarg WITHOUT an explicit timezone is provided, it's treated as local to the project.
+    Example: With the default `team.timezone = 'UTC'`, timestamp `2022-11-24T12:00:00` is saved verbatim to the DB,
+    as all our stored data is in UTC . However, with `team.timezone = 'America/Phoenix'`, the event will in fact be
+    stored with timestamp `2022-11-24T19:00:00` - because America/Pheonix is UTC-7, and Phoenix noon occurs at 7 PM UTC.
+    If a `timestamp` WITH an explicit timezone is provided (in the case of ISO strings, this can be the "Z" suffix
+    signifying UTC), we use that timezone instead of the project timezone.
+    If NO `timestamp` is provided, we use the current system time (which can be mocked with `freeze_time()`)
+    and treat that as local to the project.
+
+    NOTE: All events get batched and only created when sync_execute is called.
     """
     if not kwargs.get("event_uuid"):
         kwargs["event_uuid"] = str(uuid.uuid4())
     if not kwargs.get("timestamp"):
-        kwargs["timestamp"] = now()
+        kwargs["timestamp"] = dt.datetime.now()
     events_cache_tests.append(kwargs)
     return kwargs["event_uuid"]
 
@@ -504,7 +539,9 @@ def _create_person(*args, **kwargs):
         )  # make sure the ordering of uuids is always consistent
     persons_ordering_int += 1
     # If we've done freeze_time just create straight away
-    if kwargs.get("immediate") or (hasattr(now(), "__module__") and now().__module__ == "freezegun.api"):
+    if kwargs.get("immediate") or (
+        hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
+    ):
         if kwargs.get("immediate"):
             del kwargs["immediate"]
         create_person(
@@ -557,19 +594,39 @@ class ClickhouseTestMixin(QueryMatchingTest):
             yield queries
 
 
+@contextmanager
+def failhard_threadhook_context():
+    """
+    Context manager to ensure that exceptions raised by threads are treated as a
+    test failure.
+    """
+
+    def raise_hook(args: threading.ExceptHookArgs):
+        if args.exc_value is not None:
+            raise args.exc_type(args.exc_value)
+
+    old_hook, threading.excepthook = threading.excepthook, raise_hook
+    try:
+        yield old_hook
+    finally:
+        assert threading.excepthook is raise_hook
+        threading.excepthook = old_hook
+
+
 def run_clickhouse_statement_in_parallel(statements: List[str]):
     jobs = []
-    for item in statements:
-        thread = threading.Thread(target=sync_execute, args=(item,))
-        jobs.append(thread)
+    with failhard_threadhook_context():
+        for item in statements:
+            thread = threading.Thread(target=sync_execute, args=(item,))
+            jobs.append(thread)
 
-    # Start the threads (i.e. calculate the random number lists)
-    for j in jobs:
-        j.start()
+        # Start the threads (i.e. calculate the random number lists)
+        for j in jobs:
+            j.start()
 
-    # Ensure all of the threads have finished
-    for j in jobs:
-        j.join()
+        # Ensure all of the threads have finished
+        for j in jobs:
+            j.join()
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):
@@ -596,10 +653,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         run_clickhouse_statement_in_parallel(
             [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
-        if CLICKHOUSE_REPLICATION:
-            run_clickhouse_statement_in_parallel(
-                [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
-            )
+        run_clickhouse_statement_in_parallel(
+            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+        )
 
     def tearDown(self):
         super().tearDown()
@@ -615,10 +671,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         run_clickhouse_statement_in_parallel(
             [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
-        if CLICKHOUSE_REPLICATION:
-            run_clickhouse_statement_in_parallel(
-                [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
-            )
+        run_clickhouse_statement_in_parallel(
+            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+        )
 
 
 def snapshot_clickhouse_queries(fn):
@@ -675,3 +730,36 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
                 self.assertQueryMatchesSnapshot(query)
 
     return wrapped
+
+
+def also_test_with_different_timezones(fn):
+    """
+    Runs the test thrice: 1. with UTC as the project timezone, 2. with UTC-7, 3. with UTC+9.
+    This is intended for catching bugs around timezone handling.
+    """
+
+    def fn_minus_utc(self, *args, **kwargs):
+        self.team.timezone = "America/Phoenix"  # UTC-7. Arizona does not observe DST, which is good for determinism
+        self.team.save()
+        fn(self, *args, **kwargs)
+
+    def fn_plus_utc(self, *args, **kwargs):
+        self.team.timezone = "Asia/Tokyo"  # UTC+9. Japan does not observe DST, which is good for determinism
+        self.team.save()
+        fn(self, *args, **kwargs)
+
+    # To add the test, we inspect the frame this function was called in and add the test there
+    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals[f"{fn.__name__}_minus_utc"] = fn_minus_utc
+    frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
+
+    return fn
+
+
+def _create_insight(
+    team: Team, insight_filters: Dict[str, Any], dashboard_filters: Dict[str, Any]
+) -> Tuple[Insight, Dashboard, DashboardTile]:
+    dashboard = Dashboard.objects.create(team=team, filters=dashboard_filters)
+    insight = Insight.objects.create(team=team, filters=insight_filters)
+    dashboard_tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+    return insight, dashboard, dashboard_tile

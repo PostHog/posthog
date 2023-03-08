@@ -20,9 +20,9 @@ import {
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType } from '~/types'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonButtonWithPopup } from '@posthog/lemon-ui'
+import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
 
 let uniqueMemoizedIndex = 0
 
@@ -45,13 +45,17 @@ export function TaxonomicPropertyFilter({
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
+        TaxonomicFilterGroupType.HogQLExpression,
     ]
     const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
         taxonomicGroup,
         value
     ) => {
         selectItem(taxonomicGroup, value)
-        if (taxonomicGroup.type === TaxonomicFilterGroupType.Cohorts) {
+        if (
+            taxonomicGroup.type === TaxonomicFilterGroupType.Cohorts ||
+            taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression
+        ) {
             onComplete?.()
         }
     }
@@ -68,8 +72,16 @@ export function TaxonomicPropertyFilter({
     })
     const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
-    const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
-    const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
+    const showInitialSearchInline =
+        !disablePopover &&
+        ((!filter?.type && (!filter || !(filter as any)?.key)) ||
+            filter?.type === PropertyFilterType.Cohort ||
+            filter?.type === PropertyFilterType.HogQL)
+    const showOperatorValueSelect =
+        filter?.type &&
+        filter?.key &&
+        filter?.type !== PropertyFilterType.Cohort &&
+        filter?.type !== PropertyFilterType.HogQL
 
     const { propertyDefinitions } = useValues(propertyDefinitionsModel)
 
@@ -147,8 +159,8 @@ export function TaxonomicPropertyFilter({
                         </div>
                     )}
                     <div className="TaxonomicPropertyFilter__row__items">
-                        <LemonButtonWithPopup
-                            popup={{
+                        <LemonButtonWithDropdown
+                            dropdown={{
                                 overlay: dropdownOpen ? taxonomicFilter : null,
                                 visible: dropdownOpen,
                                 placement: 'bottom',
@@ -167,7 +179,7 @@ export function TaxonomicPropertyFilter({
                             ) : (
                                 <>{addButton || <div>Add filter</div>}</>
                             )}
-                        </LemonButtonWithPopup>
+                        </LemonButtonWithDropdown>
                         {showOperatorValueSelect ? (
                             <OperatorValueSelect
                                 propertyDefinitions={propertyDefinitions}
@@ -177,6 +189,7 @@ export function TaxonomicPropertyFilter({
                                 value={filter?.value}
                                 placeholder="Enter value..."
                                 endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
+                                eventNames={eventNames}
                                 onChange={(newOperator, newValue) => {
                                     if (filter?.key && filter?.type) {
                                         setFilter(index, {

@@ -33,9 +33,11 @@ describe('infiniteListLogic', () => {
                     let results = search
                         ? mockEventPropertyDefinitions.filter((e) => e.name.includes(search))
                         : mockEventPropertyDefinitions
-                    if (req.url.searchParams.has('is_event_property')) {
-                        const isEventProperty = req.url.searchParams.get('is_event_property') === 'true'
-                        results = results.filter((e: PropertyDefinition) => e.is_event_property === isEventProperty)
+                    if (req.url.searchParams.has('filter_by_event_names')) {
+                        const isEventProperty = req.url.searchParams.get('filter_by_event_names') === 'true'
+                        results = results.filter(
+                            (e: PropertyDefinition) => e.is_seen_on_filtered_events === isEventProperty
+                        )
                     }
                     return [
                         200,
@@ -226,7 +228,7 @@ describe('infiniteListLogic', () => {
                     remoteItems: partial({
                         count: 1,
                         expandedCount: 2,
-                        results: partial([partial({ name: '$browser', is_event_property: true })]),
+                        results: partial([partial({ name: '$browser', is_seen_on_filtered_events: true })]),
                     }),
                 })
 
@@ -247,8 +249,8 @@ describe('infiniteListLogic', () => {
                         count: 2,
                         expandedCount: undefined,
                         results: partial([
-                            partial({ name: '$browser', is_event_property: true }),
-                            partial({ name: 'browser_no_dollar_not_on_event', is_event_property: false }),
+                            partial({ name: '$browser', is_seen_on_filtered_events: true }),
+                            partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
                         ]),
                     }),
                 })
@@ -271,8 +273,8 @@ describe('infiniteListLogic', () => {
                         count: 2,
                         expandedCount: undefined,
                         results: partial([
-                            partial({ name: '$browser', is_event_property: true }),
-                            partial({ name: 'browser_no_dollar_not_on_event', is_event_property: false }),
+                            partial({ name: '$browser', is_seen_on_filtered_events: true }),
+                            partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
                         ]),
                     }),
                 })
@@ -296,7 +298,7 @@ describe('infiniteListLogic', () => {
                     remoteItems: partial({
                         count: 1,
                         expandedCount: 2,
-                        results: partial([partial({ name: '$browser', is_event_property: true })]),
+                        results: partial([partial({ name: '$browser', is_seen_on_filtered_events: true })]),
                     }),
                 })
 
@@ -321,8 +323,8 @@ describe('infiniteListLogic', () => {
                         count: 2,
                         expandedCount: undefined,
                         results: partial([
-                            partial({ name: '$browser', is_event_property: true }),
-                            partial({ name: 'browser_no_dollar_not_on_event', is_event_property: false }),
+                            partial({ name: '$browser', is_seen_on_filtered_events: true }),
+                            partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
                         ]),
                     }),
                 })

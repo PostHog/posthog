@@ -1,4 +1,4 @@
-import { LemonSelectOptionLeaf } from 'lib/components/LemonSelect'
+import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 

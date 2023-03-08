@@ -1,5 +1,53 @@
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results
   '
+  /* user_id:50 celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.1
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.2
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.3
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.4
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
@@ -8,15 +56,15 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['$pageleave', '$pageview']
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.1
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.5
   '
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
@@ -58,8 +106,9 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
+                   (SELECT e.timestamp as timestamp,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = '$pageleave', 1, 0) as step_1,
@@ -67,27 +116,19 @@
                            array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS prop_basic,
                            prop_basic as prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
-                    FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
-                              e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
-                              e."properties" as "properties",
-                              pdi.person_id as person_id
-                       FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
                        WHERE team_id = 2
-                         AND event IN ['$pageleave', '$pageview']
-                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') ) events
-                    WHERE (step_0 = 1
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    WHERE team_id = 2
+                      AND event IN ['$pageleave', '$pageview']
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+                      AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -99,6 +140,54 @@
 ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones
   '
+  /* user_id:51 celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.1
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.2
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.3
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.4
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
@@ -107,15 +196,15 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['$pageleave', '$pageview']
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 10:00:00', 'Europe/Amsterdam')
+       AND toTimeZone(timestamp, 'Europe/Amsterdam') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
+       AND toTimeZone(timestamp, 'Europe/Amsterdam') <= toDateTime('2020-01-06 10:00:00', 'Europe/Amsterdam')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.1
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.5
   '
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
@@ -157,8 +246,9 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
+                   (SELECT e.timestamp as timestamp,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = '$pageleave', 1, 0) as step_1,
@@ -166,27 +256,19 @@
                            array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS prop_basic,
                            prop_basic as prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
-                    FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
-                              e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
-                              e."properties" as "properties",
-                              pdi.person_id as person_id
-                       FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
                        WHERE team_id = 2
-                         AND event IN ['$pageleave', '$pageview']
-                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 10:00:00', 'Europe/Amsterdam') ) events
-                    WHERE (step_0 = 1
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    WHERE team_id = 2
+                      AND event IN ['$pageleave', '$pageview']
+                      AND toTimeZone(timestamp, 'Europe/Amsterdam') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
+                      AND toTimeZone(timestamp, 'Europe/Amsterdam') <= toDateTime('2020-01-06 10:00:00', 'Europe/Amsterdam')
+                      AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -198,6 +280,54 @@
 ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
   '
+  /* user_id:52 celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.2
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.3
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.4
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
@@ -206,15 +336,15 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['$pageleave', '$pageview']
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.5
   '
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
@@ -256,8 +386,9 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
+                   (SELECT e.timestamp as timestamp,
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id ,
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = '$pageleave', 1, 0) as step_1,
@@ -265,27 +396,19 @@
                            array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS prop_basic,
                            prop_basic as prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
-                    FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
-                              e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
-                              e."properties" as "properties",
-                              pdi.person_id as person_id
-                       FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
                        WHERE team_id = 2
-                         AND event IN ['$pageleave', '$pageview']
-                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') ) events
-                    WHERE (step_0 = 1
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    WHERE team_id = 2
+                      AND event IN ['$pageleave', '$pageview']
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+                      AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -297,6 +420,54 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results
   '
+  /* user_id:53 celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.1
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.2
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.3
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.4
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
@@ -305,8 +476,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -314,7 +485,7 @@
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.1
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.5
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
@@ -348,8 +519,8 @@
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['test', 'control'])
            GROUP BY day_start,
                     breakdown_value))
@@ -361,7 +532,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.2
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.6
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
@@ -371,8 +542,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$feature_flag_called'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
             AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
      GROUP BY value
@@ -381,7 +552,7 @@
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.3
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.7
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
@@ -431,8 +602,8 @@
                    AND event = '$feature_flag_called'
                    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
                         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') in (['control', 'test']) )
               GROUP BY person_id,
                        breakdown_value) AS pdi
@@ -448,6 +619,54 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
   '
+  /* user_id:54 celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.2
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.3
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.4
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
@@ -456,8 +675,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview1'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
        AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -465,7 +684,7 @@
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.5
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
@@ -499,8 +718,8 @@
            WHERE e.team_id = 2
              AND event = '$pageview1'
              AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['control', 'test_1', 'test_2'])
            GROUP BY day_start,
                     breakdown_value))
@@ -512,7 +731,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.2
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.6
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
@@ -522,8 +741,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$feature_flag_called'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
        AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
             AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
      GROUP BY value
@@ -532,7 +751,7 @@
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.3
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.7
   '
   /* user_id:0 request:_snapshot_ */
   SELECT [now()] AS date,
@@ -543,6 +762,54 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone
   '
+  /* user_id:56 celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.1
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.2
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.3
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.4
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
@@ -551,8 +818,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
+       AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
+       AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -560,7 +827,7 @@
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.1
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.5
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
@@ -594,8 +861,8 @@
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
+             AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
+             AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['test', 'control'])
            GROUP BY day_start,
                     breakdown_value))
@@ -607,7 +874,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.2
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.6
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
@@ -617,8 +884,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$feature_flag_called'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
+       AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
+       AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
             AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
      GROUP BY value
@@ -627,7 +894,7 @@
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.3
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.7
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
@@ -677,8 +944,8 @@
                    AND event = '$feature_flag_called'
                    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
                         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
+                   AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
+                   AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') in (['control', 'test']) )
               GROUP BY person_id,
                        breakdown_value) AS pdi

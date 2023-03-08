@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import FeatureFlag
@@ -20,12 +21,19 @@ from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import (
     FeatureFlagMatcher,
     can_user_edit_feature_flag,
-    get_active_feature_flags,
+    get_all_feature_flags,
     get_user_blast_radius,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.rate_limit import BurstRateThrottle
+
+
+class FeatureFlagThrottle(BurstRateThrottle):
+    # Throttle class that's scoped just to the local evaluation endpoint.
+    # This makes the rate limit independent of other endpoints.
+    scope = "feature_flag_evaluations"
 
 
 class CanEditFeatureFlag(BasePermission):
@@ -38,7 +46,7 @@ class CanEditFeatureFlag(BasePermission):
             return can_user_edit_feature_flag(request, feature_flag)
 
 
-class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
+class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
@@ -46,6 +54,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     rollout_percentage = serializers.SerializerMethodField()
 
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
 
     name = serializers.CharField(
         required=False,
@@ -72,6 +81,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "rollback_conditions",
             "performed_rollback",
             "can_edit",
+            "tags",
+            "usage_dashboard",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -156,6 +167,19 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
                         raise serializers.ValidationError(
                             detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist"
                         )
+
+        payloads = filters.get("payloads", {})
+
+        if not isinstance(payloads, dict):
+            raise serializers.ValidationError("Payloads must be passed as a dictionary")
+
+        if filters.get("multivariate"):
+            if not all(key in variants for key in payloads):
+                raise serializers.ValidationError("Payload keys must match a variant key for multivariate flags")
+        else:
+            if len(payloads) > 1 or any(key != "true" for key in payloads):  # only expect one key
+                raise serializers.ValidationError("Payload keys must be 'true' for boolean flags")
+
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
@@ -163,6 +187,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
+        tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
+
         self._update_filters(validated_data)
 
         variants = (validated_data.get("filters", {}).get("multivariate", {}) or {}).get("variants", [])
@@ -177,7 +203,11 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
 
         FeatureFlag.objects.filter(key=validated_data["key"], team=self.context["team_id"], deleted=True).delete()
         instance: FeatureFlag = super().create(validated_data)
-        instance.update_cohorts()
+
+        self._attempt_set_tags(tags, instance)
+
+        instance.usage_dashboard = _create_usage_dashboard(instance, request.user)
+        instance.save()
 
         report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
 
@@ -190,9 +220,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
         self._update_filters(validated_data)
         instance = super().update(instance, validated_data)
-        instance.update_cohorts()
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
+
         return instance
 
     def _update_filters(self, validated_data):
@@ -204,13 +234,29 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["performed_rollback"] = False
 
 
-class MinimalFeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
+def _create_usage_dashboard(feature_flag: FeatureFlag, user):
+    from posthog.helpers.dashboard_templates import create_feature_flag_dashboard
+    from posthog.models.dashboard import Dashboard
+
+    usage_dashboard = Dashboard.objects.create(
+        name="Generated Dashboard: " + feature_flag.key + " Usage",
+        description="This dashboard was generated by the feature flag with key (" + feature_flag.key + ")",
+        team=feature_flag.team,
+        created_by=user,
+    )
+    create_feature_flag_dashboard(feature_flag, usage_dashboard)
+
+    return usage_dashboard
+
+
+class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
 
     class Meta:
         model = FeatureFlag
         fields = [
             "id",
+            "team_id",
             "name",
             "key",
             "filters",
@@ -220,7 +266,7 @@ class MinimalFeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         ]
 
 
-class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
 
@@ -250,6 +296,24 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         return queryset.select_related("created_by").order_by("-created_at")
 
+    @action(methods=["POST"], detail=True)
+    def dashboard(self, request: request.Request, **kwargs):
+        feature_flag: FeatureFlag = self.get_object()
+        try:
+            usage_dashboard = _create_usage_dashboard(feature_flag, request.user)
+            feature_flag.usage_dashboard = usage_dashboard
+            feature_flag.save()
+        except:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"Unable to generate usage dashboard",
+                },
+                status=400,
+            )
+
+        return Response({"success": True}, status=200)
+
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
@@ -269,7 +333,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         if not feature_flag_list:
             return Response(flags)
 
-        matches, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
+        matches, _, _, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
         for feature_flag in feature_flags:
             flags.append(
                 {
@@ -280,7 +344,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         return Response(flags)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle])
     def local_evaluation(self, request: request.Request, **kwargs):
 
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(team=self.team, deleted=False)
@@ -319,7 +383,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         if not distinct_id:
             raise exceptions.ValidationError(detail="distinct_id is required")
 
-        flags, reasons = get_active_feature_flags(self.team_id, distinct_id, groups)
+        flags, reasons, _, _ = get_all_feature_flags(self.team_id, distinct_id, groups)
 
         flags_with_evaluation_reasons = {}
 

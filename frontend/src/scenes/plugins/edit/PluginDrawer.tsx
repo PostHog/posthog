@@ -17,7 +17,7 @@ import { endWithPunctation } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capabilitiesInfo } from './CapabilitiesInfo'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 

@@ -1,11 +1,11 @@
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconDelete } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
-import { LemonModal } from 'lib/components/LemonModal'
-import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
-import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { IconDelete } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -29,6 +29,8 @@ export function CreateRoleModal(): JSX.Element {
 
     const [roleName, setRoleName] = useState('')
 
+    const isNewRole = !roleInFocus
+
     const handleClose = (): void => {
         setCreateRoleModalShown(false)
         setRoleMembersToAdd([])
@@ -39,17 +41,21 @@ export function CreateRoleModal(): JSX.Element {
         setRoleName('')
     }
 
-    const isNewRole = !roleInFocus
-
     return (
         <LemonModal
             onClose={handleClose}
             isOpen={createRoleModalShown}
-            title={isNewRole ? 'Create role' : `Edit ${roleInFocus.name} role`}
+            title={
+                isNewRole
+                    ? 'Create role'
+                    : isAdminOrOwner
+                    ? `Edit ${roleInFocus.name} role`
+                    : `${roleInFocus.name} role`
+            }
             footer={
                 rolesLoading ? (
                     <Spinner monocolor />
-                ) : (
+                ) : isAdminOrOwner ? (
                     <div className="flex flex-row justify-between w-full">
                         <div>
                             {!isNewRole && (
@@ -64,11 +70,13 @@ export function CreateRoleModal(): JSX.Element {
                                 </LemonButton>
                             )}
                         </div>
-                        <LemonButton type="primary" onClick={handleSubmit}>
-                            Save
-                        </LemonButton>
+                        {isNewRole && (
+                            <LemonButton type="primary" onClick={handleSubmit}>
+                                Save
+                            </LemonButton>
+                        )}
                     </div>
-                )
+                ) : undefined
             }
         >
             {isNewRole && (

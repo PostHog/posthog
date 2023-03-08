@@ -14,7 +14,7 @@ def person_query(team: Team, filter: Filter, **kwargs):
 
 def run_query(team: Team, filter: Filter, **kwargs):
     query, params = PersonQuery(filter, team.pk, **kwargs).get_query()
-    rows = sync_execute(query, {**params, "team_id": team.pk})
+    rows = sync_execute(query, {**params, **filter.hogql_context.values, "team_id": team.pk})
 
     if len(rows) > 0:
         return {"rows": len(rows), "columns": len(rows[0])}
@@ -127,7 +127,7 @@ def test_person_query_with_extra_requested_fields(testdata, team, snapshot):
     assert person_query(team, filter) == snapshot
     assert run_query(team, filter) == {"rows": 2, "columns": 2}
 
-    filter = filter.with_data({"breakdown": "email", "breakdown_type": "person"})
+    filter = filter.shallow_clone({"breakdown": "email", "breakdown_type": "person"})
     assert person_query(team, filter) == snapshot
     assert run_query(team, filter) == {"rows": 2, "columns": 2}
 

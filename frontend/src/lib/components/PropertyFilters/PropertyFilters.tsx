@@ -2,8 +2,7 @@ import React, { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
-import '../../../scenes/actions/Actions.scss'
-import { AnyPropertyFilter, PropertyFilter, FilterLogicalOperator } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import './PropertyFilters.scss'
@@ -12,7 +11,7 @@ import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRo
 interface PropertyFiltersProps {
     endpoint?: string | null
     propertyFilters?: AnyPropertyFilter[] | null
-    onChange: (filters: PropertyFilter[]) => void
+    onChange: (filters: AnyPropertyFilter[]) => void
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean

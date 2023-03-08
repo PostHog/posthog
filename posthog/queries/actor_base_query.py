@@ -17,7 +17,7 @@ from django.db.models import OuterRef, Subquery
 from django.db.models.query import Prefetch, QuerySet
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
-from posthog.models import Entity, Filter, PersonDistinctId, Team
+from posthog.models import Entity, Filter, PersonDistinctId, SessionRecording, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -99,7 +99,9 @@ class ActorBaseQuery:
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
         """Get actors in data model and dict formats. Builds query and executes"""
         query, params = self.actor_query()
-        raw_result = insight_sync_execute(query, params, query_type=self.QUERY_TYPE, filter=self._filter)
+        raw_result = insight_sync_execute(
+            query, {**params, **self._filter.hogql_context.values}, query_type=self.QUERY_TYPE, filter=self._filter
+        )
         actors, serialized_actors = self.get_actors_from_result(raw_result)
 
         if hasattr(self._filter, "include_recordings") and self._filter.include_recordings and self._filter.insight in [INSIGHT_PATHS, INSIGHT_TRENDS, INSIGHT_FUNNELS]:  # type: ignore
@@ -118,7 +120,9 @@ class ActorBaseQuery:
             and session_id in %(session_ids)s
         """
         params = {"team_id": self._team.pk, "session_ids": list(session_ids)}
-        raw_result = insight_sync_execute(query, params, query_type="actors_session_ids_with_recordings")
+        raw_result = insight_sync_execute(
+            query, params, query_type="actors_session_ids_with_recordings", filter=self._filter
+        )
         return {row[0] for row in raw_result}
 
     def add_matched_recordings_to_serialized_actors(
@@ -133,7 +137,15 @@ class ActorBaseQuery:
                     if event[2]:
                         all_session_ids.add(event[2])
 
-        session_ids_with_recordings = self.query_for_session_ids_with_recordings(all_session_ids)
+        session_ids_with_all_recordings = self.query_for_session_ids_with_recordings(all_session_ids)
+
+        # Prune out deleted recordings
+        session_ids_with_deleted_recordings = set(
+            SessionRecording.objects.filter(
+                team=self._team, session_id__in=session_ids_with_all_recordings, deleted=True
+            ).values_list("session_id", flat=True)
+        )
+        session_ids_with_recordings = session_ids_with_all_recordings.difference(session_ids_with_deleted_recordings)
 
         matched_recordings_by_actor_id: Dict[Union[uuid.UUID, str], List[MatchedRecording]] = {}
         for row in raw_result:

@@ -156,17 +156,17 @@ class Plugin(models.Model):
     icon: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     # Describe the fields to ask in the interface; store answers in PluginConfig->config
     # - config_schema = { [fieldKey]: { name: 'api key', type: 'string', default: '', required: true }  }
-    config_schema: models.JSONField = models.JSONField(default=dict)
+    config_schema: models.JSONField = models.JSONField(default=dict, blank=True)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
     latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     capabilities: models.JSONField = models.JSONField(default=dict)
-    metrics: models.JSONField = models.JSONField(default=dict, null=True)
-    public_jobs: models.JSONField = models.JSONField(default=dict, null=True)
+    metrics: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
+    public_jobs: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
 
     # DEPRECATED: not used for anything, all install and config errors are in PluginConfig.error
-    error: models.JSONField = models.JSONField(default=None, null=True)
+    error: models.JSONField = models.JSONField(default=None, null=True, blank=True)
     # DEPRECATED: this was used when syncing posthog.json with the db on app start
     from_json: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED: this was used when syncing posthog.json with the db on app start
@@ -218,7 +218,7 @@ class PluginConfig(models.Model):
     # Error when running this plugin on an event (frontend: PluginErrorType)
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
-    error: models.JSONField = models.JSONField(default=None, null=True)
+    error: models.JSONField = models.JSONField(default=None, null=True, blank=True)
     # Used to access site.ts from a public URL
     web_token: models.CharField = models.CharField(max_length=64, default=None, null=True)
 
@@ -458,15 +458,19 @@ def plugin_reload_needed(sender, instance, created=None, **kwargs):
 @mutable_receiver([post_save, post_delete], sender=PluginConfig)
 def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()
-    sync_team_inject_web_apps(instance.team)
+    try:
+        team = instance.team
+    except Team.DoesNotExist:
+        team = None
+    if team is not None:
+        sync_team_inject_web_apps(instance.team)
 
 
-def sync_team_inject_web_apps(team: Optional[Team]):
-    if not team:
-        return
+def sync_team_inject_web_apps(team: Team):
     inject_web_apps = len(get_decide_site_apps(team)) > 0
     if inject_web_apps != team.inject_web_apps:
-        Team.objects.filter(pk=team.pk).update(inject_web_apps=inject_web_apps)
+        team.inject_web_apps = inject_web_apps
+        team.save(update_fields=["inject_web_apps"])
 
 
 @mutable_receiver([post_save, post_delete], sender=PluginAttachment)

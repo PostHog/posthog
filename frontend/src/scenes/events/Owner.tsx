@@ -1,4 +1,4 @@
-import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { CSSProperties } from 'react'
 import { UserBasicType } from '~/types'
 

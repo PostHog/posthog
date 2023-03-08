@@ -3,7 +3,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { useValues } from 'kea'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 
 export const scene: SceneExport = {
     component: ProjectCreate,

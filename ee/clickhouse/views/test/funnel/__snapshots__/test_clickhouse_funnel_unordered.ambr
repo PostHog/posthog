@@ -31,26 +31,19 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        e."$group_0" as aggregation_target ,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0"
-                    FROM events e
-                    WHERE team_id = 2
-                      AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND (NOT has([''], "$group_0")) ) events
-                 WHERE (step_0 = 1
+                 FROM events e
+                 WHERE team_id = 2
+                   AND event IN ['paid', 'user signed up']
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND (NOT has([''], "$group_0"))
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1
            UNION ALL SELECT *,
@@ -68,26 +61,19 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        e."$group_0" as aggregation_target ,
                         if(event = 'paid', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'user signed up', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0"
-                    FROM events e
-                    WHERE team_id = 2
-                      AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND (NOT has([''], "$group_0")) ) events
-                 WHERE (step_0 = 1
+                 FROM events e
+                 WHERE team_id = 2
+                   AND event IN ['paid', 'user signed up']
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND (NOT has([''], "$group_0"))
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -125,27 +111,20 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        e."$group_0" as aggregation_target ,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0"
-                    FROM events e
-                    WHERE team_id = 2
-                      AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND ((NOT has([''], "$group_0"))
-                           AND (NOT has([''], "$group_0"))) ) events
-                 WHERE (step_0 = 1
+                 FROM events e
+                 WHERE team_id = 2
+                   AND event IN ['paid', 'user signed up']
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND ((NOT has([''], "$group_0"))
+                        AND (NOT has([''], "$group_0")))
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1
            UNION ALL SELECT *,
@@ -163,27 +142,20 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        e."$group_0" as aggregation_target ,
                         if(event = 'paid', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'user signed up', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0"
-                    FROM events e
-                    WHERE team_id = 2
-                      AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND ((NOT has([''], "$group_0"))
-                           AND (NOT has([''], "$group_0"))) ) events
-                 WHERE (step_0 = 1
+                 FROM events e
+                 WHERE team_id = 2
+                   AND event IN ['paid', 'user signed up']
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND ((NOT has([''], "$group_0"))
+                        AND (NOT has([''], "$group_0")))
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,

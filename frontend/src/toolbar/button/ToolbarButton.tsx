@@ -7,7 +7,7 @@ import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { getShadowRoot, getShadowRootPopupContainer } from '~/toolbar/utils'
+import { getShadowRoot, getShadowRootPopoverContainer } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { Flag } from '~/toolbar/button/icons/Flag'
@@ -17,7 +17,7 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
 import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
@@ -232,7 +232,7 @@ export function ToolbarButton(): JSX.Element {
                                         visible={showHeatmapTooltip}
                                         title="Click for details"
                                         placement={side === 'left' ? 'right' : 'left'}
-                                        getPopupContainer={getShadowRootPopupContainer}
+                                        getPopupContainer={getShadowRootPopoverContainer}
                                     >
                                         <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
                                     </Tooltip>
@@ -293,7 +293,7 @@ export function ToolbarButton(): JSX.Element {
                                         visible={showActionsTooltip}
                                         title="Click for details"
                                         placement={side === 'left' ? 'right' : 'left'}
-                                        getPopupContainer={getShadowRootPopupContainer}
+                                        getPopupContainer={getShadowRootPopoverContainer}
                                     >
                                         <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>
                                     </Tooltip>

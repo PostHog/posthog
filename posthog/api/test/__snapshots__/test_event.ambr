@@ -16,9 +16,10 @@
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
-    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
+    AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
   LIMIT 10
   '
 ---
@@ -28,9 +29,10 @@
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
-    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%QW%'
+    AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%QW%'
   LIMIT 10
   '
 ---
@@ -40,9 +42,53 @@
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
-    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+    AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+  LIMIT 10
+  '
+---
+# name: TestEvents.test_event_property_values.4
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
+  FROM events
+  WHERE team_id = 2
+    AND JSONHas(properties, 'random_prop')
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+    AND (event = 'random event')
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+  LIMIT 10
+  '
+---
+# name: TestEvents.test_event_property_values.5
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
+  FROM events
+  WHERE team_id = 2
+    AND JSONHas(properties, 'random_prop')
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+    AND (event = 'foo'
+         OR event = 'random event')
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+  LIMIT 10
+  '
+---
+# name: TestEvents.test_event_property_values.6
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
+  FROM events
+  WHERE team_id = 2
+    AND JSONHas(properties, 'random_prop')
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+    AND (event = '404_i_dont_exist')
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
   LIMIT 10
   '
 ---
@@ -52,7 +98,7 @@
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND JSONHas(properties, 'random_prop')
+    AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
   LIMIT 10
@@ -64,9 +110,10 @@
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND "mat_random_prop" ILIKE '%qw%'
+    AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
+    AND "mat_random_prop" ILIKE '%qw%'
   LIMIT 10
   '
 ---
@@ -76,9 +123,10 @@
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND "mat_random_prop" ILIKE '%QW%'
+    AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
+    AND "mat_random_prop" ILIKE '%QW%'
   LIMIT 10
   '
 ---
@@ -88,119 +136,53 @@
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND "mat_random_prop" ILIKE '%6%'
+    AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
+    AND "mat_random_prop" ILIKE '%6%'
   LIMIT 10
   '
 ---
-# name: TestEvents.test_select_hogql_expressions
+# name: TestEvents.test_event_property_values_materialized.4
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT event,
-         distinct_id,
-         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
-         concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
+  SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND timestamp > '2020-01-09 12:14:00.000000'
-    AND timestamp < '2020-01-10 12:14:05.000000'
-  ORDER BY event ASC
-  LIMIT 101
+    AND notEmpty("mat_random_prop")
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+    AND (event = 'random event')
+    AND "mat_random_prop" ILIKE '%6%'
+  LIMIT 10
   '
 ---
-# name: TestEvents.test_select_hogql_expressions.1
+# name: TestEvents.test_event_property_values_materialized.5
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT event,
-         distinct_id,
-         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
-         concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
+  SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-  ORDER BY event ASC
-  LIMIT 101
+    AND notEmpty("mat_random_prop")
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+    AND (event = 'foo'
+         OR event = 'random event')
+    AND "mat_random_prop" ILIKE '%6%'
+  LIMIT 10
   '
 ---
-# name: TestEvents.test_select_hogql_expressions.2
+# name: TestEvents.test_event_property_values_materialized.6
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, person_id, person_created_at, person_properties),
-         event
+  SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND timestamp > '2020-01-09 12:14:00.000000'
-    AND timestamp < '2020-01-10 12:14:05.000000'
-  ORDER BY timestamp DESC
-  LIMIT 101
-  '
----
-# name: TestEvents.test_select_hogql_expressions.3
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, person_id, person_created_at, person_properties),
-         event
-  FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-  ORDER BY timestamp DESC
-  LIMIT 101
-  '
----
-# name: TestEvents.test_select_hogql_expressions.4
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(*),
-         event
-  FROM events
-  WHERE team_id = 2
-    AND timestamp > '2020-01-09 12:14:00.000000'
-    AND timestamp < '2020-01-10 12:14:05.000000'
-  GROUP BY event
-  ORDER BY count(*) DESC
-  LIMIT 101
-  '
----
-# name: TestEvents.test_select_hogql_expressions.5
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(*),
-         event
-  FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-  GROUP BY event
-  ORDER BY count(*) DESC
-  LIMIT 101
-  '
----
-# name: TestEvents.test_select_hogql_expressions.6
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(*),
-         event
-  FROM events
-  WHERE team_id = 2
-    AND timestamp > '2020-01-09 12:14:00.000000'
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND or(equals(event, 'sign up'), like(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), '%val2'))
-  GROUP BY event
-  ORDER BY count(*) DESC, event ASC
-  LIMIT 101
-  '
----
-# name: TestEvents.test_select_hogql_expressions.7
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(*),
-         event
-  FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND or(equals(event, 'sign up'), like(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), '%val2'))
-  GROUP BY event
-  ORDER BY count(*) DESC, event ASC
-  LIMIT 101
+    AND notEmpty("mat_random_prop")
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+    AND (event = '404_i_dont_exist')
+    AND "mat_random_prop" ILIKE '%qw%'
+  LIMIT 10
   '
 ---

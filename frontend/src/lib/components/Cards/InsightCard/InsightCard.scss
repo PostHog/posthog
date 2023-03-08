@@ -17,9 +17,6 @@
         width: 100%;
         overflow: auto;
     }
-    .insight-empty-state {
-        font-size: 0.875rem;
-    }
 }
 
 .InsightViz {
@@ -37,6 +34,8 @@
         padding: 1rem;
     }
     .insight-empty-state {
+        height: 100%; // Fix wonkiness when SpinnerOverlay is shown
+        font-size: 0.875rem; // Reduce font size
         padding-top: 0;
         padding-bottom: 0;
     }

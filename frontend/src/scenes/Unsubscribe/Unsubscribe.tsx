@@ -2,7 +2,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { unsubscribeLogic } from './unsubscribeLogic'
 import { useValues } from 'kea'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: Unsubscribe,

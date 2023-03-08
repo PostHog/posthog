@@ -56,7 +56,7 @@
 
     .SessionRecordingPlayer__inspector {
         border-top: 1px solid var(--border);
-        min-height: calc(100vh - 4rem);
+        min-height: 50rem;
     }
 
     &--widescreen {
@@ -72,12 +72,20 @@
             flex: 1;
             border-left: 1px solid var(--border);
             border-top: none;
+            min-height: auto;
         }
 
         .SessionRecordingPlayer__body {
             // Rough aproximation of the parent elements
             height: calc(100vh - 20rem);
             min-height: calc(100vh - 20rem);
+        }
+
+        .LemonModal & {
+            .SessionRecordingPlayer__body {
+                height: calc(90vh - 15rem);
+                min-height: auto;
+            }
         }
     }
 }

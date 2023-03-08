@@ -3,8 +3,8 @@ import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HelpType } from '~/types'
 import type { helpButtonLogicType } from './HelpButtonType'
-import { Popup } from '../Popup/Popup'
-import { LemonButton } from '../LemonButton'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import {
     IconArrowDropDown,
     IconArticle,
@@ -15,9 +15,10 @@ import {
     IconMessages,
     IconFlare,
     IconTrendingUp,
-} from '../icons'
+    IconLive,
+} from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import { Placement } from '@floating-ui/react-dom-interactions'
+import { Placement } from '@floating-ui/react'
 import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
@@ -90,9 +91,24 @@ export function HelpButton({
 
     return (
         <>
-            <Popup
+            <Popover
                 overlay={
                     <>
+                        {!contactOnly && (
+                            <LemonButton
+                                icon={<IconLive />}
+                                status="stealth"
+                                fullWidth
+                                onClick={() => {
+                                    reportHelpButtonUsed(HelpType.Updates)
+                                    hideHelp()
+                                }}
+                                to={`https://posthog.com/blog/categories/posthog-news`}
+                                targetBlank
+                            >
+                                What's new?
+                            </LemonButton>
+                        )}
                         <LemonButton
                             icon={<IconQuestionAnswer />}
                             status="stealth"
@@ -156,7 +172,7 @@ export function HelpButton({
                                 hideHelp()
                             }}
                         >
-                            Quick Start
+                            Open Quick Start
                         </LemonButton>
                         {validProductTourSequences.length > 0 && (
                             <LemonButton
@@ -201,7 +217,7 @@ export function HelpButton({
                         </>
                     )}
                 </div>
-            </Popup>
+            </Popover>
             <HedgehogBuddyWithLogic />
         </>
     )

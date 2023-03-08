@@ -231,6 +231,7 @@ class EventQuery(metaclass=ABCMeta):
             allow_denormalized_props=True,
             person_properties_mode=person_properties_mode,
             person_id_joined_alias=person_id_joined_alias,
+            hogql_context=self._filter.hogql_context,
         )
 
     def _get_not_null_actor_condition(self) -> str:

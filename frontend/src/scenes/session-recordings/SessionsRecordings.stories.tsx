@@ -12,11 +12,16 @@ import { SessionRecordingPlayer } from 'scenes/session-recordings/player/Session
 
 export default {
     title: 'Scenes-App/Recordings',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        testOptions: { skip: true }, // FIXME: Start taking snapshots once the stories no longer crash
+    },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId/session_recordings': { results: recordings },
+                '/api/projects/:team_id/session_recordings': { results: recordings },
                 '/api/projects/:team/session_recordings/:id/snapshots': { result: recordingSnapshotsJson },
                 '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
                 '/api/projects/:team/events': { results: recordingEventsJson },

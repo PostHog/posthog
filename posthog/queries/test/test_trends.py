@@ -2,7 +2,9 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
+from urllib.parse import parse_qsl, urlparse
 
+import pytz
 from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
@@ -36,9 +38,10 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_different_timezones,
+    also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import generate_cache_key
@@ -401,7 +404,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(daily_response[0]["aggregated_value"], 1)
         self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
-    @test_with_materialized_columns(["$math_prop"])
+    @also_test_with_materialized_columns(["$math_prop"])
     def test_trends_single_aggregate_math(self):
         _create_person(
             team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
@@ -637,7 +640,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
-    @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
     def test_trends_breakdown_single_aggregate_cohorts(self):
         _create_person(team_id=self.team.pk, distinct_ids=["Jane"], properties={"name": "Jane"})
         _create_person(team_id=self.team.pk, distinct_ids=["John"], properties={"name": "John"})
@@ -1195,7 +1198,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["another_val", "some_val"])
         self.assertEqual([resp["aggregated_value"] for resp in daily_response], [10.0, 5.0])
 
-    @test_with_materialized_columns(["$math_prop", "$some_property"])
+    @also_test_with_materialized_columns(["$math_prop", "$some_property"])
     def test_trends_breakdown_with_math_func(self):
 
         with freeze_time("2020-01-01 00:06:34"):
@@ -2155,7 +2158,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @test_with_materialized_columns(["$some_property"])
+    @also_test_with_materialized_columns(["$some_property"])
     def test_property_filtering(self):
         self._create_events()
         with freeze_time("2020-01-04"):
@@ -2519,7 +2522,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @test_with_materialized_columns(person_properties=["name"])
+    @also_test_with_materialized_columns(person_properties=["name"])
     def test_filter_events_by_cohort(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
         _create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
@@ -2573,7 +2576,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response = Trends().run(
                 Filter(
                     data={
-                        #  2019-11-24 is a Sunday, i.e. beginning of our week
+                        #  2019-11-24 is a Sunday, i.e. beginning of our week
                         "date_from": "2019-11-24",
                         "interval": "week",
                         "events": [{"id": "sign up"}],
@@ -2631,7 +2634,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         cohort_label = breakdown_label(entity, f"cohort_{cohort.pk}")
         self.assertEqual(cohort_label, {"label": f"$pageview - {cohort.name}", "breakdown_value": cohort.pk})
 
-    @test_with_materialized_columns(["key"])
+    @also_test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -2668,7 +2671,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response = Trends().run(Filter(data={"events": [{"id": "DNE"}]}), self.team)
         self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
-    @test_with_materialized_columns(person_properties=["email", "bar"])
+    @also_test_with_materialized_columns(person_properties=["email", "bar"])
     def test_trends_regression_filtering_by_action_with_person_properties(self):
         _create_person(team_id=self.team.pk, properties={"email": "foo@example.com", "bar": "aa"}, distinct_ids=["d1"])
         _create_person(team_id=self.team.pk, properties={"email": "bar@example.com", "bar": "bb"}, distinct_ids=["d2"])
@@ -2750,39 +2753,39 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(action_response[0]["data"][-1], expected_value, delta=0.5)
         self.assertEntityResponseEqual(action_response, event_response)
 
-    @test_with_materialized_columns(["some_number"])
+    @also_test_with_materialized_columns(["some_number"])
     def test_sum_filtering(self):
         self._test_math_property_aggregation("sum", values=[2, 3, 5.5, 7.5], expected_value=18)
 
-    @test_with_materialized_columns(["some_number"])
+    @also_test_with_materialized_columns(["some_number"])
     def test_avg_filtering(self):
         self._test_math_property_aggregation("avg", values=[2, 3, 5.5, 7.5], expected_value=4.5)
 
-    @test_with_materialized_columns(["some_number"])
+    @also_test_with_materialized_columns(["some_number"])
     def test_min_filtering(self):
         self._test_math_property_aggregation("min", values=[2, 3, 5.5, 7.5], expected_value=2)
 
-    @test_with_materialized_columns(["some_number"])
+    @also_test_with_materialized_columns(["some_number"])
     def test_max_filtering(self):
         self._test_math_property_aggregation("max", values=[2, 3, 5.5, 7.5], expected_value=7.5)
 
-    @test_with_materialized_columns(["some_number"])
+    @also_test_with_materialized_columns(["some_number"])
     def test_median_filtering(self):
         self._test_math_property_aggregation("median", values=range(101, 201), expected_value=150)
 
-    @test_with_materialized_columns(["some_number"])
+    @also_test_with_materialized_columns(["some_number"])
     def test_p90_filtering(self):
         self._test_math_property_aggregation("p90", values=range(101, 201), expected_value=190)
 
-    @test_with_materialized_columns(["some_number"])
+    @also_test_with_materialized_columns(["some_number"])
     def test_p95_filtering(self):
         self._test_math_property_aggregation("p95", values=range(101, 201), expected_value=195)
 
-    @test_with_materialized_columns(["some_number"])
+    @also_test_with_materialized_columns(["some_number"])
     def test_p99_filtering(self):
         self._test_math_property_aggregation("p99", values=range(101, 201), expected_value=199)
 
-    @test_with_materialized_columns(["some_number"])
+    @also_test_with_materialized_columns(["some_number"])
     def test_avg_filtering_non_number_resiliency(self):
         sign_up_action, person = self._create_events()
         _create_person(team_id=self.team.pk, distinct_ids=["someone_else"])
@@ -2800,7 +2803,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(action_response[0]["data"][-1], 5)
         self.assertEntityResponseEqual(action_response, event_response)
 
-    @test_with_materialized_columns(["$some_property"])
+    @also_test_with_materialized_columns(["$some_property"])
     def test_per_entity_filtering(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):
@@ -2885,7 +2888,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         return (person1, person2, person3, person4)
 
-    @test_with_materialized_columns(person_properties=["name"])
+    @also_test_with_materialized_columns(person_properties=["name"])
     @snapshot_clickhouse_queries
     def test_person_property_filtering(self):
         self._create_multiple_people()
@@ -2905,7 +2908,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
         self.assertEqual(response[0]["data"][5], 0)
 
-    @test_with_materialized_columns(["name"], person_properties=["name"])
+    @also_test_with_materialized_columns(["name"], person_properties=["name"])
     @snapshot_clickhouse_queries
     def test_person_property_filtering_clashing_with_event_property(self):
         # This test needs to choose the right materialised column for it to pass.
@@ -2943,7 +2946,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
         self.assertEqual(response[0]["data"][5], 0)
 
-    @test_with_materialized_columns(person_properties=["name"])
+    @also_test_with_materialized_columns(person_properties=["name"])
     def test_entity_person_property_filtering(self):
         self._create_multiple_people()
         with freeze_time("2020-01-04"):
@@ -2985,7 +2988,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(event_response[0]["label"], "$pageview - all users")
         self.assertEqual(sum(event_response[0]["data"]), 1)
 
-    @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
     def test_breakdown_by_cohort(self):
         person1, person2, person3, person4 = self._create_multiple_people()
         cohort = _create_cohort(
@@ -3050,7 +3053,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEntityResponseEqual(event_response, action_response)
 
-    @test_with_materialized_columns(verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(verify_no_jsonextract=False)
     def test_interval_filtering_breakdown(self):
         self._create_events(use_time=True)
         cohort = _create_cohort(
@@ -3181,7 +3184,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEntityResponseEqual(event_response, action_response)
 
-    @test_with_materialized_columns(["name"], person_properties=["name"])
+    @also_test_with_materialized_columns(["name"], person_properties=["name"])
     def test_breakdown_by_person_property_for_person_on_events(self):
         person1, person2, person3, person4 = self._create_multiple_people()
 
@@ -3394,7 +3397,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 }
             ]
 
-    @test_with_materialized_columns(person_properties=["name"])
+    @also_test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property_pie(self):
         self._create_multiple_people()
 
@@ -3424,7 +3427,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
             self.assertDictContainsSubset({"breakdown_value": "person3", "aggregated_value": 1}, event_response[2])
 
-    @test_with_materialized_columns(person_properties=["name"])
+    @also_test_with_materialized_columns(person_properties=["name"])
     def test_filter_test_accounts_cohorts(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
         _create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
@@ -3624,7 +3627,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-    @test_with_materialized_columns(["$some_property"])
+    @also_test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering_limit(self):
         self._create_breakdown_events()
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -3640,7 +3643,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(len(response), 25)  # We fetch 25 to see if there are more ethan 20 values
 
-    @test_with_materialized_columns(event_properties=["order"], person_properties=["name"])
+    @also_test_with_materialized_columns(event_properties=["order"], person_properties=["name"])
     def test_breakdown_with_person_property_filter(self):
         self._create_multiple_people()
         action = _create_action(name="watched movie", team=self.team)
@@ -3680,7 +3683,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"count": 1, "breakdown_value": "1"}, event_response[1])
         self.assertEntityResponseEqual(event_response, action_response)
 
-    @test_with_materialized_columns(["$some_property"])
+    @also_test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering(self):
         self._create_events()
         # test breakdown filtering
@@ -3709,7 +3712,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(sum(response[2]["data"]), 1)
         self.assertEqual(sum(response[3]["data"]), 1)
 
-    @test_with_materialized_columns(person_properties=["email"])
+    @also_test_with_materialized_columns(person_properties=["email"])
     def test_breakdown_filtering_persons(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -3738,7 +3741,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[2]["count"], 1)
 
     # ensure that column names are properly handled when subqueries and person subquery share properties column
-    @test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
+    @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     def test_breakdown_filtering_persons_with_action_props(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -3771,7 +3774,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["count"], 1)
         self.assertEqual(response[2]["count"], 1)
 
-    @test_with_materialized_columns(["$current_url", "$os", "$browser"])
+    @also_test_with_materialized_columns(["$current_url", "$os", "$browser"])
     def test_breakdown_filtering_with_properties(self):
         with freeze_time("2020-01-03T13:01:01Z"):
             _create_event(
@@ -3918,7 +3921,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         response = sorted(response, key=lambda x: x["label"])
         self.assertEqual(response, [])
 
-    @test_with_materialized_columns(["$some_property"])
+    @also_test_with_materialized_columns(["$some_property"])
     def test_dau_with_breakdown_filtering(self):
         sign_up_action, _ = self._create_events()
         with freeze_time("2020-01-02T13:01:01Z"):
@@ -3946,7 +3949,47 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEntityResponseEqual(action_response, event_response)
 
-    @test_with_materialized_columns(["$os", "$some_property"])
+    @snapshot_clickhouse_queries
+    def test_dau_with_breakdown_filtering_with_sampling(self):
+        sign_up_action, _ = self._create_events()
+        with freeze_time("2020-01-02T13:01:01Z"):
+            _create_event(
+                team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": "other_value"}
+            )
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = Trends().run(
+                Filter(
+                    data={
+                        "sampling_factor": 1,
+                        "breakdown": "$some_property",
+                        "actions": [{"id": sign_up_action.id, "math": "dau"}],
+                    }
+                ),
+                self.team,
+            )
+            event_response = Trends().run(
+                Filter(
+                    data={
+                        "sampling_factor": 1,
+                        "breakdown": "$some_property",
+                        "events": [{"id": "sign up", "math": "dau"}],
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(event_response[1]["label"], "sign up - other_value")
+        self.assertEqual(event_response[2]["label"], "sign up - value")
+
+        self.assertEqual(sum(event_response[1]["data"]), 1)
+        self.assertEqual(event_response[1]["data"][5], 1)
+
+        self.assertEqual(sum(event_response[2]["data"]), 1)
+        self.assertEqual(event_response[2]["data"][4], 1)  # property not defined
+
+        self.assertEntityResponseEqual(action_response, event_response)
+
+    @also_test_with_materialized_columns(["$os", "$some_property"])
     def test_dau_with_breakdown_filtering_with_prop_filter(self):
         sign_up_action, _ = self._create_events()
         with freeze_time("2020-01-02T13:01:01Z"):
@@ -3985,7 +4028,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEntityResponseEqual(action_response, event_response)
 
-    @test_with_materialized_columns(event_properties=["$host"], person_properties=["$some_prop"])
+    @also_test_with_materialized_columns(event_properties=["$host"], person_properties=["$some_prop"])
     def test_against_clashing_entity_and_property_filter_naming(self):
         # Regression test for https://github.com/PostHog/posthog/issues/5814
         _create_person(
@@ -4020,7 +4063,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["count"], 1)
 
     # this ensures that the properties don't conflict when formatting params
-    @test_with_materialized_columns(["$current_url"])
+    @also_test_with_materialized_columns(["$current_url"])
     def test_action_with_prop(self):
         _create_person(
             team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
@@ -4052,7 +4095,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # if the params were shared it would be 1 because action would take precedence
         self.assertEqual(action_response[0]["count"], 0)
 
-    @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
     def test_combine_all_cohort_and_icontains(self):
         # This caused some issues with SQL parsing
         sign_up_action, _ = self._create_events()
@@ -4091,7 +4134,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(action_response[0]["count"], 2)
 
-    @test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
+    @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     def test_breakdown_user_props_with_filter(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -4120,7 +4163,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(event_properties=["key"], person_properties=["email", "$os", "$browser"])
+    @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email", "$os", "$browser"])
     def test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns(self):
         _create_person(
             team_id=self.team.pk,
@@ -4348,6 +4391,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["aggregated_value"], 1)
 
     @snapshot_clickhouse_queries
+    def test_weekly_active_users_aggregated_range_wider_than_week_with_sampling(self):
+        self._create_active_users_events()
+
+        data = {
+            "sampling_factor": 1,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "display": TRENDS_TABLE,
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+        }
+
+        filter = Filter(data=data)
+        result = Trends().run(filter, self.team)
+        # Only p0 was active on 2020-01-08 or in the preceding 6 days
+        self.assertEqual(result[0]["aggregated_value"], 1)
+
+    @snapshot_clickhouse_queries
     def test_weekly_active_users_aggregated_range_narrower_than_week(self):
         self._create_active_users_events()
 
@@ -4363,6 +4423,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # All were active on 2020-01-12 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 3)
 
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_users_monthly(self):
         self._create_active_users_events()
@@ -4380,6 +4441,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # No users fall into the period of 7 days during or before the first day of any of those three months
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0])
 
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_users_daily(self):
         self._create_active_users_events()
@@ -4427,6 +4489,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    @also_test_with_different_timezones
     def test_weekly_active_users_daily_based_on_action(self):
         action = _create_action(name="$pageview", team=self.team)
         self._create_active_users_events()
@@ -4459,6 +4522,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Same as test_weekly_active_users_daily
         self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
 
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_users_weekly(self):
         self._create_active_users_events()
@@ -4505,6 +4569,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "2020-01-09 17:00:00",
             ],
         )
+
         # p0 falls out of the window at noon, p1 and p2 are counted because the next 24 hours are included.
         # FIXME: This is isn't super intuitive, in particular for hour-by-hour queries, but currently
         # necessary, because there's a presentation issue: in monthly/weekly graphs data points are formatted as
@@ -4548,7 +4613,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Zero person IDs shouldn't be counted
         self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
 
-    @test_with_materialized_columns(["key"])
+    @also_test_with_materialized_columns(["key"])
     def test_breakdown_weekly_active_users_daily(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
@@ -4600,7 +4665,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         result = Trends().run(filter, self.team)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
-    @test_with_materialized_columns(person_properties=["name"])
+    @also_test_with_materialized_columns(person_properties=["name"])
     @snapshot_clickhouse_queries
     def test_weekly_active_users_filtering(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "person-1"})
@@ -4722,7 +4787,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         result = Trends().run(filter, self.team)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
-    @test_with_materialized_columns(["key"])
+    @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries
     def test_breakdown_weekly_active_users_aggregated(self):
         self._create_active_users_events()
@@ -4744,7 +4809,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[1]["breakdown_value"], "val")
         self.assertEqual(result[1]["aggregated_value"], 2)
 
-    @test_with_materialized_columns(event_properties=["key"], person_properties=["name"])
+    @also_test_with_materialized_columns(event_properties=["key"], person_properties=["name"])
     def test_filter_test_accounts(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
@@ -4786,10 +4851,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         result = Trends().run(filter2, self.team)
         self.assertEqual(result[0]["count"], 2)
-        result = Trends().run(filter.with_data({"breakdown": "key"}), self.team)
+        result = Trends().run(filter.shallow_clone({"breakdown": "key"}), self.team)
         self.assertEqual(result[0]["count"], 1)
 
-    @test_with_materialized_columns(["$some_property"])
+    @also_test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering_bar_chart_by_value(self):
         self._create_events()
 
@@ -4824,7 +4889,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
     def test_breakdown_multiple_cohorts(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
         _create_event(
@@ -4885,7 +4950,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(res[0]["count"], 2)
         self.assertEqual(res[1]["count"], 1)
 
-    @test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
     def test_breakdown_single_cohort(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
         _create_event(
@@ -4939,7 +5004,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(res[0]["count"], 1)
 
-    @test_with_materialized_columns(["key", "$current_url"])
+    @also_test_with_materialized_columns(["key", "$current_url"])
     def test_filtering_with_action_props(self):
         _create_event(
             event="sign up",
@@ -4991,34 +5056,36 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_timezones_hourly(self):
-        self.team.timezone = "US/Pacific"
-        self.team.save()
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
-        with freeze_time("2020-01-05T06:01:01Z"):  # Previous day in pacific time, don't include
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
-        with freeze_time("2020-01-05T15:01:01Z"):  # 07:01 in pacific time
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
-        with freeze_time("2020-01-05T16:01:01Z"):  # 08:01 in pacific time
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-04T22:01:01",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-05T07:01:01",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-05T08:01:01",
+        )
 
-        with freeze_time("2020-01-05T18:01:01Z"):  # 10:01 in pacific time
+        query_time = pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 5, 10, 1, 1))
+        utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600  # type: ignore
+        utc_offset_sign = "-" if utc_offset_hours < 0 else "+"
+        with freeze_time(query_time):
             response = Trends().run(
                 Filter(
                     data={
@@ -5047,6 +5114,26 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
+
+            self.assertEqual(
+                dict(parse_qsl(urlparse(response[0]["persons_urls"][7]["url"]).query)),
+                {
+                    "breakdown_attribution_type": "first_touch",
+                    "breakdown_normalize_url": "False",
+                    "date_from": f"2020-01-05T07:00:00{utc_offset_sign}{abs(utc_offset_hours):02.0f}:00",
+                    "date_to": f"2020-01-05T08:00:00{utc_offset_sign}{abs(utc_offset_hours):02.0f}:00",
+                    "display": "ActionsLineGraph",
+                    "entity_id": "sign up",
+                    "entity_math": "dau",
+                    "entity_type": "events",
+                    "events": '[{"id": "sign up", "type": "events", "order": null, "name": "sign '
+                    'up", "custom_name": null, "math": "dau", "math_property": null, '
+                    '"math_group_type_index": null, "properties": {}}]',
+                    "insight": "TRENDS",
+                    "interval": "hour",
+                    "smoothing_intervals": "1",
+                },
+            )
             persons = self.client.get("/" + response[0]["persons_urls"][7]["url"]).json()
             self.assertEqual(persons["results"][0]["count"], 1)
 
@@ -5080,38 +5167,33 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
 
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
-    def test_timezones(self):
-        self.team.timezone = "US/Pacific"
-        self.team.save()
+    def test_timezones_daily(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
-        with freeze_time("2020-01-03T01:01:01Z"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-02T17:01:01",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T17:01:01",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-06T00:30:01",  # Shouldn't be included anywhere
+        )
 
-        with freeze_time("2020-01-04T01:01:01Z"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
-            )
-
-        # Shouldn't be included anywhere
-        with freeze_time("2020-01-06T08:30:01Z"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
-            )
-
-        #  volume
-        with freeze_time("2020-01-05T13:01:01Z"):
+        with freeze_time(pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 5, 5, 0))):
             response = Trends().run(
                 Filter(data={"date_from": "-7d", "events": [{"id": "sign up", "name": "sign up"}]}, team=self.team),
                 self.team,
@@ -5216,7 +5298,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        #  breakdown + DAU
+        #  breakdown + DAU
         with freeze_time("2020-01-05T13:01:01Z"):
             response = Trends().run(
                 Filter(
@@ -5261,12 +5343,17 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response[0]["data"], [1.0])
 
+    # Regression test to ensure we handle non-deterministic timezones correctly
+    # US/Pacific for example changes from PST to PDT due to Daylight Savings Time
+    # In 2022, this happened on November 6, and previously we had a bug where
+    # a graph starting before that date and ending after it would show all 0s
+    # after November 6. Thus, this test ensures that doesn't happen
     @snapshot_clickhouse_queries
-    def test_timezone_weekly(self):
+    def test_non_deterministic_timezones(self):
         self.team.timezone = "US/Pacific"
         self.team.save()
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
-        with freeze_time("2020-01-12T02:01:01Z"):
+        with freeze_time("2022-11-03T01:01:01Z"):
             _create_event(
                 team=self.team,
                 event="sign up",
@@ -5274,15 +5361,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
             )
 
-        with freeze_time("2020-01-12T09:01:01Z"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
-
-        with freeze_time("2020-01-22T01:01:01Z"):
+        with freeze_time("2022-11-10T01:01:01Z"):
             _create_event(
                 team=self.team,
                 event="sign up",
@@ -5290,8 +5369,75 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
             )
 
-        #  volume
-        with freeze_time("2020-01-26T07:00:00Z"):  # this is UTC
+        with freeze_time("2022-11-17T08:30:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        with freeze_time("2022-11-24T08:30:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        with freeze_time("2022-11-30T08:30:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        with freeze_time("2022-11-30T13:01:01Z"):
+            response = Trends().run(
+                Filter(
+                    data={
+                        "date_from": "-30d",
+                        "events": [{"id": "sign up", "name": "sign up", "math": "wau"}],
+                        "interval": "week",
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+
+        # The key is to not get any 0s here
+        self.assertEqual(response[0]["data"], [1.0, 1.0, 1.0, 1.0, 1.0])
+
+    @also_test_with_different_timezones
+    @snapshot_clickhouse_queries
+    def test_timezones_weekly(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
+        _create_event(  # This event should be ignored, as it's before the -14d range
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-11T19:01:01",  # TRICKY: This is the next UTC day in America/Phoenix
+        )
+        _create_event(  # This event should count towards week of 2020-01-12
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-12T02:01:01",  # TRICKY: This is the previous UTC day in Asia/Tokyo
+        )
+        _create_event(  # This event should count towards week of 2020-01-19
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-21T18:01:01",  # TRICKY: This is the next UTC day in America/Phoenix
+        )
+
+        # TRICKY: This is the previous UTC day in Asia/Tokyo
+        with freeze_time(pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 26, 3, 0))):
+            # Total volume query
             response = Trends().run(
                 Filter(
                     data={
@@ -5304,18 +5450,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["data"], [1.0, 1.0, 1.0])
-        self.assertEqual(response[0]["labels"], ["5-Jan-2020", "12-Jan-2020", "19-Jan-2020"])
+        self.assertEqual(response[0]["days"], ["2020-01-12", "2020-01-19", "2020-01-26"])
+        self.assertEqual(response[0]["data"], [1.0, 1.0, 0.0])
 
     def test_same_day(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
-        with freeze_time("2020-01-03T01:01:01Z"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+        )
         response = Trends().run(
             Filter(
                 data={
@@ -5329,7 +5475,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response[0]["data"], [1.0])
 
-    @test_with_materialized_columns(event_properties=["email", "name"], person_properties=["email", "name"])
+    @also_test_with_materialized_columns(event_properties=["email", "name"], person_properties=["email", "name"])
     def test_ilike_regression_with_current_clickhouse_version(self):
         # CH upgrade to 22.3 has this problem: https://github.com/ClickHouse/ClickHouse/issues/36279
         # While we're waiting to upgrade to a newer version, a workaround is to set `optimize_move_to_prewhere = 0`
@@ -5384,7 +5530,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert daily_response[0]["data"] == [1.5, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]
 
     def test_trends_count_per_user_average_weekly(self):
-        # Weekly aggregation uses "start_of_week_fix"
         self._create_event_count_per_actor_events()
 
         weekly_response = Trends().run(
@@ -5524,6 +5669,32 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         daily_response = Trends().run(
             Filter(
                 data={
+                    "display": TRENDS_TABLE,
+                    "breakdown": "color",
+                    "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-07",
+                }
+            ),
+            self.team,
+        )
+
+        assert len(daily_response) == 3
+        assert daily_response[0]["breakdown_value"] == "red"
+        assert daily_response[1]["breakdown_value"] == "blue"
+        assert daily_response[2]["breakdown_value"] == ""
+        assert daily_response[0]["aggregated_value"] == 2.0  # red
+        assert daily_response[1]["aggregated_value"] == 1.0  # blue
+        assert daily_response[2]["aggregated_value"] == 1.0  # none
+
+    @snapshot_clickhouse_queries
+    def test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling(self):
+        self._create_event_count_per_actor_events()
+
+        daily_response = Trends().run(
+            Filter(
+                data={
+                    "sampling_factor": 1,
                     "display": TRENDS_TABLE,
                     "breakdown": "color",
                     "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
@@ -5690,7 +5861,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["breakdown_value"], "uh")
         self.assertEqual(response[1]["count"], 1)
 
-    @test_with_materialized_columns(
+    @also_test_with_materialized_columns(
         event_properties=["key"], group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
     )
     @snapshot_clickhouse_queries
@@ -5786,7 +5957,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["breakdown_value"], "technology")
         self.assertEqual(response[1]["count"], 1)
 
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-03"}
         )
         entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
@@ -5794,7 +5965,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(res[0]["distinct_ids"], ["person1"])
 
-    @test_with_materialized_columns(group_properties=[(0, "industry")], materialize_only_with_person_on_events=True)
+    @also_test_with_materialized_columns(
+        group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
+    )
     @snapshot_clickhouse_queries
     def test_breakdown_by_group_props_person_on_events(self):
         self._create_groups()
@@ -5827,7 +6000,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             data={
-                "date_from": "2020-01-01T00:00:00Z",
+                "date_from": "2020-01-01",
                 "date_to": "2020-01-12",
                 "breakdown": "industry",
                 "breakdown_type": "group",
@@ -5845,8 +6018,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[1]["breakdown_value"], "technology")
             self.assertEqual(response[1]["count"], 1)
 
-            filter = filter.with_data(
-                {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-03"}
+            filter = filter.shallow_clone(
+                {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02"}
             )
             entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
             res = self._get_trend_people(filter, entity)
@@ -5940,7 +6113,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         response = Trends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 1)
 
-    @test_with_materialized_columns(
+    @also_test_with_materialized_columns(
         person_properties=["key"], group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
     )
     @snapshot_clickhouse_queries
@@ -5987,7 +6160,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[0]["breakdown_value"], "finance")
             self.assertEqual(response[0]["count"], 1)
 
-    @test_with_materialized_columns(
+    @also_test_with_materialized_columns(
         person_properties=["key"], group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
     )
     @snapshot_clickhouse_queries
@@ -6035,7 +6208,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response = Trends().run(filter, self.team)
             self.assertEqual(response[0]["count"], 1)
 
-    @test_with_materialized_columns(
+    @also_test_with_materialized_columns(
         group_properties=[(0, "industry"), (2, "name")], materialize_only_with_person_on_events=True
     )
     @snapshot_clickhouse_queries
@@ -6086,7 +6259,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[0]["count"], 1)
             self.assertEqual(response[0]["data"], [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-            filter = filter.with_data({"date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02T00:00:00Z"})
+            filter = filter.shallow_clone({"date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02T00:00:00Z"})
             entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
             res = self._get_trend_people(filter, entity)
 

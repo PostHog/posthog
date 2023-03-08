@@ -1,14 +1,15 @@
-import { IconArrowDropDown, IconInfo, IconNotification, IconWithCount } from 'lib/components/icons'
+import { IconArrowDropDown, IconInfo, IconNotification, IconWithCount } from 'lib/lemon-ui/icons'
 import { notificationsLogic } from '~/layout/navigation/TopBar/notificationsLogic'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
-import { Popup } from 'lib/components/Popup/Popup'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import './NotificationsBell.scss'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { Link } from 'lib/components/Link'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 export function NotificationBell(): JSX.Element {
     const { unreadCount, hasImportantChanges, importantChanges, isNotificationPopoverOpen, hasUnread } =
@@ -20,7 +21,7 @@ export function NotificationBell(): JSX.Element {
     })
 
     return (
-        <Popup
+        <Popover
             visible={isNotificationPopoverOpen}
             onClickOutside={toggleNotificationsPopover}
             overlay={
@@ -31,9 +32,10 @@ export function NotificationBell(): JSX.Element {
                             Beta
                         </LemonTag>
                     </h5>
-                    <p className={'mx-2 text-muted'}>
-                        <IconInfo /> Notifications is in beta. Right now it only shows you changes other users make to
-                        Insights and Feature Flags that you created. Come join{' '}
+                    <p className={'mx-2 text-muted mt-2'}>
+                        <IconInfo /> Notifications is in beta. Right now it only shows you changes other users make to{' '}
+                        <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
+                        <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
                         <Link to={'https://posthog.com/slack'}>our community slack</Link> and tell us what else should
                         be here!
                     </p>
@@ -47,18 +49,19 @@ export function NotificationBell(): JSX.Element {
                     )}
                 </div>
             }
-            className="NotificationsBell-Popup"
+            className="NotificationsBell-Popover"
         >
             <div
                 className={clsx('h-10 items-center cursor-pointer flex text-primary-alt text-2xl')}
                 onClick={toggleNotificationsPopover}
                 data-attr="notifications-button"
+                data-ph-capture-attribute-unread-notifications-count={unreadCount}
             >
                 <IconWithCount count={unreadCount} showZero={true} status={hasUnread ? 'primary' : 'muted'}>
                     <IconNotification />
                 </IconWithCount>
                 <IconArrowDropDown />
             </div>
-        </Popup>
+        </Popover>
     )
 }

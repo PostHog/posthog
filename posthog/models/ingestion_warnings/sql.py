@@ -41,7 +41,7 @@ KAFKA_INGESTION_WARNINGS_TABLE_SQL = lambda: INGESTION_WARNINGS_TABLE_BASE_SQL.f
 )
 
 INGESTION_WARNINGS_MV_TABLE_SQL = lambda: """
-CREATE MATERIALIZED VIEW ingestion_warnings_mv ON CLUSTER '{cluster}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
 team_id,

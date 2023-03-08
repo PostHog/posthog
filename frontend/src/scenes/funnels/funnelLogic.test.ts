@@ -87,17 +87,14 @@ export const mockInsight = {
         funnel_to_step: 1,
         funnel_viz_type: 'steps',
         insight: 'FUNNELS',
-        interval: 'day',
         layout: 'vertical',
     },
-    filters_hash: 'cache_d0d88afd2fd8dd2af0b7f2e505588e99',
     order: null,
     deleted: false,
     dashboard: null,
     layouts: {},
     color: null,
     last_refresh: null,
-    refreshing: false,
     result: null,
     created_at: '2021-09-22T18:22:20.036153Z',
     description: null,
@@ -397,7 +394,7 @@ describe('funnelLogic', () => {
                             { id: '$pageview', order: 1 },
                         ],
                     },
-                    areFiltersValid: true,
+                    isFunnelWithEnoughSteps: true,
                 })
                 .toDispatchActions(['loadResultsSuccess'])
                 .toMatchValues({
@@ -418,12 +415,12 @@ describe('funnelLogic', () => {
                             { id: '$pageview', order: 1 },
                         ],
                     },
-                    areFiltersValid: true,
+                    isFunnelWithEnoughSteps: true,
                 })
         })
     })
 
-    describe('areFiltersValid', () => {
+    describe('isFunnelWithEnoughSteps', () => {
         beforeEach(async () => {
             await initFunnelLogic()
         })
@@ -431,23 +428,23 @@ describe('funnelLogic', () => {
         it('sets it properly', () => {
             expectLogic(logic, () => {
                 logic.actions.setFilters({ actions: [] })
-            }).toMatchValues({ areFiltersValid: false })
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {
                 logic.actions.setFilters({})
-            }).toMatchValues({ areFiltersValid: false })
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {
                 logic.actions.setFilters({ actions: [{}, {}] })
-            }).toMatchValues({ areFiltersValid: true })
+            }).toMatchValues({ isFunnelWithEnoughSteps: true })
 
             expectLogic(logic, () => {
                 logic.actions.setFilters({ events: [{}, {}] })
-            }).toMatchValues({ areFiltersValid: true })
+            }).toMatchValues({ isFunnelWithEnoughSteps: true })
 
             expectLogic(logic, () => {
-                logic.actions.setFilters({ events: [{}], actions: [{ from: 'previous areFiltersValid test' }] })
-            }).toMatchValues({ areFiltersValid: true })
+                logic.actions.setFilters({ events: [{}], actions: [{ from: 'previous isFunnelWithEnoughSteps test' }] })
+            }).toMatchValues({ isFunnelWithEnoughSteps: true })
         })
     })
 
@@ -496,7 +493,6 @@ describe('funnelLogic', () => {
                 breakdown: undefined,
                 breakdown_type: undefined,
                 insight: 'FUNNELS',
-                interval: 'day',
             }),
             expect.anything()
         )
@@ -818,7 +814,7 @@ describe('funnelLogic', () => {
                         funnel_viz_type: FunnelVizType.Trends,
                     } as FunnelsFilterType,
                 })
-            }).toNotHaveDispatchedActions(['loadCorrelations', 'loadPropertyCorrelations'])
+            }).toNotHaveDispatchedActions(['loadEventCorrelations', 'loadPropertyCorrelations'])
         })
 
         it('triggers update to correlation list when property excluded from project', async () => {

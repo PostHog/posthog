@@ -26,7 +26,7 @@ class FunnelCorrelationActors(ActorBaseQuery):
         self._team = team
 
         if not self._filter.correlation_person_limit:
-            self._filter = self._filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
+            self._filter = self._filter.shallow_clone({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
 
     @cached_property
     def aggregation_group_type_index(self):
@@ -141,7 +141,7 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
 
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
         # Filtering on persons / groups properties can be pushed down to funnel_actors CTE
-        new_correlation_filter = filter.with_data(
+        new_correlation_filter = filter.shallow_clone(
             {
                 "properties": filter.property_groups.combine_properties(
                     PropertyOperatorType.AND, filter.correlation_property_values or []

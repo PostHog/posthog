@@ -13,10 +13,12 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from kafka.errors import KafkaError
 from kafka.producer.future import FutureRecordMetadata
+from prometheus_client import Counter
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
+from token_bucket import Limiter, MemoryStorage
 
 from posthog.api.utils import (
     EventIngestionContext,
@@ -26,16 +28,50 @@ from posthog.api.utils import (
     safe_clickhouse_string,
 )
 from posthog.exceptions import generate_exception_response
-from posthog.helpers.session_recording import preprocess_session_recording_events_for_clickhouse
 from posthog.kafka_client.client import KafkaProducer
-from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
+from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
-from posthog.models.feature_flag import get_active_feature_flags
+from posthog.metrics import LABEL_RESOURCE_TYPE, LABEL_TEAM_ID
+from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
 from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
+
+LIMITER = Limiter(
+    rate=settings.PARTITION_KEY_BUCKET_REPLENTISH_RATE,
+    capacity=settings.PARTITION_KEY_BUCKET_CAPACITY,
+    storage=MemoryStorage(),
+)
+LOG_RATE_LIMITER = Limiter(
+    rate=1 / 60,
+    capacity=1,
+    storage=MemoryStorage(),
+)
+
+# These event names are reserved for internal use and refer to non-analytics
+# events that are ingested via a separate path than analytics events. They have
+# fewer restrictions on e.g. the order they need to be processed in.
+SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
+
+EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
+    "capture_events_dropped_over_quota",
+    "Events dropped by capture due to quota-limiting, per resource_type, team_id and token.",
+    labelnames=[LABEL_RESOURCE_TYPE, LABEL_TEAM_ID, "token"],
+)
+
+PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
+    "capture_partition_key_capacity_exceeded_total",
+    "Indicates that automatic partition override is active for a given key. Value incremented once a minute.",
+    labelnames=["partition_key"],
+)
+
+TOKEN_SHAPE_INVALID_COUNTER = Counter(
+    "capture_token_shape_invalid_total",
+    "Events dropped due to an invalid token shape, per reason.",
+    labelnames=["reason"],
+)
 
 
 def parse_kafka_event_data(
@@ -64,16 +100,25 @@ def parse_kafka_event_data(
 
 
 def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
-    logger.debug("logging_event", event_name=event_name, kafka_topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
+    # To allow for different quality of service on session recordings and
+    # `$performance_event` and other events, we push to a different topic.
+    # TODO: split `$performance_event` out to it's own topic.
+    kafka_topic = (
+        KAFKA_SESSION_RECORDING_EVENTS
+        if event_name in SESSION_RECORDING_EVENT_NAMES
+        else settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+    )
+
+    logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
-        future = KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data, key=partition_key)
+        future = KafkaProducer().produce(topic=kafka_topic, data=data, key=partition_key)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception as e:
         statsd.incr("capture_endpoint_log_event_error")
-        print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
+        logger.exception("Failed to produce event to Kafka topic %s with error", kafka_topic)
         raise e
 
 
@@ -148,6 +193,20 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
         )
 
 
+def _check_token_shape(token: Any) -> Optional[str]:
+    if not token:
+        return "empty"
+    if not isinstance(token, str):
+        return "not_string"
+    if len(token) > 64:
+        return "too_long"
+    if not token.isascii():  # Legacy tokens were base64, so let's be permissive
+        return "not_ascii"
+    if token.startswith("phx_"):  # Used by previous versions of the zapier integration, can happen on user error
+        return "personal_api_key"
+    return None
+
+
 def get_distinct_id(data: Dict[str, Any]) -> str:
     raw_value: Any = ""
     try:
@@ -175,20 +234,54 @@ def _ensure_web_feature_flags_in_properties(
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
     if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
         statsd.incr("active_feature_flags_missing")
-        flags, _ = get_active_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
-        flag_keys = list(flags.keys())
+        all_flags, _, _, _ = get_all_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
+        active_flags = {key: value for key, value in all_flags.items() if value}
+        flag_keys = list(active_flags.keys())
         event["properties"]["$active_feature_flags"] = flag_keys
 
         if len(flag_keys) > 0:
             statsd.incr("active_feature_flags_added")
 
-            for k, v in flags.items():
+            for k, v in active_flags.items():
                 event["properties"][f"$feature/{k}"] = v
+
+
+def drop_events_over_quota(
+    token: str, events: List[Any], ingestion_context: Optional[EventIngestionContext]
+) -> List[Any]:
+    if not settings.EE_AVAILABLE:
+        return events
+
+    from ee.billing.quota_limiting import QuotaResource, list_limited_team_tokens
+
+    results = []
+    limited_tokens_events = list_limited_team_tokens(QuotaResource.EVENTS)
+    limited_tokens_recordings = list_limited_team_tokens(QuotaResource.RECORDINGS)
+    team_id = ingestion_context.team_id if ingestion_context else None
+
+    for event in events:
+        if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
+            if token in limited_tokens_recordings:
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", team_id=team_id, token=token).inc()
+                if settings.QUOTA_LIMITING_ENABLED:
+                    continue
+
+        elif token in limited_tokens_events:
+            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", team_id=team_id, token=token).inc()
+            if settings.QUOTA_LIMITING_ENABLED:
+                continue
+
+        results.append(event)
+
+    return results
 
 
 @csrf_exempt
 @timed("posthog_cloud_event_endpoint")
 def get_event(request):
+    # At this point, we don't now which team_id we are working with, so unbind if set.
+    structlog.contextvars.unbind_contextvars("team_id")
+
     # handle cors request
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": 1}))
@@ -220,10 +313,30 @@ def get_event(request):
                 ),
             )
 
+        try:
+            invalid_token_reason = _check_token_shape(token)
+        except Exception as e:
+            invalid_token_reason = "exception"
+            logger.warning("capture_token_shape_exception", token=token, reason="exception", exception=e)
+
         ingestion_context = None
         send_events_to_dead_letter_queue = False
 
-        if token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
+        if settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL or token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
+            if invalid_token_reason:
+                TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
+                logger.warning("capture_token_shape_invalid", token=token, reason=invalid_token_reason)
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "capture",
+                        f"Provided API key is not valid: {invalid_token_reason}",
+                        type="authentication_error",
+                        code=invalid_token_reason,
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                    ),
+                )
+
             logger.debug("lightweight_capture_endpoint_hit", token=token)
             statsd.incr("lightweight_capture_endpoint_hit")
         else:
@@ -234,6 +347,9 @@ def get_event(request):
 
             if db_error:
                 send_events_to_dead_letter_queue = True
+
+    team_id = ingestion_context.team_id if ingestion_context else None
+    structlog.contextvars.bind_contextvars(team_id=team_id)
 
     with start_span(op="request.process"):
         if isinstance(data, dict):
@@ -247,6 +363,12 @@ def get_event(request):
             events = data
         else:
             events = [data]
+
+        try:
+            events = drop_events_over_quota(token, events, ingestion_context)
+        except Exception as e:
+            # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
+            capture_exception(e)
 
         try:
             events = preprocess_session_recording_events_for_clickhouse(events)
@@ -293,7 +415,6 @@ def get_event(request):
                 )
                 continue
 
-            team_id = ingestion_context.team_id if ingestion_context else None
             try:
                 futures.append(
                     capture_internal(
@@ -403,9 +524,65 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
     # overriding this to deal with hot partitions in specific cases.
     # Setting the partition key to None means using random partitioning.
     kafka_partition_key = None
-    candidate_partition_key = f"{team_id}:{distinct_id}"
 
-    if candidate_partition_key not in settings.EVENT_PARTITION_KEYS_TO_OVERRIDE:
+    if event["event"] in ("$snapshot", "$performance_event"):
+        return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
+
+    if team_id:
+        candidate_partition_key = f"{team_id}:{distinct_id}"
+    else:
+        candidate_partition_key = f"{token}:{distinct_id}"
+
+    if is_randomly_partitioned(candidate_partition_key) is False:
         kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
+
+
+def is_randomly_partitioned(candidate_partition_key: str) -> bool:
+    """Check whether event with given partition key is to be randomly partitioned.
+
+    Checking whether an event should be randomly partitioned is a two step process:
+
+    1. Using a token-bucket algorithm, check if the event's candidate key has exceeded
+       the given PARTITION_KEY_BUCKET_CAPACITY. If it has, events with that key could
+       be experiencing a temporary burst in traffic and should be randomly partitioned.
+       Otherwise, go to 2.
+
+    2. Check if the candidate partition key is set in the
+       EVENT_PARTITION_KEYS_TO_OVERRIDE instance setting. If it is, then the event
+       should be randomly partitioned. Otherwise, no random partition should occur and
+       the candidate partition key can be used.
+
+    Token-bucket algorithm (step 1) is ignored if the
+    PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED setting is set to False.
+
+    Args:
+        candidate_partition_key: The partition key that would be used if we decide
+            on no random partitioniong. This is in the format `team_id:distinct_id`.
+
+    Returns:
+        Whether the given partition key should be used.
+    """
+    if settings.PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED:
+
+        has_capacity = LIMITER.consume(candidate_partition_key)
+
+        if has_capacity is False:
+
+            if not LOG_RATE_LIMITER.consume(candidate_partition_key):
+                # Return early if we have logged this key already.
+                return True
+
+            PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER.labels(partition_key=candidate_partition_key.split(":")[0]).inc()
+            statsd.incr("partition_key_capacity_exceeded", tags={"partition_key": candidate_partition_key})
+            logger.warning(
+                "Partition key %s overridden as bucket capacity of %s tokens exceeded",
+                candidate_partition_key,
+                LIMITER._capacity,
+            )
+            return True
+
+    keys_to_override = settings.EVENT_PARTITION_KEYS_TO_OVERRIDE
+
+    return candidate_partition_key in keys_to_override

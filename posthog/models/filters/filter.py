@@ -26,6 +26,7 @@ from posthog.models.filters.mixins.common import (
     InsightMixin,
     LimitMixin,
     OffsetMixin,
+    SampleMixin,
     SearchMixin,
     SelectorMixin,
     ShownAsMixin,
@@ -90,6 +91,7 @@ class Filter(
     EmailMixin,
     BaseFilter,
     ClientQueryIdMixin,
+    SampleMixin,
 ):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.
@@ -99,9 +101,13 @@ class Filter(
 
     funnel_id: Optional[int] = None
     _data: Dict
+    kwargs: Dict
 
     def __init__(
-        self, data: Optional[Dict[str, Any]] = None, request: Optional[request.Request] = None, **kwargs
+        self,
+        data: Optional[Dict[str, Any]] = None,
+        request: Optional[request.Request] = None,
+        **kwargs,
     ) -> None:
 
         if request:
@@ -115,13 +121,13 @@ class Filter(
                 properties = request.data[PROPERTIES]
 
             data = {**request.GET.dict(), **request.data, **(data if data else {}), **({PROPERTIES: properties})}
-        elif not data:
+        elif data is None:
             raise ValueError("You need to define either a data dict or a request")
 
         self._data = data
-
         self.kwargs = kwargs
-
-        if "team" in kwargs and not self.is_simplified:
-            simplified_filter = self.simplify(kwargs["team"])
-            self._data = simplified_filter._data
+        if "team" in kwargs:
+            self.team = kwargs["team"]
+            if not self.is_simplified:
+                simplified_filter = self.simplify(kwargs["team"])
+                self._data = simplified_filter._data

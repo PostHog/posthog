@@ -1,9 +1,8 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { SessionRecordingPlayerTab } from '~/types'
 
 import type { playerSettingsLogicType } from './playerSettingsLogicType'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export type SharedListMiniFilter = {
     tab: SessionRecordingPlayerTab
@@ -90,51 +89,80 @@ const MiniFilters: SharedListMiniFilter[] = [
         name: 'Error',
     },
     {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        tab: SessionRecordingPlayerTab.NETWORK,
         key: 'performance-all',
         name: 'All',
         alone: true,
         tooltip: 'All network performance information collected during the session',
     },
     {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
-        key: 'performance-document',
-        name: 'Document',
-        tooltip: 'Page load information collected on a fresh browser page load or a refresh',
-    },
-    {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        tab: SessionRecordingPlayerTab.NETWORK,
         key: 'performance-fetch',
-        name: 'XHR / Fetch',
+        name: 'Fetch/XHR',
         tooltip: 'Requests during the session to external resources like APIs via XHR or Fetch',
     },
     {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
-        key: 'performance-assets',
-        name: 'Assets',
-        tooltip: 'Assets loaded during the session such as images, CSS and JS',
+        tab: SessionRecordingPlayerTab.NETWORK,
+        key: 'performance-document',
+        name: 'Doc',
+        tooltip: 'Page load information collected on a fresh browser page load, refresh, or page paint.',
     },
     {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        tab: SessionRecordingPlayerTab.NETWORK,
+        key: 'performance-assets-js',
+        name: 'JS',
+        tooltip: 'Scripts loaded during the session.',
+    },
+    {
+        tab: SessionRecordingPlayerTab.NETWORK,
+        key: 'performance-assets-css',
+        name: 'CSS',
+        tooltip: 'CSS loaded during the session.',
+    },
+    {
+        tab: SessionRecordingPlayerTab.NETWORK,
+        key: 'performance-assets-img',
+        name: 'Img',
+        tooltip: 'Images loaded during the session.',
+    },
+    {
+        tab: SessionRecordingPlayerTab.NETWORK,
         key: 'performance-other',
         name: 'Other',
         tooltip: 'Any other network requests that do not fall into the other categories',
     },
-    {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
-        key: 'performance-paint',
-        name: 'Paint',
-        tooltip: 'Events indicating when the browser has painted the page',
-    },
+
+    // NOTE: The below filters use the `response_status` property which is currently experiemental
+    // and as such doesn't show for many browsers: https://developer.mozilla.org/en-US/docs/Web/API/PerformanceResourceTiming/responseStatus
+    // We should only add these in if the recording in question has those values (otherwiseit is a confusing experience for the user)
+
+    // {
+    //     tab: SessionRecordingPlayerTab.PERFORMANCE,
+    //     key: 'performance-2xx',
+    //     name: '2xx',
+    //     tooltip:
+    //         'Requests that returned a HTTP status code of 2xx. The request was successfully received, understood, and accepted.',
+    // },
+    // {
+    //     tab: SessionRecordingPlayerTab.PERFORMANCE,
+    //     key: 'performance-4xx',
+    //     name: '4xx',
+    //     tooltip:
+    //         'Requests that returned a HTTP status code of 4xx. The request contains bad syntax or cannot be fulfilled.',
+    // },
+    // {
+    //     tab: SessionRecordingPlayerTab.PERFORMANCE,
+    //     key: 'performance-5xx',
+    //     name: '5xx',
+    //     tooltip:
+    //         'Requests that returned a HTTP status code of 5xx. The server failed to fulfil an apparently valid request.',
+    // },
 ]
 
 // This logic contains player settings that should persist across players
 // There is no key for this logic, so it does not reset when recordings change
 export const playerSettingsLogic = kea<playerSettingsLogicType>([
     path(['scenes', 'session-recordings', 'player', 'playerSettingsLogic']),
-    connect({
-        values: [featureFlagLogic, ['featureFlags']],
-    }),
     actions({
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
@@ -145,8 +173,9 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
+        setSyncScroll: (enabled: boolean) => ({ enabled }),
     }),
-    reducers(({ values }) => ({
+    reducers(({}) => ({
         speed: [
             1,
             { persist: true },
@@ -190,9 +219,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
 
         // Inspector
         tab: [
-            (values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_V2]
-                ? SessionRecordingPlayerTab.ALL
-                : SessionRecordingPlayerTab.EVENTS) as SessionRecordingPlayerTab,
+            SessionRecordingPlayerTab.ALL as SessionRecordingPlayerTab,
             { persist: true },
             {
                 setTab: (_, { tab }) => tab,
@@ -252,6 +279,14 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 },
             },
         ],
+
+        syncScroll: [
+            true,
+            { persist: true },
+            {
+                setSyncScroll: (_, { enabled }) => enabled,
+            },
+        ],
     })),
 
     selectors({
@@ -275,4 +310,14 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
     }),
+    listeners(({ values }) => ({
+        setTab: ({ tab }) => {
+            eventUsageLogic.actions.reportRecordingInspectorTabViewed(tab)
+        },
+        setMiniFilter: ({ key, enabled }) => {
+            if (enabled) {
+                eventUsageLogic.actions.reportRecordingInspectorMiniFilterViewed(values.tab, key)
+            }
+        },
+    })),
 ])

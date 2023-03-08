@@ -29,13 +29,14 @@ class AvailableFeature(str, Enum):
     RECORDINGS_PLAYLISTS = "recordings_playlists"
     ROLE_BASED_ACCESS = "role_based_access"
     RECORDINGS_FILE_EXPORT = "recordings_file_export"
+    RECORDINGS_PERFORMANCE = "recordings_performance"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
 SESSION_RECORDINGS_FILTER_TYPE_DURATION = "session_recording_duration"
-SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS = "static_recordings"
+SESSION_RECORDINGS_FILTER_IDS = "session_ids"
 SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
@@ -51,7 +52,7 @@ TRENDS_BOLD_NUMBER = "BoldNumber"
 
 # Sync with frontend NON_TIME_SERIES_DISPLAY_TYPES
 NON_TIME_SERIES_DISPLAY_TYPES = [TRENDS_TABLE, TRENDS_PIE, TRENDS_BAR_VALUE, TRENDS_WORLD_MAP, TRENDS_BOLD_NUMBER]
-# Sync with frontend NON_TIME_SERIES_DISPLAY_TYPES
+# Sync with frontend NON_BREAKDOWN_DISPLAY_TYPES
 NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER]
 
 # CONSTANTS
@@ -156,7 +157,7 @@ FUNNEL_LAYOUT = "layout"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
-FUNNEL_WINDOW_INTERVAL_TYPES = Literal["DAY", "MINUTE", "HOUR", "WEEK", "MONTH"]
+FUNNEL_WINDOW_INTERVAL_TYPES = Literal["DAY", "SECOND", "MINUTE", "HOUR", "WEEK", "MONTH"]
 # Funnel Correlation Properties
 FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
 FUNNEL_CORRELATION_EXCLUDE_NAMES = "funnel_correlation_exclude_names"
@@ -191,8 +192,10 @@ PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
 AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
 BREAKDOWN_HISTOGRAM_BIN_COUNT = "breakdown_histogram_bin_count"
 BREAKDOWN_NORMALIZE_URL = "breakdown_normalize_url"
+SAMPLING_FACTOR = "sampling_factor"
 
-BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group", "session"]
+
+BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group", "session", "hogql"]
 
 
 class FunnelOrderType(str, Enum):

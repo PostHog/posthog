@@ -2,14 +2,27 @@ import re
 from collections import Counter
 from typing import Any, Callable
 from typing import Counter as TCounter
-from typing import Dict, List, Literal, Optional, Tuple, Union, cast
+from typing import (
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
-from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
 
+from posthog.clickhouse.client.escape import escape_param_for_clickhouse
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
 from posthog.constants import PropertyOperatorType
+from posthog.hogql import ast
+from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import TraversingVisitor
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (
     format_cohort_subquery,
@@ -54,6 +67,7 @@ from posthog.utils import is_json, is_valid_regex
 def parse_prop_grouped_clauses(
     team_id: int,
     property_group: Optional[PropertyGroup],
+    hogql_context: HogQLContext,
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -63,7 +77,6 @@ def parse_prop_grouped_clauses(
     group_properties_joined: bool = True,
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
-
     if not property_group or len(property_group.values) == 0:
         return "", {}
 
@@ -82,6 +95,7 @@ def parse_prop_grouped_clauses(
                     person_properties_mode=person_properties_mode,
                     person_id_joined_alias=person_id_joined_alias,
                     group_properties_joined=group_properties_joined,
+                    hogql_context=hogql_context,
                     _top_level=False,
                 )
                 group_clauses.append(clause)
@@ -102,6 +116,7 @@ def parse_prop_grouped_clauses(
             group_properties_joined=group_properties_joined,
             property_operator=property_group.type,
             team_id=team_id,
+            hogql_context=hogql_context,
         )
 
     if not _final:
@@ -124,6 +139,7 @@ def is_property_group(group: Union[Property, "PropertyGroup"]):
 def parse_prop_clauses(
     team_id: int,
     filters: List[Property],
+    hogql_context: Optional[HogQLContext],
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -149,20 +165,21 @@ def parse_prop_clauses(
                     f"{property_operator} 0 = 13"
                 )  # If cohort doesn't exist, nothing can match, unless an OR operator is used
             else:
-
                 if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
-                    person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
+                    person_id_query, cohort_filter_params = format_filter_query(
+                        cohort, idx, hogql_context, custom_match_field=person_id_joined_alias
+                    )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {table_formatted}distinct_id IN ({person_id_query})")
                 elif person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
-                        cohort, idx, custom_match_field=f"{person_id_joined_alias}"
+                        cohort, idx, hogql_context, custom_match_field=f"{person_id_joined_alias}"
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
                 else:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
-                        cohort, idx, custom_match_field=f"{person_id_joined_alias}"
+                        cohort, idx, hogql_context, custom_match_field=f"{person_id_joined_alias}"
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
@@ -314,6 +331,11 @@ def parse_prop_clauses(
             filter_query, filter_params = get_session_property_filter_statement(prop, idx, prepend)
             final.append(f"{property_operator} {filter_query}")
             params.update(filter_params)
+        elif prop.type == "hogql":
+            from posthog.hogql.hogql import translate_hogql
+
+            filter_query = translate_hogql(prop.key, hogql_context)
+            final.append(f"{property_operator} {filter_query}")
 
     if final:
         # remove the first operator
@@ -558,7 +580,7 @@ def get_single_or_multi_property_string_expr(
         expression, _ = get_property_string_expr(
             table,
             str(breakdown),
-            escape_param(breakdown),
+            escape_param_for_clickhouse(breakdown),
             column,
             allow_denormalized_props,
             materialised_table_column=materialised_table_column,
@@ -571,7 +593,7 @@ def get_single_or_multi_property_string_expr(
             expr, _ = get_property_string_expr(
                 table,
                 b,
-                escape_param(b),
+                escape_param_for_clickhouse(b),
                 column,
                 allow_denormalized_props,
                 materialised_table_column=materialised_table_column,
@@ -748,7 +770,40 @@ def build_selector_regex(selector: Selector) -> str:
 
 
 def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:
-    return Counter((prop.key, prop.type, prop.group_type_index) for prop in props)
+    counters: List[tuple] = []
+
+    class PropertyChecker(TraversingVisitor):
+        def __init__(self):
+            self.event_properties: List[str] = []
+            self.person_properties: List[str] = []
+
+        def visit_field(self, node: ast.Field):
+            if len(node.chain) > 1 and node.chain[0] == "properties":
+                self.event_properties.append(node.chain[1])
+
+            if len(node.chain) > 2 and node.chain[0] == "person" and node.chain[1] == "properties":
+                self.person_properties.append(node.chain[2])
+
+            if (
+                len(node.chain) > 3
+                and node.chain[0] == "pdi"
+                and node.chain[1] == "person"
+                and node.chain[2] == "properties"
+            ):
+                self.person_properties.append(node.chain[3])
+
+    for prop in props:
+        if prop.type == "hogql":
+            node = parse_expr(prop.key)
+            property_checker = PropertyChecker()
+            property_checker.visit(node)
+            for field in property_checker.event_properties:
+                counters.append((field, "event", None))
+            for field in property_checker.person_properties:
+                counters.append((field, "person", None))
+        else:
+            counters.append((prop.key, prop.type, prop.group_type_index))
+    return Counter(cast(Iterable, counters))
 
 
 def get_session_property_filter_statement(prop: Property, idx: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:

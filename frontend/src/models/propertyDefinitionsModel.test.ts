@@ -94,7 +94,7 @@ describe('the property definitions model', () => {
                         {
                             description: 'Duration of the session',
                             id: '$session_duration',
-                            is_event_property: false,
+                            is_seen_on_filtered_events: false,
                             is_numerical: true,
                             name: '$session_duration',
                             property_type: 'Duration',

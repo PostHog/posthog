@@ -39,6 +39,7 @@ from posthog.constants import (
     INSIGHT_TRENDS,
     LIMIT,
     OFFSET,
+    SAMPLING_FACTOR,
     SELECTOR,
     SHOWN_AS,
     SMOOTHING_INTERVALS,
@@ -434,6 +435,10 @@ class EntitiesMixin(BaseParamMixin):
             entity.index = index
         return processed_entities
 
+    @include_query_tags
+    def query_tags_entities(self):
+        return {"number_of_entities": len(self.entities)}
+
     @cached_property
     def actions(self) -> List[Entity]:
         return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_ACTIONS]
@@ -550,3 +555,27 @@ class EmailMixin(BaseParamMixin):
     def email(self) -> Optional[str]:
         email = self._data.get("email", None)
         return email
+
+
+class SampleMixin(BaseParamMixin):
+    """
+    Sample factor for a query.
+    """
+
+    @cached_property
+    def sampling_factor(self) -> Optional[float]:
+        sampling_factor = self._data.get("sampling_factor", None)
+
+        # cover for both None and empty strings - also ok to filter out 0s here
+        if sampling_factor:
+            sampling_factor = float(sampling_factor)
+            if sampling_factor < 0 or sampling_factor > 1:
+                raise ValueError("Sampling factor must be greater than 0 and smaller or equal to 1")
+
+            return sampling_factor
+
+        return None
+
+    @include_dict
+    def sampling_factor_to_dict(self):
+        return {SAMPLING_FACTOR: self.sampling_factor or ""}

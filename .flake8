@@ -84,3 +84,5 @@ per-file-ignores =
     ./posthog/settings/overrides.py: T201
     ./posthog/utils.py: T201
     ./posthog/async_migrations/test/test_migrations_not_required.py: T201
+    ./posthog/hogql/grammar/HogQLLexer.py: F401
+    ./posthog/hogql/grammar/HogQLParser.py: F401 F841 E711

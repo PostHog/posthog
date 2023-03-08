@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from '@posthog/lemon-ui'
 import { billingLogic } from 'scenes/billing/billingLogic'
 

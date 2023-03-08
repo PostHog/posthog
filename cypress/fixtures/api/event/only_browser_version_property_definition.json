@@ -9,7 +9,7 @@
             "is_numerical": true,
             "query_usage_30_day": null,
             "property_type": null,
-            "is_event_property": null
+            "is_seen_on_filtered_events": null
         }
     ]
 }

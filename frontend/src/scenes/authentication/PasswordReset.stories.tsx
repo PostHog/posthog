@@ -9,7 +9,11 @@ import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
 // some metadata and optional parameters
 export default {
     title: 'Scenes-Other/Password Reset',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+    },
 } as Meta
 
 // export more stories with different state

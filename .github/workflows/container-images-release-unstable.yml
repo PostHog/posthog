@@ -1,0 +1,63 @@
+#
+# This workflow builds and pushes to DockerHub the container image
+# 'posthog/posthog:release-[version]-unstable' when a branch that
+# matches 'release-[version]' is pushed. Image can be used for
+# our internal "break the release" sessions.
+#
+name: Container image for unstable release
+
+on:
+    push:
+        branches:
+            - 'release-*.*'
+
+jobs:
+    build-push:
+        name: Build & push container unstable release image
+        if: github.repository == 'PostHog/posthog'
+        runs-on: ubuntu-latest
+        permissions:
+            id-token: write # allow issuing OIDC tokens for this workflow run
+            contents: read # allow at least reading the repo contents, add other permissions if necessary
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v3
+
+            - name: Update git SHA
+              run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
+
+            - name: Get branch name
+              run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v2
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v2
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
+
+            - name: Login to DockerHub
+              uses: docker/login-action@v2
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Build and push unstable release
+              id: depot
+              uses: depot/build-push-action@v1
+              with:
+                  project: x19jffd9zf # posthog
+                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
+                  cache-from: type=gha # always pull the layers from GHA
+                  cache-to: type=gha,mode=max # always push the layers to GHA
+                  context: .
+                  push: true
+                  tags: posthog/posthog:${{ env.BRANCH_NAME }}-unstable
+                  platforms: linux/amd64,linux/arm64
+
+            - name: Image digest
+              run: |
+                  echo "Pushed unstable release: ${{ steps.depot.outputs.digest }}"

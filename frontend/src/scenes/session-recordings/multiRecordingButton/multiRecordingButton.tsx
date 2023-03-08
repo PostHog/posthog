@@ -2,8 +2,8 @@ import { MutableRefObject, ReactNode, useCallback, useState } from 'react'
 import { PlayCircleOutlined, DownOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { MatchedRecording } from '~/types'
 import { Button } from 'antd'
-import { Popup } from '../../../lib/components/Popup/Popup'
-import { Link } from 'lib/components/Link'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { Link } from 'lib/lemon-ui/Link'
 import './multiRecordingButton.scss'
 
 interface MultiRecordingButtonProps {
@@ -50,11 +50,11 @@ export function MultiRecordingButton({ sessionRecordings, onOpenRecording }: Mul
         )
 
     return (
-        <Popup
+        <Popover
             visible={areRecordingsShown}
             placement="bottom-end"
             fallbackPlacements={['top-end']}
-            className="session-recordings-popup"
+            className="session-recordings-popover"
             overlay={sessionRecordings.map((sessionRecording, index) => (
                 <Link
                     key={sessionRecording.session_id}
@@ -64,7 +64,7 @@ export function MultiRecordingButton({ sessionRecordings, onOpenRecording }: Mul
                         onOpenRecording(sessionRecording)
                     }}
                 >
-                    <div className="session-recordings-popup-row">
+                    <div className="session-recordings-popover-row">
                         <PlayCircleOutlined />
                         Recording {index + 1}
                     </div>
@@ -86,6 +86,6 @@ export function MultiRecordingButton({ sessionRecordings, onOpenRecording }: Mul
                     </Button>
                 </ButtonWrapper>
             )}
-        </Popup>
+        </Popover>
     )
 }

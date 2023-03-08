@@ -1,11 +1,11 @@
-.session-recordings-popup {
+.session-recordings-popover {
     z-index: 1061; // >1060 to be above the person modal and <1070 to be under the recording
 
     .anticon-play-circle {
         color: var(--primary);
     }
 
-    .session-recordings-popup-row {
+    .session-recordings-popover-row {
         display: flex;
         align-items: center;
 
