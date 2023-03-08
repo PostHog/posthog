@@ -102,7 +102,7 @@ def calculate_result_by_cache_type(
 ) -> Dict | List[Dict]:
     from posthog.api.query import process_query
 
-    if query:
+    if query is not None:
         # TODO need to properly check that hogql is enabled?
         return process_query(team, query, True)
     if cache_type == CacheType.FUNNEL:
