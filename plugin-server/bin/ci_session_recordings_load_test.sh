@@ -104,7 +104,7 @@ echo "Generating $SESSONS_COUNT session recording events"
 # messages if we want to make this time insignificant.
 PLUGIN_SERVER_MODE=recordings-ingestion node dist/index.js >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
-trap 'cat $LOG_FILE || kill $SERVER_PID' EXIT
+trap 'cat $LOG_FILE; rm "$LOG_FILE"; kill "$SERVER_PID"' EXIT
 
 # Wait for the plugin server health check to be ready, and timeout after 10
 # seconds with exit code 1.
@@ -165,7 +165,9 @@ fi
 # Print the time it took for the ingestion lag to drop to zero, and sessions per
 # second that were ingested.
 echo "Ingestion lag dropped to zero after $SECONDS seconds"
-echo "Sessions per second: $(echo "$SESSONS_COUNT $SECONDS" | awk '{printf "%.2f", $1 / $2}')"
+
+SESSIONS_PER_SECOND=$(echo "$SESSONS_COUNT $SECONDS" | awk '{printf "%.2f", $1 / $2}')
+echo "Sessions per second: $SESSIONS_PER_SECOND" | tee -a "$GITHUB_STEP_SUMMARY"
 
 # Kill the plugin server process and poll for up to 60 seconds for it to exit.
 kill $SERVER_PID
