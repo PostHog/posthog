@@ -533,7 +533,7 @@ testIfPoEEmbraceJoinEnabled(
             teamId,
             distinctId: initialDistinctId,
             uuid: new UUIDT().toString(),
-            event: '$merge_dangerously',
+            event: '$identify',
             properties: {
                 distinct_id: initialDistinctId,
                 $anon_distinct_id: secondDistinctId,
@@ -543,7 +543,7 @@ testIfPoEEmbraceJoinEnabled(
             teamId,
             distinctId: thirdDistinctId,
             uuid: new UUIDT().toString(),
-            event: '$merge_dangerously',
+            event: '$identify',
             properties: {
                 distinct_id: thirdDistinctId,
                 $anon_distinct_id: forthDistinctId,
@@ -556,7 +556,6 @@ testIfPoEEmbraceJoinEnabled(
         }, 10000)
 
         // Then we merge 2-3
-        // TODO: make this a valid merge event instead of $identify
         await capture({
             teamId,
             distinctId: initialDistinctId,
@@ -567,6 +566,11 @@ testIfPoEEmbraceJoinEnabled(
                 $anon_distinct_id: thirdDistinctId,
             },
         })
+
+        await waitForExpect(async () => {
+            await reloadDictionary('person_overrides_dict')
+        })
+
         await waitForExpect(async () => {
             const events = await fetchEvents(teamId)
             expect(events.length).toBe(7)
