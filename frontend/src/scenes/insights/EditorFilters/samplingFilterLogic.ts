@@ -9,6 +9,7 @@ import type { samplingFilterLogicType } from './samplingFilterLogicType'
 import { InsightLogicProps } from '~/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
 
 export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
 
@@ -30,6 +31,8 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
             ['setFilters as setFunnelFilters'],
             retentionLogic(props.insightProps),
             ['setFilters as setRetentionFilters'],
+            pathsLogic(props.insightProps),
+            ['setFilter as setPathsFilters'],
             globalInsightLogic,
             ['setGlobalInsightFilters'],
         ],
@@ -81,13 +84,15 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 ...values.filters,
                 sampling_factor: samplingFactor,
             }
-            // Experiments
             if (props.setFilters) {
+                // Experiments
                 props.setFilters(newFilters)
             } else if (props.insightType === InsightType.FUNNELS) {
                 actions.setFunnelFilters(newFilters)
             } else if (props.insightType === InsightType.RETENTION) {
                 actions.setRetentionFilters(newFilters)
+            } else if (props.insightType === InsightType.PATHS) {
+                actions.setPathsFilters(newFilters)
             } else {
                 actions.setInsightFilters(newFilters)
             }
