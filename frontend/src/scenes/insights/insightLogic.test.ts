@@ -751,7 +751,7 @@ describe('insightLogic', () => {
     test('keeps saved name, description, tags', async () => {
         logic = insightLogic({
             dashboardItemId: Insight43,
-            cachedInsight: { ...createEmptyInsight(Insight43), filters: API_FILTERS },
+            cachedInsight: { ...createEmptyInsight(Insight43, false), filters: API_FILTERS },
         })
         logic.mount()
 
