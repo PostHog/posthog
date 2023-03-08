@@ -28,7 +28,7 @@ from .integration import Integration
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .organization_domain import OrganizationDomain
-from .person import Person, PersonDistinctId, PersonOverride
+from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from .prompt.prompt import Prompt, PromptSequence, UserPromptState

@@ -1,31 +1,31 @@
-import { kea } from 'kea'
+import { kea, props, key, path, connect, actions, selectors, listeners } from 'kea'
 import type { insightDateFilterLogicType } from './insightDateFilterLogicType'
 import { InsightLogicProps } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps('new'),
-    path: (key) => ['scenes', 'insights', 'InsightDateFilter', 'insightDateFilterLogic', key],
-    connect: (props: InsightLogicProps) => ({
+export const insightDateFilterLogic = kea<insightDateFilterLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('new')),
+    path((key) => ['scenes', 'insights', 'InsightDateFilter', 'insightDateFilterLogic', key]),
+    connect((props: InsightLogicProps) => ({
         actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['updateQuerySource']],
         values: [insightLogic(props), ['filters']],
-    }),
-    actions: () => ({
+    })),
+    actions(() => ({
         setDates: (dateFrom: string | undefined | null, dateTo: string | undefined | null) => ({
             dateFrom,
             dateTo,
         }),
-    }),
-    selectors: {
+    })),
+    selectors({
         dates: [
             (s) => [s.filters],
             (filters) => ({ dateFrom: filters?.date_from || null, dateTo: filters?.date_to || null }),
         ],
-    },
-    listeners: ({ actions, values }) => ({
+    }),
+    listeners(({ actions, values }) => ({
         setDates: ({ dateFrom, dateTo }) => {
             actions.setFilters({
                 ...values.filters,
@@ -39,5 +39,5 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
                 },
             })
         },
-    }),
-})
+    })),
+])

@@ -12,7 +12,7 @@ import clsx from 'clsx'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { isDataTableNode, isInsightVizNode } from '~/queries/utils'
-import QueriesUnsupportedHere from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
+import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 
 export function ExportedInsight({
     insight,

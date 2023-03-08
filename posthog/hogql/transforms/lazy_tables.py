@@ -2,9 +2,9 @@ import dataclasses
 from typing import Dict, List, Optional, Set
 
 from posthog.hogql import ast
-from posthog.hogql.ast import LazyTableSymbol
+from posthog.hogql.ast import LazyTableRef
 from posthog.hogql.database import LazyTable
-from posthog.hogql.resolver import resolve_symbols
+from posthog.hogql.resolver import resolve_refs
 from posthog.hogql.visitor import TraversingVisitor
 
 
@@ -26,36 +26,36 @@ class JoinToAdd:
 class LazyTableResolver(TraversingVisitor):
     def __init__(self, stack: Optional[List[ast.SelectQuery]] = None):
         super().__init__()
-        self.stack_of_fields: List[List[ast.FieldSymbol]] = [[]] if stack else []
+        self.stack_of_fields: List[List[ast.FieldRef]] = [[]] if stack else []
 
-    def _get_long_table_name(self, select: ast.SelectQuerySymbol, symbol: ast.BaseTableSymbol) -> str:
-        if isinstance(symbol, ast.TableSymbol):
-            return select.get_alias_for_table_symbol(symbol)
-        elif isinstance(symbol, ast.TableAliasSymbol):
-            return symbol.name
-        elif isinstance(symbol, ast.SelectQueryAliasSymbol):
-            return symbol.name
-        elif isinstance(symbol, ast.LazyTableSymbol):
-            return f"{self._get_long_table_name(select, symbol.table)}__{symbol.field}"
-        elif isinstance(symbol, ast.VirtualTableSymbol):
-            return f"{self._get_long_table_name(select, symbol.table)}__{symbol.field}"
+    def _get_long_table_name(self, select: ast.SelectQueryRef, ref: ast.BaseTableRef) -> str:
+        if isinstance(ref, ast.TableRef):
+            return select.get_alias_for_table_ref(ref)
+        elif isinstance(ref, ast.TableAliasRef):
+            return ref.name
+        elif isinstance(ref, ast.SelectQueryAliasRef):
+            return ref.name
+        elif isinstance(ref, ast.LazyTableRef):
+            return f"{self._get_long_table_name(select, ref.table)}__{ref.field}"
+        elif isinstance(ref, ast.VirtualTableRef):
+            return f"{self._get_long_table_name(select, ref.table)}__{ref.field}"
         else:
             raise ValueError("Should not be reachable")
 
-    def visit_field_symbol(self, node: ast.FieldSymbol):
-        if isinstance(node.table, ast.LazyTableSymbol):
+    def visit_field_ref(self, node: ast.FieldRef):
+        if isinstance(node.table, ast.LazyTableRef):
             # Each time we find a field, we place it in a list for processing in "visit_select_query"
             if len(self.stack_of_fields) == 0:
                 raise ValueError("Can't access a lazy field when not in a SelectQuery context")
             self.stack_of_fields[-1].append(node)
 
     def visit_select_query(self, node: ast.SelectQuery):
-        select_symbol = node.symbol
-        if not select_symbol:
-            raise ValueError("Select query must have a symbol")
+        select_ref = node.ref
+        if not select_ref:
+            raise ValueError("Select query must have a ref")
 
-        # Collect each `ast.Field` with `ast.LazyTableSymbol`
-        field_collector: List[ast.FieldSymbol] = []
+        # Collect each `ast.Field` with `ast.LazyTableRef`
+        field_collector: List[ast.FieldRef] = []
         self.stack_of_fields.append(field_collector)
 
         # Collect all visited fields on lazy tables into field_collector
@@ -64,28 +64,28 @@ class LazyTableResolver(TraversingVisitor):
         # Collect all the joins we need to add to the select query
         joins_to_add: Dict[str, JoinToAdd] = {}
         for field in field_collector:
-            table_symbol = field.table
+            table_ref = field.table
 
             # Traverse the lazy tables until we reach a real table, collecting them in a list.
             # Usually there's just one or two.
-            table_symbols: List[LazyTableSymbol] = []
-            while isinstance(table_symbol, ast.LazyTableSymbol):
-                table_symbols.append(table_symbol)
-                table_symbol = table_symbol.table
+            table_refs: List[LazyTableRef] = []
+            while isinstance(table_ref, ast.LazyTableRef):
+                table_refs.append(table_ref)
+                table_ref = table_ref.table
 
             # Loop over the collected lazy tables in reverse order to create the joins
-            for table_symbol in reversed(table_symbols):
-                from_table = self._get_long_table_name(select_symbol, table_symbol.table)
-                to_table = self._get_long_table_name(select_symbol, table_symbol)
+            for table_ref in reversed(table_refs):
+                from_table = self._get_long_table_name(select_ref, table_ref.table)
+                to_table = self._get_long_table_name(select_ref, table_ref)
                 if to_table not in joins_to_add:
                     joins_to_add[to_table] = JoinToAdd(
                         fields_accessed=set(),  # collect here all fields accessed on this table
-                        lazy_table=table_symbol.lazy_table,
+                        lazy_table=table_ref.lazy_table,
                         from_table=from_table,
                         to_table=to_table,
                     )
                 new_join = joins_to_add[to_table]
-                if table_symbol == field.table:
+                if table_ref == field.table:
                     new_join.fields_accessed.add(field.name)
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
@@ -104,8 +104,8 @@ class LazyTableResolver(TraversingVisitor):
             next_join = scope.lazy_table.join_function(
                 scope.from_table, scope.to_table, sorted(list(scope.fields_accessed))
             )
-            resolve_symbols(next_join, select_symbol)
-            select_symbol.tables[to_table] = next_join.symbol
+            resolve_refs(next_join, select_ref)
+            select_ref.tables[to_table] = next_join.ref
 
             # Link up the joins properly
             if last_join is None:
@@ -116,9 +116,9 @@ class LazyTableResolver(TraversingVisitor):
             while last_join.next_join is not None:
                 last_join = last_join.next_join
 
-        # Assign all symbols on the fields we collected earlier
+        # Assign all refs on the fields we collected earlier
         for field in field_collector:
-            to_table = self._get_long_table_name(select_symbol, field.table)
-            field.table = select_symbol.tables[to_table]
+            to_table = self._get_long_table_name(select_ref, field.table)
+            field.table = select_ref.tables[to_table]
 
         self.stack_of_fields.pop()
