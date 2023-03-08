@@ -293,7 +293,7 @@ function FeedbackWidgetTab({
 
     return (
         <>
-            <div className="flex justify-end float-right">
+            <div className="flex justify-end">
                 {events && events.length > 0 && (
                     <LemonButton
                         onClick={() => {
