@@ -111,7 +111,11 @@ echo "Generating $SESSONS_COUNT session recording events"
 # messages if we want to make this time insignificant.
 PLUGIN_SERVER_MODE=recordings-ingestion node dist/index.js >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
-trap 'kill "$SERVER_PID"; cat "$LOG_FILE"' EXIT
+
+# On exit, see if the process is still running, and if so, kill it. We also
+# print the plugin server logs in this case as we assume that we are in a
+# situation where we didn't make it to the end.
+trap 'if kill -0 $SERVER_PID; then echo "Killing plugin server"; kill $SERVER_PID; echo "::group::Plugin Server logs"; cat "$LOG_FILE"; echo "::endgroup::"; fi' EXIT
 
 # Wait for the plugin server health check to be ready, and timeout after 10
 # seconds with exit code 1.
