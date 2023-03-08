@@ -39,7 +39,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
         ],
     })),
     actions(() => ({
-        setSamplingPercentage: (samplingPercentage: number) => ({ samplingPercentage }),
+        setSamplingPercentage: (samplingPercentage: number | null) => ({ samplingPercentage }),
     })),
     reducers(({ values }) => ({
         samplingPercentage: [
