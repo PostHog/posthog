@@ -11,7 +11,7 @@ import { createPerformanceEvent, createSessionRecordingEvent } from '../../worke
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
-import { latestOffsetTimestampGauge } from './metrics'
+import { eventDroppedCounter, latestOffsetTimestampGauge } from './metrics'
 
 export const startSessionRecordingEventsConsumer = async ({
     teamManager,
@@ -44,12 +44,7 @@ export const startSessionRecordingEventsConsumer = async ({
     const consumer = kafka.consumer({ groupId: groupId, sessionTimeout: sessionTimeout })
     setupEventHandlers(consumer)
 
-    status.info('🔁', 'Starting session recordings consumer', {
-        topic: KAFKA_SESSION_RECORDING_EVENTS,
-        groupId,
-        sessionTimeout,
-        partitionsConsumedConcurrently,
-    })
+    status.info('🔁', 'Starting session recordings consumer')
 
     await consumer.connect()
     await consumer.subscribe({ topic: KAFKA_SESSION_RECORDING_EVENTS })
@@ -63,8 +58,6 @@ export const startSessionRecordingEventsConsumer = async ({
             )
         },
     })
-
-    status.info('🔁', 'Started session recordings consumer')
 
     // Subscribe to the heatbeat event to track when the consumer has last
     // successfully consumed a message. This is used to determine if the
@@ -156,12 +149,17 @@ export const eachBatch =
                 .observe(message.value.length)
 
             if (messagePayload.team_id == null && !messagePayload.token) {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'session_recordings',
+                        drop_cause: 'no_token',
+                    })
+                    .inc()
                 status.warn('⚠️', 'invalid_message', {
                     reason: 'no_token',
                     partition: batch.partition,
                     offset: message.offset,
                 })
-                await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
                 continue
             }
 
@@ -174,12 +172,17 @@ export const eachBatch =
             }
 
             if (team == null) {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'session_recordings',
+                        drop_cause: 'invalid_token',
+                    })
+                    .inc()
                 status.warn('⚠️', 'invalid_message', {
                     reason: 'team_not_found',
                     partition: batch.partition,
                     offset: message.offset,
                 })
-                await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
                 continue
             }
 
