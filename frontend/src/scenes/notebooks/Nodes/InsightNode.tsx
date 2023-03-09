@@ -11,7 +11,7 @@ const Component = (): JSX.Element => {
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <div className="insights-container" data-attr="insight-view">
+            <div className="insights-container" data-attr="insight-view" data-drag-handle>
                 <InsightContainer
                     insightMode={ItemMode.Sharing}
                     disableCorrelationTable
@@ -28,6 +28,7 @@ export default Node.create({
     name: 'posthogInsight',
     group: 'block',
     atom: true,
+    draggable: true,
 
     addAttributes() {
         return {
