@@ -131,6 +131,7 @@ export interface ExportParams {
     parallelism: number
     dateFrom: ISOTimestamp
     dateTo: ISOTimestamp
+    abortMessage?: string
 }
 
 interface CoordinationPayload {
@@ -250,6 +251,10 @@ export function addHistoricalEventsExportCapabilityV2(
         if (!params) {
             // No export running!
             return
+        }
+
+        if (params.abortMessage) {
+            await stopExport(params, `Export aborted ${params.abortMessage}`, 'fail')
         }
 
         const { done, running } = (await meta.storage.get(EXPORT_COORDINATION_KEY, {})) as CoordinationPayload
