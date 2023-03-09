@@ -2194,7 +2194,7 @@ describe('person id overrides', () => {
         await closeHub()
     })
 
-    async function updatePersonStateFromEvent(event: Partial<PluginEvent>, ts = '', mergeAttempts = 3) {
+    async function updatePersonStateFromEvent(event: Partial<PluginEvent>, ts = '', mergeAttempts = 0) {
         const fullEvent = {
             team_id: teamId,
             properties: {},
