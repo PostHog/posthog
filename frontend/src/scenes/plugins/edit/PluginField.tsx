@@ -6,6 +6,7 @@ import { EditOutlined } from '@ant-design/icons'
 import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
 import MonacoEditor from '@monaco-editor/react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 function JsonConfigField(props: {
     onChange: (value: any) => void
@@ -28,6 +29,7 @@ function JsonConfigField(props: {
                             enabled: false,
                         },
                     }}
+                    loading={<Spinner />}
                 />
             )}
         </AutoSizer>

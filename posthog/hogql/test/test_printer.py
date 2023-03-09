@@ -60,16 +60,29 @@ class TestPrinter(TestCase):
             "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
-        context = HogQLContext()
-        self.assertEqual(
-            self._expr("person.properties.bla", context),
-            "replaceRegexpAll(JSONExtractRaw(events__pdi__person.properties, %(hogql_val_0)s), '^\"|\"$', '')",
-        )
-
         context = HogQLContext(within_non_hogql_query=True, using_person_on_events=False)
         self.assertEqual(
             self._expr("person.properties.bla", context),
             "replaceRegexpAll(JSONExtractRaw(person_props, %(hogql_val_0)s), '^\"|\"$', '')",
+        )
+
+        context = HogQLContext(within_non_hogql_query=True, using_person_on_events=True)
+        self.assertEqual(
+            self._expr("person.properties.bla", context),
+            "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+        )
+
+        context = HogQLContext(within_non_hogql_query=False, using_person_on_events=False)
+        self.assertEqual(
+            self._expr("person.properties.bla", context),
+            "events__pdi__person.properties___bla",
+        )
+
+        context = HogQLContext(within_non_hogql_query=False, using_person_on_events=True)
+        self.assertEqual(
+            # TODO: for now, explicitly writing "poe." to opt in. Automatic switching will come soon.
+            self._expr("poe.properties.bla", context),
+            "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
     def test_hogql_properties(self):
@@ -161,6 +174,7 @@ class TestPrinter(TestCase):
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
+        self._assert_expr_error("properties.no.json.yet", "JSON property traversal is not yet supported")
 
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")

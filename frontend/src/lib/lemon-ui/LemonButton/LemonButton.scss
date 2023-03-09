@@ -149,7 +149,7 @@
         }
     }
 
-    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt', 'orange') {
+    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt', 'orange', 'default-dark') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 

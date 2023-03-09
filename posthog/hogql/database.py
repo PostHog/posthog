@@ -48,6 +48,9 @@ class Table(BaseModel):
     def clickhouse_table(self):
         raise NotImplementedError("Table.clickhouse_table not overridden")
 
+    def hogql_table(self):
+        raise NotImplementedError("Table.hogql_table not overridden")
+
     def avoid_asterisk_fields(self) -> List[str]:
         return []
 
@@ -76,7 +79,7 @@ class LazyTable(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    join_function: Callable[[str, str, List[str]], Any]
+    join_function: Callable[[str, str, Dict[str, Any]], Any]
     table: Table
     from_field: str
 
@@ -101,6 +104,9 @@ class EventsPersonSubTable(VirtualTable):
     def clickhouse_table(self):
         return "events"
 
+    def hogql_table(self):
+        return "events"
+
 
 class PersonsTable(Table):
     id: StringDatabaseField = StringDatabaseField(name="id")
@@ -114,8 +120,11 @@ class PersonsTable(Table):
     def clickhouse_table(self):
         return "person"
 
+    def hogql_table(self):
+        return "persons"
 
-def join_with_persons_table(from_table: str, to_table: str, requested_fields: List[str]):
+
+def join_with_persons_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
     from posthog.hogql import ast
 
     if not requested_fields:
@@ -127,9 +136,9 @@ def join_with_persons_table(from_table: str, to_table: str, requested_fields: Li
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
         name="argMax", args=[field, ast.Field(chain=["version"])]
     )
-    for field in requested_fields:
+    for field, expr in requested_fields.items():
         if field != "id":
-            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(ast.Field(chain=[field]))))
+            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(expr)))
 
     id = ast.Field(chain=["id"])
 
@@ -169,12 +178,15 @@ class PersonDistinctIdTable(Table):
     def clickhouse_table(self):
         return "person_distinct_id2"
 
+    def hogql_table(self):
+        return "person_distinct_ids"
 
-def join_with_max_person_distinct_id_table(from_table: str, to_table: str, requested_fields: List[str]):
+
+def join_with_max_person_distinct_id_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
     from posthog.hogql import ast
 
     if not requested_fields:
-        requested_fields = ["person_id"]
+        requested_fields = {"person_id": ast.Field(chain=["person_id"])}
 
     # contains the list of fields we will select from this table
     fields_to_select: List[ast.Expr] = []
@@ -182,9 +194,9 @@ def join_with_max_person_distinct_id_table(from_table: str, to_table: str, reque
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
         name="argMax", args=[field, ast.Field(chain=["version"])]
     )
-    for field in requested_fields:
+    for field, expr in requested_fields.items():
         if field != "distinct_id":
-            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(ast.Field(chain=[field]))))
+            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(expr)))
 
     distinct_id = ast.Field(chain=["distinct_id"])
 
@@ -233,6 +245,9 @@ class EventsTable(Table):
     def clickhouse_table(self):
         return "events"
 
+    def hogql_table(self):
+        return "events"
+
 
 class SessionRecordingEvents(Table):
     uuid: StringDatabaseField = StringDatabaseField(name="uuid")
@@ -257,6 +272,9 @@ class SessionRecordingEvents(Table):
     )
 
     def clickhouse_table(self):
+        return "session_recording_events"
+
+    def hogql_table(self):
         return "session_recording_events"
 
 

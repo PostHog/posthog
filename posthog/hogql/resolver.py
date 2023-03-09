@@ -1,14 +1,14 @@
 from typing import List, Optional
 
 from posthog.hogql import ast
-from posthog.hogql.ast import FieldTraverserSymbol
+from posthog.hogql.ast import FieldTraverserRef
 from posthog.hogql.database import database
 from posthog.hogql.visitor import TraversingVisitor
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
 
-def resolve_symbols(node: ast.Expr, scope: Optional[ast.SelectQuerySymbol] = None):
+def resolve_refs(node: ast.Expr, scope: Optional[ast.SelectQueryRef] = None):
     Resolver(scope=scope).visit(node)
 
 
@@ -17,22 +17,22 @@ class ResolverException(ValueError):
 
 
 class Resolver(TraversingVisitor):
-    """The Resolver visits an AST and assigns Symbols to the nodes."""
+    """The Resolver visits an AST and assigns Refs to the nodes."""
 
-    def __init__(self, scope: Optional[ast.SelectQuerySymbol] = None):
+    def __init__(self, scope: Optional[ast.SelectQueryRef] = None):
         # Each SELECT query creates a new scope. Store all of them in a list as we traverse the tree.
-        self.scopes: List[ast.SelectQuerySymbol] = [scope] if scope else []
+        self.scopes: List[ast.SelectQueryRef] = [scope] if scope else []
 
     def visit_select_query(self, node):
         """Visit each SELECT query or subquery."""
-        if node.symbol is not None:
+        if node.ref is not None:
             return
 
-        # This symbol keeps track of all joined tables and other field aliases that are in scope.
-        node.symbol = ast.SelectQuerySymbol()
+        # This ref keeps track of all joined tables and other field aliases that are in scope.
+        node.ref = ast.SelectQueryRef()
 
         # Each SELECT query is a new scope in field name resolution.
-        self.scopes.append(node.symbol)
+        self.scopes.append(node.ref)
 
         # Visit all the FROM and JOIN clauses, and register the tables into the scope. See visit_join_expr below.
         if node.select_from:
@@ -42,12 +42,12 @@ class Resolver(TraversingVisitor):
         # SELECT e.event, e.timestamp from (SELECT event, timestamp FROM events) AS e
         for expr in node.select or []:
             self.visit(expr)
-            if isinstance(expr.symbol, ast.FieldAliasSymbol):
-                node.symbol.columns[expr.symbol.name] = expr.symbol
-            elif isinstance(expr.symbol, ast.FieldSymbol):
-                node.symbol.columns[expr.symbol.name] = expr.symbol
+            if isinstance(expr.ref, ast.FieldAliasRef):
+                node.ref.columns[expr.ref.name] = expr.ref
+            elif isinstance(expr.ref, ast.FieldRef):
+                node.ref.columns[expr.ref.name] = expr.ref
             elif isinstance(expr, ast.Alias):
-                node.symbol.columns[expr.alias] = expr.symbol
+                node.ref.columns[expr.alias] = expr.ref
 
         if node.where:
             self.visit(node.where)
@@ -66,12 +66,12 @@ class Resolver(TraversingVisitor):
 
         self.scopes.pop()
 
-        return node.symbol
+        return node.ref
 
     def visit_join_expr(self, node):
         """Visit each FROM and JOIN table or subquery."""
 
-        if node.symbol is not None:
+        if node.ref is not None:
             return
         if len(self.scopes) == 0:
             raise ResolverException("Unexpected JoinExpr outside a SELECT query")
@@ -84,25 +84,27 @@ class Resolver(TraversingVisitor):
                 raise ResolverException(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
             if database.has_table(table_name):
-                node.table.symbol = ast.TableSymbol(table=database.get_table(table_name))
+                node.table.ref = ast.TableRef(table=database.get_table(table_name))
                 if table_alias == table_name:
-                    node.symbol = node.table.symbol
+                    node.ref = node.table.ref
                 else:
-                    node.symbol = ast.TableAliasSymbol(name=table_alias, table_symbol=node.table.symbol)
-                scope.tables[table_alias] = node.symbol
+                    node.ref = ast.TableAliasRef(name=table_alias, table_ref=node.table.ref)
+                scope.tables[table_alias] = node.ref
             else:
                 raise ResolverException(f'Unknown table "{table_name}".')
 
         elif isinstance(node.table, ast.SelectQuery):
-            node.table.symbol = self.visit(node.table)
+            node.table.ref = self.visit(node.table)
             if node.alias is not None:
                 if node.alias in scope.tables:
-                    raise ResolverException(f'Already have joined a table called "{node.alias}". Can\'t redefine.')
-                node.symbol = ast.SelectQueryAliasSymbol(name=node.alias, symbol=node.table.symbol)
-                scope.tables[node.alias] = node.symbol
+                    raise ResolverException(
+                        f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
+                    )
+                node.ref = ast.SelectQueryAliasRef(name=node.alias, ref=node.table.ref)
+                scope.tables[node.alias] = node.ref
             else:
-                node.symbol = node.table.symbol
-                scope.anonymous_tables.append(node.symbol)
+                node.ref = node.table.ref
+                scope.anonymous_tables.append(node.ref)
 
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
@@ -112,7 +114,7 @@ class Resolver(TraversingVisitor):
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""
-        if node.symbol is not None:
+        if node.ref is not None:
             return
 
         if len(self.scopes) == 0:
@@ -124,25 +126,25 @@ class Resolver(TraversingVisitor):
             raise ResolverException("Alias cannot be empty")
 
         self.visit(node.expr)
-        if not node.expr.symbol:
-            raise ResolverException(f"Cannot alias an expression without a symbol: {node.alias}")
-        node.symbol = ast.FieldAliasSymbol(name=node.alias, symbol=node.expr.symbol)
-        scope.aliases[node.alias] = node.symbol
+        if not node.expr.ref:
+            raise ResolverException(f"Cannot alias an expression without a ref: {node.alias}")
+        node.ref = ast.FieldAliasRef(name=node.alias, ref=node.expr.ref)
+        scope.aliases[node.alias] = node.ref
 
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
-        if node.symbol is not None:
+        if node.ref is not None:
             return
-        arg_symbols: List[ast.Symbol] = []
+        arg_refs: List[ast.Ref] = []
         for arg in node.args:
             self.visit(arg)
-            if arg.symbol is not None:
-                arg_symbols.append(arg.symbol)
-        node.symbol = ast.CallSymbol(name=node.name, args=arg_symbols)
+            if arg.ref is not None:
+                arg_refs.append(arg.ref)
+        node.ref = ast.CallRef(name=node.name, args=arg_refs)
 
     def visit_field(self, node):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""
-        if node.symbol is not None:
+        if node.ref is not None:
             return
         if len(node.chain) == 0:
             raise Exception("Invalid field access with empty chain")
@@ -154,12 +156,12 @@ class Resolver(TraversingVisitor):
         # - "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t JOIN events e ON (e.event = t.event)",
         scope = self.scopes[-1]
 
-        symbol: Optional[ast.Symbol] = None
+        ref: Optional[ast.Ref] = None
         name = node.chain[0]
 
         # If the field contains at least two parts, the first might be a table.
         if len(node.chain) > 1 and name in scope.tables:
-            symbol = scope.tables[name]
+            ref = scope.tables[name]
 
         if name == "*" and len(node.chain) == 1:
             table_count = len(scope.anonymous_tables) + len(scope.tables)
@@ -168,39 +170,37 @@ class Resolver(TraversingVisitor):
             if table_count > 1:
                 raise ResolverException("Cannot use '*' without table name when there are multiple tables in the query")
             table = scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else list(scope.tables.values())[0]
-            symbol = ast.AsteriskSymbol(table=table)
+            ref = ast.AsteriskRef(table=table)
 
-        if not symbol:
-            symbol = lookup_field_by_name(scope, name)
-        if not symbol:
+        if not ref:
+            ref = lookup_field_by_name(scope, name)
+        if not ref:
             raise ResolverException(f"Unable to resolve field: {name}")
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
-        loop_symbol = symbol
+        loop_ref = ref
         chain_to_parse = node.chain[1:]
         while True:
-            if isinstance(loop_symbol, FieldTraverserSymbol):
-                chain_to_parse = loop_symbol.chain + chain_to_parse
-                loop_symbol = loop_symbol.table
+            if isinstance(loop_ref, FieldTraverserRef):
+                chain_to_parse = loop_ref.chain + chain_to_parse
+                loop_ref = loop_ref.table
                 continue
             if len(chain_to_parse) == 0:
                 break
             next_chain = chain_to_parse.pop(0)
-            loop_symbol = loop_symbol.get_child(next_chain)
-            if loop_symbol is None:
-                raise ResolverException(
-                    f"Cannot resolve symbol {'.'.join(node.chain)}. Unable to resolve {next_chain}."
-                )
-        node.symbol = loop_symbol
+            loop_ref = loop_ref.get_child(next_chain)
+            if loop_ref is None:
+                raise ResolverException(f"Cannot resolve ref {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
+        node.ref = loop_ref
 
     def visit_constant(self, node):
         """Visit a constant"""
-        if node.symbol is not None:
+        if node.ref is not None:
             return
-        node.symbol = ast.ConstantSymbol(value=node.value)
+        node.ref = ast.ConstantRef(value=node.value)
 
 
-def lookup_field_by_name(scope: ast.SelectQuerySymbol, name: str) -> Optional[ast.Symbol]:
+def lookup_field_by_name(scope: ast.SelectQueryRef, name: str) -> Optional[ast.Ref]:
     """Looks for a field in the scope's list of aliases and children for each joined table."""
     if name in scope.aliases:
         return scope.aliases[name]

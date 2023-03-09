@@ -8,7 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelStepsPicker(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { filters, numberOfSeries, areFiltersValid, filterSteps } = useValues(funnelLogic(insightProps))
+    const { filters, numberOfSeries, isFunnelWithEnoughSteps, filterSteps } = useValues(funnelLogic(insightProps))
     const { changeStepRange } = useActions(funnelLogic(insightProps))
 
     if (filters.funnel_viz_type === FunnelVizType.Steps) {
@@ -19,8 +19,8 @@ export function FunnelStepsPicker(): JSX.Element | null {
         changeStepRange(funnel_from_step, funnel_to_step)
     }
 
-    const fromRange = areFiltersValid ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice(0, -1) : [0]
-    const toRange = areFiltersValid
+    const fromRange = isFunnelWithEnoughSteps ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice(0, -1) : [0]
+    const toRange = isFunnelWithEnoughSteps
         ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice((filters.funnel_from_step ?? 0) + 1)
         : [1]
 
@@ -43,7 +43,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
         <Row className="funnel-options-inputs">
             <span className="text-muted-alt">from</span>
             <Select
-                disabled={!areFiltersValid}
+                disabled={!isFunnelWithEnoughSteps}
                 dropdownMatchSelectWidth={false}
                 dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomLeft}
                 data-attr="funnel-header-steps-funnel_from_step-selector"
@@ -56,7 +56,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
             </Select>
             <span className="text-muted-alt">to</span>
             <Select
-                disabled={!areFiltersValid}
+                disabled={!isFunnelWithEnoughSteps}
                 dropdownMatchSelectWidth={false}
                 dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomLeft}
                 data-attr="funnel-header-steps-funnel_to_step-selector"

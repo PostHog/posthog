@@ -115,7 +115,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             },
             sorter: undefined, // using custom sorting code
             more:
-                showActions && isEventsQuery(query.source) ? (
+                !context?.readonly && showActions && isEventsQuery(query.source) ? (
                     <>
                         <div className="px-2 py-1">
                             <div className="font-mono font-bold">{extractExpressionComment(key)}</div>
@@ -349,7 +349,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             {firstRowLeft}
                             <div className="flex-1" />
                             {firstRowRight}
-                            {inlineEditorButtonOnRow === 1 ? (
+                            {inlineEditorButtonOnRow === 1 && context?.readonly !== true ? (
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
@@ -360,7 +360,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             {secondRowLeft}
                             <div className="flex-1" />
                             {secondRowRight}
-                            {inlineEditorButtonOnRow === 2 ? (
+                            {inlineEditorButtonOnRow === 2 && context?.readonly !== true ? (
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
@@ -368,7 +368,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                     {showEventsBufferWarning && isEventsQuery(query.source) && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
-                    {inlineEditorButtonOnRow === 0 ? (
+                    {inlineEditorButtonOnRow === 0 && context?.readonly !== true ? (
                         <div className="absolute right-0 z-10 p-1">
                             <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                         </div>

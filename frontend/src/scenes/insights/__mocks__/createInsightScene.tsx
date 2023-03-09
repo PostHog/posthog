@@ -4,11 +4,12 @@ import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { App } from 'scenes/App'
 import { FEATURE_FLAGS } from 'lib/constants'
+import type { Story } from '@storybook/react'
 
 let shortCounter = 0
-export function createInsightScene(insight: Partial<InsightModel>): () => JSX.Element {
+export function createInsightStory(insight: Partial<InsightModel>): Story {
     const count = shortCounter++
-    return function InsightStorybookScene() {
+    return function InsightStory() {
         useStorybookMocks({
             get: {
                 '/api/projects/:team_id/insights/': (_, __, ctx) => [
