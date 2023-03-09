@@ -1,5 +1,5 @@
 import { mergeAttributes, Node } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
+import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { BindLogic, useValues } from 'kea'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -10,17 +10,19 @@ const Component = (): JSX.Element => {
     const { insightProps } = useValues(logic)
 
     return (
-        <BindLogic logic={insightLogic} props={insightProps}>
-            <div className="insights-container" data-attr="insight-view" data-drag-handle>
-                <InsightContainer
-                    insightMode={ItemMode.Sharing}
-                    disableCorrelationTable
-                    disableHeader
-                    disableLastComputation
-                    disableTable
-                />
-            </div>
-        </BindLogic>
+        <NodeViewWrapper className="ph-insight">
+            <BindLogic logic={insightLogic} props={insightProps}>
+                <div className="insights-container" data-attr="insight-view" data-drag-handle>
+                    <InsightContainer
+                        insightMode={ItemMode.Sharing}
+                        disableCorrelationTable
+                        disableHeader
+                        disableLastComputation
+                        disableTable
+                    />
+                </div>
+            </BindLogic>
+        </NodeViewWrapper>
     )
 }
 
