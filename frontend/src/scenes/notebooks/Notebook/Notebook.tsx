@@ -1,7 +1,7 @@
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useEditor, EditorContent, FloatingMenu } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import { IconChevronRight, IconJournal, IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
+import { IconJournal, IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
 import { useEffect, useState } from 'react'
 import { QueryNode } from 'scenes/notebooks/Nodes/QueryNode'
 import { InsightNode } from 'scenes/notebooks/Nodes/InsightNode'
@@ -10,7 +10,12 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { useValues } from 'kea'
 import './Notebook.scss'
 
-export function Notebook(): JSX.Element {
+export type NotebookProps = {
+    controls?: JSX.Element
+    breadcrumbs?: string[]
+}
+
+export function Notebook({ controls, breadcrumbs }: NotebookProps): JSX.Element {
     const { content } = useValues(notebookLogic)
 
     const editor = useEditor({
@@ -35,7 +40,13 @@ export function Notebook(): JSX.Element {
         <div className="border rounded bg-side flex-1 shadow overflow-hidden flex flex-col h-full">
             <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-2 border-b">
                 <span>
-                    <IconJournal /> Notebook
+                    <IconJournal />{' '}
+                    {breadcrumbs?.map((breadcrumb, i) => (
+                        <>
+                            {breadcrumb}
+                            {i < breadcrumbs.length - 1 && <span className="mx-1">/</span>}
+                        </>
+                    ))}
                 </span>
                 <span className="flex gap-2">
                     <LemonButton
@@ -47,9 +58,7 @@ export function Notebook(): JSX.Element {
                     >
                         <div className="m-1">{!isEditable ? <IconLock /> : <IconLockOpen />}</div>
                     </LemonButton>
-                    <LemonButton size="small" onClick={() => alert('TODO!')} status="primary-alt" noPadding>
-                        <IconChevronRight className="text-lg" />
-                    </LemonButton>
+                    {controls}
                 </span>
             </header>
 
