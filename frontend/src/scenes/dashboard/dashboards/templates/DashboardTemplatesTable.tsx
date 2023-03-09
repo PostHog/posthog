@@ -14,7 +14,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { searchTerm } = useValues(dashboardsLogic)
     const { allTemplates, allTemplatesLoading } = useValues(dashboardTemplatesLogic)
 
-    const { openDashboardTemplateEditor, setDashboardTemplateId, deleteDashboardTemplate } =
+    const { openDashboardTemplateEditor, setDashboardTemplateId, deleteDashboardTemplate, updateDashboardTemplate } =
         useActions(dashboardTemplateEditorLogic)
 
     const { user } = useValues(userLogic)
@@ -35,10 +35,10 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             },
         },
         {
-            title: 'Source',
+            title: 'Type',
             dataIndex: 'team_id',
-            render: (_, { team_id }) => {
-                if (team_id === null) {
+            render: (_, { is_public }) => {
+                if (is_public) {
                     return <LemonSnack>Official</LemonSnack>
                 } else {
                     return <LemonSnack>Team</LemonSnack>
@@ -47,7 +47,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         },
         {
             width: 0,
-            render: (_, { id }: DashboardTemplateType) => {
+            render: (_, { id, is_public }: DashboardTemplateType) => {
                 if (!user?.is_staff) {
                     return null
                 }
@@ -68,6 +68,22 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                     fullWidth
                                 >
                                     Edit
+                                </LemonButton>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => {
+                                        if (id === undefined) {
+                                            console.error('Dashboard template id not defined')
+                                            return
+                                        }
+                                        updateDashboardTemplate({
+                                            id,
+                                            dashboardTemplateUpdates: { is_public: !is_public },
+                                        })
+                                    }}
+                                    fullWidth
+                                >
+                                    Make {is_public ? 'private' : 'public'}
                                 </LemonButton>
 
                                 <LemonDivider />

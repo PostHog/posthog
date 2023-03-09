@@ -1257,6 +1257,7 @@ export interface DashboardTemplateType {
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
+    is_public?: boolean
 }
 
 export interface MonacoMarker {
