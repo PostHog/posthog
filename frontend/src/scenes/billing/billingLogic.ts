@@ -14,6 +14,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
 import type { billingLogicType } from './billingLogicType'
+import { urls } from 'scenes/urls'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -152,6 +153,7 @@ export const billingLogic = kea<billingLogicType>([
                 }
             },
         ],
+        upgradeLink: [() => [], () => urls.organizationBilling()],
     }),
     forms(({ actions }) => ({
         activateLicense: {

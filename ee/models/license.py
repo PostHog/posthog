@@ -2,12 +2,9 @@ from typing import List, Optional
 
 from django.contrib.auth import get_user_model
 from django.db import models
-from django.db.models.signals import post_save
-from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from rest_framework import exceptions, status
 
-from posthog.celery import sync_all_organization_available_features
 from posthog.constants import AvailableFeature
 from posthog.models.utils import sane_repr
 
@@ -110,8 +107,3 @@ def get_licensed_users_available() -> Optional[int]:
         return max(users_left, 0)
 
     return None
-
-
-@receiver(post_save, sender=License)
-def license_saved(sender, instance, created, raw, using, **kwargs):
-    sync_all_organization_available_features()

@@ -89,9 +89,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # PostHog Cloud cron jobs
     if is_cloud():
-        # TODO EC this should be triggered only for instances that haven't been migrated to the new billing
-        # Calculate billing usage for the day every day at midnight UTC
-        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
         # Verify that persons data is in sync every day at 4 AM UTC
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
@@ -101,9 +98,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(crontab(day_of_week="mon,thu", hour=5, minute=0), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
-
-    # Sync all Organization.available_features every hour, only for billing v1 orgs
-    sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sync_insight_cache_states_schedule = get_crontab(settings.SYNC_INSIGHT_CACHE_STATES_SCHEDULE)
     if sync_insight_cache_states_schedule:
@@ -690,27 +684,10 @@ def count_teams_with_no_property_query_count():
 
 
 @app.task(ignore_result=True)
-def calculate_billing_daily_usage():
-    try:
-        from multi_tenancy.tasks import compute_daily_usage_for_organizations  # noqa: F401
-    except ImportError:
-        pass
-    else:
-        compute_daily_usage_for_organizations()
-
-
-@app.task(ignore_result=True)
 def demo_reset_master_team():
     from posthog.tasks.demo_reset_master_team import demo_reset_master_team
 
     demo_reset_master_team()
-
-
-@app.task(ignore_result=True)
-def sync_all_organization_available_features():
-    from posthog.tasks.sync_all_organization_available_features import sync_all_organization_available_features
-
-    sync_all_organization_available_features()
 
 
 @app.task(ignore_result=False, track_started=True, max_retries=0)

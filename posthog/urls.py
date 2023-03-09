@@ -54,14 +54,6 @@ else:
     )
 
 
-try:
-    # See https://github.com/PostHog/posthog-cloud/blob/master/multi_tenancy/router.py
-    from multi_tenancy.router import extend_api_router as extend_api_router_cloud  # noqa
-except ImportError:
-    pass
-else:
-    extend_api_router_cloud(router, organizations_router=organizations_router, projects_router=projects_router)
-
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 admin_urlpatterns = (
     [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]

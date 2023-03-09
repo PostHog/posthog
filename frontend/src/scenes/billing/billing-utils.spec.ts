@@ -1,7 +1,7 @@
 import { convertAmountToUsage, convertUsageToAmount, projectUsage, summarizeUsage } from './billing-utils'
 import tk from 'timekeeper'
 import { dayjs } from 'lib/dayjs'
-import billingJson from '~/mocks/fixtures/_billing_v2.json'
+import billingJson from '~/mocks/fixtures/_billing.json'
 
 describe('summarizeUsage', () => {
     it('should summarise usage', () => {

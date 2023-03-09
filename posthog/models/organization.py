@@ -1,5 +1,4 @@
 import json
-import sys
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -12,7 +11,6 @@ from typing import (
 )
 
 import structlog
-from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.db.models.query import QuerySet
@@ -126,7 +124,6 @@ class Organization(UUIDModel):
     #   'recordings': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 }
     #   'period': ['2021-01-01', '2021-01-31']
     # }
-    # Also currently indicates if the organization is on billing V2 or not
     usage: models.JSONField = models.JSONField(null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
@@ -143,66 +140,8 @@ class Organization(UUIDModel):
 
     __repr__ = sane_repr("name")
 
-    @property
-    def _billing_plan_details(self) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Obtains details on the billing plan for the organization.
-        Returns a tuple with (billing_plan_key, billing_realm)
-        """
-        try:
-            from ee.models.license import License
-        except ImportError:
-            License = None  # type: ignore
-        # Demo gets all features
-        if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
-            return (License.ENTERPRISE_PLAN, "demo")
-        # If on Cloud, grab the organization's price
-        if hasattr(self, "billing"):
-            if self.billing is None:  # type: ignore
-                return (None, None)
-            return (self.billing.get_plan_key(), "cloud")  # type: ignore
-        # Otherwise, try to find a valid license on this instance
-        if License is not None:
-            license = License.objects.first_valid()
-            if license:
-                return (license.plan, "ee")
-        return (None, None)
-
-    @property
-    def billing_plan(self) -> Optional[str]:
-        return self._billing_plan_details[0]
-
-    def update_available_features(self) -> List[Union[AvailableFeature, str]]:
-        """Updates field `available_features`. Does not `save()`."""
-        # TODO BW: Get available features from billing service
-
-        if self.has_billing_v2_setup:
-            # Usage indicates billing V2 - we don't update billing as that is done
-            # whenever the billing service is called
-            return self.available_features
-
-        plan, realm = self._billing_plan_details
-        if not plan:
-            self.available_features = []
-        elif realm in ("ee", "demo"):
-            try:
-                from ee.models.license import License
-            except ImportError:
-                License = None  # type: ignore
-            self.available_features = License.PLANS.get(plan, [])
-        else:
-            self.available_features = self.billing.available_features  # type: ignore
-        return self.available_features
-
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return feature in self.available_features
-
-    @property
-    def has_billing_v2_setup(self):
-        if hasattr(self, "billing") and self.billing.stripe_subscription_id:  # type: ignore
-            return False
-
-        return self.usage is not None
 
     @property
     def active_invites(self) -> QuerySet:

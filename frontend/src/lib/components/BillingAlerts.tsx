@@ -6,12 +6,12 @@ import { urls } from 'scenes/urls'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 
 export function BillingAlerts(): JSX.Element | null {
-    const { billingAlert, billingVersion } = useValues(billingLogic)
+    const { billingAlert } = useValues(billingLogic)
     const { reportBillingAlertShown } = useActions(billingLogic)
     const { currentLocation } = useValues(router)
     const [alertHidden, setAlertHidden] = useState(false)
 
-    const showAlert = billingAlert && billingVersion === ''
+    const showAlert = billingAlert
 
     useEffect(() => {
         if (showAlert) {
@@ -19,7 +19,7 @@ export function BillingAlerts(): JSX.Element | null {
         }
     }, [showAlert])
 
-    if (!billingAlert || billingVersion !== '' || alertHidden) {
+    if (!billingAlert || alertHidden) {
         return null
     }
 

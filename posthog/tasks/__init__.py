@@ -9,7 +9,6 @@ from . import (
     email,
     exporter,
     split_person,
-    sync_all_organization_available_features,
     usage_report,
     user_identify,
 )
@@ -23,7 +22,6 @@ __all__ = [
     "email",
     "exporter",
     "split_person",
-    "sync_all_organization_available_features",
     "user_identify",
     "usage_report",
 ]
