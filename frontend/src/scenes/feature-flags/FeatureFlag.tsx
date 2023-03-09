@@ -300,7 +300,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <FeatureFlagRollout />
                         <LemonDivider />
                         <FeatureFlagReleaseConditions />
-                        <LemonDivider />
                         {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
                             <>
                                 <LemonDivider />
