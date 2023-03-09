@@ -253,6 +253,8 @@ export function CodeInstructions({
         }
         if (payloadOption) {
             setPayloadOption(payloadOption)
+        } else {
+            setShowPayloadCode(false)
         }
     }
     useEffect(() => {
