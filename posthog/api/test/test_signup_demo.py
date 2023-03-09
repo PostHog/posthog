@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 import pytest
 from django.contrib import auth
 from django.test import override_settings
@@ -19,7 +17,6 @@ class TestDemoSignupAPI(APIBaseTest):
         # Do not set up any test data
         pass
 
-    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
     def test_demo_signup(self, *args):
         assert not User.objects.exists()
         assert not Organization.objects.exists()
@@ -79,7 +76,6 @@ class TestDemoSignupAPI(APIBaseTest):
         assert user.is_staff is False
         self.tearDown()
 
-    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
     def test_social_signup_give_staff_privileges(self, *args):
         assert not User.objects.exists()
         assert not Organization.objects.exists()

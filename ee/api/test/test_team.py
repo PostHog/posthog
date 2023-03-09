@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 from rest_framework.status import (
     HTTP_200_OK,
     HTTP_204_NO_CONTENT,
@@ -48,7 +46,6 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             response.json(), self.permission_denied_response("Your organization access level is insufficient.")
         )
 
-    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
     def test_create_demo_project(self, *args):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -66,7 +63,6 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         )
         self.assertEqual(self.organization.teams.count(), 2)
 
-    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
     def test_create_two_demo_projects(self, *args):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
