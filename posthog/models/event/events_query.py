@@ -1,8 +1,9 @@
 import json
 from datetime import timedelta
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from dateutil.parser import isoparse
+from django.db.models import Prefetch
 from django.utils.timezone import now
 
 from posthog.api.element import ElementSerializer
@@ -14,6 +15,7 @@ from posthog.hogql.property import action_to_expr, has_aggregation, property_to_
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Action, Person, Team
 from posthog.models.element import chain_to_elements
+from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.schema import EventsQuery, EventsQueryResponse
 from posthog.utils import relative_date_parse
 
@@ -54,10 +56,8 @@ def run_events_query(
         if col == "*":
             select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})")
         elif col == "person":
-            # Select just enough person fields to show the name/email in the UI. Put it back into a dict later.
-            select_input.append(
-                "tuple(distinct_id, person_id, person.created_at, person.properties.name, person.properties.email)"
-            )
+            # This will be expanded into a followup query
+            select_input.append("distinct_id")
         else:
             select_input.append(col)
 
@@ -152,18 +152,38 @@ def run_events_query(
                 ).data
             query_result.results[index][star_idx] = new_result
 
-    # Convert person field from tuple to dict in each result
-    if "person" in select_input_raw:
+    if "person" in select_input_raw and len(query_result.results) > 0:
+        # Make a query into postgres to fetch person
         person_idx = select_input_raw.index("person")
-        for index, result in enumerate(query_result.results):
-            person_tuple: Tuple = result[person_idx]
-            query_result.results[index] = list(result)
-            query_result.results[index][person_idx] = {
-                "id": person_tuple[1],
-                "created_at": person_tuple[2],
-                "properties": {"name": person_tuple[3], "email": person_tuple[4]},
-                "distinct_ids": [person_tuple[0]],
-            }
+        distinct_ids = set(event[person_idx] for event in query_result.results)
+        persons = get_persons_by_distinct_ids(team.pk, list(distinct_ids))
+        persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        distinct_to_person: Dict[str, Person] = {}
+        for person in persons:
+            if person:
+                for distinct_id in person.distinct_ids:
+                    distinct_to_person[distinct_id] = person
+
+        # Loop over all columns in case there is more than one "person" column
+        for column_index, column in enumerate(select_input_raw):
+            if column != "person":
+                continue
+            for index, result in enumerate(query_result.results):
+                distinct_id: str = result[column_index]
+                query_result.results[index] = list(result)
+                if distinct_to_person.get(distinct_id):
+                    person = distinct_to_person[distinct_id]
+                    properties = person.properties or {}
+                    query_result.results[index][column_index] = {
+                        "uuid": person.uuid,
+                        "created_at": person.created_at,
+                        "properties": {"name": properties.get("name"), "email": properties.get("email")},
+                        "distinct_id": distinct_id,
+                    }
+                else:
+                    query_result.results[index][column_index] = {
+                        "distinct_id": distinct_id,
+                    }
 
     received_extra_row = len(query_result.results) == limit  # limit was +=1'd above
     return EventsQueryResponse(
