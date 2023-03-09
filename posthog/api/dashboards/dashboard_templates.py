@@ -48,7 +48,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             "created_by",
             "image_url",
             "team_id",
-            "public",
+            "is_public",
         ]
 
     def create(self, validated_data: Dict, *args, **kwargs) -> DashboardTemplate:
@@ -75,4 +75,4 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, ForbidDestroyModel, views
         return response.Response(dashboard_template_schema)
 
     def get_queryset(self, *args, **kwargs):
-        return DashboardTemplate.objects.filter(Q(team_id=self.team_id) | Q(public=True))
+        return DashboardTemplate.objects.filter(Q(team_id=self.team_id) | Q(is_public=True))

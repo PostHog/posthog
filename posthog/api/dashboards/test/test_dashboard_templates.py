@@ -101,7 +101,7 @@ class TestDashboardTemplates(APIBaseTest):
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
-            {"public": True},
+            {"is_public": True},
         )
 
         assert update_response.status_code == status.HTTP_200_OK, update_response
@@ -109,9 +109,9 @@ class TestDashboardTemplates(APIBaseTest):
         get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
         assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
 
-        assert get_updated_response.json()["results"][0]["public"] is True
+        assert get_updated_response.json()["results"][0]["is_public"] is True
 
-    def test_staff_can_make_public_dashboard_template_private(self) -> None:
+    def test_staff_can_make_dashboard_template_private(self) -> None:
         assert self.team.pk is not None
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
@@ -121,25 +121,25 @@ class TestDashboardTemplates(APIBaseTest):
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
-            {"public": True},
+            {"is_public": True},
         )
         assert update_response.status_code == status.HTTP_200_OK, update_response
 
         get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
         assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
 
-        assert get_updated_response.json()["results"][0]["public"] is True
+        assert get_updated_response.json()["results"][0]["is_public"] is True
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
-            {"public": False},
+            {"is_public": False},
         )
         assert update_response.status_code == status.HTTP_200_OK, update_response
 
         get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
         assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
 
-        assert get_updated_response.json()["results"][0]["public"] is False
+        assert get_updated_response.json()["results"][0]["is_public"] is False
 
     def test_non_staff_cannot_make_dashboard_template_public(self) -> None:
         response = self.client.post(
@@ -153,11 +153,11 @@ class TestDashboardTemplates(APIBaseTest):
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
-            {"public": True},
+            {"is_public": True},
         )
         assert update_response.status_code == status.HTTP_403_FORBIDDEN, update_response
 
-    def test_non_staff_can_get_public_dashboard_templates(self) -> None:
+    def test_non_staff_can_get_is_public_dashboard_templates(self) -> None:
         assert self.team.pk is not None
         new_org = Organization.objects.create(name="Test Org 2")
         new_team = Team.objects.create(name="Test Team 2", organization=new_org)
@@ -169,9 +169,9 @@ class TestDashboardTemplates(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
         assert response.status_code == status.HTTP_200_OK, response
 
-        assert len(response.json()["results"]) == 0  # No public templates
+        assert len(response.json()["results"]) == 0  # No is_public templates
 
-        dashboard_template.public = True
+        dashboard_template.is_public = True
         dashboard_template.save()
 
         get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
