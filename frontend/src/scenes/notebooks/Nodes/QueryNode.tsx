@@ -1,33 +1,38 @@
 import { mergeAttributes, Node } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { BindLogic, useValues } from 'kea'
-import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { ItemMode } from '~/types'
+import { useState } from 'react'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind, QuerySchema } from '~/queries/schema'
+
+const DEFAULT_QUERY: QuerySchema = {
+    kind: NodeKind.DataTableNode,
+    full: false,
+    source: {
+        kind: NodeKind.EventsQuery,
+        select: ['*', 'event', 'person', 'timestamp'],
+        orderBy: ['timestamp DESC'],
+        after: '-24h',
+        limit: 100,
+    },
+    propertiesViaUrl: false,
+    showSavedQueries: false,
+}
 
 const Component = (): JSX.Element => {
-    const logic = insightLogic({ dashboardItemId: 'new' })
-    const { insightProps } = useValues(logic)
+    const [query, setQuery] = useState<QuerySchema>(DEFAULT_QUERY)
 
     return (
-        <NodeViewWrapper className="ph-insight">
-            <BindLogic logic={insightLogic} props={insightProps}>
-                <div className="insights-container" data-attr="insight-view" data-drag-handle>
-                    <InsightContainer
-                        insightMode={ItemMode.Sharing}
-                        disableCorrelationTable
-                        disableHeader
-                        disableLastComputation
-                        disableTable
-                    />
-                </div>
-            </BindLogic>
+        <NodeViewWrapper className="ph-query">
+            <div className="max-h-60 overflow-y-auto">
+                <Query query={query} setQuery={(t) => setQuery(t)} />
+            </div>
         </NodeViewWrapper>
     )
 }
 
-export default Node.create({
-    name: 'posthogInsight',
+export const QueryNode = Node.create({
+    name: 'posthogQuery',
     group: 'block',
     atom: true,
     draggable: true,
@@ -43,13 +48,13 @@ export default Node.create({
     parseHTML() {
         return [
             {
-                tag: 'ph-insight',
+                tag: 'ph-query',
             },
         ]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return ['ph-insight', mergeAttributes(HTMLAttributes)]
+        return ['ph-query', mergeAttributes(HTMLAttributes)]
     },
 
     addNodeView() {

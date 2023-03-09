@@ -26,7 +26,7 @@ const Component = (): JSX.Element => {
     )
 }
 
-export default Node.create({
+export const InsightNode = Node.create({
     name: 'posthogInsight',
     group: 'block',
     atom: true,

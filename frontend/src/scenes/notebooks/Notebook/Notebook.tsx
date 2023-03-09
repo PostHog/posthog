@@ -1,9 +1,10 @@
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { useEditor, EditorContent, FloatingMenu } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
 import { useEffect, useState } from 'react'
-import InsightNode from '../Nodes/InsightNode'
+import { InsightNode } from '../Nodes/InsightNode'
+import { QueryNode } from '../Nodes/QueryNode'
 
 import './Notebook.scss'
 
@@ -11,13 +12,13 @@ const START_CONTENT = `
 <h2>Introducing Notebook!</h2>
 <blockquote>This is experimental</blockquote>
 
-<ph-insight></ph-insight>
+<ph-query />
 
 `
 
 export function Notebook(): JSX.Element {
     const editor = useEditor({
-        extensions: [StarterKit, InsightNode],
+        extensions: [StarterKit, InsightNode, QueryNode],
         content: START_CONTENT,
         editorProps: {
             attributes: {
@@ -50,6 +51,34 @@ export function Notebook(): JSX.Element {
                 </span>
             </header>
             <LemonDivider dashed />
+
+            {editor && (
+                <FloatingMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex items-center gap-2">
+                    <LemonButton
+                        size="small"
+                        status="primary-alt"
+                        onClick={() => editor.chain().focus().insertContent('<ph-query />').run()}
+                    >
+                        Query
+                    </LemonButton>
+
+                    <LemonButton
+                        size="small"
+                        status="primary-alt"
+                        onClick={() => editor.chain().focus().insertContent('<ph-playlist />').run()}
+                    >
+                        Recordings
+                    </LemonButton>
+
+                    <LemonButton
+                        size="small"
+                        status="primary-alt"
+                        onClick={() => editor.chain().focus().insertContent('<ph-embed />').run()}
+                    >
+                        Embed
+                    </LemonButton>
+                </FloatingMenu>
+            )}
 
             <EditorContent editor={editor} className="flex-1 overflow-y-auto" />
         </div>
