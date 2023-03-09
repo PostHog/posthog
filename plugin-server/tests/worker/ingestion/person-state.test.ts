@@ -1327,13 +1327,23 @@ describe.each([[true], [false]])('PersonState.update()', (poEEmbraceJoin) => {
 
         it('merge_dangerously can merge people when alias id user is identified', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, uuid.toString(), ['old-user'])
-            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, uuid2.toString(), ['new-user'])
+            await hub.db.createPerson(
+                timestamp2.plus({ hours: 1 }),
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuid2.toString(),
+                ['new-user']
+            )
 
             const personContainer = await personState({
                 event: '$merge_dangerously',
-                distinct_id: 'new-user',
+                distinct_id: 'old-user',
                 properties: {
-                    alias: 'old-user',
+                    alias: 'new-user',
                 },
             }).update()
             await hub.db.kafkaProducer.flush()
@@ -1344,7 +1354,7 @@ describe.each([[true], [false]])('PersonState.update()', (poEEmbraceJoin) => {
             expect(persons[0]).toEqual(
                 expect.objectContaining({
                     id: expect.any(Number),
-                    uuid: expect.any(String),
+                    uuid: uuid.toString(),
                     properties: {},
                     created_at: timestamp,
                     version: 1,
@@ -1362,14 +1372,14 @@ describe.each([[true], [false]])('PersonState.update()', (poEEmbraceJoin) => {
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
-                        id: uuid2.toString(),
+                        id: uuid.toString(),
                         properties: '{}',
                         created_at: timestampch,
                         version: 1,
                         is_identified: 1,
                     }),
                     expect.objectContaining({
-                        id: uuid.toString(),
+                        id: uuid2.toString(),
                         is_deleted: 1,
                         version: 100,
                     }),
