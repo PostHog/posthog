@@ -579,6 +579,8 @@ export class PersonState {
             client
         )
 
+        // The follow-up JOIN is required as ClickHouse requires UUIDs, so we need to fetch the UUIDs
+        // of the IDs we updated from the mapping table.
         const { rows: transitiveUpdates } = await this.db.postgresQuery(
             SQL`
                 WITH updated_ids AS (
@@ -593,8 +595,6 @@ export class PersonState {
                         version,
                     oldest_event
                 )
-                -- The follow-up JOIN is required as ClickHouse requires UUIDs, so we need to fetch the UUIDs
-                -- of the IDs we updated from the helper table.
                 SELECT
                     helper.uuid as old_person_id,
                     updated_ids.version,
