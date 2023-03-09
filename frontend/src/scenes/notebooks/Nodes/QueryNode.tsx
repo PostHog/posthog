@@ -33,7 +33,7 @@ const Component = (): JSX.Element => {
 }
 
 export const QueryNode = Node.create({
-    name: 'posthogQuery',
+    name: NodeType.Query,
     group: 'block',
     atom: true,
     draggable: true,

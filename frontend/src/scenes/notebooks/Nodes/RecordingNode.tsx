@@ -19,7 +19,7 @@ const Component = (props: NodeViewRendererProps): JSX.Element => {
 }
 
 export const RecordingNode = Node.create({
-    name: 'posthogRecording',
+    name: NodeType.Recording,
     group: 'block',
     atom: true,
     draggable: true,

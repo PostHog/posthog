@@ -29,7 +29,7 @@ const Component = (props: NodeViewRendererProps): JSX.Element => {
 }
 
 export const InsightNode = Node.create({
-    name: 'posthogInsight',
+    name: NodeType.Insight,
     group: 'block',
     atom: true,
     draggable: true,

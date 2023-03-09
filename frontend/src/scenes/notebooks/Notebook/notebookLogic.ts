@@ -51,13 +51,14 @@ export const notebookLogic = kea<notebookLogicType>([
                 return
             }
 
-            let evalHTML = ''
-
-            if (type === NodeType.Recording) {
-                evalHTML = `<${type} sessionRecordingId="${props.sessionRecordingId}"/>`
-            }
-
-            values.editor.chain().focus().insertContent(evalHTML).run()
+            values.editor
+                .chain()
+                .focus()
+                .insertContent({
+                    type,
+                    attrs: props,
+                })
+                .run()
         },
     })),
 ])

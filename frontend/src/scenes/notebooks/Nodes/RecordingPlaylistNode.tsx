@@ -12,7 +12,7 @@ const Component = ({}: NodeViewRendererProps): JSX.Element => {
 }
 
 export const RecordingPlaylistNode = Node.create({
-    name: 'posthogRecordingPlaylist',
+    name: NodeType.RecordingPlaylist,
     group: 'block',
     atom: true,
     draggable: true,
