@@ -1,7 +1,8 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import InsightNode from '../Nodes/InsightNode'
+import InsightNode from 'scenes/notebooks/Nodes/InsightNode'
+import RecordingNode from 'scenes/notebooks/Nodes/RecordingNode'
 
 import './Notebook.scss'
 
@@ -10,12 +11,12 @@ const START_CONTENT = `
 <blockquote>This is experimental</blockquote>
 
 <ph-insight></ph-insight>
-
+<ph-recording></ph-recording>
 `
 
 export function Notebook(): JSX.Element {
     const editor = useEditor({
-        extensions: [StarterKit, InsightNode],
+        extensions: [StarterKit, InsightNode, RecordingNode],
         content: START_CONTENT,
         editorProps: {
             attributes: {

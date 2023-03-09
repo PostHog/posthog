@@ -1,6 +1,9 @@
 import { mergeAttributes, Node } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
+
+const COMPONENT_CLASS_NAME = 'ph-recording'
 
 interface ComponentProps {
     sessionRecordingId: string
@@ -8,7 +11,12 @@ interface ComponentProps {
 
 const Component = ({ sessionRecordingId }: ComponentProps): JSX.Element => {
     return (
-        <SessionRecordingPlayer sessionRecordingId={sessionRecordingId} playerKey={`notebook-${sessionRecordingId}`} />
+        <NodeWrapper className={COMPONENT_CLASS_NAME}>
+            <SessionRecordingPlayer
+                sessionRecordingId={sessionRecordingId}
+                playerKey={`notebook-${sessionRecordingId}`}
+            />
+        </NodeWrapper>
     )
 }
 
@@ -29,13 +37,13 @@ export default Node.create({
     parseHTML() {
         return [
             {
-                tag: 'ph-recording',
+                tag: COMPONENT_CLASS_NAME,
             },
         ]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return ['ph-insight', mergeAttributes(HTMLAttributes)]
+        return [COMPONENT_CLASS_NAME, mergeAttributes(HTMLAttributes)]
     },
 
     addNodeView() {
