@@ -20,7 +20,7 @@ const Component = ({ sessionRecordingId }: ComponentProps): JSX.Element => {
     )
 }
 
-export default Node.create({
+export const RecordingNode = Node.create({
     name: 'posthogRecording',
     group: 'block',
     atom: true,

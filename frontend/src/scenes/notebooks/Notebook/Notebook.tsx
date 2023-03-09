@@ -5,7 +5,7 @@ import { IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
 import { useEffect, useState } from 'react'
 import { InsightNode } from '../Nodes/InsightNode'
 import { QueryNode } from '../Nodes/QueryNode'
-import RecordingNode from 'scenes/notebooks/Nodes/RecordingNode'
+import { RecordingNode } from 'scenes/notebooks/Nodes/RecordingNode'
 
 import './Notebook.scss'
 
