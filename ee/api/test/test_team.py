@@ -49,7 +49,6 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         )
 
     @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
-    @patch("posthog.demo.matrix.manager.copy_graphile_worker_jobs_between_teams")
     def test_create_demo_project(self, *args):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -68,7 +67,6 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(self.organization.teams.count(), 2)
 
     @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
-    @patch("posthog.demo.matrix.manager.copy_graphile_worker_jobs_between_teams")
     def test_create_two_demo_projects(self, *args):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
