@@ -148,7 +148,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => true,
                 loadDataSuccess: () => false,
                 loadDataFailure: () => false,
-                cancelQuery: () => false,
             },
         ],
         newDataLoading: [
@@ -157,7 +156,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNewData: () => true,
                 loadNewDataSuccess: () => false,
                 loadNewDataFailure: () => false,
-                cancelQuery: () => false,
             },
         ],
         nextDataLoading: [
@@ -166,15 +164,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNextData: () => true,
                 loadNextDataSuccess: () => false,
                 loadNextDataFailure: () => false,
-                cancelQuery: () => false,
             },
         ],
         queryCancelled: [
             false,
             {
                 loadNextData: () => false,
-                loadNewData: () => true,
-                loadData: () => true,
+                loadNewData: () => false,
+                loadData: () => false,
                 cancelQuery: () => true,
             },
         ],
