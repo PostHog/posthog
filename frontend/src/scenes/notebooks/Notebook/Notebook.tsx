@@ -1,6 +1,8 @@
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
+import { IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
+import { useEffect, useState } from 'react'
 import InsightNode from '../Nodes/InsightNode'
 
 import './Notebook.scss'
@@ -24,9 +26,29 @@ export function Notebook(): JSX.Element {
         },
     })
 
+    const [isEditable, setIsEditable] = useState(true)
+
+    useEffect(() => {
+        if (editor) {
+            editor.setEditable(isEditable)
+        }
+    }, [isEditable, editor])
+
     return (
         <div className="border-l bg-side h-full p-2 flex flex-col">
-            <header className="flex items-center space-between uppercase font-semibold shrink-0">Notebook</header>
+            <header className="flex items-center justify-between gap-2 uppercase font-semibold shrink-0">
+                <span>Notebook</span>
+                <span className="flex gap-2">
+                    <LemonButton
+                        size="small"
+                        onClick={() => setIsEditable(!isEditable)}
+                        status="primary-alt"
+                        type={!isEditable ? 'primary' : undefined}
+                    >
+                        {!isEditable ? <IconLock /> : <IconLockOpen />}
+                    </LemonButton>
+                </span>
+            </header>
             <LemonDivider dashed />
 
             <EditorContent editor={editor} className="flex-1 overflow-y-auto" />

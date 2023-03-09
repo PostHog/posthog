@@ -44,6 +44,7 @@ specifiers:
   '@tiptap/pm': 2.0.0-beta.220
   '@tiptap/react': 2.0.0-beta.220
   '@tiptap/starter-kit': 2.0.0-beta.220
+  '@tiptap/suggestion': 2.0.0-beta.220
   '@types/chartjs-plugin-crosshair': ^1.1.1
   '@types/clone': ^2.1.1
   '@types/d3': ^7.4.0
@@ -207,6 +208,7 @@ dependencies:
   '@tiptap/pm': 2.0.0-beta.220_7w7m52asdh3tod4ocz57yex63q
   '@tiptap/react': 2.0.0-beta.220_rpinh5kbrassjmxo3n6enzyrg4
   '@tiptap/starter-kit': 2.0.0-beta.220_@tiptap+pm@2.0.0-beta.220
+  '@tiptap/suggestion': 2.0.0-beta.220_ohumfzynigfck3hzagxvh2a4ky
   '@types/md5': 2.3.2
   '@types/react-input-autosize': 2.2.1
   '@types/react-textfit': 1.1.0
@@ -4595,6 +4597,16 @@ packages:
       '@tiptap/extension-text': 2.0.0-beta.220_7w7m52asdh3tod4ocz57yex63q
     transitivePeerDependencies:
       - '@tiptap/pm'
+    dev: false
+
+  /@tiptap/suggestion/2.0.0-beta.220_ohumfzynigfck3hzagxvh2a4ky:
+    resolution: {integrity: sha512-lYb2HOAKJLjEBbTx5VXA32wRryQiMwaKkNfr3v6UhlwoNgD6NkCYID08UJbpMV7iM+iFQp9408D/vVWFwvOuKg==}
+    peerDependencies:
+      '@tiptap/core': ^2.0.0-beta.209
+      '@tiptap/pm': ^2.0.0-beta.209
+    dependencies:
+      '@tiptap/core': 2.0.0-beta.220_@tiptap+pm@2.0.0-beta.220
+      '@tiptap/pm': 2.0.0-beta.220_7w7m52asdh3tod4ocz57yex63q
     dev: false
 
   /@tootallnate/once/2.0.0:
