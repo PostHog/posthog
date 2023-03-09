@@ -382,7 +382,7 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
 
 
 def _create_default_app_items(dashboard: Dashboard) -> None:
-    template = DashboardTemplate.original_template()
+    template = {}  # DashboardTemplate.original_template()
     create_from_template(dashboard, template)
 
 
