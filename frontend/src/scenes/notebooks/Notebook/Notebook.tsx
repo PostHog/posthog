@@ -2,12 +2,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useEditor, EditorContent, FloatingMenu } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { IconJournal, IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { QueryNode } from 'scenes/notebooks/Nodes/QueryNode'
 import { InsightNode } from 'scenes/notebooks/Nodes/InsightNode'
 import { RecordingNode } from 'scenes/notebooks/Nodes/RecordingNode'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import './Notebook.scss'
 
 export type NotebookProps = {
@@ -16,7 +16,8 @@ export type NotebookProps = {
 }
 
 export function Notebook({ controls, breadcrumbs }: NotebookProps): JSX.Element {
-    const { content } = useValues(notebookLogic)
+    const { content, isEditable } = useValues(notebookLogic)
+    const { setEditorRef, setIsEditable, syncContent } = useActions(notebookLogic)
 
     const editor = useEditor({
         extensions: [StarterKit, InsightNode, QueryNode, RecordingNode],
@@ -26,15 +27,16 @@ export function Notebook({ controls, breadcrumbs }: NotebookProps): JSX.Element 
                 class: 'Notebook',
             },
         },
+        onUpdate: ({ editor }) => {
+            syncContent(editor.getHTML())
+        },
     })
-
-    const [isEditable, setIsEditable] = useState(true)
 
     useEffect(() => {
         if (editor) {
-            editor.setEditable(isEditable)
+            setEditorRef(editor)
         }
-    }, [isEditable, editor])
+    }, [editor])
 
     return (
         <div className="border rounded bg-side flex-1 shadow overflow-hidden flex flex-col h-full">

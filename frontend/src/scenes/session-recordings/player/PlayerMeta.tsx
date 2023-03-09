@@ -152,25 +152,27 @@ export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
                     )}
                 </div>
 
-                <LemonButton
-                    className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
-                    status="stealth"
-                    active={isMetadataExpanded}
-                    onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
-                    tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
-                    tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
-                    size="small"
-                >
-                    {isMetadataExpanded ? (
-                        <IconUnfoldLess className="text-lg text-muted-alt" />
-                    ) : (
-                        <IconUnfoldMore className="text-lg text-muted-alt" />
-                    )}
-                </LemonButton>
+                {!props.embedded && (
+                    <LemonButton
+                        className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
+                        status="stealth"
+                        active={isMetadataExpanded}
+                        onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
+                        tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
+                        tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
+                        size="small"
+                    >
+                        {isMetadataExpanded ? (
+                            <IconUnfoldLess className="text-lg text-muted-alt" />
+                        ) : (
+                            <IconUnfoldMore className="text-lg text-muted-alt" />
+                        )}
+                    </LemonButton>
+                )}
 
                 {!props.embedded && props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}
             </div>
-            {sessionPerson && (
+            {!props.embedded && sessionPerson && (
                 <CSSTransition
                     in={isMetadataExpanded}
                     timeout={200}

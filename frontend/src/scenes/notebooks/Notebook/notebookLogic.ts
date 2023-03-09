@@ -1,7 +1,7 @@
-import { actions, defaults, kea, key, path } from 'kea'
+import { actions, defaults, kea, key, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { NodeType } from 'scenes/notebooks/Nodes/types'
-
+import { Editor } from '@tiptap/core'
 import type { notebookLogicType } from './notebookLogicType'
 
 const START_CONTENT = `
@@ -22,25 +22,42 @@ export const notebookLogic = kea<notebookLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookLogic']),
     key(() => 'global'),
     actions({
+        setEditorRef: (editor: Editor) => ({ editor }),
         addNodeToNotebook: (type: NodeType, props: Record<string, any>) => ({ type, props }),
+        setIsEditable: (isEditable: boolean) => ({ isEditable }),
+        syncContent: (content: string) => ({ content }),
     }),
     defaults({
+        editor: null as Editor | null,
         content: START_CONTENT as string,
+        isEditable: true,
     }),
-    loaders(({ values }) => ({
+    loaders(() => ({
         content: {
-            addNodeToNotebook: ({ type, props }) => {
-                let attributes = ''
+            syncContent: ({ content }) => content,
+        },
+    })),
+    reducers({
+        editor: {
+            setEditorRef: (_, { editor }) => editor,
+        },
+        isEditable: {
+            setIsEditable: (_, { isEditable }) => isEditable,
+        },
+    }),
+    listeners(({ values }) => ({
+        addNodeToNotebook: ({ type, props }) => {
+            if (!values.editor) {
+                return
+            }
 
-                if (type === NodeType.Recording) {
-                    attributes = `sessionRecordingId="${props.sessionRecordingId}"`
-                }
+            let evalHTML = ''
 
-                return `
-                ${values.content}
-                <${type} ${attributes}></${type}>
-                `
-            },
+            if (type === NodeType.Recording) {
+                evalHTML = `<${type} sessionRecordingId="${props.sessionRecordingId}"/>`
+            }
+
+            values.editor.chain().focus().insertContent(evalHTML).run()
         },
     })),
 ])
