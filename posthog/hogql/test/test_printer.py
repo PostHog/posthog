@@ -402,3 +402,7 @@ class TestPrinter(TestCase):
             self._select("SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1"),
             "SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535",
         )
+        self.assertEqual(
+            self._select("SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1)"),
+            "SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1) LIMIT 65535",
+        )

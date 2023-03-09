@@ -70,16 +70,18 @@ class _Printer(Visitor):
         return response
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
-        return " UNION ALL ".join([self.visit(expr) for expr in node.select_queries])
+        query = " UNION ALL ".join([self.visit(expr) for expr in node.select_queries])
+        if len(self.stack) > 1:
+            return f"({query})"
+        return query
 
     def visit_select_query(self, node: ast.SelectQuery):
         if self.dialect == "clickhouse" and not self.context.select_team_id:
             raise ValueError("Full SELECT queries are disabled if context.select_team_id is not set")
 
         # if we are the first parsed node in the tree, or a child of a SelectUnionQuery, mark us as a top level query
-        is_top_level_query = len(self.stack) <= 1 or (
-            len(self.stack) == 2 and isinstance(self.stack[0], ast.SelectUnionQuery)
-        )
+        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectUnionQuery)
+        is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
 
         # We will add extra clauses onto this from the joined tables
         where = node.where
@@ -148,7 +150,7 @@ class _Printer(Visitor):
         response = " ".join([clause for clause in clauses if clause])
 
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
-        if not is_top_level_query:
+        if not part_of_select_union and not is_top_level_query:
             response = f"({response})"
 
         return response
@@ -183,6 +185,9 @@ class _Printer(Visitor):
                 extra_where = team_id_guard_for_table(node.ref, self.context)
 
         elif isinstance(node.ref, ast.SelectQueryRef):
+            join_strings.append(self.visit(node.table))
+
+        elif isinstance(node.ref, ast.SelectUnionQueryRef):
             join_strings.append(self.visit(node.table))
 
         elif isinstance(node.ref, ast.SelectQueryAliasRef) and node.alias is not None:
