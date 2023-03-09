@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import './NotebookSideBar.scss'
 import { Notebook } from './Notebook'
@@ -7,20 +7,37 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconFullScreen, IconChevronRight } from 'lib/lemon-ui/icons'
 
 export function NotebookSideBar(): JSX.Element {
-    const { isNotebookSideBarShown } = useValues(notebookSidebarLogic)
+    const { notebookSideBarShown, fullScreen } = useValues(notebookSidebarLogic)
+    const { setNotebookSideBarShown, setFullScreen } = useActions(notebookSidebarLogic)
 
     return (
-        <div className={clsx('NotebookSidebar', isNotebookSideBarShown && 'NotebookSidebar--show')}>
+        <div
+            className={clsx(
+                'NotebookSidebar',
+                notebookSideBarShown && 'NotebookSidebar--show',
+                fullScreen && 'NotebookSidebar--full-screen'
+            )}
+        >
             <div className="NotebookSidebar__content">
                 <Notebook
                     breadcrumbs={['Notebooks', 'Scratchpad']}
                     controls={
                         <>
-                            <LemonButton size="small" onClick={() => alert('TODO!')} status="primary-alt" noPadding>
+                            <LemonButton
+                                size="small"
+                                onClick={() => setFullScreen(!fullScreen)}
+                                status="primary-alt"
+                                noPadding
+                            >
                                 <IconFullScreen className="text-lg m-1" />
                             </LemonButton>
 
-                            <LemonButton size="small" onClick={() => alert('TODO!')} status="primary-alt" noPadding>
+                            <LemonButton
+                                size="small"
+                                onClick={() => setNotebookSideBarShown(false)}
+                                status="primary-alt"
+                                noPadding
+                            >
                                 <IconChevronRight className="text-lg" />
                             </LemonButton>
                         </>
