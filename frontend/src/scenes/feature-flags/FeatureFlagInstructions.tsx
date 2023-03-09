@@ -296,6 +296,12 @@ export function CodeInstructions({
                             </>
                         )}
                     </div>
+                    <div className="mt mb">
+                        <selectedOption.Snippet
+                            data-attr="feature-flag-instructions-snippet"
+                            flagKey={featureFlagKey}
+                        />
+                    </div>
                 </div>
             ) : (
                 <Card size="small">
