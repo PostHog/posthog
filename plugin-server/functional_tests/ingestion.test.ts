@@ -515,8 +515,6 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
     }, 20000)
 })
 
-// This test only works when poEEmbraceTheJoin is enabled.
-// For this test to pass we must write a $merge command that works when both persons are identified.
 testIfPoEEmbraceJoinEnabled(
     `complex chained merge adds results in all events resolving to the same person id`,
     async () => {
