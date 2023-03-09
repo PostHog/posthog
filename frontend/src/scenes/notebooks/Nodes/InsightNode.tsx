@@ -1,4 +1,4 @@
-import { mergeAttributes, Node } from '@tiptap/core'
+import { mergeAttributes, Node, NodeViewRendererProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { BindLogic, useValues } from 'kea'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -7,8 +7,8 @@ import { ItemMode } from '~/types'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NodeType } from 'scenes/notebooks/Nodes/types'
 
-const Component = (): JSX.Element => {
-    const logic = insightLogic({ dashboardItemId: 'new' })
+const Component = (props: NodeViewRendererProps): JSX.Element => {
+    const logic = insightLogic({ dashboardItemId: props.node.attrs.shortId })
     const { insightProps } = useValues(logic)
 
     return (
@@ -36,9 +36,7 @@ export const InsightNode = Node.create({
 
     addAttributes() {
         return {
-            count: {
-                default: 0,
-            },
+            shortId: {},
         }
     },
 

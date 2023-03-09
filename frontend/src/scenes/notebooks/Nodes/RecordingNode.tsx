@@ -4,11 +4,7 @@ import { SessionRecordingPlayer } from 'scenes/session-recordings/player/Session
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NodeType } from 'scenes/notebooks/Nodes/types'
 
-interface ComponentProps extends NodeViewRendererProps {
-    sessionRecordingId: string
-}
-
-const Component = (props: ComponentProps): JSX.Element => {
+const Component = (props: NodeViewRendererProps): JSX.Element => {
     return (
         <NodeWrapper className={NodeType.Recording}>
             <div className="aspect-square">

@@ -35,6 +35,8 @@ import { ThunderboltFilled } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { globalInsightLogic } from './globalInsightLogic'
+import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
+import { NodeType } from 'scenes/notebooks/Nodes/types'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -306,6 +308,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         {insightMode !== ItemMode.Edit && insight.short_id && (
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
+
+                        {insightMode !== ItemMode.Edit && insight.short_id && featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
+                            <AddToNotebook
+                                node={NodeType.Insight}
+                                properties={{ short_id: insight.short_id }}
+                                type="secondary"
+                                size="medium"
+                            />
+                        )}
+
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
                                 <LemonButton

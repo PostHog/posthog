@@ -9,6 +9,8 @@ const START_CONTENT = `
 <blockquote>This is experimental</blockquote>
 <ph-query></ph-query>
 
+<ph-insight shortId="OlmLXv6Q"></ph-insight>
+
 <h3>An interesting recording I found</h3>
 
 <p>This recording highlights perectly why...</p>

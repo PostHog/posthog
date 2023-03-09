@@ -36,6 +36,10 @@ $sidebar-width: 40%;
             .NotebookSidebar__content {
                 z-index: 10000;
                 width: calc(100vw - 15.5rem - 1rem); // TODO: Unhardcode this value
+
+                .SideBar--hidden & {
+                    width: calc(100vw - 1rem); // TODO: Unhardcode this value
+                }
             }
         }
     }
