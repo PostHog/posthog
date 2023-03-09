@@ -208,8 +208,6 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
         License.objects.all().delete()
-        self.organization.update_available_features()
-        self.organization.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
         response_data = response.json()
