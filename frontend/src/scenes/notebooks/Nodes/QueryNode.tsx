@@ -1,8 +1,10 @@
 import { mergeAttributes, Node } from '@tiptap/core'
-import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
+import { ReactNodeViewRenderer } from '@tiptap/react'
 import { useState } from 'react'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
+import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { NodeType } from 'scenes/notebooks/Nodes/types'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -22,11 +24,11 @@ const Component = (): JSX.Element => {
     const [query, setQuery] = useState<QuerySchema>(DEFAULT_QUERY)
 
     return (
-        <NodeViewWrapper className="ph-query">
+        <NodeWrapper className={NodeType.Query}>
             <div className="max-h-60 overflow-y-auto">
                 <Query query={query} setQuery={(t) => setQuery(t)} />
             </div>
-        </NodeViewWrapper>
+        </NodeWrapper>
     )
 }
 
@@ -47,13 +49,13 @@ export const QueryNode = Node.create({
     parseHTML() {
         return [
             {
-                tag: 'ph-query',
+                tag: NodeType.Query,
             },
         ]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return ['ph-query', mergeAttributes(HTMLAttributes)]
+        return [NodeType.Query, mergeAttributes(HTMLAttributes)]
     },
 
     addNodeView() {
