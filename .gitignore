@@ -8,6 +8,8 @@ staticfiles
 settings.yml
 .DS_Store
 debug.log
+clickhouse-server.log
+clickhouse-server.err.log
 *.swp
 *.swo
 node_modules/

@@ -41,6 +41,9 @@ services:
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./clickhouse-server.log:/var/log/clickhouse-server/clickhouse-server.log
+            - ./clickhouse-server.err.log:/var/log/clickhouse-server/clickhouse-server.err.log
+        restart: on-failure
 
     zookeeper:
         extends:
@@ -53,6 +56,7 @@ services:
             service: kafka
         ports:
             - '9092:9092'
+        restart: on-failure
 
     object_storage:
         extends:
