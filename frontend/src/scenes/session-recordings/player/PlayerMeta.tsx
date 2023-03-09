@@ -18,10 +18,10 @@ import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
+import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
-export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
     const {
         sessionPerson,
         resolution,
@@ -50,6 +50,7 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
             ref={ref}
             className={clsx('PlayerMeta', {
                 'PlayerMeta--fullscreen': isFullScreen,
+                'PlayerMeta--embedded': props.embedded,
             })}
         >
             {isFullScreen && (
@@ -61,16 +62,19 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
             )}
 
             <div
-                className={clsx('PlayerMeta__top flex items-center gap-2 shrink-0', {
-                    'p-3 border-b': !isFullScreen,
-                    'px-3 p-1 text-xs': isFullScreen,
-                })}
+                className={clsx(
+                    'PlayerMeta__top flex items-center gap-2 shrink-0',
+                    isFullScreen || props.embedded ? 'px-3 p-1 text-xs' : 'p-3 border-b'
+                )}
             >
                 <div className="ph-no-capture">
                     {!sessionPerson ? (
                         <LemonSkeleton.Circle className="w-10 h-10" />
                     ) : (
-                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xl' : 'md'} />
+                        <ProfilePicture
+                            name={asDisplay(sessionPerson)}
+                            size={!props.embedded && !isFullScreen ? 'xl' : 'md'}
+                        />
                     )}
                 </div>
                 <div className="overflow-hidden ph-no-capture flex-1">
@@ -90,58 +94,62 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                             </div>
                         )}
                     </div>
-                    <div className="text-muted">
-                        {sessionPlayerMetaDataLoading ? (
-                            <LemonSkeleton className="w-1/4 my-1" />
-                        ) : iconProperties ? (
-                            <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
-                                <span className="flex items-center gap-1 whitespace-nowrap">
-                                    <PropertyIcon
-                                        noTooltip={!isFullScreen}
-                                        property="$browser"
-                                        value={iconProperties['$browser']}
-                                    />
-                                    {!isFullScreen ? iconProperties['$browser'] : null}
-                                </span>
-                                <span className="flex items-center gap-1 whitespace-nowrap">
-                                    <PropertyIcon
-                                        noTooltip={!isFullScreen}
-                                        property="$device_type"
-                                        value={iconProperties['$device_type'] || iconProperties['$initial_device_type']}
-                                    />
-                                    {!isFullScreen
-                                        ? iconProperties['$device_type'] || iconProperties['$initial_device_type']
-                                        : null}
-                                </span>
-                                <span className="flex items-center gap-1 whitespace-nowrap">
-                                    <PropertyIcon
-                                        noTooltip={!isFullScreen}
-                                        property="$os"
-                                        value={iconProperties['$os']}
-                                    />
-                                    {!isFullScreen ? iconProperties['$os'] : null}
-                                </span>
-                                {iconProperties['$geoip_country_code'] && (
+                    {!props.embedded && (
+                        <div className="text-muted">
+                            {sessionPlayerMetaDataLoading ? (
+                                <LemonSkeleton className="w-1/4 my-1" />
+                            ) : iconProperties ? (
+                                <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
                                     <span className="flex items-center gap-1 whitespace-nowrap">
                                         <PropertyIcon
                                             noTooltip={!isFullScreen}
-                                            property="$geoip_country_code"
-                                            value={iconProperties['$geoip_country_code']}
+                                            property="$browser"
+                                            value={iconProperties['$browser']}
                                         />
-                                        {
-                                            isFullScreen &&
-                                                [
-                                                    iconProperties['$geoip_city_name'],
-                                                    iconProperties['$geoip_subdivision_1_code'],
-                                                ]
-                                                    .filter((x) => x)
-                                                    .join(', ') /* [city, state] */
-                                        }
+                                        {!isFullScreen ? iconProperties['$browser'] : null}
                                     </span>
-                                )}
-                            </div>
-                        ) : null}
-                    </div>
+                                    <span className="flex items-center gap-1 whitespace-nowrap">
+                                        <PropertyIcon
+                                            noTooltip={!isFullScreen}
+                                            property="$device_type"
+                                            value={
+                                                iconProperties['$device_type'] || iconProperties['$initial_device_type']
+                                            }
+                                        />
+                                        {!isFullScreen
+                                            ? iconProperties['$device_type'] || iconProperties['$initial_device_type']
+                                            : null}
+                                    </span>
+                                    <span className="flex items-center gap-1 whitespace-nowrap">
+                                        <PropertyIcon
+                                            noTooltip={!isFullScreen}
+                                            property="$os"
+                                            value={iconProperties['$os']}
+                                        />
+                                        {!isFullScreen ? iconProperties['$os'] : null}
+                                    </span>
+                                    {iconProperties['$geoip_country_code'] && (
+                                        <span className="flex items-center gap-1 whitespace-nowrap">
+                                            <PropertyIcon
+                                                noTooltip={!isFullScreen}
+                                                property="$geoip_country_code"
+                                                value={iconProperties['$geoip_country_code']}
+                                            />
+                                            {
+                                                isFullScreen &&
+                                                    [
+                                                        iconProperties['$geoip_city_name'],
+                                                        iconProperties['$geoip_subdivision_1_code'],
+                                                    ]
+                                                        .filter((x) => x)
+                                                        .join(', ') /* [city, state] */
+                                            }
+                                        </span>
+                                    )}
+                                </div>
+                            ) : null}
+                        </div>
+                    )}
                 </div>
 
                 <LemonButton
@@ -160,7 +168,7 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                     )}
                 </LemonButton>
 
-                {props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}
+                {!props.embedded && props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}
             </div>
             {sessionPerson && (
                 <CSSTransition
@@ -179,71 +187,73 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                     </div>
                 </CSSTransition>
             )}
-            <div
-                className={clsx(
-                    'PlayerMeta__bottom flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden',
-                    {
-                        'p-2': !isFullScreen,
-                        'p-1 px-3 text-xs h-12': isFullScreen,
-                    }
-                )}
-            >
-                {sessionPlayerMetaDataLoading || currentWindowIndex === -1 ? (
-                    <LemonSkeleton className="w-1/3 my-1" />
-                ) : (
-                    <>
-                        <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
-                        {windowIds.length > 1 && !isSmallPlayer ? (
-                            <div className="text-muted-alt">Window {currentWindowIndex + 1}</div>
-                        ) : null}
+            {!props.embedded && (
+                <div
+                    className={clsx(
+                        'PlayerMeta__bottom flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden',
+                        {
+                            'p-2': !isFullScreen,
+                            'p-1 px-3 text-xs h-12': isFullScreen,
+                        }
+                    )}
+                >
+                    {sessionPlayerMetaDataLoading || currentWindowIndex === -1 ? (
+                        <LemonSkeleton className="w-1/3 my-1" />
+                    ) : (
+                        <>
+                            <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
+                            {windowIds.length > 1 && !isSmallPlayer ? (
+                                <div className="text-muted-alt">Window {currentWindowIndex + 1}</div>
+                            ) : null}
 
-                        {lastPageviewEvent?.properties?.['$current_url'] && (
-                            <span className="flex items-center gap-2 truncate">
-                                <span>·</span>
-                                <span className="flex items-center gap-1 truncate">
-                                    <Tooltip title="Click to open url">
-                                        <Link
-                                            to={lastPageviewEvent?.properties['$current_url']}
-                                            target="_blank"
-                                            className="truncate"
-                                        >
-                                            {lastPageviewEvent?.properties['$current_url']}
-                                        </Link>
-                                    </Tooltip>
-                                    <span className="flex items-center">
-                                        <CopyToClipboardInline
-                                            description="current url"
-                                            explicitValue={lastPageviewEvent?.properties['$current_url']}
-                                            iconStyle={{ color: 'var(--muted-alt)' }}
-                                        />
+                            {lastPageviewEvent?.properties?.['$current_url'] && (
+                                <span className="flex items-center gap-2 truncate">
+                                    <span>·</span>
+                                    <span className="flex items-center gap-1 truncate">
+                                        <Tooltip title="Click to open url">
+                                            <Link
+                                                to={lastPageviewEvent?.properties['$current_url']}
+                                                target="_blank"
+                                                className="truncate"
+                                            >
+                                                {lastPageviewEvent?.properties['$current_url']}
+                                            </Link>
+                                        </Tooltip>
+                                        <span className="flex items-center">
+                                            <CopyToClipboardInline
+                                                description="current url"
+                                                explicitValue={lastPageviewEvent?.properties['$current_url']}
+                                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                            />
+                                        </span>
                                     </span>
                                 </span>
-                            </span>
-                        )}
-                        {lastPageviewEvent?.properties?.['$screen_name'] && (
-                            <span className="flex items-center gap-2 truncate">
-                                <span>·</span>
-                                <span className="flex items-center gap-1 truncate">
-                                    {lastPageviewEvent?.properties['$screen_name']}
+                            )}
+                            {lastPageviewEvent?.properties?.['$screen_name'] && (
+                                <span className="flex items-center gap-2 truncate">
+                                    <span>·</span>
+                                    <span className="flex items-center gap-1 truncate">
+                                        {lastPageviewEvent?.properties['$screen_name']}
+                                    </span>
                                 </span>
-                            </span>
-                        )}
-                    </>
-                )}
-                <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
-                {sessionPlayerMetaDataLoading ? (
-                    <LemonSkeleton className="w-1/3" />
-                ) : (
-                    <span className="text-muted-alt">
-                        {resolution && (
-                            <>
-                                Resolution: {resolution.width} x {resolution.height}{' '}
-                                {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
-                            </>
-                        )}
-                    </span>
-                )}
-            </div>
+                            )}
+                        </>
+                    )}
+                    <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
+                    {sessionPlayerMetaDataLoading ? (
+                        <LemonSkeleton className="w-1/3" />
+                    ) : (
+                        <span className="text-muted-alt">
+                            {resolution && (
+                                <>
+                                    Resolution: {resolution.width} x {resolution.height}{' '}
+                                    {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
+                                </>
+                            )}
+                        </span>
+                    )}
+                </div>
+            )}
         </div>
     )
 }

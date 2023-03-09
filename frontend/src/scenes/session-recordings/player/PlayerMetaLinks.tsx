@@ -1,18 +1,20 @@
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { useActions } from 'kea'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopover } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { AddToNotebook } from 'scenes/session-recordings/player/add-to-notebook/AddToNotebook'
+import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
-export function PlayerMetaLinks(props: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlayerMetaLinks(props: SessionRecordingPlayerProps): JSX.Element {
     const { sessionRecordingId } = props
     const logic = sessionRecordingPlayerLogic(props)
     const { setPause, deleteRecording } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const onShare = (): void => {
         setPause()
@@ -45,14 +47,13 @@ export function PlayerMetaLinks(props: SessionRecordingPlayerLogicProps): JSX.El
 
             <PlaylistPopover {...props} />
 
+            {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && <AddToNotebook {...props} />}
+
             {props.playerKey !== 'modal' && (
                 <LemonButton status="danger" onClick={onDelete} size="small">
                     <IconDelete className="text-lg" />
                 </LemonButton>
             )}
-            <LemonButton status="danger" onClick={onDelete} size="small">
-                <IconDelete className="text-lg" />
-            </LemonButton>
         </div>
     )
 }

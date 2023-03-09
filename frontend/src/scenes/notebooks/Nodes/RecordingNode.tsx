@@ -13,7 +13,7 @@ const Component = (props: ComponentProps): JSX.Element => {
         <NodeWrapper className={NodeType.Recording}>
             <div className="aspect-square">
                 <SessionRecordingPlayer
-                    noBorder
+                    embedded
                     sessionRecordingId={props.node.attrs.sessionRecordingId}
                     playerKey={`notebook-${props.node.attrs.sessionRecordingId}`}
                 />

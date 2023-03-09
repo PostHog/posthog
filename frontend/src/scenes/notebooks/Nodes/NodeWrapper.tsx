@@ -11,7 +11,7 @@ export function NodeWrapper({ className, children }: NodeWrapperProps): JSX.Elem
     return (
         <NodeViewWrapper
             as="div"
-            className={clsx(className, 'border bg-white p-2 rounded-lg mb-2 overflow-y-auto')}
+            className={clsx(className, 'border bg-white rounded-lg mb-2 overflow-y-auto')}
             data-drag-handle
         >
             {children}
