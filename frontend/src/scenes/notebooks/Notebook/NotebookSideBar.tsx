@@ -1,11 +1,11 @@
-import { useActions, useValues } from 'kea'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { useValues } from 'kea'
 import clsx from 'clsx'
 import './NotebookSideBar.scss'
 import { Notebook } from './Notebook'
+import { notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
 
 export function NotebookSideBar(): JSX.Element {
-    const { isNotebookSideBarShown } = useValues(navigationLogic)
+    const { isNotebookSideBarShown } = useValues(notebookSidebarLogic)
 
     return (
         <div className={clsx('NotebookSidebar', isNotebookSideBarShown && 'NotebookSidebar--show')}>
