@@ -12,7 +12,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 export function NotificationBell(): JSX.Element {
-    const { unreadCount, hasNotifications, notifications, isNotificationPopoverOpen, hasUnread } =
+    const { unreadCount, hasImportantChanges, importantChanges, isNotificationPopoverOpen, hasUnread } =
         useValues(notificationsLogic)
     const { toggleNotificationsPopover, togglePolling } = useActions(notificationsLogic)
 
@@ -40,8 +40,8 @@ export function NotificationBell(): JSX.Element {
                         be here!
                     </p>
                     <LemonDivider />
-                    {hasNotifications ? (
-                        notifications.map((logItem, index) => (
+                    {hasImportantChanges ? (
+                        importantChanges.map((logItem, index) => (
                             <ActivityLogRow logItem={logItem} key={index} showExtendedDescription={false} />
                         ))
                     ) : (

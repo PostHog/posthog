@@ -67,9 +67,8 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         self.client.force_login(self.user)
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
         assert changes.status_code == status.HTTP_200_OK
-        results = changes.json()["results"]
-        assert len(results) == 10
-        assert [c["scope"] for c in results] == [
+        assert len(changes.json()) == 10
+        assert [c["scope"] for c in changes.json()] == [
             "FeatureFlag",
             "FeatureFlag",
             "Insight",
@@ -81,7 +80,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             "Insight",
             "Insight",
         ]
-        assert [c["unread"] for c in results] == [True] * 10
+        assert [c["unread"] for c in changes.json()] == [True] * 10
 
     def test_reading_notifications_marks_them_unread(self):
         # user one has created 10 insights and 2 flags
@@ -90,7 +89,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
         assert changes.status_code == status.HTTP_200_OK
 
-        most_recent_date = changes.json()["results"][2]["created_at"]
+        most_recent_date = changes.json()[2]["created_at"]
 
         # the user can mark where they have read up to
         bookmark_response = self.client.post(
@@ -100,8 +99,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
 
-        assert [c["unread"] for c in changes.json()["results"]] == [True, True] + ([False] * 8)
-        assert changes.json()["last_read"] == most_recent_date
+        assert [c["unread"] for c in changes.json()] == [True, True] + ([False] * 8)
 
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
