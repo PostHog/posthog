@@ -49,7 +49,7 @@ import Typography from 'antd/lib/typography'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { NotebookSideBar } from 'lib/components/Notebook/NotebookSideBar'
+import { NotebookSideBar } from '~/scenes/notebooks/Notebook/NotebookSideBar'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)

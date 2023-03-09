@@ -1,0 +1,9 @@
+.Notebook {
+    p {
+        margin-bottom: auto;
+    }
+
+    &.ProseMirror-focused {
+        outline: none;
+    }
+}
