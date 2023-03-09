@@ -4,8 +4,8 @@ import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { AvailableFeature, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
-import { billingV2Logic } from './billingV2Logic'
+import { AvailableFeature, BillingProductType, BillingFeatureType, BillingPlanType } from '~/types'
+import { billingLogic } from './billingLogic'
 import './PlanTable.scss'
 
 export function PlanIcon({
@@ -13,7 +13,7 @@ export function PlanIcon({
     className,
     timeDenominator,
 }: {
-    feature?: BillingV2FeatureType
+    feature?: BillingFeatureType
     className?: string
     timeDenominator?: string
 }): JSX.Element {
@@ -42,7 +42,7 @@ export function PlanIcon({
     )
 }
 
-const getPlanBasePrice = (plan: BillingV2PlanType): number | string => {
+const getPlanBasePrice = (plan: BillingPlanType): number | string => {
     const basePlan = plan.products.find((product) => product.type === 'enterprise' || product.type === 'base')
     if (basePlan?.unit_amount_usd) {
         return `$${parseInt(basePlan.unit_amount_usd)}/mo`
@@ -61,7 +61,7 @@ const convertLargeNumberToWords = (
     // Whether we will be showing multiple tiers (to denote the first tier with 'first')
     multipleTiers: boolean = false,
     // The product type (to denote the unit)
-    productType: BillingProductV2Type['type'] | null = null
+    productType: BillingProductType['type'] | null = null
 ): string => {
     if (num === null && previousNum) {
         return `${convertLargeNumberToWords(previousNum, null)} +`
@@ -85,7 +85,7 @@ const convertLargeNumberToWords = (
     }`
 }
 
-const getProductTiers = (plan: BillingV2PlanType, productType: BillingProductV2Type['type']): JSX.Element => {
+const getProductTiers = (plan: BillingPlanType, productType: BillingProductType['type']): JSX.Element => {
     const product = plan.products.find((planProduct) => planProduct.type === productType)
     const tiers = product?.tiers
     return (
@@ -122,7 +122,7 @@ const getProductTiers = (plan: BillingV2PlanType, productType: BillingProductV2T
 }
 
 export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Element {
-    const { billing } = useValues(billingV2Logic)
+    const { billing } = useValues(billingLogic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
     const excludedFeatures: string[] = [AvailableFeature.DASHBOARD_COLLABORATION]
@@ -244,7 +244,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                                   </td>
                                               ))}
                                       </tr>
-                                      {feature_group.features.map((feature: BillingV2FeatureType, j: number) => {
+                                      {feature_group.features.map((feature: BillingFeatureType, j: number) => {
                                           return excludedFeatures.includes(feature.key) ? (
                                               <></>
                                           ) : (

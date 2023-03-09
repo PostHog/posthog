@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
+import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { Breadcrumbs } from './Breadcrumbs/Breadcrumbs'
@@ -18,7 +18,7 @@ export function Navigation({ children }: { children: any }): JSX.Element {
                 <div className={clsx('main-app-content', sceneConfig?.plain && 'main-app-content--plain')}>
                     {!sceneConfig?.plain && (
                         <>
-                            <BillingAlertsV2 />
+                            <BillingAlerts />
                             {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
                             <Breadcrumbs />
                         </>

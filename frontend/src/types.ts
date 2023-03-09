@@ -1031,31 +1031,7 @@ export interface PerformanceEvent {
     total_blocking_time?: number // https://web.dev/tbt/
 }
 
-export interface CurrentBillCycleType {
-    current_period_start: number
-    current_period_end: number
-}
-
-export interface BillingType {
-    should_setup_billing: boolean
-    is_billing_active: boolean
-    plan: PlanInterface | null
-    billing_period_ends: string | null
-    event_allocation: number | null
-    current_usage: number | null
-    subscription_url: string
-    current_bill_amount: number | null
-    current_bill_usage: number | null
-    should_display_current_bill: boolean
-    billing_limit: number | null
-    billing_limit_exceeded: boolean | null
-    current_bill_cycle: CurrentBillCycleType | null
-    tiers: BillingTierType[] | null
-}
-
-export type BillingVersion = 'v1' | 'v2'
-
-export interface BillingV2FeatureType {
+export interface BillingFeatureType {
     key: string
     name: string
     description?: string
@@ -1065,20 +1041,20 @@ export interface BillingV2FeatureType {
     group?: AvailableFeature
 }
 
-export interface BillingV2TierType {
+export interface BillingTierType {
     unit_amount_usd: string
     current_amount_usd?: string | null
     up_to: number | null
 }
 
-export interface BillingProductV2Type {
+export interface BillingProductType {
     type: 'events' | 'recordings' | 'enterprise' | 'base'
     name: string
     description?: string
     price_description?: string
     image_url?: string
     free_allocation?: number
-    tiers?: BillingV2TierType[]
+    tiers?: BillingTierType[]
     tiered: boolean
     current_usage?: number
     projected_usage?: number
@@ -1089,11 +1065,11 @@ export interface BillingProductV2Type {
     feature_groups: {
         group: string
         name: string
-        features: BillingV2FeatureType[]
+        features: BillingFeatureType[]
     }[]
 }
 
-export interface BillingV2Type {
+export interface BillingType {
     customer_id: string
     has_active_subscription: boolean
     free_trial_until?: Dayjs
@@ -1101,8 +1077,8 @@ export interface BillingV2Type {
     deactivated?: boolean
     current_total_amount_usd?: string
     current_total_amount_usd_after_discount?: string
-    products: BillingProductV2Type[]
-    products_enterprise?: BillingProductV2Type[]
+    products: BillingProductType[]
+    products_enterprise?: BillingProductType[]
 
     custom_limits_usd?: {
         [key: string]: string | null | undefined
@@ -1110,41 +1086,22 @@ export interface BillingV2Type {
     billing_period?: {
         current_period_start: Dayjs
         current_period_end: Dayjs
-        interval: 'month' | 'year'
+        interval: string
     }
     license?: {
         plan: LicensePlan
     }
-    available_plans?: BillingV2PlanType[]
+    available_plans?: BillingPlanType[]
     discount_percent?: number
     discount_amount_usd?: string
 }
 
-export interface BillingV2PlanType {
+export interface BillingPlanType {
     key: string
     name: string
     description: string
     is_free?: boolean
-    products: BillingProductV2Type[]
-}
-
-export interface BillingTierType {
-    name: string
-    price_per_event: number
-    number_of_events: number
-    subtotal: number
-    running_total: number
-}
-
-export interface PlanInterface {
-    key: string
-    name: string
-    custom_setup_billing_message: string
-    image_url: string
-    self_serve: boolean
-    is_metered_billing: boolean
-    event_allowance: number
-    price_string: string
+    products: BillingProductType[]
 }
 
 // Creating a nominal type: https://github.com/microsoft/TypeScript/issues/202#issuecomment-961853101

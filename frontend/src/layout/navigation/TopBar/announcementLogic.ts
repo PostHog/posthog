@@ -34,7 +34,7 @@ export const announcementLogic = kea<announcementLogicType>([
             navigationLogic,
             ['asyncMigrationsOk'],
             billingLogic,
-            ['alertToShow'],
+            ['billingAlert'],
         ],
     }),
     actions({
@@ -74,7 +74,7 @@ export const announcementLogic = kea<announcementLogicType>([
                 s.closable,
                 s.closed,
                 s.persistedClosedAnnouncements,
-                s.alertToShow,
+                s.billingAlert,
             ],
             (
                 { pathname },
@@ -82,13 +82,13 @@ export const announcementLogic = kea<announcementLogicType>([
                 closable,
                 closed,
                 persistedClosedAnnouncements,
-                alertToShow
+                billingAlert
             ): AnnouncementType | null => {
                 if (
                     (closable &&
                         (closed ||
                             (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))) || // hide if already closed
-                    alertToShow || // hide if there is a billing alert
+                    billingAlert || // hide if there is a billing alert
                     pathname == urls.ingestion() // hide during the ingestion phase
                 ) {
                     return null

@@ -634,7 +634,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
             actions.setSidebarSteps(Object.values(steps))
         },
         billing: (billing: BillingType) => {
-            if (billing?.plan && values.showBilling) {
+            if (billing?.has_active_subscription && values.showBilling) {
                 actions.setCurrentStep(INGESTION_STEPS.DONE)
             }
         },

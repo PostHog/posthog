@@ -295,21 +295,6 @@
                     "analyzeModalOpen": false,
                     "analyzeQuery": ""
                 }
-            },
-            "Licenses": {
-                "licenseLogic": {
-                    "licenses": [
-                        {
-                            "id": 1,
-                            "key": "123",
-                            "plan": "enterprise",
-                            "valid_until": "2022-11-19T05:33:55.999116Z",
-                            "created_at": "2021-11-19T05:33:56.018147Z"
-                        }
-                    ],
-                    "licensesLoading": false,
-                    "error": null
-                }
             }
         },
         "organization": {

@@ -43,7 +43,6 @@ export enum Scene {
     MySettings = 'MySettings',
     Annotations = 'Annotations',
     Billing = 'Billing',
-    BillingSubscribed = 'BillingSubscribed',
     Plugins = 'Plugins',
     FrontendAppScene = 'FrontendAppScene',
     AppMetrics = 'AppMetrics',

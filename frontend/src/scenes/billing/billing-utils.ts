@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { BillingV2TierType, BillingV2Type } from '~/types'
+import { BillingTierType, BillingType } from '~/types'
 
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
@@ -13,10 +13,7 @@ export const summarizeUsage = (usage: number | null): string => {
     }
 }
 
-export const projectUsage = (
-    usage: number | undefined,
-    period: BillingV2Type['billing_period']
-): number | undefined => {
+export const projectUsage = (usage: number | undefined, period: BillingType['billing_period']): number | undefined => {
     if (typeof usage === 'undefined') {
         return usage
     }
@@ -35,13 +32,13 @@ export const projectUsage = (
     return Math.round((usage / timeSoFar) * timeTotal)
 }
 
-export const convertUsageToAmount = (usage: number, tiers: BillingV2TierType[]): string => {
+export const convertUsageToAmount = (usage: number, tiers: BillingTierType[]): string => {
     if (!tiers) {
         return ''
     }
     let remainingUsage = usage
     let amount = 0
-    let previousTier: BillingV2TierType | undefined = undefined
+    let previousTier: BillingTierType | undefined = undefined
 
     for (const tier of tiers) {
         if (remainingUsage <= 0) {
@@ -59,7 +56,7 @@ export const convertUsageToAmount = (usage: number, tiers: BillingV2TierType[]):
     return amount.toFixed(2)
 }
 
-export const convertAmountToUsage = (amount: string, tiers: BillingV2TierType[]): number => {
+export const convertAmountToUsage = (amount: string, tiers: BillingTierType[]): number => {
     if (!amount) {
         return 0
     }
@@ -69,7 +66,7 @@ export const convertAmountToUsage = (amount: string, tiers: BillingV2TierType[])
 
     let remainingAmount = parseFloat(amount)
     let usage = 0
-    let previousTier: BillingV2TierType | undefined = undefined
+    let previousTier: BillingTierType | undefined = undefined
 
     if (remainingAmount === 0) {
         if (parseFloat(tiers[0].unit_amount_usd) === 0) {

@@ -30,7 +30,6 @@ class LicenseError(exceptions.APIException):
 class LicenseManager(models.Manager):
     def first_valid(self) -> Optional["License"]:
         """Return the highest valid license."""
-        # KEEP IN SYNC WITH licenseLogic.selectors.relevantLicense FOR THE ACTIVE LICENSE
         valid_licenses = list(self.filter(valid_until__gte=timezone.now()))
         if not valid_licenses:
             return None
@@ -79,7 +78,7 @@ class License(models.Model):
         AvailableFeature.ROLE_BASED_ACCESS,
     ]
     PLANS = {SCALE_PLAN: SCALE_FEATURES, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
-    # The higher the plan, the higher its sorting value - sync with front-end licenseLogic
+    # The higher the plan, the higher its sorting value
     PLAN_TO_SORTING_VALUE = {SCALE_PLAN: 10, ENTERPRISE_PLAN: 20}
 
     @property
