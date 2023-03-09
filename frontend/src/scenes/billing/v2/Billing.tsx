@@ -581,7 +581,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             <div className="font-bold">Pricing breakdown</div>
 
                             <div className="flex justify-between py-2">
-                                <span>Per month</span>
+                                <span>Per {billing.billing_period?.interval}</span>
                                 <span className="font-bold">${product.unit_amount_usd}</span>
                             </div>
                         </div>
