@@ -133,50 +133,55 @@ export const notificationsLogic = kea<notificationsLogicType>([
         notifications: [
             (s) => [s.importantChanges],
             (importantChanges): HumanizedActivityLogItem[] => {
-                const importantChangesHumanized = humanize(importantChanges?.results || [], describerFor, true)
+                try {
+                    const importantChangesHumanized = humanize(importantChanges?.results || [], describerFor, true)
 
-                let changelogNotification: ChangelogFlagPayload | null = null
-                const flagPayload = posthog.getFeatureFlagPayload('changelog-notification')
-                if (!!flagPayload) {
-                    changelogNotification = {
-                        markdown: flagPayload['markdown'],
-                        notificationDate: dayjs(flagPayload['notificationDate']),
-                    } as ChangelogFlagPayload
-                }
-
-                if (changelogNotification) {
-                    const lastRead = importantChanges?.last_read ? dayjs(importantChanges.last_read) : null
-                    const changeLogIsUnread =
-                        !!lastRead &&
-                        (lastRead.isBefore(changelogNotification.notificationDate) ||
-                            lastRead == changelogNotification.notificationDate)
-
-                    const changelogNotificationHumanized: HumanizedActivityLogItem = {
-                        email: 'joe@posthog.com',
-                        name: 'Joe',
-                        isSystem: true,
-                        description: (
-                            <>
-                                <ReactMarkdown linkTarget="_blank">{changelogNotification.markdown}</ReactMarkdown>
-                            </>
-                        ),
-                        created_at: changelogNotification.notificationDate,
-                        unread: changeLogIsUnread,
+                    let changelogNotification: ChangelogFlagPayload | null = null
+                    const flagPayload = posthog.getFeatureFlagPayload('changelog-notification')
+                    if (!!flagPayload) {
+                        changelogNotification = {
+                            markdown: flagPayload['markdown'],
+                            notificationDate: dayjs(flagPayload['notificationDate']),
+                        } as ChangelogFlagPayload
                     }
-                    const notifications = [changelogNotificationHumanized, ...importantChangesHumanized]
-                    notifications.sort((a, b) => {
-                        if (a.created_at.isBefore(b.created_at)) {
-                            return 1
-                        } else if (a.created_at.isAfter(b.created_at)) {
-                            return -1
-                        } else {
-                            return 0
-                        }
-                    })
-                    return notifications
-                }
 
-                return humanize(importantChanges?.results || [], describerFor, true)
+                    if (changelogNotification) {
+                        const lastRead = importantChanges?.last_read ? dayjs(importantChanges.last_read) : null
+                        const changeLogIsUnread =
+                            !!lastRead &&
+                            (lastRead.isBefore(changelogNotification.notificationDate) ||
+                                lastRead == changelogNotification.notificationDate)
+
+                        const changelogNotificationHumanized: HumanizedActivityLogItem = {
+                            email: 'joe@posthog.com',
+                            name: 'Joe',
+                            isSystem: true,
+                            description: (
+                                <>
+                                    <ReactMarkdown linkTarget="_blank">{changelogNotification.markdown}</ReactMarkdown>
+                                </>
+                            ),
+                            created_at: changelogNotification.notificationDate,
+                            unread: changeLogIsUnread,
+                        }
+                        const notifications = [changelogNotificationHumanized, ...importantChangesHumanized]
+                        notifications.sort((a, b) => {
+                            if (a.created_at.isBefore(b.created_at)) {
+                                return 1
+                            } else if (a.created_at.isAfter(b.created_at)) {
+                                return -1
+                            } else {
+                                return 0
+                            }
+                        })
+                        return notifications
+                    }
+
+                    return humanize(importantChanges?.results || [], describerFor, true)
+                } catch (e) {
+                    // swallow errors as this isn't user initiated
+                    return []
+                }
             },
         ],
         hasNotifications: [(s) => [s.notifications], (notifications) => !!notifications.length],
