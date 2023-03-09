@@ -298,6 +298,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         </Row>
                         <LemonDivider />
                         <FeatureFlagRollout />
+                        <LemonDivider />
+                        <FeatureFlagReleaseConditions />
+                        <LemonDivider />
                         {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
                             <>
                                 <LemonDivider />
@@ -329,8 +332,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Field>
                             </>
                         )}
-                        <LemonDivider />
-                        <FeatureFlagReleaseConditions />
                         <LemonDivider />
                         <div>
                             <LemonButton

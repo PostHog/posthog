@@ -18,7 +18,7 @@ export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Eleme
     )
 
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center">
             <LemonInput
                 type="search"
                 value={value}

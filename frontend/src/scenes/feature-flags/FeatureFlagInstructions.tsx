@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { Card, Row } from 'antd'
-import { IconFlag, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconFlag, IconInfo, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
     UTM_TAGS,
@@ -23,9 +23,15 @@ import {
 } from 'scenes/feature-flags/FeatureFlagSnippets'
 
 import './FeatureFlagInstructions.scss'
-import { JSPayloadSnippet, NodeJSPayloadSnippet } from 'scenes/feature-flags/FeatureFlagPayloadSnippets'
+import {
+    JSPayloadSnippet,
+    NodeJSPayloadSnippet,
+    PythonPayloadSnippet,
+    RubyPayloadSnippet,
+} from 'scenes/feature-flags/FeatureFlagPayloadSnippets'
 import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 import { FeatureFlagType } from '~/types'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 const DOC_BASE_URL = 'https://posthog.com/docs/'
 const FF_ANCHOR = '#feature-flags'
@@ -235,12 +241,18 @@ export function CodeInstructions({
 }): JSX.Element {
     const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
+    const [payloadOption, setPayloadOption] = useState(PAYLOAD_OPTIONS[0])
+    const [showPayloadCode, setShowPayloadCode] = useState(Object.keys(featureFlag?.filters.payloads || {}).length > 0)
 
     const selectOption = (selectedValue: string): void => {
         const option = options.find((option) => option.value === selectedValue)
+        const payloadOption = PAYLOAD_OPTIONS.find((payloadOption) => payloadOption.value === selectedValue)
 
         if (option) {
             setSelectedOption(option)
+        }
+        if (payloadOption) {
+            setPayloadOption(payloadOption)
         }
     }
     useEffect(() => {
@@ -285,6 +297,25 @@ export function CodeInstructions({
                             }}
                             value={selectedOption.value}
                         />
+                        {PAYLOAD_OPTIONS.map((payloadOption) => payloadOption.value).includes(selectedOption.value) && (
+                            <div className="flex items-center gap-1">
+                                <LemonCheckbox
+                                    label="Show payload option"
+                                    onChange={() => setShowPayloadCode(!showPayloadCode)}
+                                />
+                                <Tooltip
+                                    title={
+                                        <>
+                                            {`Feature flag payloads is only available in these libraries: ${PAYLOAD_OPTIONS.map(
+                                                (payloadOption) => payloadOption.value
+                                            )}`}
+                                        </>
+                                    }
+                                >
+                                    <IconInfo className="text-xl text-muted-alt shrink-0" />
+                                </Tooltip>
+                            </div>
+                        )}
                         {!featureFlag?.ensure_experience_continuity && (
                             <>
                                 {selectedOption.type === LibraryType.Server && (
@@ -301,6 +332,8 @@ export function CodeInstructions({
                             data-attr="feature-flag-instructions-snippet"
                             flagKey={featureFlagKey}
                         />
+                        {showPayloadCode && <payloadOption.Snippet flagKey={featureFlagKey} />}
+                        <FeatureFlagInstructionsFooter documentationLink={selectedOption.documentationLink} />
                     </div>
                 </div>
             ) : (
@@ -388,6 +421,18 @@ const PAYLOAD_OPTIONS: InstructionOption[] = [
         value: 'Node.js',
         documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${FF_ANCHOR}`,
         Snippet: NodeJSPayloadSnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'Python',
+        documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${FF_ANCHOR}`,
+        Snippet: PythonPayloadSnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'Ruby',
+        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${FF_ANCHOR}`,
+        Snippet: RubyPayloadSnippet,
         type: LibraryType.Server,
     },
 ]
