@@ -304,8 +304,6 @@ export class PersonState {
             }
         } catch (e) {
             console.error('handleIdentifyOrAlias failed', e, this.event)
-
-            throw e
         } finally {
             clearTimeout(timeout)
         }

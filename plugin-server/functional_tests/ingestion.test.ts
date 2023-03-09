@@ -401,6 +401,46 @@ test.concurrent(`event ingestion: initial login flow keeps the same person_id`, 
     }, 10000)
 })
 
+test.concurrent(`events still ingested even if merge fails`, async () => {
+    const teamId = await createTeam(organizationId)
+    const illegalDistinctId = '0'
+    const secondDistinctId = new UUIDT().toString()
+
+    // First we emit anoymous events and wait for the persons to be created.
+    await capture({ teamId, distinctId: illegalDistinctId, uuid: new UUIDT().toString(), event: 'custom event' })
+    await capture({ teamId, distinctId: secondDistinctId, uuid: new UUIDT().toString(), event: 'custom event 2' })
+
+    await waitForExpect(async () => {
+        const persons = await fetchPersons(teamId)
+        expect(persons.length).toBe(2)
+    }, 10000)
+
+    // Then we merge 1-2
+    await capture({
+        teamId,
+        distinctId: illegalDistinctId,
+        uuid: new UUIDT().toString(),
+        event: '$merge_dangerously',
+        properties: {
+            distinct_id: secondDistinctId,
+            $anon_distinct_id: secondDistinctId,
+        },
+    })
+
+    await waitForExpect(async () => {
+        const events = await fetchEvents(teamId)
+        expect(events.length).toBe(3)
+    }, 10000)
+
+    await waitForExpect(async () => {
+        const events = await fetchEvents(teamId)
+        expect(events.length).toBe(3)
+        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
+        expect(new Set(events.map((event) => event.person_id)).size).toBe(2)
+    }, 20000)
+})
+
 const testIfPoEEmbraceJoinEnabled =
     process.env.POE_EMBRACE_JOIN_FOR_TEAMS === '*' ? test.concurrent : test.concurrent.skip
 testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the same person id`, async () => {
