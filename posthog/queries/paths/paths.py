@@ -12,6 +12,7 @@ from posthog.models.property import PropertyName
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.paths.paths_event_query import PathEventQuery
 from posthog.queries.paths.sql import PATH_ARRAY_QUERY
+from posthog.queries.util import correct_result_for_sampling
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
@@ -79,7 +80,17 @@ class Paths:
 
         resp = []
         for res in results:
-            resp.append({"source": res[0], "target": res[1], "value": res[2], "average_conversion_time": res[3]})
+            resp.append(
+                {
+                    "source": res[0],
+                    "target": res[1],
+                    "value": correct_result_for_sampling(
+                        res[2],
+                        self._filter.sampling_factor,
+                    ),
+                    "average_conversion_time": res[3],
+                }
+            )
         return resp
 
     def _exec_query(self) -> List[Tuple]:
