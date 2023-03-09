@@ -2183,7 +2183,6 @@ describe('person id overrides', () => {
     beforeEach(async () => {
         const organizationId = await createOrganization(hub.db.postgres)
         teamId = await createTeam(hub.db.postgres, organizationId)
-        // jest.useFakeTimers({ advanceTimers: 50 })
     })
 
     afterEach(() => {
