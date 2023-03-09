@@ -2383,15 +2383,13 @@ describe('person id overrides', () => {
                 return await originalPostgresQuery(query, values, tag, ...args)
             })
 
-        await expect(
-            updatePersonStateFromEvent({
-                event: '$identify',
-                distinct_id: 'first',
-                properties: {
-                    $anon_distinct_id: 'second',
-                },
-            })
-        ).rejects.toThrow()
+        await updatePersonStateFromEvent({
+            event: '$identify',
+            distinct_id: 'first',
+            properties: {
+                $anon_distinct_id: 'second',
+            },
+        })
 
         // verify Postgres persons
         const personsAfterFailure = await fetchPostgresPersons()
@@ -2541,32 +2539,30 @@ describe('person id overrides', () => {
         // due to the mergefrom user being already identified
         // To create a chain we ideally want the merges to be A -> B -> C. Which person we
         // merge into is determined by the creation timestamps (merging into oldest)
-        await expect(
-            Promise.all([
-                updatePersonStateFromEvent(
-                    {
-                        event: '$identify',
-                        distinct_id: 'second',
-                        properties: {
-                            $anon_distinct_id: 'third',
-                        },
+        await Promise.all([
+            updatePersonStateFromEvent(
+                {
+                    event: '$identify',
+                    distinct_id: 'second',
+                    properties: {
+                        $anon_distinct_id: 'third',
                     },
-                    '',
-                    0
-                ),
-                updatePersonStateFromEvent(
-                    {
-                        event: '$identify',
-                        distinct_id: 'second',
-                        properties: {
-                            $anon_distinct_id: 'first',
-                        },
+                },
+                '',
+                0
+            ),
+            updatePersonStateFromEvent(
+                {
+                    event: '$identify',
+                    distinct_id: 'second',
+                    properties: {
+                        $anon_distinct_id: 'first',
                     },
-                    '',
-                    0
-                ),
-            ])
-        ).rejects.toThrow()
+                },
+                '',
+                0
+            ),
+        ])
 
         await Promise.all([
             updatePersonStateFromEvent({
