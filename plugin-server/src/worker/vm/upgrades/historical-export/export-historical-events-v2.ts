@@ -254,7 +254,9 @@ export function addHistoricalEventsExportCapabilityV2(
         }
 
         if (params.abortMessage) {
+            // For manually triggering the export to abort
             await stopExport(params, `Export aborted ${params.abortMessage}`, 'fail')
+            return
         }
 
         const { done, running } = (await meta.storage.get(EXPORT_COORDINATION_KEY, {})) as CoordinationPayload
@@ -401,6 +403,11 @@ export function addHistoricalEventsExportCapabilityV2(
         const activeExportParameters = await getExportParameters()
         if (activeExportParameters?.id != payload.exportId) {
             // This export has finished or has been stopped
+            return
+        }
+
+        if (activeExportParameters.abortMessage) {
+            // For manually triggering the export to abort
             return
         }
 
