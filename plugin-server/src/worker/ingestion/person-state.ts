@@ -649,6 +649,11 @@ export class PersonState {
             This mapping is used to enable an exclusion constraint in the personoverrides table, which
             requires int[], while avoiding any constraints on "hotter" tables, like person.
          **/
+
+        // ON CONFLICT nothing is returned, so we get the id in the second SELECT statement below.
+        // Fear not, the constraints on personoverride will handle any inconsistencies.
+        // This mapping table is really nothing more than a mapping to support exclusion constraints
+        // as we map int ids to UUIDs (the latter not supported in exclusion contraints).
         const {
             rows: [{ id }],
         } = await this.db.postgresQuery(
@@ -666,9 +671,6 @@ export class PersonState {
                 )
                 SELECT * FROM insert_id
                 UNION ALL
-                -- ON CONFLICT nothing is returned, so we get the id here.
-                -- Fear not, the constraints on personoverride will handle any inconsistencies.
-                -- This helper table is really nothing more than a mapping.
                 SELECT id
                 FROM posthog_personoverridemapping
                 WHERE uuid = '${person.uuid}'
