@@ -372,12 +372,16 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
 
         it('stops export if abortMessage is set', async () => {
-            await storage().set(EXPORT_PARAMETERS_KEY, { ...exportParams, abortMessage: 'test aborting' })
+            await storage().set(EXPORT_PARAMETERS_KEY, { ...exportParams, abortMessage: 'test ABORT' })
 
             await exportHistoricalEvents(defaultPayload)
 
             expect(fetchEventsForInterval).not.toHaveBeenCalled()
-            expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
+            expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining('test ABORT'),
+                })
+            )
         })
 
         it('does nothing if a different export is running', async () => {
@@ -578,7 +582,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             it('handles export being completed', async () => {
                 await coordinateHistoricalExport({
                     hasChanges: false,
-                    exportIsDone: false,
+                    exportIsDone: true,
                     progress: 1,
                     done: [],
                     running: [],
@@ -619,6 +623,26 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                         message: expect.stringContaining('test aborting'),
                     })
                 )
+                expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
+
+                // verify second call also nothing happens
+                await coordinateHistoricalExport({
+                    hasChanges: true,
+                    exportIsDone: false,
+                    progress: 0.7553,
+                    done: [
+                        '2021-10-29T00:00:00.000Z',
+                        '2021-10-30T00:00:00.000Z',
+                        '2021-10-31T00:00:00.000Z',
+                    ] as ISOTimestamp[],
+                    running: ['2021-11-01T00:00:00.000Z'] as ISOTimestamp[],
+                    toStartRunning: [['2021-11-01T00:00:00.000Z', '2021-11-01T05:00:00.000Z']] as Array<
+                        [ISOTimestamp, ISOTimestamp]
+                    >,
+                    toResume: [],
+                })
+
+                expect(vm.meta.jobs.exportHistoricalEventsV2).not.toHaveBeenCalled()
                 expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
             })
         })

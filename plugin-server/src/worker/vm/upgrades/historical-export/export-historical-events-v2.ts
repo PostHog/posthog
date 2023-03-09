@@ -255,7 +255,7 @@ export function addHistoricalEventsExportCapabilityV2(
 
         if (params.abortMessage) {
             // For manually triggering the export to abort
-            await stopExport(params, `Export aborted ${params.abortMessage}`, 'fail')
+            await stopExport(params, `Export aborted: ${params.abortMessage}`, 'fail')
             return
         }
 
@@ -408,6 +408,9 @@ export function addHistoricalEventsExportCapabilityV2(
 
         if (activeExportParameters.abortMessage) {
             // For manually triggering the export to abort
+            createLog(`Export manually aborted ${activeExportParameters.abortMessage}`, {
+                type: PluginLogEntryType.Info,
+            })
             return
         }
 
