@@ -163,6 +163,52 @@ def join_with_persons_table(from_table: str, to_table: str, requested_fields: Di
     )
 
 
+class PostgresPersonsTable(Table):
+    id: IntegerDatabaseField = IntegerDatabaseField(name="id")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
+    is_identified: BooleanDatabaseField = BooleanDatabaseField(name="is_identified")
+    uuid: StringDatabaseField = StringDatabaseField(name="uuid")
+    # properties_last_updated_at: StringJSONDatabaseField = StringJSONDatabaseField(name="properties_last_updated_at")
+    # properties_last_operation: StringJSONDatabaseField = StringJSONDatabaseField(name="properties_last_operation")
+    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
+
+    def clickhouse_table(self):
+        return "postgres_persons"
+
+    def hogql_table(self):
+        return "postgres_persons"
+
+
+def join_with_postgres_persons_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+    from posthog.hogql import ast
+
+    if not requested_fields:
+        raise ValueError("No fields requested from persons table. Why are we joining it?")
+
+    # contains the list of fields we will select from this table
+    fields_to_select: List[ast.Expr] = []
+    fields_to_select.append(ast.Alias(alias="uuid", expr=ast.Field(chain=["postgres_persons", "uuid"])))
+
+    for field, expr in requested_fields.items():
+        fields_to_select.append(ast.Alias(alias=field, expr=expr))
+
+    return ast.JoinExpr(
+        join_type="INNER JOIN",
+        table=ast.SelectQuery(
+            select=fields_to_select,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["postgres_persons"])),
+        ),
+        alias=to_table,
+        constraint=ast.CompareOperation(
+            op=ast.CompareOperationType.Eq,
+            left=ast.Field(chain=[from_table, "person_id"]),
+            right=ast.Field(chain=[to_table, "uuid"]),
+        ),
+    )
+
+
 class PersonDistinctIdTable(Table):
     team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
     distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
@@ -171,6 +217,9 @@ class PersonDistinctIdTable(Table):
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
 
     person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
+    postgres_person: LazyTable = LazyTable(
+        from_field="person_id", table=PostgresPersonsTable(), join_function=join_with_postgres_persons_table
+    )
 
     def avoid_asterisk_fields(self):
         return ["is_deleted", "version"]
@@ -278,6 +327,23 @@ class SessionRecordingEvents(Table):
         return "session_recording_events"
 
 
+class ActivityLog(Table):
+    # id: StringDatabaseField = StringDatabaseField(name="id")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    activity: StringDatabaseField = StringDatabaseField(name="activity")
+    item_id: IntegerDatabaseField = IntegerDatabaseField(name="item_id")
+    scope: StringDatabaseField = StringDatabaseField(name="scope")
+    detail: StringJSONDatabaseField = StringJSONDatabaseField(name="detail")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    user_id: IntegerDatabaseField = IntegerDatabaseField(name="user_id")
+
+    def clickhouse_table(self):
+        return "activity_log"
+
+    def hogql_table(self):
+        return "activity_log"
+
+
 class Database(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -287,6 +353,8 @@ class Database(BaseModel):
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
+    postgres_persons: PostgresPersonsTable = PostgresPersonsTable()
+    activity_log: ActivityLog = ActivityLog()
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
