@@ -7,8 +7,9 @@ import { PlaylistPopover } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { AddToNotebook } from 'scenes/session-recordings/player/add-to-notebook/AddToNotebook'
 import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
+import { NodeType } from 'scenes/notebooks/Nodes/types'
 
 export function PlayerMetaLinks(props: SessionRecordingPlayerProps): JSX.Element {
     const { sessionRecordingId } = props
@@ -47,7 +48,9 @@ export function PlayerMetaLinks(props: SessionRecordingPlayerProps): JSX.Element
 
             <PlaylistPopover {...props} />
 
-            {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && <AddToNotebook {...props} />}
+            {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
+                <AddToNotebook node={NodeType.Recording} properties={{ ...props }} />
+            )}
 
             {props.playerKey !== 'modal' && (
                 <LemonButton status="danger" onClick={onDelete} size="small">
