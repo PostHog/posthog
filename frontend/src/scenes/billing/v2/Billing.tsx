@@ -560,7 +560,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                     >
                                         <span>
                                             {i === 0
-                                                ? `First ${summarizeUsage(tier.up_to)} ${productType.plural} / mo`
+                                                ? `First ${summarizeUsage(tier.up_to)} ${productType.plural} / ${
+                                                      billing?.billing_period?.interval == 'month' ? 'mo' : 'yr'
+                                                  }`
                                                 : tier.up_to
                                                 ? `${summarizeUsage(
                                                       product.tiers?.[i - 1].up_to || null
