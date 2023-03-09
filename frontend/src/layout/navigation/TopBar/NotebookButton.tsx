@@ -1,10 +1,10 @@
 import { IconJournal } from 'lib/lemon-ui/icons'
 import { useActions, useValues } from 'kea'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
 
 export function NotebookButton(): JSX.Element {
-    const { mobileLayout } = useValues(navigationLogic)
-    const { toggleNotebookSideBarBase, toggleNotebookSideBarMobile } = useActions(navigationLogic)
+    const { mobileLayout } = useValues(notebookSidebarLogic)
+    const { toggleNotebookSideBarBase, toggleNotebookSideBarMobile } = useActions(notebookSidebarLogic)
 
     return (
         <div

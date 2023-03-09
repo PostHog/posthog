@@ -1,13 +1,13 @@
 import { useValues } from 'kea'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import clsx from 'clsx'
 import './NotebookSideBar.scss'
 import { Notebook } from './Notebook'
+import { notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconFullScreen, IconChevronRight } from 'lib/lemon-ui/icons'
 
 export function NotebookSideBar(): JSX.Element {
-    const { isNotebookSideBarShown } = useValues(navigationLogic)
+    const { isNotebookSideBarShown } = useValues(notebookSidebarLogic)
 
     return (
         <div className={clsx('NotebookSidebar', isNotebookSideBarShown && 'NotebookSidebar--show')}>

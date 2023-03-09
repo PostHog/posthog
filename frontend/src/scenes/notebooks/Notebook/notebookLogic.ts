@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { NodeType } from 'scenes/notebooks/Nodes/types'
 
 import type { notebookLogicType } from './notebookLogicType'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
 
 const START_CONTENT = `
 <h2>Introducing Notebook!</h2>
@@ -16,7 +16,7 @@ export const notebookLogic = kea<notebookLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookLogic']),
     key(() => 'global'),
     connect(() => ({
-        actions: [navigationLogic, ['showNotebookSideBarBase']],
+        actions: [notebookSidebarLogic, ['showNotebookSideBarBase']],
     })),
     actions({
         addNodeToNotebook: (type: NodeType, props: Record<string, any>) => ({ type, props }),
