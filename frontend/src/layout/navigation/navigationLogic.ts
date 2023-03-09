@@ -41,6 +41,8 @@ export const navigationLogic = kea<navigationLogicType>({
         hideSideBarMobile: true,
         toggleNotebookSideBarBase: (override?: boolean) => ({ override }), // Only use the override for testing
         toggleNotebookSideBarMobile: (override?: boolean) => ({ override }), // Only use the override for testing
+        showNotebookSideBarBase: true,
+        hideNotebookSideBarBase: true,
         hideNotebookSideBarMobile: true,
         openSitePopover: true,
         closeSitePopover: true,
@@ -75,9 +77,11 @@ export const navigationLogic = kea<navigationLogicType>({
         ],
         // Non-mobile base
         isNotebookSideBarShownBase: [
-            true,
+            false,
             { persist: true },
             {
+                showNotebookSideBarBase: () => true,
+                hideNotebookSideBarBase: () => false,
                 toggleNotebookSideBarBase: (state, { override }) => override ?? !state,
             },
         ],

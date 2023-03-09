@@ -1,21 +1,23 @@
-import { mergeAttributes, Node } from '@tiptap/core'
+import { mergeAttributes, Node, NodeViewRendererProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { NodeType } from 'scenes/notebooks/Nodes/types'
 
-const COMPONENT_CLASS_NAME = 'ph-recording'
-
-interface ComponentProps {
+interface ComponentProps extends NodeViewRendererProps {
     sessionRecordingId: string
 }
 
-const Component = ({ sessionRecordingId }: ComponentProps): JSX.Element => {
+const Component = (props: ComponentProps): JSX.Element => {
     return (
-        <NodeWrapper className={COMPONENT_CLASS_NAME}>
-            <SessionRecordingPlayer
-                sessionRecordingId={sessionRecordingId}
-                playerKey={`notebook-${sessionRecordingId}`}
-            />
+        <NodeWrapper className={NodeType.Recording}>
+            <div className="aspect-square">
+                <SessionRecordingPlayer
+                    noBorder
+                    sessionRecordingId={props.node.attrs.sessionRecordingId}
+                    playerKey={`notebook-${props.node.attrs.sessionRecordingId}`}
+                />
+            </div>
         </NodeWrapper>
     )
 }
@@ -28,8 +30,8 @@ export const RecordingNode = Node.create({
 
     addAttributes() {
         return {
-            count: {
-                default: 0,
+            sessionRecordingId: {
+                default: null,
             },
         }
     },
@@ -37,13 +39,13 @@ export const RecordingNode = Node.create({
     parseHTML() {
         return [
             {
-                tag: COMPONENT_CLASS_NAME,
+                tag: NodeType.Recording,
             },
         ]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return [COMPONENT_CLASS_NAME, mergeAttributes(HTMLAttributes)]
+        return [NodeType.Recording, mergeAttributes(HTMLAttributes)]
     },
 
     addNodeView() {
