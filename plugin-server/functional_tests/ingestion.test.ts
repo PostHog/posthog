@@ -404,26 +404,26 @@ test.concurrent(`event ingestion: initial login flow keeps the same person_id`, 
 test.concurrent(`events still ingested even if merge fails`, async () => {
     const teamId = await createTeam(organizationId)
     const illegalDistinctId = '0'
-    const secondDistinctId = new UUIDT().toString()
+    const distinctId = new UUIDT().toString()
 
     // First we emit anoymous events and wait for the persons to be created.
     await capture({ teamId, distinctId: illegalDistinctId, uuid: new UUIDT().toString(), event: 'custom event' })
-    await capture({ teamId, distinctId: secondDistinctId, uuid: new UUIDT().toString(), event: 'custom event 2' })
+    await capture({ teamId, distinctId: distinctId, uuid: new UUIDT().toString(), event: 'custom event 2' })
 
     await waitForExpect(async () => {
         const persons = await fetchPersons(teamId)
         expect(persons.length).toBe(2)
     }, 10000)
 
-    // Then we merge 1-2
     await capture({
         teamId,
-        distinctId: illegalDistinctId,
+        distinctId: distinctId,
         uuid: new UUIDT().toString(),
         event: '$merge_dangerously',
         properties: {
-            distinct_id: secondDistinctId,
-            $anon_distinct_id: secondDistinctId,
+            distinct_id: distinctId,
+            alias: illegalDistinctId,
+            $set: { prop: 'value' },
         },
     })
 
@@ -438,7 +438,38 @@ test.concurrent(`events still ingested even if merge fails`, async () => {
         expect(events[0].person_id).toBeDefined()
         expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
         expect(new Set(events.map((event) => event.person_id)).size).toBe(2)
-    }, 20000)
+    }, 10000)
+})
+
+test.concurrent(`properties still $set even if merge fails`, async () => {
+    const teamId = await createTeam(organizationId)
+    const illegalDistinctId = '0'
+    const distinctId = new UUIDT().toString()
+
+    await capture({
+        teamId,
+        distinctId: distinctId,
+        uuid: new UUIDT().toString(),
+        event: '$merge_dangerously',
+        properties: {
+            distinct_id: distinctId,
+            alias: illegalDistinctId,
+            $set: { prop: 'value' },
+        },
+    })
+
+    const firstUuid = new UUIDT().toString()
+    await capture({ teamId, distinctId, uuid: firstUuid, event: 'custom event', properties: {} })
+    await waitForExpect(async () => {
+        const [event] = await fetchEvents(teamId, firstUuid)
+        expect(event).toEqual(
+            expect.objectContaining({
+                person_properties: expect.objectContaining({
+                    prop: 'value',
+                }),
+            })
+        )
+    })
 })
 
 const testIfPoEEmbraceJoinEnabled =
