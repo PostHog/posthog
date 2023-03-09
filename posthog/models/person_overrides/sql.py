@@ -160,7 +160,7 @@ GROUP BY
 
 # ClickHouse dictionaries allow us to JOIN events with their new override_person_ids (if any).
 PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
-    CREATE OR REPLACE DICTIONARY IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
+    CREATE DICTIONARY IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
         team_id INT,
         old_person_id UUID,

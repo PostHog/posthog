@@ -1,18 +1,21 @@
 import { mergeAttributes, Node } from '@tiptap/core'
-import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
+import { ReactNodeViewRenderer } from '@tiptap/react'
 import { BindLogic, useValues } from 'kea'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ItemMode } from '~/types'
+import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
+
+const COMPONENT_CLASS_NAME = 'ph-insight'
 
 const Component = (): JSX.Element => {
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
 
     return (
-        <NodeViewWrapper className="ph-insight">
+        <NodeWrapper className={COMPONENT_CLASS_NAME}>
             <BindLogic logic={insightLogic} props={insightProps}>
-                <div className="insights-container" data-attr="insight-view" data-drag-handle>
+                <div className="insights-container" data-attr="insight-view">
                     <InsightContainer
                         insightMode={ItemMode.Sharing}
                         disableCorrelationTable
@@ -22,7 +25,7 @@ const Component = (): JSX.Element => {
                     />
                 </div>
             </BindLogic>
-        </NodeViewWrapper>
+        </NodeWrapper>
     )
 }
 
@@ -43,13 +46,13 @@ export const InsightNode = Node.create({
     parseHTML() {
         return [
             {
-                tag: 'ph-insight',
+                tag: COMPONENT_CLASS_NAME,
             },
         ]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return ['ph-insight', mergeAttributes(HTMLAttributes)]
+        return [COMPONENT_CLASS_NAME, mergeAttributes(HTMLAttributes)]
     },
 
     addNodeView() {

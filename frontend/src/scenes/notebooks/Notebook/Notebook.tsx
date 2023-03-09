@@ -5,6 +5,7 @@ import { IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
 import { useEffect, useState } from 'react'
 import { InsightNode } from '../Nodes/InsightNode'
 import { QueryNode } from '../Nodes/QueryNode'
+import RecordingNode from 'scenes/notebooks/Nodes/RecordingNode'
 
 import './Notebook.scss'
 
@@ -13,12 +14,12 @@ const START_CONTENT = `
 <blockquote>This is experimental</blockquote>
 
 <ph-query />
-
+<ph-recording />
 `
 
 export function Notebook(): JSX.Element {
     const editor = useEditor({
-        extensions: [StarterKit, InsightNode, QueryNode],
+        extensions: [StarterKit, InsightNode, QueryNode, RecordingNode],
         content: START_CONTENT,
         editorProps: {
             attributes: {

@@ -420,14 +420,11 @@ class StickinessFilter(BaseModel):
     stickiness_days: Optional[float] = None
 
 
-class TimeToSeeDataSessionsQuery(BaseModel):
+class TimeToSeeDataSessionsQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
-    kind: str = Field("TimeToSeeDataSessionsQuery", const=True)
-    response: Optional[List[Dict[str, Any]]] = Field(None, description="Cached query response")
-    teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
+    results: List[Dict[str, Any]]
 
 
 class TrendsFilter(BaseModel):
@@ -591,6 +588,16 @@ class RetentionFilter(BaseModel):
     returning_entity: Optional[Dict[str, Any]] = None
     target_entity: Optional[Dict[str, Any]] = None
     total_intervals: Optional[float] = None
+
+
+class TimeToSeeDataSessionsQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
+    kind: str = Field("TimeToSeeDataSessionsQuery", const=True)
+    response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(None, description="Cached query response")
+    teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
 
 
 class EventsNode(BaseModel):
