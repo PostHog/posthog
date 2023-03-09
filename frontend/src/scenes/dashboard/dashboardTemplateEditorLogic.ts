@@ -112,7 +112,7 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
         isUsingDashboardTemplates: [
             (s) => [s.featureFlags],
             (featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
+                return !!featureFlags[FEATURE_FLAGS.TEMPLUKES]
             },
         ],
     }),

@@ -48,7 +48,7 @@ parso==0.8.1
 pexpect==4.7.0
 pickleshare==0.7.5
 Pillow==9.2.0
-posthoganalytics==2.1.2
+posthoganalytics==2.3.1
 psycopg2-binary==2.8.6
 pydantic==1.10.4
 pyjwt==2.4.0
@@ -73,5 +73,4 @@ whitenoise==5.2.0
 mimesis==5.2.1
 more-itertools==9.0.0
 django-two-factor-auth==1.14.0
-dj-2fa-social-auth==0.1.0
 phonenumberslite==8.13.6

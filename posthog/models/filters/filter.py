@@ -89,9 +89,9 @@ class Filter(
     SearchMixin,
     DistinctIdMixin,
     EmailMixin,
-    BaseFilter,
     ClientQueryIdMixin,
     SampleMixin,
+    BaseFilter,
 ):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.

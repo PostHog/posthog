@@ -221,6 +221,10 @@ class PropertyRef(Ref):
     name: str
     parent: FieldRef
 
+    # The property has been moved into a field we query from a joined subquery
+    joined_subquery: Optional[SelectQueryAliasRef]
+    joined_subquery_field_name: Optional[str]
+
     def get_child(self, name: str) -> "Ref":
         raise NotImplementedError("JSON property traversal is not yet supported")
 

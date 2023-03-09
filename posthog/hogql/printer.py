@@ -40,9 +40,9 @@ def print_ast(
     # modify the cloned tree as needed
     if dialect == "clickhouse":
         expand_asterisks(node)
-        resolve_lazy_tables(node, stack)
-        # TODO: add team_id checks (currently done in the printer)
+        resolve_lazy_tables(node, stack, context)
 
+    # _Printer also adds a team_id guard if printing clickhouse
     return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
 
 
@@ -403,6 +403,9 @@ class _Printer(Visitor):
         return field_sql
 
     def visit_property_ref(self, ref: ast.PropertyRef):
+        if ref.joined_subquery is not None and ref.joined_subquery_field_name is not None:
+            return f"{self._print_identifier(ref.joined_subquery.name)}.{self._print_identifier(ref.joined_subquery_field_name)}"
+
         field_ref = ref.parent
         field = field_ref.resolve_database_field()
 

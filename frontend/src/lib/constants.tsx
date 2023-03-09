@@ -118,7 +118,6 @@ export const FEATURE_FLAGS = {
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
-    BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     PERSON_ON_EVENTS_ENABLED: 'person-on-events-enabled', //owner: @EDsCODE
     REGION_SELECT: 'region-select', //owner: @kappa90
@@ -134,7 +133,6 @@ export const FEATURE_FLAGS = {
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
-    HOGQL_EXPRESSIONS: 'hogql_expressions', // owner @mariusandra
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
@@ -143,10 +141,10 @@ export const FEATURE_FLAGS = {
     REQUIRE_EMAIL_VERIFICATION: 'require-email-verification', // owner: @raquelmsmith
     DATA_EXPLORATION_QUERIES_ON_DASHBOARDS: 'data-exploration-queries-on-dashboards', // owner: @pauldambra
     SAMPLING: 'sampling', // owner: @yakkomajuri
-    DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra and @lharries
     TEMPLUKES: 'templukes', // owner: @pauldambra and @lharries
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
+    FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
