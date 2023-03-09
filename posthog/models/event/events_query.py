@@ -74,9 +74,9 @@ def run_events_query(
     where_input = query.where or []
     where_exprs = [parse_expr(expr) for expr in where_input]
     if query.properties:
-        where_exprs.extend(property_to_expr(property) for property in query.properties)
+        where_exprs.extend(property_to_expr(property, team) for property in query.properties)
     if query.fixedProperties:
-        where_exprs.extend(property_to_expr(property) for property in query.fixedProperties)
+        where_exprs.extend(property_to_expr(property, team) for property in query.fixedProperties)
     if query.event:
         where_exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=query.event)}))
     if query.actionId:
