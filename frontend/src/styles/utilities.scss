@@ -1021,3 +1021,15 @@ $decorations: underline, overline, line-through, no-underline;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     transition-duration: 150ms;
 }
+
+.aspect-auto {
+    aspect-ratio: auto;
+}
+
+.aspect-square {
+    aspect-ratio: 1 / 1;
+}
+
+.aspect-video {
+    aspect-ratio: 16 / 9;
+}

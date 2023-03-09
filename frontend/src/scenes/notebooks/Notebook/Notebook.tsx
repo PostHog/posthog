@@ -3,24 +3,18 @@ import { useEditor, EditorContent, FloatingMenu } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
 import { useEffect, useState } from 'react'
-import { InsightNode } from '../Nodes/InsightNode'
 import { QueryNode } from '../Nodes/QueryNode'
-import { RecordingNode } from 'scenes/notebooks/Nodes/RecordingNode'
-
-import './Notebook.scss'
-
-const START_CONTENT = `
-<h2>Introducing Notebook!</h2>
-<blockquote>This is experimental</blockquote>
-
-<ph-query />
-<ph-recording />
-`
+import InsightNode from 'scenes/notebooks/Nodes/InsightNode'
+import RecordingNode from 'scenes/notebooks/Nodes/RecordingNode'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { useValues } from 'kea'
 
 export function Notebook(): JSX.Element {
+    const { content } = useValues(notebookLogic)
+
     const editor = useEditor({
         extensions: [StarterKit, InsightNode, QueryNode, RecordingNode],
-        content: START_CONTENT,
+        content,
         editorProps: {
             attributes: {
                 class: 'Notebook prose h-full',

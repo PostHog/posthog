@@ -5,15 +5,14 @@ import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ItemMode } from '~/types'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-
-const COMPONENT_CLASS_NAME = 'ph-insight'
+import { NodeType } from 'scenes/notebooks/Nodes/types'
 
 const Component = (): JSX.Element => {
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
 
     return (
-        <NodeWrapper className={COMPONENT_CLASS_NAME}>
+        <NodeWrapper className={NodeType.Insight}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer
@@ -46,13 +45,13 @@ export const InsightNode = Node.create({
     parseHTML() {
         return [
             {
-                tag: COMPONENT_CLASS_NAME,
+                tag: NodeType.Insight,
             },
         ]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return [COMPONENT_CLASS_NAME, mergeAttributes(HTMLAttributes)]
+        return [NodeType.Insight, mergeAttributes(HTMLAttributes)]
     },
 
     addNodeView() {

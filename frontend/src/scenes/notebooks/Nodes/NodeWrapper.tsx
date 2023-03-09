@@ -9,7 +9,11 @@ export interface NodeWrapperProps {
 
 export function NodeWrapper({ className, children }: NodeWrapperProps): JSX.Element {
     return (
-        <NodeViewWrapper className={clsx(className, 'border bg-white p-2 rounded-lg')} data-drag-handle>
+        <NodeViewWrapper
+            as="div"
+            className={clsx(className, 'border bg-white p-2 rounded-lg mb-2 overflow-y-auto')}
+            data-drag-handle
+        >
             {children}
         </NodeViewWrapper>
     )
