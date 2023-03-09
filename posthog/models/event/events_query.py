@@ -155,14 +155,14 @@ def run_events_query(
     if "person" in select_input_raw and len(query_result.results) > 0:
         # Make a query into postgres to fetch person
         person_idx = select_input_raw.index("person")
-        distinct_ids = set(event[person_idx] for event in query_result.results)
-        persons = get_persons_by_distinct_ids(team.pk, list(distinct_ids))
+        distinct_ids = list(set(event[person_idx] for event in query_result.results))
+        persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
         persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         distinct_to_person: Dict[str, Person] = {}
         for person in persons:
             if person:
-                for distinct_id in person.distinct_ids:
-                    distinct_to_person[distinct_id] = person
+                for person_distinct_id in person.distinct_ids:
+                    distinct_to_person[person_distinct_id] = person
 
         # Loop over all columns in case there is more than one "person" column
         for column_index, column in enumerate(select_input_raw):
