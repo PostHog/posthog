@@ -8,12 +8,6 @@ from django.core import exceptions
 from django.db import transaction
 
 from posthog.client import query_with_columns, sync_execute
-from posthog.demo.graphile_worker import (
-    GraphileWorkerJob,
-    bulk_queue_graphile_worker_jobs,
-    copy_graphile_worker_jobs_between_teams,
-    erase_graphile_worker_jobs_for_team,
-)
 from posthog.models import (
     Cohort,
     Group,
@@ -169,15 +163,12 @@ class MatrixManager:
             [AsyncDeletion(team_id=cls.MASTER_TEAM_ID, key=cls.MASTER_TEAM_ID, deletion_type=DeletionType.Team)]
         )
         GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
-        erase_graphile_worker_jobs_for_team(cls.MASTER_TEAM_ID)
 
     def _copy_analytics_data_from_master_team(self, target_team: Team):
         from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
         from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
-        if self.matrix.end > self.matrix.now:
-            copy_graphile_worker_jobs_between_teams(self.MASTER_TEAM_ID, target_team.pk)
         copy_params = {"source_team_id": self.MASTER_TEAM_ID, "target_team_id": target_team.pk}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
@@ -285,26 +276,8 @@ class MatrixManager:
     @staticmethod
     def _save_future_sim_events(team: Team, events: List[SimEvent]):
         """Future events are not saved immediately, instead they're scheduled for ingestion via event buffer."""
-        graphile_jobs: List[GraphileWorkerJob] = []
-        for event in events:
-            event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
-            timestamp_iso = event.timestamp.isoformat()
-            payload = {
-                "eventPayload": {
-                    "distinct_id": event.distinct_id,
-                    "team_id": team.pk,
-                    "now": timestamp_iso,
-                    "timestamp": timestamp_iso,
-                    "event": event.event,
-                    "uuid": str(event_uuid),
-                }
-            }
-            graphile_jobs.append(
-                GraphileWorkerJob(
-                    task_identifier="bufferJob", payload=payload, run_at=event.timestamp, flags={"team_id": team.pk}
-                )
-            )
-        bulk_queue_graphile_worker_jobs(graphile_jobs)
+
+        # TODO: This used the plugin server's Graphile Worker-based event buffer, but the event buffer is no more
 
     @staticmethod
     def _save_sim_group(
@@ -318,8 +291,10 @@ class MatrixManager:
         from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
         while True:
-            person_count = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
-            person_distinct_id_count = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
+            person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
+            person_distinct_id_count: int = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[
+                0
+            ][0]
             persons_ready = person_count >= self._persons_created
             person_distinct_ids_ready = person_distinct_id_count >= self._person_distinct_ids_created
             persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{self._persons_created}"
