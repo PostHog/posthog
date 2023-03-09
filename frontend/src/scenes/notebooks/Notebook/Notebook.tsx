@@ -23,7 +23,7 @@ export function Notebook({ controls, breadcrumbs }: NotebookProps): JSX.Element 
         content,
         editorProps: {
             attributes: {
-                class: 'Notebook prose h-full p-2',
+                class: 'Notebook',
             },
         },
     })

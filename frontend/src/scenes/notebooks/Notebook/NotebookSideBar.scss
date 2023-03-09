@@ -19,7 +19,7 @@ $sidebar-width: 40%;
         width: $sidebar-width;
         height: calc(100vh - 3.5rem);
         transform: translateX(100%);
-        transition: 200ms ease transform;
+        transition: 200ms ease transform, 200ms ease width;
         padding: 0.5rem;
     }
 
@@ -28,6 +28,15 @@ $sidebar-width: 40%;
 
         .NotebookSidebar__content {
             transform: translateX(0);
+        }
+
+        &.NotebookSidebar--full-screen {
+            width: $sidebar-width;
+
+            .NotebookSidebar__content {
+                z-index: 10000;
+                width: calc(100vw - 15.5rem - 1rem); // TODO: Unhardcode this value
+            }
         }
     }
 }

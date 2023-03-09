@@ -1,4 +1,15 @@
 .Notebook {
+    padding: 1rem;
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    p {
+        max-width: 1000px;
+        margin: 0 auto;
+    }
     p {
         margin-bottom: auto;
     }
