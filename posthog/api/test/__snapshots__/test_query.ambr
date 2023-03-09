@@ -3,9 +3,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          distinct_id,
-         mat_key,
+         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
          'a%sd',
-         concat(event, ' ', mat_key)
+         concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
   WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
@@ -18,11 +18,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          distinct_id,
-         mat_key,
+         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
          'a%sd',
-         concat(event, ' ', mat_key)
+         concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(team_id, 2), equals(mat_key, 'test_val3'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(team_id, 2), equals(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), 'test_val3'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
   OFFSET 0
@@ -33,11 +33,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          distinct_id,
-         mat_key,
+         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
          'a%sd',
-         concat(event, ' ', mat_key)
+         concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(team_id, 2), ilike(mat_path, '%/%'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(team_id, 2), ilike(replaceRegexpAll(JSONExtractRaw(properties, 'path'), '^"|"$', ''), '%/%'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
   OFFSET 0
@@ -348,6 +348,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT event,
+         distinct_id,
          distinct_id
   FROM events
   WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
