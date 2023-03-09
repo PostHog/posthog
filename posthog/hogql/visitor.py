@@ -77,8 +77,10 @@ class TraversingVisitor(Visitor):
             self.visit(expr)
         self.visit(node.limit),
         self.visit(node.offset),
-        for union_query in node.union_all or []:
-            self.visit(union_query)
+
+    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        for expr in node.select_queries:
+            self.visit(expr)
 
     def visit_field_alias_ref(self, node: ast.FieldAliasRef):
         self.visit(node.ref)
@@ -95,6 +97,10 @@ class TraversingVisitor(Visitor):
             self.visit(expr)
         for expr in node.columns.values():
             self.visit(expr)
+
+    def visit_select_union_query_ref(self, node: ast.SelectUnionQueryRef):
+        for ref in node.refs:
+            self.visit(ref)
 
     def visit_table_ref(self, node: ast.TableRef):
         pass
@@ -208,5 +214,7 @@ class CloningVisitor(Visitor):
             limit_with_ties=node.limit_with_ties,
             offset=self.visit(node.offset),
             distinct=node.distinct,
-            union_all=[self.visit(expr) for expr in node.union_all] if node.union_all else None,
         )
+
+    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        return ast.SelectUnionQuery(select_queries=[self.visit(expr) for expr in node.select_queries])

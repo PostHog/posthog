@@ -67,10 +67,20 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
-        selects: List[ast.SelectQuery] = [self.visit(select) for select in ctx.selectStmtWithParens()]
-        if len(selects) > 1:
-            selects[0].union_all = (selects[0].union_all or []) + selects[1:]
-        return selects[0]
+        select_queries: List[ast.SelectQuery | ast.SelectUnionQuery] = [
+            self.visit(select) for select in ctx.selectStmtWithParens()
+        ]
+        flattened_queries: List[ast.SelectQuery] = []
+        for query in select_queries:
+            if isinstance(query, ast.SelectQuery):
+                flattened_queries.append(query)
+            elif isinstance(query, ast.SelectUnionQuery):
+                flattened_queries.extend(query.select_queries)
+            else:
+                raise Exception(f"Unexpected query node type {type(query).__name__}")
+        if len(flattened_queries) == 1:
+            return flattened_queries[0]
+        return ast.SelectUnionQuery(select_queries=flattened_queries)
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
         return self.visit(ctx.selectStmt() or ctx.selectUnionStmt())

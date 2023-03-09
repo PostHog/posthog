@@ -69,9 +69,17 @@ class _Printer(Visitor):
         self.stack.pop()
         return response
 
+    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        return " UNION ALL ".join([self.visit(expr) for expr in node.select_queries])
+
     def visit_select_query(self, node: ast.SelectQuery):
         if self.dialect == "clickhouse" and not self.context.select_team_id:
             raise ValueError("Full SELECT queries are disabled if context.select_team_id is not set")
+
+        # if we are the first parsed node in the tree, or a child of a SelectUnionQuery, mark us as a top level query
+        is_top_level_query = len(self.stack) <= 1 or (
+            len(self.stack) == 2 and isinstance(self.stack[0], ast.SelectUnionQuery)
+        )
 
         # We will add extra clauses onto this from the joined tables
         where = node.where
@@ -119,7 +127,7 @@ class _Printer(Visitor):
         ]
 
         limit = node.limit
-        if self.context.limit_top_select and len(self.stack) == 1:
+        if self.context.limit_top_select and is_top_level_query:
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
                     limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
@@ -137,18 +145,10 @@ class _Printer(Visitor):
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
 
-        if len(node.union_all or []) > 0:
-            # :TRICKY: union queries are not "children" the parent select, but "siblings". Adjust the stack for the visit
-            last_stack = self.stack.pop()
-            for union_query in node.union_all or []:
-                clauses.append("UNION ALL")
-                clauses.append(self.visit(union_query))
-            self.stack.append(last_stack)
-
         response = " ".join([clause for clause in clauses if clause])
 
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
-        if len(self.stack) > 1:
+        if not is_top_level_query:
             response = f"({response})"
 
         return response
