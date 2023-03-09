@@ -54,6 +54,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     actions({
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
+        cancelQuery: true,
         clearResponse: true,
         startAutoLoad: true,
         stopAutoLoad: true,
@@ -141,14 +142,41 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     reducers(({ props }) => ({
-        dataLoading: [false, { loadData: () => true, loadDataSuccess: () => false, loadDataFailure: () => false }],
+        dataLoading: [
+            false,
+            {
+                loadData: () => true,
+                loadDataSuccess: () => false,
+                loadDataFailure: () => false,
+                cancelQuery: () => false,
+            },
+        ],
         newDataLoading: [
             false,
-            { loadNewData: () => true, loadNewDataSuccess: () => false, loadNewDataFailure: () => false },
+            {
+                loadNewData: () => true,
+                loadNewDataSuccess: () => false,
+                loadNewDataFailure: () => false,
+                cancelQuery: () => false,
+            },
         ],
         nextDataLoading: [
             false,
-            { loadNextData: () => true, loadNextDataSuccess: () => false, loadNextDataFailure: () => false },
+            {
+                loadNextData: () => true,
+                loadNextDataSuccess: () => false,
+                loadNextDataFailure: () => false,
+                cancelQuery: () => false,
+            },
+        ],
+        queryCancelled: [
+            false,
+            {
+                loadNextData: () => false,
+                loadNewData: () => true,
+                loadData: () => true,
+                cancelQuery: () => true,
+            },
         ],
         autoLoadToggled: [
             false,
@@ -342,7 +370,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
     }),
-    listeners(({ values, cache }) => ({
+    listeners(({ actions, values, cache }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
@@ -356,6 +384,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }
+        },
+        cancelQuery: () => {
+            actions.abortAnyRunningQuery()
         },
     })),
     subscriptions(({ actions, cache, values }) => ({

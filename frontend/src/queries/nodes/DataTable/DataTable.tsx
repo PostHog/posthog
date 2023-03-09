@@ -62,6 +62,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         response,
         responseLoading,
         responseError,
+        queryCancelled,
         canLoadNextData,
         canLoadNewData,
         nextDataLoading,
@@ -406,11 +407,15 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         useURLForSorting={false}
                         emptyState={
                             responseError ? (
-                                isHogQLQuery(query.source) ? (
+                                isHogQLQuery(query.source) || isEventsQuery(query.source) ? (
                                     <InsightErrorState
                                         excludeDetail
                                         title={
-                                            response && 'error' in response ? (response as any).error : responseError
+                                            queryCancelled
+                                                ? 'The query was cancelled'
+                                                : response && 'error' in response
+                                                ? (response as any).error
+                                                : responseError
                                         }
                                     />
                                 ) : (
