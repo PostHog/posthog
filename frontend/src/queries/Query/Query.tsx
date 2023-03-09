@@ -9,7 +9,7 @@ import {
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
-import { Node, QueryContext, QuerySchema } from '~/queries/schema'
+import { AnyResponseType, Node, QueryContext, QuerySchema } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
@@ -25,6 +25,9 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
     readOnly?: boolean
     /** Custom components passed down to a few query nodes (e.g. custom table columns) */
     context?: QueryContext
+    /* Cached Results are provided when shared or exported,
+    the data node logic becomes read only implicitly */
+    cachedResults?: AnyResponseType
 }
 
 export function Query(props: QueryProps): JSX.Element {
@@ -56,15 +59,17 @@ export function Query(props: QueryProps): JSX.Element {
     if (isLegacyQuery(query)) {
         component = <LegacyInsightQuery query={query} />
     } else if (isDataTableNode(query)) {
-        component = <DataTable query={query} setQuery={setQuery} context={queryContext} />
+        component = (
+            <DataTable query={query} setQuery={setQuery} context={queryContext} cachedResults={props.cachedResults} />
+        )
     } else if (isDataNode(query)) {
-        component = <DataNode query={query} />
+        component = <DataNode query={query} cachedResults={props.cachedResults} />
     } else if (isInsightVizNode(query)) {
         component = <InsightViz query={query} setQuery={setQuery} />
     } else if (isInsightQueryNode(query)) {
         component = <InsightQuery query={query} />
     } else if (isTimeToSeeDataSessionsNode(query)) {
-        component = <TimeToSeeData query={query} />
+        component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     }
 
     if (component) {
