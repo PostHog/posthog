@@ -160,7 +160,7 @@ class InsightViewed(models.Model):
 @timed("generate_insight_cache_key")
 def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     try:
-        if insight.query:
+        if insight.query is not None:
             # TODO: dashboard filtering needs to know how to override queries and date ranges 😱
             q = insight.query
             if q.get("source"):
