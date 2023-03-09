@@ -31,10 +31,6 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
     "distinct_id",
     "elements_chain",
     "created_at",
-    "person_id",
-    "person.created_at",
-    "person.properties.name",
-    "person.properties.email",
 ]
 
 
@@ -154,19 +150,6 @@ def run_events_query(
                 new_result["elements"] = ElementSerializer(
                     chain_to_elements(new_result["elements_chain"]), many=True
                 ).data
-            new_result["person"] = {
-                "id": new_result["person_id"],
-                "created_at": new_result["person.created_at"],
-                "properties": {
-                    "name": new_result["person.properties.name"],
-                    "email": new_result["person.properties.email"],
-                },
-                "distinct_ids": [new_result["distinct_id"]],
-            }
-            del new_result["person_id"]
-            del new_result["person.created_at"]
-            del new_result["person.properties.name"]
-            del new_result["person.properties.email"]
             query_result.results[index][star_idx] = new_result
 
     # Convert person field from tuple to dict in each result
