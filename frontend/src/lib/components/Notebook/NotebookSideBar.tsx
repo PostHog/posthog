@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import clsx from 'clsx'
 import { Notebook } from 'lib/components/Notebook/Notebook'
+import './NotebookSideBar.scss'
 
 export function NotebookSideBar(): JSX.Element {
     const { isNotebookSideBarShown } = useValues(navigationLogic)

@@ -14,20 +14,22 @@
     position: absolute;
     flex-shrink: 0;
     height: 100%;
-    width: 15.5rem;
+    width: 100vw;
     background: var(--side);
-    border-right: 1px solid var(--border);
+    border-left: 1px solid var(--border);
 
     .Notebook--hidden & {
         // As an optimization we use transform instead of margin on mobile,
         // because the sidebar does not affect the rest of the layout on mobile
-        transform: translateX(-15.5rem);
+        transform: translateX(100vw);
     }
     @include screen($lg) {
         height: initial;
-        position: relative;
+        position: fixed;
+        left: 0;
+
         .Notebook--hidden & {
-            margin-left: -15.5rem;
+            margin-right: -200vw;
         }
     }
 }
