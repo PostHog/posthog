@@ -64,7 +64,6 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         showNewDashboardModal: true,
         hideNewDashboardModal: true,
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
-        createAndGoToDashboard: true,
         setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
         clearActiveDashboardTemplate: true,
         createDashboardFromTemplate: (template: DashboardTemplateType, variables: DashboardTemplateVariableType[]) => ({
