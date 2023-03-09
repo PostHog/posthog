@@ -1,0 +1,34 @@
+.LemonCollapse {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.LemonCollapsePanel {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    &:not(:last-child) {
+        border-bottom-width: 1px;
+    }
+}
+
+.LemonCollapsePanel__header {
+    min-height: 3rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 0;
+}
+
+.LemonCollapsePanel__body {
+    transition: height 200ms ease;
+    height: 0;
+    overflow: hidden;
+    border-top-width: 1px;
+}
+
+.LemonCollapsePanel__content {
+    padding: 1rem;
+}

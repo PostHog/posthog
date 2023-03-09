@@ -120,6 +120,10 @@ module.exports = {
                         message: 'use <LemonSkeleton> instead',
                     },
                     {
+                        element: 'Collapse',
+                        message: 'use <LemonCollapse> instead',
+                    },
+                    {
                         element: 'Tabs',
                         message: 'use <LemonTabs> instead',
                     },
