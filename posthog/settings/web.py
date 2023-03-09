@@ -44,7 +44,6 @@ INSTALLED_APPS = [
     "django_otp.plugins.otp_totp",
     # 'django_otp.plugins.otp_email',  # <- if you want email capability.
     "two_factor",
-    "social_2fa",
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
