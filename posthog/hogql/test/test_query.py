@@ -4,7 +4,10 @@ from freezegun import freeze_time
 
 from posthog import datetime
 from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.models import Cohort
+from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
@@ -411,3 +414,63 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "SELECT poe.properties.email, count() FROM events AS s GROUP BY poe.properties.email LIMIT 10",
             )
             self.assertEqual(response.results[0][0], "tim@posthog.com")
+
+    def test_prop_cohort_basic(self):
+        with freeze_time("2020-01-10"):
+            _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+            _create_person(
+                distinct_ids=["some_id"],
+                team_id=self.team.pk,
+                properties={"$some_prop": "something", "$another_prop": "something"},
+            )
+            _create_person(distinct_ids=["no_match"], team_id=self.team.pk)
+            _create_event(event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"})
+            _create_event(
+                event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "some_val"}
+            )
+            cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+                name="cohort",
+            )
+            recalculate_cohortpeople(cohort, pending_version=0)
+            response = execute_hogql_query(
+                "SELECT event, count() FROM events WHERE {cohort_filter} GROUP BY event",
+                team=self.team,
+                placeholders={
+                    "cohort_filter": property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team)
+                },
+            )
+            self.assertEqual(response.results, [("$pageview", 2)])
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT event, count(*) FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(team_id, {self.team.pk}), in(events__pdi.person_id, (SELECT person_id FROM cohortpeople WHERE and(equals(team_id, {self.team.pk}), equals(cohort_id, {cohort.pk})) GROUP BY person_id, cohort_id, version HAVING greater(sum(sign), 0)))) GROUP BY event LIMIT 100",
+            )
+
+    def test_prop_cohort_static(self):
+        with freeze_time("2020-01-10"):
+            _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+            _create_person(
+                distinct_ids=["some_id"],
+                team_id=self.team.pk,
+                properties={"$some_prop": "something", "$another_prop": "something"},
+            )
+            _create_person(distinct_ids=["no_match"], team_id=self.team.pk)
+            _create_event(event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"})
+            _create_event(
+                event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "some_val"}
+            )
+            cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+            cohort.insert_users_by_list(["some_id"])
+            response = execute_hogql_query(
+                "SELECT event, count() FROM events WHERE {cohort_filter} GROUP BY event",
+                team=self.team,
+                placeholders={
+                    "cohort_filter": property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team)
+                },
+            )
+            self.assertEqual(response.results, [("$pageview", 1)])
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT event, count(*) FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(team_id, {self.team.pk}), in(events__pdi.person_id, (SELECT person_id FROM person_static_cohort WHERE and(equals(team_id, {self.team.pk}), equals(cohort_id, {cohort.pk}))))) GROUP BY event LIMIT 100",
+            )

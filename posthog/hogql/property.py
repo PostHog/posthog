@@ -8,7 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HOGQL_AGGREGATIONS
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
-from posthog.models import Action, ActionStep, Property
+from posthog.models import Action, ActionStep, Cohort, Property, Team
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import build_selector_regex
@@ -32,6 +32,10 @@ class AggregationFinder(TraversingVisitor):
         else:
             super().visit(node)
 
+    def visit_select_query(self, node: ast.SelectQuery):
+        # don't care about aggregations in subqueries
+        pass
+
     def visit_call(self, node: ast.Call):
         if node.name in HOGQL_AGGREGATIONS:
             self.has_aggregation = True
@@ -40,11 +44,13 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, list]) -> ast.Expr:
+def property_to_expr(
+    property: Union[BaseModel, PropertyGroup, Property, dict, list], team: Optional[Team] = None
+) -> ast.Expr:
     if isinstance(property, dict):
         property = Property(**property)
     elif isinstance(property, list):
-        properties = [property_to_expr(p) for p in property]
+        properties = [property_to_expr(p, team) for p in property]
         if len(properties) == 1:
             return properties[0]
         return ast.And(exprs=properties)
@@ -53,12 +59,12 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
     elif isinstance(property, PropertyGroup):
         if property.type == PropertyOperatorType.AND:
             if len(property.values) == 1:
-                return property_to_expr(property.values[0])
-            return ast.And(exprs=[property_to_expr(p) for p in property.values])
+                return property_to_expr(property.values[0], team)
+            return ast.And(exprs=[property_to_expr(p, team) for p in property.values])
         if property.type == PropertyOperatorType.OR:
             if len(property.values) == 1:
-                return property_to_expr(property.values[0])
-            return ast.Or(exprs=[property_to_expr(p) for p in property.values])
+                return property_to_expr(property.values[0], team)
+            return ast.Or(exprs=[property_to_expr(p, team) for p in property.values])
         raise NotImplementedError(f'PropertyGroup of unknown type "{property.type}"')
     elif isinstance(property, BaseModel):
         property = Property(**property.dict())
@@ -76,7 +82,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
             else:
                 exprs = [
                     property_to_expr(
-                        Property(type=property.type, key=property.key, operator=property.operator, value=v)
+                        Property(type=property.type, key=property.key, operator=property.operator, value=v), team
                     )
                     for v in value
                 ]
@@ -137,7 +143,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
             else:
                 exprs = [
                     property_to_expr(
-                        Property(type=property.type, key=property.key, operator=property.operator, value=v)
+                        Property(type=property.type, key=property.key, operator=property.operator, value=v), team
                     )
                     for v in value
                 ]
@@ -166,10 +172,17 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
             return element_chain_key_filter("text", str(value), operator)
 
         raise NotImplementedError(f"property_to_expr for type element not implemented for key {property.key}")
-    # "cohort",
-    # "element",
-    # "static-cohort",
-    # "precalculated-cohort",
+    elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
+        if not team:
+            raise Exception("Can not convert cohort property to expression without team")
+        cohort = Cohort.objects.get(team=team, id=property.value)
+
+        if cohort.is_static:
+            sql = "person_id in (SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+        else:
+            sql = "person_id in (SELECT person_id FROM cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+
+        return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort.pk)})
     # "group",
     # "recording",
     # "behavioral",

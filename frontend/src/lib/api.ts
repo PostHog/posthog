@@ -52,7 +52,6 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
-import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -309,10 +308,6 @@ class ApiRequest {
     // # Dashboard templates
     public dashboardTemplates(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('dashboard_templates')
-    }
-
-    public dashboardTemplatesRepository(teamId?: TeamType['id']): ApiRequest {
-        return this.dashboardTemplates(teamId).addPathComponent('repository')
     }
 
     public dashboardTemplatesDetail(
@@ -821,14 +816,6 @@ const api = {
         },
         determineSchemaUrl(): string {
             return new ApiRequest().dashboardTemplateSchema().assembleFullUrl()
-        },
-        async repository(): Promise<Record<string, DashboardTemplatesRepositoryEntry>> {
-            const results = await new ApiRequest().dashboardTemplatesRepository().get()
-            const repository: Record<string, DashboardTemplatesRepositoryEntry> = {}
-            for (const template of results as DashboardTemplatesRepositoryEntry[]) {
-                repository[template.name] = template
-            }
-            return repository
         },
     },
 
