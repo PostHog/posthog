@@ -32,7 +32,7 @@ export function Notebook(): JSX.Element {
 
     return (
         <div className="h-full p-2 flex flex-col">
-            <div className="border rounded bg-side flex-1 p-3 shadow">
+            <div className="border rounded bg-side flex-1 p-3 shadow overflow-y-auto">
                 <header className="flex items-center justify-between gap-2 font-semibold shrink-0">
                     <span>
                         <IconJournal /> Notebook
