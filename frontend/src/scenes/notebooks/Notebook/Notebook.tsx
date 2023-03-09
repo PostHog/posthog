@@ -9,6 +9,7 @@ import { RecordingNode } from 'scenes/notebooks/Nodes/RecordingNode'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { useActions, useValues } from 'kea'
 import './Notebook.scss'
+import { RecordingPlaylistNode } from 'scenes/notebooks/Nodes/RecordingPlaylistNode'
 
 export type NotebookProps = {
     controls?: JSX.Element
@@ -20,7 +21,7 @@ export function Notebook({ controls, breadcrumbs }: NotebookProps): JSX.Element 
     const { setEditorRef, setIsEditable, syncContent } = useActions(notebookLogic)
 
     const editor = useEditor({
-        extensions: [StarterKit, InsightNode, QueryNode, RecordingNode],
+        extensions: [StarterKit, InsightNode, QueryNode, RecordingNode, RecordingPlaylistNode],
         content,
         editorProps: {
             attributes: {

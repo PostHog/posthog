@@ -9,10 +9,7 @@ const START_CONTENT = `
 <blockquote>This is experimental</blockquote>
 <ph-query></ph-query>
 
-<ph-insight shortId="OlmLXv6Q"></ph-insight>
-
 <h3>An interesting recording I found</h3>
-
 <p>This recording highlights perectly why...</p>
 <br/>
 <ph-recording sessionRecordingId="186c620122516e6-0ebf2e4cc8b8da-1f525634-16a7f0-186c62012262dfa"></ph-recording>
