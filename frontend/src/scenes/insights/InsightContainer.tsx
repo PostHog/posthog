@@ -202,6 +202,25 @@ export function InsightContainer({
                 className="insights-graph-container"
             >
                 <div>
+                    {isFunnelsFilter(filters) ? (
+                        <div
+                            className={clsx(
+                                'insights-graph-header',
+                                {
+                                    funnels: isFunnelsFilter(filters),
+                                },
+                                'justify-between',
+                                'items-center',
+                                'flex',
+                                'flex-row'
+                            )}
+                        >
+                            <div className="flex flex-col">
+                                {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
+                            </div>
+                        </div>
+                    ) : null}
+
                     <Row
                         className={clsx('insights-graph-header', {
                             funnels: isFunnelsFilter(filters),
@@ -210,17 +229,23 @@ export function InsightContainer({
                         justify="space-between"
                     >
                         {/*Don't add more than two columns in this row.*/}
-                        {!disableLastComputation && (
-                            <Col>
-                                <ComputationTimeWithRefresh />
-                            </Col>
-                        )}
+                        <Col className="flex items-center gap-1">
+                            {!disableLastComputation && <ComputationTimeWithRefresh />}
+                            {!!filters.sampling_factor ? (
+                                <span className="text-muted-alt">
+                                    {!disableLastComputation ? '• ' : ' '}
+                                    Results calculated from {filters.sampling_factor * 100}% of users
+                                </span>
+                            ) : null}
+                        </Col>
+
                         <Col>
-                            {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
                             {isPathsFilter(filters) ? <PathCanvasLabel /> : null}
+
                             <InsightLegendButton />
                         </Col>
                     </Row>
+
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : isFilterWithDisplay(filters) && filters.show_legend ? (
