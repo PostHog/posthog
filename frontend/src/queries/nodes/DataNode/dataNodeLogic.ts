@@ -34,7 +34,7 @@ export interface DataNodeLogicProps {
     query: DataNode
 }
 
-const AUTOLOAD_INTERVAL = 5000
+const AUTOLOAD_INTERVAL = 30000
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),

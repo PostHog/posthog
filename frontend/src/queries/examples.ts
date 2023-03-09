@@ -37,6 +37,7 @@ const Events: EventsQuery = {
     properties: [
         { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
     ],
+    after: '-24h',
     limit: 100,
 }
 
@@ -310,38 +311,26 @@ const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
     },
 }
 
-const HogQL: HogQLQuery = {
+const HogQLRaw: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
-    query:
-        '   select event,\n' +
-        '          properties.$geoip_country_name as `Country Name`,\n' +
-        '          count() as `Event count`\n' +
-        '     from events\n' +
-        '    where timestamp > now() - interval 1 month\n' +
-        ' group by event,\n' +
-        '          properties.$geoip_country_name\n' +
-        ' order by count() desc\n' +
-        '    limit 100',
-}
-
-const HogQLTable: DataTableNode = {
-    kind: NodeKind.DataTableNode,
-    full: true,
-    source: {
-        kind: NodeKind.HogQLQuery,
-        query: `   select event,
+    query: `   select event,
           person.properties.email,
           properties.$browser,
           count()
      from events
-    where timestamp > now () - interval 1 month
+    where timestamp > now () - interval 1 day
       and person.properties.email is not null
  group by event,
           properties.$browser,
           person.properties.email
  order by count() desc
     limit 100`,
-    },
+}
+
+const HogQLTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: HogQLRaw,
 }
 
 export const examples: Record<string, Node> = {
@@ -365,7 +354,7 @@ export const examples: Record<string, Node> = {
     TimeToSeeDataSessionsJSON,
     TimeToSeeDataWaterfall,
     TimeToSeeDataJSON,
-    HogQL,
+    HogQLRaw,
     HogQLTable,
 }
 
