@@ -157,7 +157,15 @@ export interface EventsQueryResponse {
     results: any[][]
     hasMore?: boolean
 }
-
+export interface EventsQueryPersonColumn {
+    uuid: string
+    created_at: string
+    properties: {
+        name?: string
+        email?: string
+    }
+    distinct_id: string
+}
 export interface EventsQuery extends DataNode {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
