@@ -187,17 +187,17 @@ class ConstantRef(Ref):
 
 
 class AsteriskRef(Ref):
-    table: Union[BaseTableRef, SelectQueryRef, SelectQueryAliasRef, SelectUnionQueryRef]
+    table: BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef
 
 
 class FieldTraverserRef(Ref):
     chain: List[str]
-    table: Union[BaseTableRef, SelectQueryRef, SelectQueryAliasRef, SelectUnionQueryRef]
+    table: BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef
 
 
 class FieldRef(Ref):
     name: str
-    table: Union[BaseTableRef, SelectQueryRef, SelectQueryAliasRef, SelectUnionQueryRef]
+    table: BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef
 
     def resolve_database_field(self) -> Optional[DatabaseField]:
         if isinstance(self.table, BaseTableRef):
