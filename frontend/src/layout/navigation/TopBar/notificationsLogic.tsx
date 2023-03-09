@@ -6,9 +6,22 @@ import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/compone
 
 import type { notificationsLogicType } from './notificationsLogicType'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { dayjs } from 'lib/dayjs'
+import ReactMarkdown from 'react-markdown'
+import posthog from 'posthog-js'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
 const MARK_READ_TIMEOUT = 2500
+
+export interface ChangelogFlagPayload {
+    notificationDate: dayjs.Dayjs
+    markdown: string
+}
+
+export interface ChangesResponse {
+    results: ActivityLogItem[]
+    last_read: string
+}
 
 export const notificationsLogic = kea<notificationsLogicType>([
     path(['layout', 'navigation', 'TopBar', 'notificationsLogic']),
@@ -19,14 +32,22 @@ export const notificationsLogic = kea<notificationsLogicType>([
         setMarkReadTimeout: (markReadTimeout: number) => ({ markReadTimeout }),
         incrementErrorCount: true,
         clearErrorCount: true,
-        markAllAsRead: true,
+        markAllAsRead: (bookmarkDate: string) => ({ bookmarkDate }),
     }),
     loaders(({ actions, values }) => ({
         importantChanges: [
-            [] as HumanizedActivityLogItem[],
+            null as ChangesResponse | null,
             {
-                markAllAsRead: () => {
-                    return values.importantChanges.map((ic) => ({ ...ic, unread: false }))
+                markAllAsRead: ({ bookmarkDate }) => {
+                    const current = values.importantChanges
+                    if (!current) {
+                        return null
+                    }
+
+                    return {
+                        last_read: bookmarkDate,
+                        results: current.results.map((ic) => ({ ...ic, unread: false })),
+                    }
                 },
                 loadImportantChanges: async (_, breakpoint) => {
                     await breakpoint(1)
@@ -36,15 +57,15 @@ export const notificationsLogic = kea<notificationsLogicType>([
                     try {
                         const response = (await api.get(
                             `api/projects/${teamLogic.values.currentTeamId}/activity_log/important_changes`
-                        )) as ActivityLogItem[]
+                        )) as ChangesResponse
                         // we can't rely on automatic success action here because we swallow errors so always succeed
                         actions.clearErrorCount()
-                        return humanize(response, describerFor, true)
+                        return response
                     } catch (e) {
                         // swallow errors as this isn't user initiated
                         // increment a counter to backoff calling the API while errors persist
                         actions.incrementErrorCount()
-                        return []
+                        return null
                     } finally {
                         const pollTimeoutMilliseconds = values.errorCounter
                             ? POLL_TIMEOUT * values.errorCounter
@@ -89,17 +110,19 @@ export const notificationsLogic = kea<notificationsLogicType>([
             if (!values.isNotificationPopoverOpen) {
                 clearTimeout(values.markReadTimeout)
             } else {
-                if (values.importantChanges?.[0]) {
+                if (values.notifications?.[0]) {
+                    const bookmarkDate = values.notifications.reduce((a, b) =>
+                        a.created_at.isAfter(b.created_at) ? a : b
+                    ).created_at
                     actions.setMarkReadTimeout(
                         window.setTimeout(async () => {
-                            const bookmarkDate = values.importantChanges[0].created_at.toISOString()
                             await api.create(
                                 `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
                                 {
-                                    bookmark: bookmarkDate,
+                                    bookmark: bookmarkDate.toISOString(),
                                 }
                             )
-                            actions.markAllAsRead()
+                            actions.markAllAsRead(bookmarkDate.toISOString())
                         }, MARK_READ_TIMEOUT)
                     )
                 }
@@ -107,10 +130,62 @@ export const notificationsLogic = kea<notificationsLogicType>([
         },
     })),
     selectors({
-        unread: [(s) => [s.importantChanges], (importantChanges) => importantChanges.filter((ic) => ic.unread)],
+        notifications: [
+            (s) => [s.importantChanges],
+            (importantChanges): HumanizedActivityLogItem[] => {
+                const importantChangesHumanized = humanize(importantChanges?.results || [], describerFor, true)
+
+                let changelogNotification: ChangelogFlagPayload | null = null
+                const flagPayload = posthog.getFeatureFlagPayload('changelog-notification')
+                if (!!flagPayload) {
+                    changelogNotification = {
+                        markdown: flagPayload['markdown'],
+                        notificationDate: dayjs(flagPayload['notificationDate']),
+                    } as ChangelogFlagPayload
+                }
+
+                if (changelogNotification) {
+                    const lastRead = importantChanges?.last_read ? dayjs(importantChanges.last_read) : null
+                    const changeLogIsUnread =
+                        !!lastRead &&
+                        (lastRead.isBefore(changelogNotification.notificationDate) ||
+                            lastRead == changelogNotification.notificationDate)
+
+                    const changelogNotificationHumanized: HumanizedActivityLogItem = {
+                        email: 'joe@posthog.com',
+                        name: 'Joe',
+                        isSystem: true,
+                        description: (
+                            <>
+                                <ReactMarkdown linkTarget="_blank">{changelogNotification.markdown}</ReactMarkdown>
+                            </>
+                        ),
+                        created_at: changelogNotification.notificationDate,
+                        unread: changeLogIsUnread,
+                    }
+                    const notifications = [changelogNotificationHumanized, ...importantChangesHumanized]
+                    notifications.sort((a, b) => {
+                        if (a.created_at.isBefore(b.created_at)) {
+                            return 1
+                        } else if (a.created_at.isAfter(b.created_at)) {
+                            return -1
+                        } else {
+                            return 0
+                        }
+                    })
+                    return notifications
+                }
+
+                return humanize(importantChanges?.results || [], describerFor, true)
+            },
+        ],
+        hasNotifications: [(s) => [s.notifications], (notifications) => !!notifications.length],
+        unread: [
+            (s) => [s.notifications],
+            (notifications: HumanizedActivityLogItem[]) => notifications.filter((ic) => ic.unread),
+        ],
         unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
-        hasImportantChanges: [(s) => [s.importantChanges], (importantChanges) => (importantChanges || []).length > 0],
     }),
     events(({ actions, values }) => ({
         afterMount: () => actions.loadImportantChanges(null),
