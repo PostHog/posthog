@@ -2178,6 +2178,7 @@ describe('person id overrides', () => {
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
+        await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
     })
 
     beforeEach(async () => {
@@ -2260,6 +2261,16 @@ describe('person id overrides', () => {
             .sort() as [string, string][]
     }
 
+    async function fetchPersonsRowsWithVersionHigerEqualThan(version = 1) {
+        const query = `SELECT * FROM person FINAL WHERE team_id = ${teamId} AND version >= ${version}`
+        return (await hub.db.clickhouseQuery(query)).data
+    }
+
+    async function fetchPersonsRows() {
+        const query = `SELECT * FROM person FINAL WHERE team_id = ${teamId} ORDER BY _offset`
+        return (await hub.db.clickhouseQuery(query)).data
+    }
+
     it('postgres overrides added on merge', async () => {
         await updatePersonStateFromEvent({
             event: 'event',
@@ -2321,6 +2332,28 @@ describe('person id overrides', () => {
         expect(persons).toEqual(personsAgain)
         expect(distinctIds).toEqual(distinctIdsAgain)
         expect(overrides).toEqual(overridesAgain)
+        await hub.db.kafkaProducer.flush()
+
+        // verify ClickHouse persons
+        await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+        const clickhousePersons = await fetchPersonsRows() // but verify full state
+        expect(clickhousePersons.length).toEqual(2)
+        expect(clickhousePersons).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: expect.any(String),
+                    properties: JSON.stringify({}),
+                    created_at: timestampch,
+                    version: 1,
+                    is_identified: 1,
+                }),
+                expect.objectContaining({
+                    id: expect.any(String),
+                    is_deleted: 1,
+                    version: 100,
+                }),
+            ])
+        )
     })
 
     it('does not commit partial transactions on override conflicts', async () => {
