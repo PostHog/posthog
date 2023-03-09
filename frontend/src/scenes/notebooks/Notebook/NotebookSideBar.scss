@@ -19,7 +19,7 @@ $sidebar-width: 40%;
         width: $sidebar-width;
         height: calc(100vh - 3.5rem);
         transform: translateX(100%);
-        transition: 200ms ease transform, 200ms ease width;
+        transition: 200ms ease transform;
         padding: 0.5rem;
     }
 
