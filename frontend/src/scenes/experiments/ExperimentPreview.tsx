@@ -320,7 +320,7 @@ export function ExperimentPreview({
             <LemonModal
                 isOpen={isExperimentGoalModalOpen}
                 onClose={closeExperimentGoalModal}
-                width={650}
+                width={1000}
                 title={'Change experiment goal'}
                 footer={
                     <div className="flex items-center gap-2">
