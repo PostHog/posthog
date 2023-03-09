@@ -25,6 +25,7 @@ class DashboardTemplate(UUIDModel):
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(blank=True, null=True)
     image_url: models.CharField = models.CharField(max_length=8201, null=True, blank=True)
+    public: models.BooleanField = models.BooleanField(blank=True, null=True)
     # URL length for browsers can be as much as 64Kb
     # see https://stackoverflow.com/questions/417142/what-is-the-maximum-length-of-a-url-in-different-browsers
     # but GitHub apparently is more likely 8kb https://stackoverflow.com/a/64565317

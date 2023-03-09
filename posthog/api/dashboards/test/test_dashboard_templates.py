@@ -1,6 +1,8 @@
 from rest_framework import status
 
 from posthog.models.dashboard_templates import DashboardTemplate
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest
 
 
@@ -72,7 +74,7 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response
 
         assert DashboardTemplate.objects.count() == 1
-        assert DashboardTemplate.objects.filter(team_id__isnull=True).count() == 1
+        assert DashboardTemplate.objects.first().team_id == self.team.pk
 
         assert_template_equals(
             DashboardTemplate.objects.first().__dict__,
@@ -84,6 +86,100 @@ class TestDashboardTemplates(APIBaseTest):
 
         assert_template_equals(
             response.json()["results"][0],
+            variable_template,
+        )
+
+        assert response.json()["results"][0]["team_id"] == self.team.pk
+
+    def test_staff_can_make_dashboard_template_public(self) -> None:
+        assert self.team.pk is not None
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
+            {"public": True},
+        )
+
+        assert update_response.status_code == status.HTTP_200_OK, update_response
+
+        get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
+
+        assert get_updated_response.json()["results"][0]["public"] is True
+
+    def test_staff_can_make_public_dashboard_template_private(self) -> None:
+        assert self.team.pk is not None
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
+            {"public": True},
+        )
+        assert update_response.status_code == status.HTTP_200_OK, update_response
+
+        get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
+
+        assert get_updated_response.json()["results"][0]["public"] is True
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
+            {"public": False},
+        )
+        assert update_response.status_code == status.HTTP_200_OK, update_response
+
+        get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
+
+        assert get_updated_response.json()["results"][0]["public"] is False
+
+    def test_non_staff_cannot_make_dashboard_template_public(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response
+
+        self.user.is_staff = False
+        self.user.save()
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
+            {"public": True},
+        )
+        assert update_response.status_code == status.HTTP_403_FORBIDDEN, update_response
+
+    def test_non_staff_can_get_public_dashboard_templates(self) -> None:
+        assert self.team.pk is not None
+        new_org = Organization.objects.create(name="Test Org 2")
+        new_team = Team.objects.create(name="Test Team 2", organization=new_org)
+        dashboard_template = DashboardTemplate.objects.create(
+            team_id=new_team.pk,
+            **variable_template,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
+        assert response.status_code == status.HTTP_200_OK, response
+
+        assert len(response.json()["results"]) == 0  # No public templates
+
+        dashboard_template.public = True
+        dashboard_template.save()
+
+        get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
+        assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
+
+        assert len(get_updated_response.json()["results"]) == 1
+        assert_template_equals(
+            get_updated_response.json()["results"][0],
             variable_template,
         )
 
