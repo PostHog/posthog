@@ -1318,9 +1318,6 @@
                     "description": "Include a HogQL query editor above HogQL tables",
                     "type": "boolean"
                 },
-                "showInlineEditorButton": {
-                    "type": "boolean"
-                },
                 "showPropertyFilter": {
                     "description": "Include a property filter above the table",
                     "type": "boolean"
