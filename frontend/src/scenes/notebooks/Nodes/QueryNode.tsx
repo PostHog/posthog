@@ -1,6 +1,6 @@
-import { mergeAttributes, Node, NodeViewRendererProps } from '@tiptap/core'
+import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -19,8 +19,16 @@ const DEFAULT_QUERY: QuerySchema = {
     expandable: false,
 }
 
-const Component = (props: NodeViewRendererProps): JSX.Element => {
-    const [query, setQuery] = useState<QuerySchema>(props.node.attrs.query)
+const Component = (props: NodeViewProps): JSX.Element => {
+    let propQuery = props.node.attrs.query
+    propQuery = typeof propQuery === 'string' ? JSON.parse(propQuery) : propQuery
+    const [query, setQuery] = useState<QuerySchema>(propQuery)
+
+    useEffect(() => {
+        props.updateAttributes({
+            query: JSON.stringify(query),
+        })
+    }, [query])
 
     return (
         <NodeWrapper className={NodeType.Query} title="Query">
