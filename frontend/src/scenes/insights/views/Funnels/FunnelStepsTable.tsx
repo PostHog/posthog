@@ -109,7 +109,7 @@ export function FunnelStepsTableComponent({
     const someChecked = flattenedBreakdowns?.some(
         (b) => !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
     )
-    const toggleLegendSeriesVisibility = (breakdown: string): void => {
+    const toggleLegendBreakdownVisibility = (breakdown: string): void => {
         hiddenLegendBreakdowns?.includes(breakdown)
             ? setHiddenLegendBreakdowns(hiddenLegendBreakdowns.filter((b) => b !== breakdown))
             : setHiddenLegendBreakdowns([...(hiddenLegendBreakdowns || []), breakdown])
@@ -160,7 +160,7 @@ export function FunnelStepsTableComponent({
                             <LemonCheckbox
                                 checked={!hiddenLegendBreakdowns?.includes(getVisibilityKey(breakdown.breakdown_value))}
                                 onChange={() =>
-                                    toggleLegendSeriesVisibility(getVisibilityKey(breakdown.breakdown_value))
+                                    toggleLegendBreakdownVisibility(getVisibilityKey(breakdown.breakdown_value))
                                 }
                                 label={label}
                             />
