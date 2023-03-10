@@ -1,4 +1,4 @@
-import { Pool, PoolClient } from 'pg'
+import { Client } from 'pg'
 import { v4 } from 'uuid'
 
 import { defaultConfig } from '../../src/config/config'
@@ -15,10 +15,11 @@ import {
 import { UUIDT } from '../../src/utils/utils'
 import { makePluginObjects } from './plugins'
 
-let postgres: Pool
+let postgres: Client
 
-beforeAll(() => {
-    postgres = new Pool({ connectionString: defaultConfig.DATABASE_URL!, max: 1 })
+beforeAll(async () => {
+    postgres = new Client({ connectionString: defaultConfig.DATABASE_URL! })
+    await postgres.connect()
 })
 
 afterAll(async () => {
@@ -264,33 +265,6 @@ export async function createUserTeamAndOrganization({
 
 export async function getTeams(hub: Hub): Promise<Team[]> {
     return (await hub.db.postgresQuery('SELECT * FROM posthog_team ORDER BY id', undefined, 'fetchAllTeams')).rows
-}
-
-/** Inject code onto `server` which runs a callback whenever a postgres query is performed */
-export function onQuery(hub: Hub, onQueryCallback: (queryText: string) => any): void {
-    function spyOnQueryFunction(client: any) {
-        const query = client.query.bind(client)
-        client.query = (queryText: any, values?: any, callback?: any): any => {
-            onQueryCallback(queryText)
-            return query(queryText, values, callback)
-        }
-    }
-
-    spyOnQueryFunction(hub.postgres)
-
-    const postgresTransaction = hub.db.postgresTransaction.bind(hub.db)
-    hub.db.postgresTransaction = async (
-        tag: string,
-        transaction: (client: PoolClient) => Promise<any>
-    ): Promise<any> => {
-        return await postgresTransaction(tag, async (client: PoolClient) => {
-            const query = client.query
-            spyOnQueryFunction(client)
-            const response = await transaction(client)
-            client.query = query
-            return response
-        })
-    }
 }
 
 export async function getErrorForPluginConfig(id: number): Promise<any> {
