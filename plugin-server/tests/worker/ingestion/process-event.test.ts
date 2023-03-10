@@ -6,7 +6,7 @@ import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
 import { EventsProcessor } from '../../../src/worker/ingestion/process-event'
-import { delayUntilEventIngested } from '../../helpers/clickhouse'
+import { delayUntilEventIngested, fetchEvents } from '../../helpers/clickhouse'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
@@ -18,16 +18,20 @@ let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let teamId: number
 
-beforeEach(async () => {
+beforeAll(async () => {
     ;[hub, closeHub] = await createHub()
-    ;({ teamId } = await resetTestDatabase())
+
     redis = await hub.redisPool.acquire()
     await redis.flushdb()
+})
+
+beforeEach(async () => {
+    ;({ teamId } = await resetTestDatabase())
 
     eventsProcessor = new EventsProcessor(hub)
 })
 
-afterEach(async () => {
+afterAll(async () => {
     await hub.redisPool.release(redis)
     await closeHub?.()
 })
@@ -39,18 +43,20 @@ describe('EventsProcessor#createEvent()', () => {
     const personUuid = new UUIDT().toString()
     const timestamp = '2020-02-23T02:15:00.000Z' as ISOTimestamp
 
-    const preIngestionEvent: PreIngestionEvent = {
-        eventUuid,
-        timestamp,
-        distinctId: 'my_id',
-        ip: '127.0.0.1',
-        teamId: teamId,
-        event: '$pageview',
-        properties: { event: 'property' },
-        elementsList: [],
-    }
+    let preIngestionEvent: PreIngestionEvent
 
     beforeEach(() => {
+        preIngestionEvent = {
+            eventUuid,
+            timestamp,
+            distinctId: 'my_id',
+            ip: '127.0.0.1',
+            teamId: teamId,
+            event: '$pageview',
+            properties: { event: 'property' },
+            elementsList: [],
+        }
+
         personContainer = new LazyPersonContainer(teamId, 'my_id', hub, {
             uuid: personUuid,
             properties: { foo: 'bar' },
@@ -67,7 +73,7 @@ describe('EventsProcessor#createEvent()', () => {
 
         await eventsProcessor.kafkaProducer.flush()
 
-        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        const events = await delayUntilEventIngested(() => fetchEvents(teamId))
         expect(events.length).toEqual(1)
         expect(events[0]).toEqual(
             expect.objectContaining({
@@ -114,7 +120,7 @@ describe('EventsProcessor#createEvent()', () => {
             personContainer
         )
 
-        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        const events = await delayUntilEventIngested(() => fetchEvents(teamId))
         expect(events.length).toEqual(1)
         expect(events[0]).toEqual(
             expect.objectContaining({
@@ -159,7 +165,7 @@ describe('EventsProcessor#createEvent()', () => {
 
         await eventsProcessor.kafkaProducer.flush()
 
-        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        const events = await delayUntilEventIngested(() => fetchEvents(teamId))
         expect(events.length).toEqual(1)
         expect(events[0]).toEqual(
             expect.objectContaining({
@@ -175,13 +181,12 @@ describe('EventsProcessor#createEvent()', () => {
         await eventsProcessor.createEvent(preIngestionEvent, new LazyPersonContainer(teamId, 'my_id', hub))
         await eventsProcessor.kafkaProducer.flush()
 
-        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        const events = await delayUntilEventIngested(() => fetchEvents(teamId))
         expect(events.length).toEqual(1)
         expect(events[0]).toEqual(
             expect.objectContaining({
                 uuid: eventUuid,
                 distinct_id: 'my_id',
-                person_id: '00000000-0000-0000-0000-000000000000',
                 person_properties: {},
             })
         )

@@ -11,15 +11,9 @@ import assert from 'assert'
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
-import {
-    KAFKA_EVENTS_JSON,
-    KAFKA_EVENTS_PLUGIN_INGESTION,
-    KAFKA_GROUPS,
-    KAFKA_PERSON,
-} from '../../src/config/kafka-topics'
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import {
     ClickHouseEvent,
-    ClickHousePerson,
     Database,
     Hub,
     LogLevel,
@@ -28,9 +22,7 @@ import {
     PropertyDefinitionTypeEnum,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
-import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
-import { parseRawClickHouseEvent } from '../../src/utils/event'
 import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
@@ -40,6 +32,7 @@ import {
     EventsProcessor,
 } from '../../src/worker/ingestion/process-event'
 import { fetchTeam } from '../../src/worker/ingestion/team-manager'
+import { fetchClickhouseGroups, fetchClickHousePersons, fetchEvents } from '../helpers/clickhouse'
 import { createOrganization, createTeam, createUserTeamAndOrganization, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
@@ -72,7 +65,7 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
     // Helper function to retrieve events paired with their associated distinct
     // ids
     const persons = await fetchPostgresPersons()
-    const events = fetchEvents()
+    const events = fetchEvents(teamId)
 
     return await Promise.all(
         persons.map(async (person) => {
@@ -103,10 +96,6 @@ let closeHub: () => Promise<void>
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
-
-// Store produced rows in memory for inspection mapped from team_id, to topic
-// name to rows.
-let clickHouseRows: Record<number, Record<string, any[]>> = {}
 
 async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hub, () => Promise<void>]> {
     const [hub, closeHub] = await createHub({
@@ -169,29 +158,6 @@ beforeEach(async () => {
 
     // Always start with an anonymous state
     state = { currentDistinctId: 'anonymous_id' }
-
-    // Typically we would ingest into ClickHouse. Instead we can just mock and
-    // record the produced messages. For all messages we append to the
-    // approriate place in the clickHouseRows object. Note that while this is
-    // called `queueMessage` singular, it actually contains multiple messages as
-    // `record.messages` is an array. Use the team_id in the message's value to
-    // determine which team it belongs to.
-    clickHouseRows = {}
-    jest.spyOn(hub.kafkaProducer, 'queueMessage').mockImplementation(async (record) => {
-        for (const message of record.messages) {
-            const value = message.value ? JSON.parse(message.value.toString()) : null
-            const teamId = value.team_id
-            const topic = record.topic
-            if (!clickHouseRows[teamId]) {
-                clickHouseRows[teamId] = {}
-            }
-            if (!clickHouseRows[teamId][topic]) {
-                clickHouseRows[teamId][topic] = []
-            }
-            clickHouseRows[teamId][topic].push(value)
-        }
-        return Promise.resolve()
-    })
 })
 
 afterAll(async () => {
@@ -232,34 +198,6 @@ const alias = async (hub: Hub, alias: string, distinctId: string) => {
     await capture(hub, '$create_alias', { alias, disinct_id: distinctId })
 }
 
-const fetchEvents = (specificTeamId: number = teamId): ClickHouseEvent[] => {
-    // Pull out the events from the clickHouseRows object defaulting to using
-    // the global teamId if not specified
-    const events = clickHouseRows[specificTeamId][KAFKA_EVENTS_JSON] ?? []
-    return events.map(parseRawClickHouseEvent)
-}
-
-const fetchClickHousePersons = (specificTeamId: number = teamId): ClickHousePerson[] => {
-    // Pull out the persons from the clickHouseRows object defaulting to using
-    // the global teamId if not specified. Note the ClickHouse persons table is
-    // a ReplacingMergeTree table using the person id for the key, which means
-    // we just want to get the latest version of each person. Version is
-    // specified by the `version` attribute of the rows and is a monotonically
-    // increasing number per person id.
-    //
-    // Further, if the is_deleted attribute is true for the latest version, we
-    // do not want to include that person in the results.
-    const persons = clickHouseRows[specificTeamId][KAFKA_PERSON] ?? []
-    const latestPersons: Record<string, ClickHousePerson> = {}
-    for (const person of persons) {
-        const personId = person.id
-        if (!latestPersons[personId] || latestPersons[personId].version < person.version) {
-            latestPersons[personId] = person
-        }
-    }
-    return Object.values(latestPersons).filter((p) => !p.is_deleted)
-}
-
 const fetchPostgresPersons = async (specificTeamId: number = teamId): Promise<Person[]> => {
     return (await hub.db.fetchPersons(Database.Postgres)).filter((p) => p.team_id === specificTeamId)
 }
@@ -274,17 +212,6 @@ const fetchEventProperties = async (specificTeamId: number = teamId): Promise<an
 
 const fetchPropertyDefinitions = async (specificTeamId: number = teamId): Promise<any[]> => {
     return (await hub.db.fetchPropertyDefinitions()).filter((p) => p.team_id === specificTeamId)
-}
-
-const fetchClickhouseGroups = (specificTeamId: number = teamId): any[] => {
-    // Pull out the groups from the clickHouseRows object
-    const groups = clickHouseRows[specificTeamId][KAFKA_GROUPS] ?? []
-    return groups.map((group) => ({
-        ...group,
-        properties: group.properties ? JSON.parse(group.properties) : undefined,
-        team_id: teamId,
-        version: undefined,
-    }))
 }
 
 const deleteTeam = async (teamId: number): Promise<void> => {
@@ -314,7 +241,7 @@ test('merge people', async () => {
 
     expect((await fetchPostgresPersons()).length).toEqual(2)
 
-    const chPeople = fetchClickHousePersons()
+    const chPeople = fetchClickHousePersons(teamId)
     expect(chPeople.length).toEqual(2)
 
     await processEvent(
@@ -330,7 +257,7 @@ test('merge people', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchClickHousePersons().length).toEqual(1)
+    expect(fetchClickHousePersons(teamId).length).toEqual(1)
 
     const [person] = await fetchPostgresPersons()
 
@@ -403,16 +330,16 @@ test('capture new person', async () => {
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
-    const chPeople = fetchClickHousePersons()
+    const chPeople = fetchClickHousePersons(teamId)
     expect(chPeople.length).toEqual(1)
     expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
     // Compare the chPeople[0].created_at which is string in the iso8601 date
     // format _without_ the "T" between dates and times parts (as ClickHouse
     // complains if we include the "T"), to the now variable. They should be
     // equivalent excluding the milliseconds parts.
-    expect(chPeople[0].created_at).toEqual(now.toISO().replace('T', ' ').slice(0, -5))
+    expect(chPeople[0].created_at).toEqual(now.toISO().replace('T', ' ').slice(0, -5) + '.000')
 
-    let events = fetchEvents()
+    let events = fetchEvents(teamId)
     expect(events[0].properties).toEqual({
         $ip: '127.0.0.1',
         $os: 'Mac OS X',
@@ -466,7 +393,7 @@ test('capture new person', async () => {
         new UUIDT().toString()
     )
 
-    events = fetchEvents()
+    events = fetchEvents(teamId)
     persons = await fetchPostgresPersons()
     expect(events.length).toEqual(2)
     expect(persons.length).toEqual(1)
@@ -488,7 +415,9 @@ test('capture new person', async () => {
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
-    const chPeople2 = fetchClickHousePersons().filter((p) => p && JSON.parse(p.properties).utm_medium == 'instagram')
+    const chPeople2 = fetchClickHousePersons(teamId).filter(
+        (p) => p && JSON.parse(p.properties).utm_medium == 'instagram'
+    )
     expect(chPeople2.length).toEqual(1)
     expect(JSON.parse(chPeople2[0].properties)).toEqual(expectedProps)
 
@@ -541,7 +470,7 @@ test('capture new person', async () => {
         new UUIDT().toString()
     )
 
-    events = fetchEvents()
+    events = fetchEvents(teamId)
     persons = await fetchPostgresPersons()
     expect(events.length).toEqual(3)
     expect(persons.length).toEqual(1)
@@ -560,7 +489,7 @@ test('capture new person', async () => {
     // check that person properties didn't change
     expect(persons[0].properties).toEqual(expectedProps)
 
-    const chPeople3 = fetchClickHousePersons()
+    const chPeople3 = fetchClickHousePersons(teamId)
     expect(chPeople3.length).toEqual(1)
     expect(JSON.parse(chPeople3[0].properties)).toEqual(expectedProps)
 
@@ -906,7 +835,7 @@ test('capture no element', async () => {
     )
 
     expect(await hub.db.fetchDistinctIdValues((await fetchPostgresPersons())[0])).toEqual(['asdfasdfasdf'])
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.event).toBe('$pageview')
 })
 
@@ -925,7 +854,7 @@ test('ip none', async () => {
         now,
         new UUIDT().toString()
     )
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(Object.keys(event.properties)).not.toContain('$ip')
 })
 
@@ -944,7 +873,7 @@ test('ip capture', async () => {
         now,
         new UUIDT().toString()
     )
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.properties['$ip']).toBe('11.12.13.14')
 })
 
@@ -964,7 +893,7 @@ test('ip override', async () => {
         new UUIDT().toString()
     )
 
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.properties['$ip']).toBe('1.0.0.1')
 })
 
@@ -985,7 +914,7 @@ test('anonymized ip capture', async () => {
         new UUIDT().toString()
     )
 
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.properties['$ip']).not.toBeDefined()
 })
 
@@ -1005,7 +934,7 @@ test('alias', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
     expect(await hub.db.fetchDistinctIdValues((await fetchPostgresPersons())[0])).toEqual([
         'old_distinct_id',
         'new_distinct_id',
@@ -1028,7 +957,7 @@ test('alias reverse', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
     expect(await hub.db.fetchDistinctIdValues((await fetchPostgresPersons())[0])).toEqual([
         'old_distinct_id',
         'new_distinct_id',
@@ -1052,7 +981,7 @@ test('alias twice', async () => {
     )
 
     expect((await fetchPostgresPersons()).length).toBe(1)
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
     expect(await hub.db.fetchDistinctIdValues((await fetchPostgresPersons())[0])).toEqual([
         'old_distinct_id',
         'new_distinct_id',
@@ -1073,7 +1002,7 @@ test('alias twice', async () => {
         now,
         new UUIDT().toString()
     )
-    expect(fetchEvents().length).toBe(2)
+    expect(fetchEvents(teamId).length).toBe(2)
     expect((await fetchPostgresPersons()).length).toBe(1)
     expect(await hub.db.fetchDistinctIdValues((await fetchPostgresPersons())[0])).toEqual([
         'old_distinct_id',
@@ -1096,7 +1025,7 @@ test('alias before person', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
     expect((await fetchPostgresPersons()).length).toBe(1)
     expect(await hub.db.fetchDistinctIdValues((await fetchPostgresPersons())[0])).toEqual([
         'new_distinct_id',
@@ -1121,7 +1050,7 @@ test('alias both existing', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
     expect(await hub.db.fetchDistinctIdValues((await fetchPostgresPersons())[0])).toEqual([
         'old_distinct_id',
         'new_distinct_id',
@@ -1151,7 +1080,7 @@ test('alias merge properties', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
     expect((await fetchPostgresPersons()).length).toBe(1)
     const [person] = await fetchPostgresPersons()
     expect((await hub.db.fetchDistinctIdValues(person)).sort()).toEqual(['new_distinct_id', 'old_distinct_id'])
@@ -1189,7 +1118,7 @@ test('long htext', async () => {
         new UUIDT().toString()
     )
 
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     const [element] = event.elements_chain!
     expect(element.href?.length).toEqual(2048)
     expect(element.text?.length).toEqual(400)
@@ -1236,7 +1165,7 @@ test('capture first team event', async () => {
 
     expect(team.ingested_event).toEqual(true)
 
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
 
     const elements = event.elements_chain!
     expect(elements.length).toEqual(1)
@@ -1253,8 +1182,11 @@ test('snapshot event stored as session_recording_event', async () => {
         '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
         now,
         '',
-        { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } } as any as Properties,
-        producer as any as KafkaProducerWrapper
+        {
+            $session_id: 'abcf-efg',
+            $snapshot_data: { timestamp: 123 },
+        } as any as Properties,
+        producer as any
     )
 
     const [_topic, _uuid, data] = producer.queueSingleJsonMessage.mock.calls[0]
@@ -1314,7 +1246,7 @@ test('performance event stored as performance_event', async () => {
         },
         '',
         now,
-        producer as any as KafkaProducerWrapper
+        producer as any
     )
 
     const [_topic, _uuid, data] = producer.queueSingleJsonMessage.mock.calls[0]
@@ -1376,9 +1308,9 @@ test('identify set', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
 
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.properties['$set']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
 
     const [person] = await fetchPostgresPersons()
@@ -1402,7 +1334,7 @@ test('identify set', async () => {
         ts_after,
         new UUIDT().toString()
     )
-    expect(fetchEvents().length).toBe(2)
+    expect(fetchEvents(teamId).length).toBe(2)
     const [person2] = await fetchPostgresPersons()
     expect(person2.properties).toEqual({ a_prop: 'test-2', b_prop: 'test-2b', c_prop: 'test-1' })
 })
@@ -1427,9 +1359,9 @@ test('identify set_once', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
 
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.properties['$set_once']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
 
     const [person] = await fetchPostgresPersons()
@@ -1453,7 +1385,7 @@ test('identify set_once', async () => {
         now,
         new UUIDT().toString()
     )
-    expect(fetchEvents().length).toBe(2)
+    expect(fetchEvents(teamId).length).toBe(2)
     const [person2] = await fetchPostgresPersons()
     expect(person2.properties).toEqual({ a_prop: 'test-1', b_prop: 'test-2b', c_prop: 'test-1' })
     expect(person2.is_identified).toEqual(false)
@@ -1556,8 +1488,8 @@ test('distinct with anonymous_id', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchEvents().length).toBe(1)
-    const [event] = fetchEvents()
+    expect(fetchEvents(teamId).length).toBe(1)
+    const [event] = fetchEvents(teamId)
     expect(event.properties['$set']).toEqual({ a_prop: 'test' })
     const [person] = await fetchPostgresPersons()
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
@@ -2123,7 +2055,7 @@ test('event name object json', async () => {
         now,
         new UUIDT().toString()
     )
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.event).toEqual('{"event name":"as object"}')
 })
 
@@ -2137,7 +2069,7 @@ test('event name array json', async () => {
         now,
         new UUIDT().toString()
     )
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.event).toEqual('["event name","a list"]')
 })
 
@@ -2152,7 +2084,7 @@ test('long event name substr', async () => {
         new UUIDT().toString()
     )
 
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.event?.length).toBe(200)
 })
 
@@ -2200,9 +2132,9 @@ test('any event can do $set on props (user exists)', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
 
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.properties['$set']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
 
     const [person] = await fetchPostgresPersons()
@@ -2230,9 +2162,9 @@ test('any event can do $set on props (new user)', async () => {
         uuid
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
 
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.properties['$set']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
 
     const [person] = await fetchPostgresPersons()
@@ -2260,9 +2192,9 @@ test('any event can do $set_once on props', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
 
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.properties['$set_once']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
 
     const [person] = await fetchPostgresPersons()
@@ -2285,7 +2217,7 @@ test('any event can do $set_once on props', async () => {
         now,
         new UUIDT().toString()
     )
-    expect(fetchEvents().length).toBe(2)
+    expect(fetchEvents(teamId).length).toBe(2)
     const [person2] = await fetchPostgresPersons()
     expect(person2.properties).toEqual({ a_prop: 'test-1', b_prop: 'test-2b', c_prop: 'test-1' })
 })
@@ -2310,7 +2242,7 @@ test('$set and $set_once', async () => {
         uuid
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
 
     const [person] = await fetchPostgresPersons()
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
@@ -2349,9 +2281,9 @@ test('groupidentify', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
 
-    const [clickhouseGroup] = fetchClickhouseGroups()
+    const [clickhouseGroup] = fetchClickhouseGroups(teamId)
     expect(clickhouseGroup).toEqual({
         group_key: 'org::5',
         group_properties: JSON.stringify({ foo: 'bar' }),
@@ -2402,9 +2334,9 @@ test('$groupidentify updating properties', async () => {
         new UUIDT().toString()
     )
 
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
 
-    const [clickhouseGroup] = fetchClickhouseGroups()
+    const [clickhouseGroup] = fetchClickhouseGroups(teamId)
     expect(clickhouseGroup).toEqual({
         group_key: 'org::5',
         group_properties: JSON.stringify({ a: 3, b: 2, foo: 'bar' }),
@@ -2489,7 +2421,7 @@ test('person and group properties on events', async () => {
         new UUIDT().toString()
     )
 
-    const events = fetchEvents()
+    const events = fetchEvents(teamId)
     const event = [...events].find((e: any) => e['event'] === 'test event')
     expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
     expect(event?.group0_properties).toEqual({ foo: 'bar' })
@@ -2516,9 +2448,9 @@ test('set and set_once on the same key', async () => {
         now,
         new UUIDT().toString()
     )
-    expect(fetchEvents().length).toBe(1)
+    expect(fetchEvents(teamId).length).toBe(1)
 
-    const [event] = fetchEvents()
+    const [event] = fetchEvents(teamId)
     expect(event.properties['$set']).toEqual({ a_prop: 'test-set' })
     expect(event.properties['$set_once']).toEqual({ a_prop: 'test-set_once' })
 
@@ -2546,7 +2478,7 @@ test('$unset person property', async () => {
         now,
         new UUIDT().toString()
     )
-    const events = fetchEvents()
+    const events = fetchEvents(teamId)
     expect(events).toHaveLength(1)
 
     expect(events).toEqual(
@@ -2583,7 +2515,7 @@ describe('ingestion in any order', () => {
     })
 
     async function verifyPersonPropertiesSetCorrectly() {
-        expect(fetchEvents()).toHaveLength(4)
+        expect(fetchEvents(teamId)).toHaveLength(4)
 
         const [person] = await fetchPostgresPersons()
         expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
