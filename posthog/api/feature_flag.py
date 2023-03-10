@@ -349,15 +349,12 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
     @action(methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle])
     def local_evaluation(self, request: request.Request, **kwargs):
-        # add param to send cohorts
 
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(team=self.team, deleted=False)
-        cohorts = {}
 
         parsed_flags = []
         for feature_flag in feature_flags:
             filters = feature_flag.get_filters()
-            # transform cohort filters to be evaluated locally
             if len(feature_flag.cohort_ids) == 1:
                 feature_flag.filters = {
                     **filters,
@@ -366,11 +363,6 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             else:
                 feature_flag.filters = filters
 
-            # when param set, send cohorts
-            if request.GET.get("send_cohorts", False):
-                for id in feature_flag.cohort_ids:
-                    cohort = Cohort.objects.get(id=id)
-                    cohorts[str(cohort.pk)] = cohort.properties
             parsed_flags.append(feature_flag)
 
         return Response(
@@ -383,7 +375,6 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                     str(row.group_type_index): row.group_type
                     for row in GroupTypeMapping.objects.filter(team_id=self.team_id)
                 },
-                "cohorts": {},
             }
         )
 
