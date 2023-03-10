@@ -137,6 +137,7 @@ export function DashboardHeader(): JSX.Element | null {
                                       }
                                     : undefined
                             }
+                            data-attr="dashboard-name"
                         />
                     </div>
                 }
