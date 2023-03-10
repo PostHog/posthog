@@ -711,3 +711,15 @@ class TestParser(BaseTest):
                 ),
             ),
         )
+
+    def test_select_union_all(self):
+        self.assertEqual(
+            parse_select("select 1 union all select 2 union all select 3"),
+            ast.SelectUnionQuery(
+                select_queries=[
+                    ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    ast.SelectQuery(select=[ast.Constant(value=2)]),
+                    ast.SelectQuery(select=[ast.Constant(value=3)]),
+                ]
+            ),
+        )

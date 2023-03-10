@@ -332,7 +332,7 @@ jobs:
             - name: Run load test
               run: |
                   cd plugin-server
-                  SESSONS_COUNT=2000 ./bin/ci_session_recordings_load_test.sh
+                  SESSIONS_COUNT=2500 ./bin/ci_session_recordings_load_test.sh
 
             - name: Upload profile as artifact
               uses: actions/upload-artifact@v2

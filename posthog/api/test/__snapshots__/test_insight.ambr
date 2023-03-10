@@ -160,7 +160,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -224,7 +224,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -270,7 +270,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -280,8 +280,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = '$pageview'
@@ -296,7 +296,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -306,8 +306,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -338,7 +338,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -348,8 +348,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = '$pageview'
@@ -364,7 +364,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -374,8 +374,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -406,7 +406,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -416,8 +416,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -448,7 +448,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -458,8 +458,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,

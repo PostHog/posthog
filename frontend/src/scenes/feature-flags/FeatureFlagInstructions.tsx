@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { Card, Row } from 'antd'
-import { IconFlag, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconFlag, IconInfo, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
     UTM_TAGS,
@@ -23,8 +23,15 @@ import {
 } from 'scenes/feature-flags/FeatureFlagSnippets'
 
 import './FeatureFlagInstructions.scss'
-import { JSPayloadSnippet, NodeJSPayloadSnippet } from 'scenes/feature-flags/FeatureFlagPayloadSnippets'
-import { LemonSelect } from '@posthog/lemon-ui'
+import {
+    JSPayloadSnippet,
+    NodeJSPayloadSnippet,
+    PythonPayloadSnippet,
+    RubyPayloadSnippet,
+} from 'scenes/feature-flags/FeatureFlagPayloadSnippets'
+import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
+import { FeatureFlagType } from '~/types'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 const DOC_BASE_URL = 'https://posthog.com/docs/'
 const FF_ANCHOR = '#feature-flags'
@@ -222,20 +229,32 @@ export function CodeInstructions({
     options,
     headerPrompt,
     selectedLanguage,
+    newCodeExample,
+    featureFlag,
 }: {
     featureFlagKey: string
     options: InstructionOption[]
     headerPrompt: string
     selectedLanguage?: string
+    newCodeExample?: boolean
+    featureFlag?: FeatureFlagType
 }): JSX.Element {
     const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
+    const [payloadOption, setPayloadOption] = useState(PAYLOAD_OPTIONS[0])
+    const [showPayloadCode, setShowPayloadCode] = useState(Object.keys(featureFlag?.filters.payloads || {}).length > 0)
 
     const selectOption = (selectedValue: string): void => {
         const option = options.find((option) => option.value === selectedValue)
+        const payloadOption = PAYLOAD_OPTIONS.find((payloadOption) => payloadOption.value === selectedValue)
 
         if (option) {
             setSelectedOption(option)
+        }
+        if (payloadOption) {
+            setPayloadOption(payloadOption)
+        } else {
+            setShowPayloadCode(false)
         }
     }
     useEffect(() => {
@@ -245,29 +264,113 @@ export function CodeInstructions({
     }, [selectedLanguage])
 
     return (
-        <Card size="small">
-            <FeatureFlagInstructionsHeader
-                options={options}
-                headerPrompt={headerPrompt}
-                selectedOptionValue={selectedOption.value}
-                selectOption={selectOption}
-            />
-            <LemonDivider />
-            <div className="mt mb">
-                <selectedOption.Snippet data-attr="feature-flag-instructions-snippet" flagKey={featureFlagKey} />
-            </div>
-            <LemonDivider />
-            <FeatureFlagInstructionsFooter documentationLink={selectedOption.documentationLink} />
-        </Card>
+        <>
+            {newCodeExample ? (
+                <div>
+                    <div className="flex flex-row gap-4">
+                        <LemonSelect
+                            data-attr="feature-flag-instructions-select"
+                            options={[
+                                {
+                                    title: 'Client libraries',
+                                    options: OPTIONS.filter((option) => option.type == LibraryType.Client).map(
+                                        (option) => ({
+                                            value: option.value,
+                                            label: option.value,
+                                            'data-attr': `feature-flag-instructions-select-option-${option.value}`,
+                                        })
+                                    ),
+                                },
+                                {
+                                    title: 'Server libraries',
+                                    options: OPTIONS.filter((option) => option.type == LibraryType.Server).map(
+                                        (option) => ({
+                                            value: option.value,
+                                            label: option.value,
+                                            'data-attr': `feature-flag-instructions-select-option-${option.value}`,
+                                        })
+                                    ),
+                                },
+                            ]}
+                            onChange={(val) => {
+                                if (val) {
+                                    selectOption(val)
+                                }
+                            }}
+                            value={selectedOption.value}
+                        />
+                        {PAYLOAD_OPTIONS.map((payloadOption) => payloadOption.value).includes(selectedOption.value) && (
+                            <div className="flex items-center gap-1">
+                                <LemonCheckbox
+                                    label="Show payload option"
+                                    onChange={() => setShowPayloadCode(!showPayloadCode)}
+                                />
+                                <Tooltip
+                                    title={
+                                        <>
+                                            {`Feature flag payloads is only available in these libraries: ${PAYLOAD_OPTIONS.map(
+                                                (payloadOption) => payloadOption.value
+                                            )}`}
+                                        </>
+                                    }
+                                >
+                                    <IconInfo className="text-xl text-muted-alt shrink-0" />
+                                </Tooltip>
+                            </div>
+                        )}
+                        {!featureFlag?.ensure_experience_continuity && (
+                            <>
+                                {selectedOption.type === LibraryType.Server && (
+                                    <LemonCheckbox label="Show local evaluation option" onChange={() => {}} />
+                                )}
+                                {selectedOption.type === LibraryType.Client && (
+                                    <LemonCheckbox label="Show bootstrap option" onChange={() => {}} />
+                                )}
+                            </>
+                        )}
+                    </div>
+                    <div className="mt mb">
+                        <selectedOption.Snippet
+                            data-attr="feature-flag-instructions-snippet"
+                            flagKey={featureFlagKey}
+                        />
+                        {showPayloadCode && <payloadOption.Snippet flagKey={featureFlagKey} />}
+                        <FeatureFlagInstructionsFooter documentationLink={selectedOption.documentationLink} />
+                    </div>
+                </div>
+            ) : (
+                <Card size="small">
+                    <FeatureFlagInstructionsHeader
+                        options={options}
+                        headerPrompt={headerPrompt}
+                        selectedOptionValue={selectedOption.value}
+                        selectOption={selectOption}
+                    />
+                    <LemonDivider />
+                    <div className="mt mb">
+                        <selectedOption.Snippet
+                            data-attr="feature-flag-instructions-snippet"
+                            flagKey={featureFlagKey}
+                        />
+                    </div>
+                    <LemonDivider />
+                    <FeatureFlagInstructionsFooter documentationLink={selectedOption.documentationLink} />
+                </Card>
+            )}
+        </>
     )
 }
 
 export function FeatureFlagInstructions({
     featureFlagKey,
+    newCodeExample,
     language,
+    featureFlag,
 }: {
     featureFlagKey: string
+    newCodeExample?: boolean
     language?: string
+    featureFlag?: FeatureFlagType
 }): JSX.Element {
     return (
         <CodeInstructions
@@ -275,6 +378,8 @@ export function FeatureFlagInstructions({
             headerPrompt="Learn how to use feature flags in your code"
             options={OPTIONS}
             selectedLanguage={language}
+            newCodeExample={newCodeExample}
+            featureFlag={featureFlag}
         />
     )
 }
@@ -318,6 +423,18 @@ const PAYLOAD_OPTIONS: InstructionOption[] = [
         value: 'Node.js',
         documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${FF_ANCHOR}`,
         Snippet: NodeJSPayloadSnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'Python',
+        documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${FF_ANCHOR}`,
+        Snippet: PythonPayloadSnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'Ruby',
+        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${FF_ANCHOR}`,
+        Snippet: RubyPayloadSnippet,
         type: LibraryType.Server,
     },
 ]

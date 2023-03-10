@@ -1028,7 +1028,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         template: Dict = {
             **valid_template,
             # client provides an incorrect "empty" filter alongside a query
-            "tiles": [{"type": "INSIGHT", "query": "a datatable", "filters": {"date_from": None}, "layouts": {}}],
+            "tiles": [
+                {"type": "INSIGHT", "query": {"kind": "a datatable"}, "filters": {"date_from": None}, "layouts": {}}
+            ],
         }
 
         response = self.client.post(
@@ -1063,7 +1065,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "name": None,
                     "next_allowed_client_refresh": None,
                     "order": None,
-                    "query": "a datatable",
+                    "query": {"kind": "a datatable"},
                     "result": None,
                     "saved": False,
                     "short_id": ANY,

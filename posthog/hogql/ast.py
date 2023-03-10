@@ -117,15 +117,15 @@ class SelectQueryRef(Ref):
     # all refs a select query exports
     columns: Dict[str, Ref] = PydanticField(default_factory=dict)
     # all from and join, tables and subqueries with aliases
-    tables: Dict[str, Union[BaseTableRef, "SelectQueryRef", "SelectQueryAliasRef"]] = PydanticField(
-        default_factory=dict
-    )
+    tables: Dict[
+        str, Union[BaseTableRef, "SelectUnionQueryRef", "SelectQueryRef", "SelectQueryAliasRef"]
+    ] = PydanticField(default_factory=dict)
     # all from and join subqueries without aliases
-    anonymous_tables: List["SelectQueryRef"] = PydanticField(default_factory=list)
+    anonymous_tables: List[Union["SelectQueryRef", "SelectUnionQueryRef"]] = PydanticField(default_factory=list)
 
     def get_alias_for_table_ref(
         self,
-        table_ref: Union[BaseTableRef, "SelectQueryRef", "SelectQueryAliasRef"],
+        table_ref: Union[BaseTableRef, "SelectUnionQueryRef", "SelectQueryRef", "SelectQueryAliasRef"],
     ) -> Optional[str]:
         for key, value in self.tables.items():
             if value == table_ref:
@@ -143,9 +143,25 @@ class SelectQueryRef(Ref):
         return name in self.columns
 
 
+class SelectUnionQueryRef(Ref):
+    refs: List[SelectQueryRef]
+
+    def get_alias_for_table_ref(
+        self,
+        table_ref: Union[BaseTableRef, SelectQueryRef, "SelectQueryAliasRef"],
+    ) -> Optional[str]:
+        return self.refs[0].get_alias_for_table_ref(table_ref)
+
+    def get_child(self, name: str) -> Ref:
+        return self.refs[0].get_child(name)
+
+    def has_child(self, name: str) -> bool:
+        return self.refs[0].has_child(name)
+
+
 class SelectQueryAliasRef(Ref):
     name: str
-    ref: SelectQueryRef
+    ref: SelectQueryRef | SelectUnionQueryRef
 
     def get_child(self, name: str) -> Ref:
         if name == "*":
@@ -171,17 +187,17 @@ class ConstantRef(Ref):
 
 
 class AsteriskRef(Ref):
-    table: Union[BaseTableRef, SelectQueryRef, SelectQueryAliasRef]
+    table: BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef
 
 
 class FieldTraverserRef(Ref):
     chain: List[str]
-    table: Union[BaseTableRef, SelectQueryRef, SelectQueryAliasRef]
+    table: BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef
 
 
 class FieldRef(Ref):
     name: str
-    table: Union[BaseTableRef, SelectQueryRef, SelectQueryAliasRef]
+    table: BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef
 
     def resolve_database_field(self) -> Optional[DatabaseField]:
         if isinstance(self.table, BaseTableRef):
@@ -304,7 +320,7 @@ class Call(Expr):
 
 class JoinExpr(Expr):
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", Field]] = None
+    table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
     constraint: Optional[Expr] = None
@@ -328,5 +344,10 @@ class SelectQuery(Expr):
     offset: Optional[Expr] = None
 
 
+class SelectUnionQuery(Expr):
+    ref: Optional[SelectUnionQueryRef] = None
+    select_queries: List[SelectQuery]
+
+
+JoinExpr.update_forward_refs(SelectUnionQuery=SelectUnionQuery)
 JoinExpr.update_forward_refs(SelectQuery=SelectQuery)
-JoinExpr.update_forward_refs(JoinExpr=JoinExpr)

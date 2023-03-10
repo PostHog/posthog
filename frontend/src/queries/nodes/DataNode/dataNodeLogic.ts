@@ -15,7 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { AnyDataNode, DataNode, EventsQuery, EventsQueryResponse, PersonsNode } from '~/queries/schema'
+import { AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
 import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
@@ -32,6 +32,9 @@ import { teamLogic } from 'scenes/teamLogic'
 export interface DataNodeLogicProps {
     key: string
     query: DataNode
+    /* Cached Results are provided when shared or exported,
+    the data node logic becomes read only implicitly */
+    cachedResults?: AnyResponseType
 }
 
 const AUTOLOAD_INTERVAL = 30000
@@ -47,7 +50,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (!objectsEqual(props.query, oldProps.query)) {
+        if (!objectsEqual(props.query, oldProps.query) && !props.cachedResults) {
             actions.loadData()
         }
     }),
@@ -64,10 +67,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
-            null as AnyDataNode['response'] | null,
+            props.cachedResults ?? null,
             {
                 clearResponse: () => null,
                 loadData: async (refresh: boolean = false, breakpoint) => {
+                    if (props.cachedResults) {
+                        return props.cachedResults
+                    }
+
+                    if (!values.currentTeamId) {
+                        // if shared/exported, the team is not loaded
+                        return null
+                    }
+
                     actions.abortAnyRunningQuery()
                     cache.abortController = new AbortController()
                     const methodOptions: ApiMethodOptions = {
@@ -90,6 +102,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                 },
                 loadNewData: async () => {
+                    if (props.cachedResults) {
+                        return props.cachedResults
+                    }
+
                     if (!values.canLoadNewData || values.dataLoading) {
                         return values.response
                     }
@@ -109,6 +125,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return values.response
                 },
                 loadNextData: async () => {
+                    if (props.cachedResults) {
+                        return props.cachedResults
+                    }
+
                     if (!values.canLoadNextData || values.dataLoading || !values.nextQuery) {
                         return values.response
                     }
@@ -247,6 +267,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     selectors({
+        isShowingCachedResults: [
+            () => [(_, props) => props.cachedResults ?? null],
+            (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
+        ],
         newQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {
@@ -274,10 +298,17 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return null
             },
         ],
-        canLoadNewData: [(s) => [s.newQuery], (newQuery) => !!newQuery],
+        canLoadNewData: [
+            (s) => [s.newQuery, s.isShowingCachedResults],
+            (newQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!newQuery),
+        ],
         nextQuery: [
-            (s, p) => [p.query, s.response, s.responseError, s.dataLoading],
-            (query, response, responseError, dataLoading): DataNode | null => {
+            (s, p) => [p.query, s.response, s.responseError, s.dataLoading, s.isShowingCachedResults],
+            (query, response, responseError, dataLoading, isShowingCachedResults): DataNode | null => {
+                if (isShowingCachedResults) {
+                    return null
+                }
+
                 if (isEventsQuery(query) && !responseError && !dataLoading) {
                     if ((response as EventsQuery['response'])?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
@@ -314,7 +345,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return null
             },
         ],
-        canLoadNextData: [(s) => [s.nextQuery], (nextQuery) => !!nextQuery],
+        canLoadNextData: [
+            (s) => [s.nextQuery, s.isShowingCachedResults],
+            (nextQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!nextQuery),
+        ],
         autoLoadRunning: [
             (s) => [s.autoLoadToggled, s.autoLoadStarted, s.dataLoading],
             (autoLoadToggled, autoLoadStarted, dataLoading) => autoLoadToggled && autoLoadStarted && !dataLoading,

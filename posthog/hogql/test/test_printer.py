@@ -382,3 +382,27 @@ class TestPrinter(TestCase):
             self._select("SELECT event from (select distinct event from events group by event, timestamp) e"),
             "SELECT e.event FROM (SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp) AS e LIMIT 65535",
         )
+
+    def test_select_union_all(self):
+        self.assertEqual(
+            self._select("SELECT event FROM events UNION ALL SELECT event FROM events WHERE 1 = 2"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 65535 UNION ALL SELECT event FROM events WHERE and(equals(team_id, 42), equals(1, 2)) LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select(
+                "SELECT event FROM events UNION ALL SELECT event FROM events WHERE 1 = 2 UNION ALL SELECT event FROM events WHERE 1 = 2"
+            ),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 65535 UNION ALL SELECT event FROM events WHERE and(equals(team_id, 42), equals(1, 2)) LIMIT 65535 UNION ALL SELECT event FROM events WHERE and(equals(team_id, 42), equals(1, 2)) LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("SELECT 1 UNION ALL (SELECT 1 UNION ALL SELECT 1) UNION ALL SELECT 1"),
+            "SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1"),
+            "SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1)"),
+            "SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1) LIMIT 65535",
+        )

@@ -28,6 +28,7 @@ describe('projectUsage', () => {
             projectUsage(10000, {
                 current_period_start: dayjs().add(-100, 'hours'),
                 current_period_end: dayjs().add(100, 'hours'),
+                interval: 'month',
             })
         ).toEqual(20000)
 
@@ -35,6 +36,7 @@ describe('projectUsage', () => {
             projectUsage(10000, {
                 current_period_start: dayjs().add(-1, 'days'),
                 current_period_end: dayjs().add(30, 'days'),
+                interval: 'month',
             })
         ).toEqual(310000)
     })
@@ -44,6 +46,7 @@ describe('projectUsage', () => {
             projectUsage(10000, {
                 current_period_start: dayjs(),
                 current_period_end: dayjs().add(100, 'hours'),
+                interval: 'month',
             })
         ).toEqual(10000)
     })
