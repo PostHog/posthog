@@ -1,7 +1,7 @@
 import MonacoEditor from '@monaco-editor/react'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { NodeKind, TimeToSeeDataNode } from '~/queries/schema'
+import { AnyResponseType, NodeKind, TimeToSeeDataNode } from '~/queries/schema'
 import { useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -11,9 +11,9 @@ import { TimeToSeeSessionNode } from './types'
 let uniqueNode = 0
 
 /** Default renderer for data nodes. Display the JSON in a Monaco editor.  */
-export function TimeToSeeData(props: { query: TimeToSeeDataNode }): JSX.Element {
+export function TimeToSeeData(props: { query: TimeToSeeDataNode; cachedResults?: AnyResponseType }): JSX.Element {
     const [key] = useState(() => `TimeToSeeData.${uniqueNode++}`)
-    const logic = dataNodeLogic({ query: props.query, key })
+    const logic = dataNodeLogic({ query: props.query, key, cachedResults: props.cachedResults })
     const { response, responseLoading } = useValues(logic)
 
     if (responseLoading) {

@@ -49,26 +49,87 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     return generate_insight_cache_key(insight, dashboard)
 
 
-def get_cache_type(filter: FilterType) -> CacheType:
-    if filter.insight == INSIGHT_FUNNELS:
+def get_cache_type_for_filter(cacheable: FilterType) -> CacheType:
+    if cacheable.insight == INSIGHT_FUNNELS:
         return CacheType.FUNNEL
-    elif filter.insight == INSIGHT_PATHS:
+    elif cacheable.insight == INSIGHT_PATHS:
         return CacheType.PATHS
-    elif filter.insight == INSIGHT_RETENTION:
+    elif cacheable.insight == INSIGHT_RETENTION:
         return CacheType.RETENTION
     elif (
-        filter.insight == INSIGHT_TRENDS
-        and isinstance(filter, StickinessFilter)
-        and filter.shown_as == TRENDS_STICKINESS
-    ) or filter.insight == INSIGHT_STICKINESS:
+        cacheable.insight == INSIGHT_TRENDS
+        and isinstance(cacheable, StickinessFilter)
+        and cacheable.shown_as == TRENDS_STICKINESS
+    ) or cacheable.insight == INSIGHT_STICKINESS:
         return CacheType.STICKINESS
     else:
         return CacheType.TRENDS
 
 
+def get_cache_type_for_query(cacheable: Dict) -> CacheType:
+    cache_type = None
+
+    if cacheable.get("source"):
+        cache_type = cacheable["source"].get("kind", None)
+    elif cacheable.get("kind"):
+        cache_type = cacheable["kind"]
+
+    if cache_type is None:
+        logger.error("could_not_determine_cache_type", cacheable=cacheable)
+        raise Exception("Could not determine cache type. No query kind provided.")
+
+    return cache_type
+
+
+def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheType:
+    if isinstance(cacheable, Filter):
+        return get_cache_type_for_filter(cacheable)
+    elif isinstance(cacheable, dict):
+        return get_cache_type_for_query(cacheable)
+    else:
+        logger.error("could_not_determine_cache_type_for_insight")
+        raise Exception("Could not determine cache type. Must provide a filter or a query")
+
+
 def calculate_result_by_insight(
     team: Team, insight: Insight, dashboard: Optional[Dashboard]
-) -> Tuple[str, str, List[Dict[str, Any]]]:
+) -> Tuple[str, str, List | Dict]:
+    """
+    Calculates the result for an insight. If the insight is query based,
+    it will use the query to calculate the result. Even if there is a filter present on the insight
+
+    Eventually there will be no filter-based insights left and calculate_for_query_based_insight will be
+    in-lined into this function
+    """
+    if insight.query is not None:
+        return calculate_for_query_based_insight(team, insight, dashboard)
+    else:
+        return calculate_for_filter_based_insight(team, insight, dashboard)
+
+
+def calculate_for_query_based_insight(
+    team: Team, insight: Insight, dashboard: Optional[Dashboard]
+) -> Tuple[str, str, List | Dict]:
+    cache_key = generate_insight_cache_key(insight, dashboard)
+    cache_type = get_cache_type(insight.query)
+
+    tag_queries(
+        team_id=team.pk,
+        insight_id=insight.pk,
+        cache_type=cache_type,
+        cache_key=cache_key,
+    )
+
+    # local import to avoid circular reference
+    from posthog.api.query import process_query
+
+    # TODO need to properly check that hogql is enabled?
+    return cache_key, cache_type, process_query(team, insight.query, True)
+
+
+def calculate_for_filter_based_insight(
+    team: Team, insight: Insight, dashboard: Optional[Dashboard]
+) -> Tuple[str, str, List | Dict]:
     filter = get_filter(data=insight.dashboard_filters(dashboard), team=team)
     cache_key = generate_insight_cache_key(insight, dashboard)
     cache_type = get_cache_type(filter)
@@ -79,6 +140,7 @@ def calculate_result_by_insight(
         cache_type=cache_type,
         cache_key=cache_key,
     )
+
     return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, team)
 
 

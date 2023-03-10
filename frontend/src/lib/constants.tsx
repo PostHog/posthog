@@ -133,7 +133,6 @@ export const FEATURE_FLAGS = {
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
-    HOGQL_EXPRESSIONS: 'hogql_expressions', // owner @mariusandra
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
@@ -142,10 +141,10 @@ export const FEATURE_FLAGS = {
     REQUIRE_EMAIL_VERIFICATION: 'require-email-verification', // owner: @raquelmsmith
     DATA_EXPLORATION_QUERIES_ON_DASHBOARDS: 'data-exploration-queries-on-dashboards', // owner: @pauldambra
     SAMPLING: 'sampling', // owner: @yakkomajuri
-    DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra and @lharries
     TEMPLUKES: 'templukes', // owner: @pauldambra and @lharries
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
+    FF_CODE_EXAMPLE: 'ff-code-example', // owner: @liyiy
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
 }
