@@ -438,7 +438,7 @@ def graphile_worker_queue_size():
             for (task_identifier, count, oldest) in cursor.fetchall():
                 seen_task_identifier.add(task_identifier)
                 waiting_jobs_gauge.labels(task_identifier=task_identifier).set(count)
-                processing_lag_gauge.labels(task_identifier=task_identifier).set(time.time() - oldest)
+                processing_lag_gauge.labels(task_identifier=task_identifier).set(time.time() - float(oldest))
                 statsd.gauge("graphile_waiting_jobs", count, tags={"task_identifier": task_identifier})
 
             # The query will not return rows for empty queues, creating missing points.
