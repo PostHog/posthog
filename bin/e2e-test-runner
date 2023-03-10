@@ -105,4 +105,3 @@ $SKIP_SETUP_DEV || setupDev
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
 pnpm dlx cypress open --config-file cypress.e2e.config.ts &
 python manage.py runserver 8080
-
