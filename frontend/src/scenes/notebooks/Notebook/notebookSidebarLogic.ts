@@ -20,6 +20,7 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
             false,
             {
                 setFullScreen: (_, { full }) => full,
+                setNotebookSideBarShown: (state, { shown }) => (!shown ? false : state),
             },
         ],
     })),
