@@ -34,6 +34,7 @@ export function SamplingFilter({
                         Sampling
                     </LemonLabel>
                     <LemonSwitch
+                        id="sampling-toggle"
                         className="m-2"
                         onChange={(checked) => (checked ? setSamplingPercentage(10) : setSamplingPercentage(null))}
                         checked={!!samplingPercentage}
