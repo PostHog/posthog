@@ -18,6 +18,7 @@ from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.feature_flag import (
     FeatureFlagMatcher,
     can_user_edit_feature_flag,
@@ -157,12 +158,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                 prop = Property(**property)
                 if prop.type == "cohort":
                     try:
-                        cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
-                        if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
-                            raise serializers.ValidationError(
-                                detail=f"Cohort '{cohort.name}' with behavioral filters cannot be used in feature flags.",
-                                code="behavioral_cohort_found",
-                            )
+                        initial_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
+                        dependent_cohorts = get_dependent_cohorts(initial_cohort)
+                        for cohort in [initial_cohort, *dependent_cohorts]:
+                            if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
+                                raise serializers.ValidationError(
+                                    detail=f"Cohort '{cohort.name}' with behavioral filters cannot be used in feature flags.",
+                                    code="behavioral_cohort_found",
+                                )
                     except Cohort.DoesNotExist:
                         raise serializers.ValidationError(
                             detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist"
