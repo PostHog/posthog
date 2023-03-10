@@ -237,9 +237,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          events.distinct_id,
-         replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''),
+         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
          'a%sd',
-         concat(event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
+         concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, version) AS person_id,
@@ -249,13 +249,42 @@
      GROUP BY distinct_id
      HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   INNER JOIN
-    (SELECT argMax(person.properties, version) AS properties,
+    (SELECT argMax(replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''), version) AS properties___email,
             id
      FROM person
      WHERE equals(team_id, 2)
      GROUP BY id
      HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
-  WHERE and(equals(team_id, 2), equals(replaceRegexpAll(JSONExtractRaw(events__pdi__person.properties, 'email'), '^"|"$', ''), 'tom@posthog.com'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(team_id, 2), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
+  ORDER BY event ASC
+  LIMIT 101
+  OFFSET 0
+  '
+---
+# name: TestQuery.test_person_property_filter_materialized
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT event,
+         events.distinct_id,
+         mat_key,
+         'a%sd',
+         concat(event, ' ', mat_key)
+  FROM events
+  INNER JOIN
+    (SELECT argMax(person_distinct_id2.person_id, version) AS person_id,
+            distinct_id
+     FROM person_distinct_id2
+     WHERE equals(team_id, 2)
+     GROUP BY distinct_id
+     HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+  INNER JOIN
+    (SELECT argMax(pmat_email, version) AS properties___email,
+            id
+     FROM person
+     WHERE equals(team_id, 2)
+     GROUP BY id
+     HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
+  WHERE and(equals(team_id, 2), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
   OFFSET 0
@@ -315,6 +344,19 @@
   OFFSET 0
   '
 ---
+# name: TestQuery.test_select_event_person
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT event,
+         distinct_id,
+         distinct_id
+  FROM events
+  WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
+  ORDER BY event ASC
+  LIMIT 101
+  OFFSET 0
+  '
+---
 # name: TestQuery.test_select_hogql_expressions
   '
   /* user_id:0 request:_snapshot_ */
@@ -332,26 +374,11 @@
 # name: TestQuery.test_select_hogql_expressions.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT tuple(uuid, event, events.properties, timestamp, team_id, events.distinct_id, elements_chain, events.created_at, events__pdi.person_id, events__pdi__person.created_at, events__pdi__person.properties),
+  SELECT tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at),
          event
   FROM events
-  INNER JOIN
-    (SELECT argMax(person_distinct_id2.person_id, version) AS person_id,
-            distinct_id
-     FROM person_distinct_id2
-     WHERE equals(team_id, 2)
-     GROUP BY distinct_id
-     HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-  INNER JOIN
-    (SELECT argMax(person.created_at, version) AS created_at,
-            argMax(person.properties, version) AS properties,
-            id
-     FROM person
-     WHERE equals(team_id, 2)
-     GROUP BY id
-     HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
   WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
-  ORDER BY tuple(uuid, event, events.properties, timestamp, team_id, events.distinct_id, elements_chain, events.created_at, events__pdi.person_id, events__pdi__person.created_at, events__pdi__person.properties) ASC
+  ORDER BY tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at) ASC
   LIMIT 101
   OFFSET 0
   '
