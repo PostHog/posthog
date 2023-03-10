@@ -380,86 +380,90 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                     {showEventsBufferWarning && isEventsQuery(query.source) && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
-                    {inlineEditorButtonOnRow === 0 && context?.readonly !== true ? (
-                        <div className="absolute right-0 z-10 p-1">
-                            <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
-                        </div>
-                    ) : null}
-                    <LemonTable
-                        className="DataTable"
-                        loading={responseLoading && !nextDataLoading && !newDataLoading}
-                        columns={lemonColumns}
-                        key={
-                            [...(columnsInResponse ?? []), ...columnsInQuery].join(
-                                '::'
-                            ) /* Bust the LemonTable cache when columns change */
-                        }
-                        dataSource={(dataTableRows ?? []) as DataTableRow[]}
-                        rowKey={({ result }: DataTableRow, rowIndex) => {
-                            if (result) {
-                                if (isEventsQuery(query.source)) {
-                                    if (columnsInResponse?.includes('*')) {
-                                        return result[columnsInResponse.indexOf('*')].uuid
-                                    } else if (columnsInResponse?.includes('uuid')) {
-                                        return result[columnsInResponse.indexOf('uuid')]
-                                    } else if (columnsInResponse?.includes('id')) {
-                                        return result[columnsInResponse.indexOf('id')]
+                    <div>
+                        {inlineEditorButtonOnRow === 0 && context?.readonly !== true ? (
+                            <div className="absolute right-0 z-10 p-1">
+                                <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                            </div>
+                        ) : null}
+                        <LemonTable
+                            className="DataTable"
+                            loading={responseLoading && !nextDataLoading && !newDataLoading}
+                            columns={lemonColumns}
+                            key={
+                                [...(columnsInResponse ?? []), ...columnsInQuery].join(
+                                    '::'
+                                ) /* Bust the LemonTable cache when columns change */
+                            }
+                            dataSource={(dataTableRows ?? []) as DataTableRow[]}
+                            rowKey={({ result }: DataTableRow, rowIndex) => {
+                                if (result) {
+                                    if (isEventsQuery(query.source)) {
+                                        if (columnsInResponse?.includes('*')) {
+                                            return result[columnsInResponse.indexOf('*')].uuid
+                                        } else if (columnsInResponse?.includes('uuid')) {
+                                            return result[columnsInResponse.indexOf('uuid')]
+                                        } else if (columnsInResponse?.includes('id')) {
+                                            return result[columnsInResponse.indexOf('id')]
+                                        }
                                     }
+                                    return (
+                                        (result && 'uuid' in result ? (result as any).uuid : null) ??
+                                        (result && 'id' in result ? (result as any).id : null) ??
+                                        JSON.stringify(result ?? rowIndex)
+                                    )
                                 }
-                                return (
-                                    (result && 'uuid' in result ? (result as any).uuid : null) ??
-                                    (result && 'id' in result ? (result as any).id : null) ??
-                                    JSON.stringify(result ?? rowIndex)
+                                return rowIndex
+                            }}
+                            sorting={null}
+                            useURLForSorting={false}
+                            emptyState={
+                                responseError ? (
+                                    isHogQLQuery(query.source) ? (
+                                        <InsightErrorState
+                                            excludeDetail
+                                            title={
+                                                response && 'error' in response
+                                                    ? (response as any).error
+                                                    : responseError
+                                            }
+                                        />
+                                    ) : (
+                                        <InsightErrorState />
+                                    )
+                                ) : (
+                                    <InsightEmptyState />
                                 )
                             }
-                            return rowIndex
-                        }}
-                        sorting={null}
-                        useURLForSorting={false}
-                        emptyState={
-                            responseError ? (
-                                isHogQLQuery(query.source) ? (
-                                    <InsightErrorState
-                                        excludeDetail
-                                        title={
-                                            response && 'error' in response ? (response as any).error : responseError
-                                        }
-                                    />
-                                ) : (
-                                    <InsightErrorState />
-                                )
-                            ) : (
-                                <InsightEmptyState />
-                            )
-                        }
-                        expandable={
-                            expandable && isEventsQuery(query.source) && columnsInResponse?.includes('*')
-                                ? {
-                                      expandedRowRender: function renderExpand({ result }) {
-                                          if (isEventsQuery(query.source) && Array.isArray(result)) {
-                                              return (
-                                                  <EventDetails
-                                                      event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                                      useReactJsonView
-                                                  />
-                                              )
-                                          }
-                                          if (result && !Array.isArray(result)) {
-                                              return <EventDetails event={result as EventType} useReactJsonView />
-                                          }
-                                      },
-                                      rowExpandable: ({ result }) => !!result,
-                                      noIndent: true,
-                                  }
-                                : undefined
-                        }
-                        rowClassName={({ result, label }) =>
-                            clsx('DataTable__row', {
-                                'DataTable__row--highlight_once': result && highlightedRows.has(result),
-                                'DataTable__row--category_row': !!label,
-                            })
-                        }
-                    />
+                            expandable={
+                                expandable && isEventsQuery(query.source) && columnsInResponse?.includes('*')
+                                    ? {
+                                          expandedRowRender: function renderExpand({ result }) {
+                                              if (isEventsQuery(query.source) && Array.isArray(result)) {
+                                                  return (
+                                                      <EventDetails
+                                                          event={result[columnsInResponse.indexOf('*')] ?? {}}
+                                                          useReactJsonView
+                                                      />
+                                                  )
+                                              }
+                                              if (result && !Array.isArray(result)) {
+                                                  return <EventDetails event={result as EventType} useReactJsonView />
+                                              }
+                                          },
+                                          rowExpandable: ({ result }) => !!result,
+                                          noIndent: true,
+                                      }
+                                    : undefined
+                            }
+                            rowClassName={({ result, label }) =>
+                                clsx('DataTable__row', {
+                                    'DataTable__row--highlight_once': result && highlightedRows.has(result),
+                                    'DataTable__row--category_row': !!label,
+                                })
+                            }
+                        />
+                    </div>
                     {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && (
                         <LoadNext query={query.source} />
                     )}

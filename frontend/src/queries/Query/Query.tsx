@@ -15,6 +15,8 @@ import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyIns
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
+import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
+import { NodeType } from 'scenes/notebooks/Nodes/types'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
@@ -73,7 +75,14 @@ export function Query(props: QueryProps): JSX.Element {
     }
 
     if (component) {
-        return <ErrorBoundary>{component}</ErrorBoundary>
+        return (
+            <ErrorBoundary>
+                <>
+                    <AddToNotebook node={NodeType.Query} properties={{ query }} />
+                    {component}
+                </>
+            </ErrorBoundary>
+        )
     }
 
     return (

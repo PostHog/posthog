@@ -34,7 +34,7 @@ $sidebar-width: 40%;
             width: $sidebar-width;
 
             .NotebookSidebar__content {
-                z-index: 10000;
+                z-index: 10;
                 width: calc(100vw - 15.5rem - 1rem); // TODO: Unhardcode this value
 
                 .SideBar--hidden & {

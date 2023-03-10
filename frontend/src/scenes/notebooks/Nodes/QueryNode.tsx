@@ -1,4 +1,4 @@
-import { mergeAttributes, Node } from '@tiptap/core'
+import { mergeAttributes, Node, NodeViewRendererProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { useState } from 'react'
 import { Query } from '~/queries/Query/Query'
@@ -16,12 +16,11 @@ const DEFAULT_QUERY: QuerySchema = {
         after: '-24h',
         limit: 100,
     },
-    propertiesViaUrl: false,
-    showSavedQueries: false,
+    expandable: false,
 }
 
-const Component = (): JSX.Element => {
-    const [query, setQuery] = useState<QuerySchema>(DEFAULT_QUERY)
+const Component = (props: NodeViewRendererProps): JSX.Element => {
+    const [query, setQuery] = useState<QuerySchema>(props.node.attrs.query)
 
     return (
         <NodeWrapper className={NodeType.Query} title="Query">
@@ -40,8 +39,8 @@ export const QueryNode = Node.create({
 
     addAttributes() {
         return {
-            count: {
-                default: 0,
+            query: {
+                default: DEFAULT_QUERY,
             },
         }
     },
