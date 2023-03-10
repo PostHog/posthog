@@ -19,10 +19,12 @@ function TemplateItem({
     template,
     onClick,
     index,
+    'data-attr': dataAttr,
 }: {
     template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'image_url'>
     onClick: () => void
     index: number
+    'data-attr': string
 }): JSX.Element {
     const [isHovering, setIsHovering] = useState(false)
 
@@ -32,6 +34,7 @@ function TemplateItem({
             onClick={onClick}
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
+            data-attr={dataAttr}
         >
             <div
                 className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30')}
@@ -102,6 +105,7 @@ export function DashboardTemplateChooser(): JSX.Element {
                         })
                     }}
                     index={0}
+                    data-attr="create-dashboard-blank"
                 />
                 {allTemplates.map((template, index) => (
                     <TemplateItem
@@ -124,6 +128,7 @@ export function DashboardTemplateChooser(): JSX.Element {
                             }
                         }}
                         index={index + 1}
+                        data-attr="create-dashboard-from-template"
                     />
                 ))}
                 {/*TODO @lukeharries should we have an empty state here? When no templates let people know what to do?*/}
