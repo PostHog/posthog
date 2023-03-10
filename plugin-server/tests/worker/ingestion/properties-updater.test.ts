@@ -23,8 +23,11 @@ describe('properties-updater', () => {
     const FUTURE_TIMESTAMP = DateTime.fromISO('2050-10-14T11:42:06.502Z')
     const PAST_TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z')
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeServer] = await createHub()
+    })
+
+    beforeEach(async () => {
         ;({ team } = await resetTestDatabase())
         db = hub.db
 
@@ -34,7 +37,7 @@ describe('properties-updater', () => {
         jest.spyOn(hub.db, 'insertGroup')
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeServer()
     })
 

@@ -1,5 +1,6 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as fetch from 'node-fetch'
+import { v4 } from 'uuid'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
@@ -32,9 +33,10 @@ const defaultEvent = {
 export const createReadyPluginConfigVm = async (
     hub: Hub,
     pluginConfig: PluginConfig,
-    indexJs: string
+    indexJs: string,
+    distinctId: string = v4()
 ): Promise<PluginConfigVMResponse> => {
-    const vmResponse = createPluginConfigVM(hub, pluginConfig, indexJs)
+    const vmResponse = createPluginConfigVM(hub, pluginConfig, indexJs, distinctId)
     await vmResponse.vm.run(`${vmResponse.vmResponseVariable}.methods.setupPlugin?.()`)
     return vmResponse
 }
@@ -42,11 +44,11 @@ describe('vm tests', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 
@@ -986,7 +988,8 @@ describe('vm tests', () => {
             }
         `
         const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
+        const distinctId = v4()
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs, distinctId)
 
         const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
 
@@ -997,12 +1000,12 @@ describe('vm tests', () => {
         expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
         const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value!.toString())
         expect(JSON.parse(parsedMessage.data)).toMatchObject({
-            distinct_id: 'plugin-id-60',
+            distinct_id: distinctId,
             event: 'my-new-event',
             properties: expect.objectContaining({
                 $lib: 'posthog-plugin-server',
                 random: 'properties',
-                distinct_id: 'plugin-id-60',
+                distinct_id: distinctId,
             }),
         })
     })
@@ -1015,7 +1018,8 @@ describe('vm tests', () => {
             }
         `
         const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
+        const distinctId = v4()
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs, distinctId)
 
         const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
 
@@ -1027,7 +1031,7 @@ describe('vm tests', () => {
         const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value!.toString())
         expect(JSON.parse(parsedMessage.data)).toMatchObject({
             timestamp: '2020-02-23T02:15:00Z', // taken out of the properties
-            distinct_id: 'plugin-id-60',
+            distinct_id: distinctId,
             event: 'my-new-event',
             properties: expect.objectContaining({ $lib: 'posthog-plugin-server', random: 'properties' }),
         })
@@ -1106,7 +1110,7 @@ describe('vm tests', () => {
                 indexJs
             )
 
-            await vm.methods.onEvent!(defaultEvent)
+            await vm.methods.onEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
             await vm.methods.onEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id, event: 'otherEvent' })
             await vm.methods.onEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id, event: 'otherEvent2' })
             await vm.methods.onEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id, event: 'otherEvent3' })
@@ -1232,9 +1236,9 @@ describe('vm tests', () => {
                 indexJs
             )
 
-            await vm.methods.onEvent!(defaultEvent)
-            await vm.methods.onEvent!(defaultEvent)
-            await vm.methods.onEvent!(defaultEvent)
+            await vm.methods.onEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
+            await vm.methods.onEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
+            await vm.methods.onEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
             await delay(1010)
 
             // won't retry after the nth time where n = MAXIMUM_RETRIES
@@ -1276,7 +1280,7 @@ describe('vm tests', () => {
                 event: 'exported',
             }
             await vm.methods.onEvent!(event)
-            await vm.methods.onEvent!(defaultEvent)
+            await vm.methods.onEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
             await vm.methods.onEvent!(event)
             await delay(1010)
             expect(fetch).toHaveBeenCalledTimes(4)
@@ -1407,7 +1411,7 @@ describe('vm tests', () => {
                 },
                 indexJs
             )
-            await vm.methods.onEvent!(defaultEvent)
+            await vm.methods.onEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
             expect(fetch).not.toHaveBeenCalledWith('https://export.com/results.json?query=default event&events=1')
 
             await vm.methods.teardownPlugin!()

@@ -13,14 +13,14 @@ describe('capabilities', () => {
     let piscina: Piscina
     let closeHub: () => Promise<void>
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub({
             LOG_LEVEL: LogLevel.Warn,
         })
         piscina = { run: jest.fn(), on: jest.fn() } as any
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 

@@ -29,8 +29,11 @@ describe('PropertyDefinitionsManager()', () => {
     let teamId: number
     let organizationId: string
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
+    })
+
+    beforeEach(async () => {
         organizationId = await createOrganization()
         teamId = await createTeam(organizationId)
         const groupTypeManager = new GroupTypeManager(hub.db, hub.teamManager, hub.SITE_URL)
@@ -39,7 +42,7 @@ describe('PropertyDefinitionsManager()', () => {
         Settings.defaultZoneName = 'utc'
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 
@@ -250,8 +253,10 @@ describe('PropertyDefinitionsManager()', () => {
                     'insertEventDefinition'
                 )
 
-                jest.spyOn(manager.teamManager, 'fetchTeam')
-                jest.spyOn(hub.db, 'postgresQuery')
+                const fetchTeamSpy = jest.spyOn(manager.teamManager, 'fetchTeam')
+                const postgresQuerySpy = jest.spyOn(hub.db, 'postgresQuery')
+                fetchTeamSpy.mockClear()
+                postgresQuerySpy.mockClear()
 
                 // Scenario: Different request comes in, team gets reloaded in the background with no updates
                 await manager.updateEventNamesAndProperties(teamId, '$foobar', {})

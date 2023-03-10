@@ -29,7 +29,7 @@ describe('server', () => {
     ) {
         return startPluginsServer(
             {
-                WORKER_CONCURRENCY: 2,
+                WORKER_CONCURRENCY: 1,
                 LOG_LEVEL: LogLevel.Debug,
                 ...config,
             },

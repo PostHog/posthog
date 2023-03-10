@@ -2,15 +2,10 @@ import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { AppMetricIdentifier, AppMetrics } from '../../../src/worker/ingestion/app-metrics'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
+import { delayUntilEventIngested, fetchAppMetrics } from '../../helpers/clickhouse'
+import { createOrganization, createTeam } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
-
-const metric: AppMetricIdentifier = {
-    teamId: 2,
-    pluginConfigId: 2,
-    category: 'processEvent',
-}
 
 const timestamp = 1_000_000
 
@@ -22,19 +17,37 @@ describe('AppMetrics()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
-    beforeEach(async () => {
+    let organizationId: string
+    let teamId: number
+    let metric: AppMetricIdentifier
+
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub({ APP_METRICS_FLUSH_FREQUENCY_MS: 100 })
+    })
+
+    beforeEach(async () => {
         appMetrics = new AppMetrics(hub)
+
+        organizationId = await createOrganization()
+        teamId = await createTeam(organizationId)
+        metric = {
+            teamId: teamId,
+            pluginConfigId: 2,
+            category: 'processEvent',
+        }
 
         jest.spyOn(hub.organizationManager, 'hasAvailableFeature').mockResolvedValue(true)
         jest.spyOn(hub.kafkaProducer, 'queueMessage').mockReturnValue(Promise.resolve())
     })
 
-    afterEach(async () => {
+    afterEach(() => {
         jest.useRealTimers()
         if (appMetrics.timer) {
             clearTimeout(appMetrics.timer)
         }
+    })
+
+    afterAll(async () => {
         await closeHub()
     })
 
@@ -50,7 +63,7 @@ describe('AppMetrics()', () => {
                     lastTimestamp: timestamp,
                     queuedAt: timestamp,
                     metric: {
-                        teamId: 2,
+                        teamId: teamId,
                         pluginConfigId: 2,
                         category: 'processEvent',
                     },
@@ -84,7 +97,7 @@ describe('AppMetrics()', () => {
                     lastTimestamp: timestamp + 2000,
                     queuedAt: timestamp,
                     metric: {
-                        teamId: 2,
+                        teamId: teamId,
                         pluginConfigId: 2,
                         category: 'processEvent',
                     },
@@ -96,7 +109,7 @@ describe('AppMetrics()', () => {
                     lastTimestamp: timestamp + 1000,
                     queuedAt: timestamp + 1000,
                     metric: {
-                        teamId: 2,
+                        teamId: teamId,
                         pluginConfigId: 2,
                         category: 'onEvent',
                     },
@@ -139,7 +152,7 @@ describe('AppMetrics()', () => {
                     lastTimestamp: timestamp,
                     queuedAt: timestamp,
                     metric: {
-                        teamId: 2,
+                        teamId: teamId,
                         pluginConfigId: 2,
                         category: 'processEvent',
                     },
@@ -156,7 +169,7 @@ describe('AppMetrics()', () => {
                     lastTimestamp: timestamp + 1000,
                     queuedAt: timestamp + 1000,
                     metric: {
-                        teamId: 2,
+                        teamId: teamId,
                         pluginConfigId: 2,
                         category: 'processEvent',
                     },
@@ -272,7 +285,18 @@ describe('AppMetrics()', () => {
             await appMetrics.queueMetric({ ...metric, jobId: '000-000', successes: 1 }, timestamp)
             await appMetrics.flush()
 
-            expect(spy.mock.calls).toMatchSnapshot()
+            expect(spy.mock.calls).toEqual([
+                [
+                    {
+                        messages: [
+                            {
+                                value: `{\"timestamp\":\"1970-01-01 00:16:40.000\",\"team_id\":${teamId},\"plugin_config_id\":2,\"job_id\":\"000-000\",\"category\":\"processEvent\",\"successes\":1,\"successes_on_retry\":0,\"failures\":0}`,
+                            },
+                        ],
+                        topic: 'clickhouse_app_metrics_test',
+                    },
+                ],
+            ])
         })
 
         it('does nothing if nothing queued', async () => {
@@ -283,12 +307,7 @@ describe('AppMetrics()', () => {
     })
 
     describe('reading writes from clickhouse', () => {
-        async function fetchRowsFromClickhouse() {
-            return (await hub.db.clickhouseQuery(`SELECT * FROM app_metrics FINAL`)).data
-        }
-
-        beforeEach(async () => {
-            await resetTestDatabaseClickhouse()
+        beforeEach(() => {
             jest.mocked(hub.kafkaProducer.queueMessage).mockRestore()
         })
 
@@ -302,7 +321,7 @@ describe('AppMetrics()', () => {
             await appMetrics.flush()
             await hub.kafkaProducer.flush()
 
-            const rows = await delayUntilEventIngested(fetchRowsFromClickhouse)
+            const rows = await delayUntilEventIngested(() => fetchAppMetrics(teamId))
             expect(rows.length).toEqual(1)
             expect(rows[0]).toEqual(
                 expect.objectContaining({
@@ -328,11 +347,12 @@ describe('AppMetrics()', () => {
                 { ...metric, failures: 1 },
                 { error: new Error('foobar'), eventCount: 1 },
                 timestamp
-            ),
-                await appMetrics.flush()
+            )
+
+            await appMetrics.flush()
             await hub.kafkaProducer.flush()
 
-            const rows = await delayUntilEventIngested(fetchRowsFromClickhouse)
+            const rows = await delayUntilEventIngested(() => fetchAppMetrics(teamId))
 
             expect(rows.length).toEqual(1)
             expect(rows[0]).toEqual(

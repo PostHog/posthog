@@ -1,16 +1,8 @@
 import { DateTime } from 'luxon'
 
-import { startPluginsServer } from '../../../src/main/pluginsServer'
-import {
-    Database,
-    Hub,
-    LogLevel,
-    PluginsServerConfig,
-    PropertyUpdateOperation,
-    TimestampFormat,
-} from '../../../src/types'
+import { Database, Hub, PropertyUpdateOperation, TimestampFormat } from '../../../src/types'
+import { createHub } from '../../../src/utils/db/hub'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
-import { makePiscina } from '../../../src/worker/piscina'
 import {
     delayUntilEventIngested,
     fetchClickHouseDistinctIdValues,
@@ -23,20 +15,13 @@ import { resetTestDatabase } from '../../helpers/sql'
 jest.mock('../../../src/utils/status')
 jest.setTimeout(10000) // 60 sec timeout
 
-const extraServerConfig: Partial<PluginsServerConfig> = {
-    WORKER_CONCURRENCY: 2,
-    LOG_LEVEL: LogLevel.Log,
-}
-
 describe('postgres parity', () => {
     let hub: Hub
-    let stopServer: (() => Promise<void>) | undefined
+    let closeHub: (() => Promise<void>) | undefined
     let teamId: number
 
     beforeAll(async () => {
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
-        hub = startResponse.hub
-        stopServer = startResponse.stop
+        ;[hub, closeHub] = await createHub()
     })
 
     beforeEach(async () => {
@@ -50,7 +35,7 @@ describe('postgres parity', () => {
     })
 
     afterAll(async () => {
-        await stopServer?.()
+        await closeHub?.()
     })
 
     test('createPerson', async () => {
@@ -82,6 +67,7 @@ describe('postgres parity', () => {
                 is_deleted: 0,
                 _timestamp: expect.any(String),
                 _offset: expect.any(Number),
+                version: 0,
             },
         ])
         const clickHouseDistinctIds = await fetchClickHouseDistinctIdValues(teamId, person.uuid)
@@ -282,7 +268,7 @@ describe('postgres parity', () => {
         const clickHouseDistinctIdValues2 = await fetchClickHouseDistinctIdValues(teamId, postgresPerson.uuid)
         const postgresDistinctIdValues2 = await fetchDistinctIdValues(postgresPerson.id)
 
-        expect(clickHouseDistinctIdValues2).toEqual(['distinct1', 'anotherOne'])
+        expect(clickHouseDistinctIdValues2.sort()).toEqual(['distinct1', 'anotherOne'].sort())
         expect(postgresDistinctIdValues2).toEqual(['distinct1', 'anotherOne'])
 
         // check anotherPerson for their initial distinct id
@@ -373,7 +359,7 @@ describe('postgres parity', () => {
             postgresPerson,
             Database.ClickHouse
         )
-        const postgresDistinctIdValuesRemoved = await fetchDistinctIds(postgresPerson.id)
+        const postgresDistinctIdValuesRemoved = await fetchDistinctIds(teamId, postgresPerson.id)
         const newClickHouseDistinctIdRemoved = await fetchDistinctIdsClickhouse(teamId, postgresPerson.uuid)
 
         expect(clickHouseDistinctIdValuesRemoved).toEqual([])

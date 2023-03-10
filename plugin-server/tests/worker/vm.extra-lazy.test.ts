@@ -10,14 +10,15 @@ describe('VMs are extra lazy 💤', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
         jest.clearAllMocks()
     })
+
     test('VM with scheduled tasks gets setup immediately', async () => {
         const indexJs = `
         export async function runEveryMinute () {

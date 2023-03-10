@@ -7,8 +7,8 @@ import { createHub } from '../../src/utils/db/hub'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested } from '../helpers/clickhouse'
-import { createOrganization, createTeam, insertRow, resetTestDatabase } from '../helpers/sql'
-import { plugin60 } from './../helpers/plugins'
+import { plugin60 } from '../helpers/plugins'
+import { createOrganization, createPlugin, createTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 
@@ -19,19 +19,21 @@ describe('DB', () => {
     let teamId: number
     let organizationId: string
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeServer] = await createHub()
-        ;({ teamId, organizationId } = await resetTestDatabase(undefined, { withExtendedTestData: false }))
         db = hub.db
-
-        const redis = await hub.redisPool.acquire()
-        await redis.flushdb()
-        await db.redisPool.release(redis)
     })
 
-    afterEach(async () => {
-        await closeServer()
+    beforeEach(async () => {
+        ;({ teamId, organizationId } = await resetTestDatabase(undefined, { withExtendedTestData: false }))
+    })
+
+    afterEach(() => {
         jest.clearAllMocks()
+    })
+
+    afterAll(async () => {
+        await closeServer()
     })
 
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
@@ -377,7 +379,6 @@ describe('DB', () => {
 
         describe('clickhouse behavior', () => {
             beforeEach(async () => {
-                await resetTestDatabaseClickhouse()
                 // :TRICKY: Avoid collapsing rows before we are able to read them in the below tests.
                 await db.clickhouseQuery('SYSTEM STOP MERGES')
             })
@@ -518,7 +519,11 @@ describe('DB', () => {
                 1
             )
 
-            expect(await db.fetchGroup(3, 0, 'group_key')).toEqual(undefined)
+            // Generate a team id that doesn't exist
+            const teamToBeDeleted = await createTeam(organizationId)
+            await db.postgres.query('DELETE FROM posthog_team WHERE id = $1', [teamToBeDeleted])
+
+            expect(await db.fetchGroup(teamToBeDeleted, 0, 'group_key')).toEqual(undefined)
             expect(await db.fetchGroup(teamId, 1, 'group_key')).toEqual(undefined)
             expect(await db.fetchGroup(teamId, 1, 'group_key2')).toEqual(undefined)
         })
@@ -696,7 +701,7 @@ describe('DB', () => {
                     cache: false,
                 })
 
-                jest.spyOn(db, 'redisGet').mockRejectedValue(new Error())
+                jest.spyOn(db, 'redisGet').mockRejectedValueOnce(new Error())
 
                 const result = await db.getGroupsColumns(teamId, [[0, 'group_key']])
 
@@ -799,7 +804,11 @@ describe('DB', () => {
 
     describe('addOrUpdatePublicJob', () => {
         it('updates the column if the job name is new', async () => {
-            const { id: pluginId } = await insertRow('posthog_plugin', { ...plugin60 })
+            const { id: pluginId } = await createPlugin({
+                ...plugin60,
+                name: `Test plugin teamId=${teamId} orgId=${organizationId}`,
+                organization_id: organizationId,
+            })
 
             const jobName = 'newJob'
             const jobPayload = { foo: 'string' }
@@ -816,7 +825,12 @@ describe('DB', () => {
         })
 
         it('updates the column if the job payload is new', async () => {
-            const { id: pluginId } = await insertRow('posthog_plugin', { ...plugin60, public_jobs: { foo: 'number' } })
+            const { id: pluginId } = await createPlugin({
+                ...plugin60,
+                name: `Test plugin teamId=${teamId} orgId=${organizationId}`,
+                organization_id: organizationId,
+                public_jobs: { foo: 'number' },
+            })
 
             const jobName = 'newJob'
             const jobPayload = { foo: 'string' }
@@ -858,13 +872,13 @@ describe('DB', () => {
                 { a: 12345, b: false, c: 'bbb' },
                 { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
                 { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
-                2,
+                teamId,
                 null,
                 false,
                 uuid,
                 [distinctId]
             )
-            const res = await db.getPersonData(2, distinctId)
+            const res = await db.getPersonData(teamId, distinctId)
             expect(res?.uuid).toEqual(uuid)
             expect(res?.created_at.toISO()).toEqual(TIMESTAMP.toUTC().toISO())
             expect(res?.properties).toEqual({ a: 12345, b: false, c: 'bbb' })
@@ -878,14 +892,14 @@ describe('DB', () => {
                 { a: 123, b: false, c: 'bbb' },
                 { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
                 { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
-                2,
+                teamId,
                 null,
                 false,
                 uuid,
                 [distinctId]
             )
             await clearCache()
-            const res = await db.getPersonData(2, distinctId)
+            const res = await db.getPersonData(teamId, distinctId)
             expect(res?.uuid).toEqual(uuid)
             expect(res?.created_at.toISO()).toEqual(TIMESTAMP.toUTC().toISO())
             expect(res?.properties).toEqual({ a: 123, b: false, c: 'bbb' })
@@ -901,7 +915,7 @@ describe('DB', () => {
                 { a: 333, b: false, c: 'bbb' },
                 { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
                 { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
-                2,
+                teamId,
                 null,
                 false,
                 uuid,
@@ -913,10 +927,10 @@ describe('DB', () => {
             UPDATE posthog_person SET properties = $3
             WHERE team_id = $1 AND uuid = $2
             `,
-                [2, uuid, JSON.stringify({ prop: 'val-that-isnt-cached' })],
+                [teamId, uuid, JSON.stringify({ prop: 'val-that-isnt-cached' })],
                 'testGroupPropertiesOnEvents'
             )
-            const res = await db.getPersonData(2, distinctId)
+            const res = await db.getPersonData(teamId, distinctId)
             expect(res?.properties).toEqual({ a: 333, b: false, c: 'bbb' })
         })
     })

@@ -24,12 +24,15 @@ describe('createPluginActivityLog()', () => {
     let teamId: number
     let pluginConfigId: number
 
-    beforeEach(async () => {
-        ;({ teamId, pluginConfigId } = await resetTestDatabase())
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
     })
 
-    afterEach(async () => {
+    beforeEach(async () => {
+        ;({ teamId, pluginConfigId } = await resetTestDatabase())
+    })
+
+    afterAll(async () => {
         await closeHub()
     })
 

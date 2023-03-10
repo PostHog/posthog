@@ -1,36 +1,37 @@
 import { Hub, LogLevel } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { captureIngestionWarning } from '../../../src/worker/ingestion/utils'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
+import { delayUntilEventIngested, fetchIngestionWarnings } from '../../helpers/clickhouse'
+import { createOrganization, createTeam } from '../../helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
 
 describe('captureIngestionWarning()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
+    let teamId: number
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log, MAX_PENDING_PROMISES_PER_WORKER: 0 })
-        await resetTestDatabaseClickhouse()
     })
 
-    afterEach(async () => {
+    beforeEach(async () => {
+        const organizationId = await createOrganization()
+        teamId = await createTeam(organizationId)
+    })
+
+    afterAll(async () => {
         await closeHub()
     })
 
-    async function fetchWarnings() {
-        const { data } = await hub.db.clickhouseQuery('SELECT * FROM ingestion_warnings')
-        return data
-    }
-
     it('can read own writes', async () => {
-        captureIngestionWarning(hub.db, 2, 'some_type', { foo: 'bar' })
+        captureIngestionWarning(hub.db, teamId, 'some_type', { foo: 'bar' })
         await hub.promiseManager.awaitPromisesIfNeeded()
 
-        const warnings = await delayUntilEventIngested(fetchWarnings)
+        const warnings = await delayUntilEventIngested(() => fetchIngestionWarnings(teamId))
         expect(warnings).toEqual([
             expect.objectContaining({
-                team_id: 2,
+                team_id: teamId,
                 source: 'plugin-server',
                 type: 'some_type',
                 details: '{"foo":"bar"}',

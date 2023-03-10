@@ -30,8 +30,11 @@ describe('plugins', () => {
     let pluginConfig39: PluginConfig
     let pluginAttachment1: PluginAttachmentDB
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
+    })
+
+    beforeEach(async () => {
         console.warn = jest.fn() as any
         ;({
             teamId,
@@ -42,7 +45,7 @@ describe('plugins', () => {
         } = await resetTestDatabase())
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 
@@ -824,7 +827,8 @@ exports.scene = scene;; return exports; }`)
                 ...plugin60,
                 capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
             },
-        ]) // updated in DB via first `setPluginCapabilities` call.
+        ])
+        // updated in DB via first `setPluginCapabilities` call.
         getPluginAttachmentRows.mockReturnValue([pluginAttachment1])
         getPluginConfigRows.mockReturnValue([pluginConfig39])
 

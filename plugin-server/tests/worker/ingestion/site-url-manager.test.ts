@@ -14,12 +14,15 @@ describe('SiteUrlManager()', () => {
         return new SiteUrlManager(hub.db, SITE_URL)
     }
 
-    beforeEach(async () => {
-        await resetTestDatabase()
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
     })
 
-    afterEach(async () => {
+    beforeEach(async () => {
+        await resetTestDatabase()
+    })
+
+    afterAll(async () => {
         await closeHub()
     })
 

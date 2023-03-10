@@ -1342,22 +1342,20 @@ describe('PersonState.update()', () => {
             // verify ClickHouse persons
             await delayUntilEventIngested(() => fetchClickHousePersonsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
             const clickhousePersons = await fetchClickHousePersons(teamId) // but verify full state
-            expect(clickhousePersons).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        id: uuid2.toString(),
-                        properties: '{}',
-                        created_at: timestampch,
-                        version: 1,
-                        is_identified: 1,
-                    }),
-                    expect.objectContaining({
-                        id: uuid.toString(),
-                        is_deleted: 1,
-                        version: 100,
-                    }),
-                ])
-            )
+            expect(clickhousePersons).toEqual([
+                expect.objectContaining({
+                    id: uuid2.toString(),
+                    properties: '{}',
+                    created_at: timestampch,
+                    version: 1,
+                    is_identified: 1,
+                }),
+                expect.objectContaining({
+                    id: uuid.toString(),
+                    is_deleted: 1,
+                    version: 100,
+                }),
+            ])
 
             // verify ClickHouse distinct_ids
             await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(teamId))

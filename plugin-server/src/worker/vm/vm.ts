@@ -1,5 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
+import { v4 } from 'uuid'
 import { VM } from 'vm2'
 
 import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
@@ -32,7 +33,8 @@ export class TimeoutError extends RetryError {
 export function createPluginConfigVM(
     hub: Hub,
     pluginConfig: PluginConfig, // NB! might have team_id = 0
-    indexJs: string
+    indexJs: string,
+    distinctId: string = v4()
 ): PluginConfigVMResponse {
     const timer = new Date()
 
@@ -54,7 +56,7 @@ export function createPluginConfigVM(
 
     // Add PostHog utilities to virtual machine
     vm.freeze(createConsole(hub, pluginConfig), 'console')
-    vm.freeze(createPosthog(hub, pluginConfig), 'posthog')
+    vm.freeze(createPosthog(hub, pluginConfig.team_id, distinctId), 'posthog')
 
     // Add non-PostHog utilities to virtual machine
     vm.freeze(imports['node-fetch'], 'fetch')

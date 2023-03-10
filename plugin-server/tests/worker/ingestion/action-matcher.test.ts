@@ -25,13 +25,16 @@ describe('ActionMatcher', () => {
     let actionMatcher: ActionMatcher
     let teamId: number
 
+    beforeAll(async () => {
+        ;[hub, closeServer] = await createHub()
+    })
+
     beforeEach(async () => {
         ;({ teamId } = await resetTestDatabase(undefined, { withExtendedTestData: false }))
-        ;[hub, closeServer] = await createHub()
         actionMatcher = hub.actionMatcher
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeServer()
     })
 

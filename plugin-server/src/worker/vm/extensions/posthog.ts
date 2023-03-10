@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
-import { Hub, PluginConfig, RawEventMessage } from 'types'
+import { Hub, RawEventMessage } from 'types'
 import { v4 } from 'uuid'
 
 import { UUIDT } from '../../../utils/utils'
@@ -48,9 +48,7 @@ async function queueEvent(hub: Hub, teamId: number, data: InternalData): Promise
     })
 }
 
-export function createPosthog(hub: Hub, teamId: number): DummyPostHog {
-    const distinctId = v4()
-
+export function createPosthog(hub: Hub, teamId: number, distinctId = v4()): DummyPostHog {
     return {
         capture: async (event, properties = {}) => {
             const { timestamp = DateTime.utc().toISO(), distinct_id = distinctId, ...otherProperties } = properties

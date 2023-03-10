@@ -28,14 +28,17 @@ describe('Event Pipeline integration test', () => {
         return runner.runAsyncHandlersEventPipeline(resultEvent)
     }
 
+    beforeAll(async () => {
+        ;[hub, closeServer] = await createHub()
+    })
+
     beforeEach(async () => {
         ;({ teamId, actionId, userId } = await resetTestDatabase())
-        ;[hub, closeServer] = await createHub()
 
         jest.spyOn(hub.db, 'fetchPerson')
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeServer()
     })
 

@@ -2,7 +2,7 @@ import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
-import { resetTestDatabase } from '../../helpers/sql'
+import { createTeam, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
 
@@ -13,12 +13,16 @@ describe('OrganizationManager()', () => {
     let organizationId: string
     let teamId: number
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
+    })
+
+    beforeEach(async () => {
         ;({ organizationId, teamId } = await resetTestDatabase())
         organizationManager = new OrganizationManager(hub.db, hub.teamManager)
     })
-    afterEach(async () => {
+
+    afterAll(async () => {
         await closeHub()
     })
 
@@ -83,7 +87,11 @@ describe('OrganizationManager()', () => {
         })
 
         it('returns false if team does not exist', async () => {
-            expect(await organizationManager.hasAvailableFeature(77, 'some_feature')).toEqual(false)
+            // To ensure we have an id that doesn't exist for a team, we first
+            // create and then delete a team.
+            const deletedTeamId = await createTeam(organizationId)
+            await hub.db.postgresQuery(`DELETE FROM posthog_team WHERE id = $1`, [deletedTeamId], 'testTag')
+            expect(await organizationManager.hasAvailableFeature(deletedTeamId, 'some_feature')).toEqual(false)
         })
     })
 

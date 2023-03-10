@@ -31,13 +31,13 @@ describe('vm timeout tests', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub({
             TASK_TIMEOUT: 1,
         })
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 

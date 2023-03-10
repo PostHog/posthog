@@ -22,13 +22,15 @@ describe('addHistoricalEventsExportCapability()', () => {
     let closeHub: () => Promise<void>
     let _pluginConfig39: PluginConfig
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
+    })
 
+    beforeEach(() => {
         _pluginConfig39 = { ...pluginConfig39 }
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 

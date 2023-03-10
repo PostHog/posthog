@@ -18,12 +18,15 @@ describe('fetchEventsForInterval()', () => {
     let closeServer: () => Promise<void>
     let teamId: number
 
-    beforeEach(async () => {
-        ;({ teamId } = await resetTestDatabase())
+    beforeAll(async () => {
         ;[hub, closeServer] = await createHub()
     })
 
-    afterEach(async () => {
+    beforeEach(async () => {
+        ;({ teamId } = await resetTestDatabase())
+    })
+
+    afterAll(async () => {
         await closeServer()
     })
 

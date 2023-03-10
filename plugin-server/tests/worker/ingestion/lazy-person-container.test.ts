@@ -17,15 +17,18 @@ describe('LazyPersonContainer()', () => {
     let personContainer: LazyPersonContainer
     let teamId: number
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
+    })
+
+    beforeEach(async () => {
         ;({ teamId } = await resetTestDatabase())
         personContainer = new LazyPersonContainer(teamId, 'my-id', hub)
 
         jest.spyOn(hub.db, 'fetchPerson')
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 

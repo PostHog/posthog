@@ -19,18 +19,26 @@ jest.mock('../src/main/utils', () => {
 
 jest.setTimeout(60000) // 60 sec timeout
 
+let pluginServer
+
+beforeAll(async () => {
+    pluginServer = await startPluginsServer(
+        {
+            WORKER_CONCURRENCY: 0,
+        },
+        makePiscina,
+        { http: true, ingestion: true }
+    )
+})
+
+afterAll(async () => {
+    await pluginServer.stop()
+})
+
 describe('http server', () => {
     // these should simply pass under normal conditions
     describe('health and readiness checks', () => {
         test('_health', async () => {
-            const pluginsServer = await startPluginsServer(
-                {
-                    WORKER_CONCURRENCY: 0,
-                },
-                makePiscina,
-                { http: true }
-            )
-
             await new Promise((resolve) =>
                 http.get(`http://localhost:${HTTP_SERVER_PORT}/_health`, (res) => {
                     const { statusCode } = res
@@ -38,19 +46,9 @@ describe('http server', () => {
                     resolve(null)
                 })
             )
-
-            await pluginsServer.stop()
         })
 
         test('_ready', async () => {
-            const pluginsServer = await startPluginsServer(
-                {
-                    WORKER_CONCURRENCY: 0,
-                },
-                makePiscina,
-                { http: true, ingestion: true }
-            )
-
             await new Promise((resolve) =>
                 http.get(`http://localhost:${HTTP_SERVER_PORT}/_ready`, (res) => {
                     const { statusCode } = res
@@ -59,8 +57,8 @@ describe('http server', () => {
                 })
             )
 
-            expect(pluginsServer.queue?.consumerReady).toBeTruthy()
-            await pluginsServer.stop()
+            expect(pluginServer.queue?.consumerReady).toBeTruthy()
+            await pluginServer.stop()
         })
     })
 })

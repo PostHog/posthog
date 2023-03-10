@@ -139,11 +139,11 @@ describe('worker', () => {
         let hub: Hub
         let closeHub: () => Promise<void>
 
-        beforeEach(async () => {
+        beforeAll(async () => {
             ;[hub, closeHub] = await createHub()
             taskRunner = createTaskRunner(hub)
         })
-        afterEach(async () => {
+        afterAll(async () => {
             await closeHub()
         })
 

@@ -48,13 +48,16 @@ describe('events dead letter queue', () => {
     let closeHub: () => Promise<void>
     let teamId: number
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
+    })
+
+    beforeEach(async () => {
         console.warn = jest.fn() as any
         ;({ teamId } = await resetTestDatabase())
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 

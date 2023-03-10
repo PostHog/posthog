@@ -9,14 +9,17 @@ describe('ActionManager', () => {
     let actionManager: ActionManager
     let TEAM_ID: number, ACTION_ID: number, ACTION_STEP_ID: number
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeServer] = await createHub()
+    })
+
+    beforeEach(async () => {
         ;({ teamId: TEAM_ID, actionId: ACTION_ID, actionStepId: ACTION_STEP_ID } = await resetTestDatabase())
         actionManager = new ActionManager(hub.db, { processAsyncHandlers: true })
         await actionManager.prepare()
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeServer()
     })
 

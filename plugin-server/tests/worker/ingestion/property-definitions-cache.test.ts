@@ -18,14 +18,17 @@ describe('PropertyDefinitionsManager()', () => {
     let cache: PropertyDefinitionsCache
     let teamId: number
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
+    })
+
+    beforeEach(async () => {
         ;({ teamId } = await resetTestDatabase())
 
         cache = new PropertyDefinitionsCache(hub)
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 

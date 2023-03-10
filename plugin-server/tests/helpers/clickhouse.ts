@@ -2,6 +2,7 @@ import { ClickHouseClient, createClient } from '@clickhouse/client'
 
 import { defaultConfig } from '../../src/config/config'
 import {
+    KAFKA_APP_METRICS,
     KAFKA_EVENTS_JSON,
     KAFKA_GROUPS,
     KAFKA_INGESTION_WARNINGS,
@@ -20,6 +21,7 @@ import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { parseRawClickHouseEvent } from '../../src/utils/event'
 import { status } from '../../src/utils/status'
 import { delay } from '../../src/utils/utils'
+import { AppMetrics } from '../../src/worker/ingestion/app-metrics'
 
 let clickHouseClient: ClickHouseClient
 
@@ -38,6 +40,8 @@ beforeAll(() => {
         password: defaultConfig.CLICKHOUSE_PASSWORD || undefined,
         database: defaultConfig.CLICKHOUSE_DATABASE,
         clickhouse_settings: {
+            // To ensure compability with existing test expectations, do not
+            // quote 64-bit integers.
             output_format_json_quote_64bit_integers: 0,
         },
     })
@@ -56,6 +60,7 @@ beforeEach(() => {
             [KAFKA_GROUPS]: 'groups',
             [KAFKA_INGESTION_WARNINGS]: 'ingestion_warnings',
             [KAFKA_PLUGIN_LOG_ENTRIES]: 'plugin_log_entries',
+            [KAFKA_APP_METRICS]: 'app_metrics',
         }[record.topic]
 
         if (!table) {
@@ -69,7 +74,7 @@ beforeEach(() => {
     })
 })
 
-afterAll(async () => {
+afterEach(async () => {
     await clickHouseClient.close()
 })
 
@@ -190,8 +195,8 @@ export async function fetchDistinctIdsClickhouse(teamId: number, personId?: stri
     // Further, if the is_deleted attribute is true for the latest version, we
     // do not want to include that person in the results.
     const query = `
-        SELECT * FROM person_distinct_id2
-        WHERE team_id = ${teamId}
+        SELECT * FROM person_distinct_id2 FINAL
+        WHERE team_id = ${teamId} AND is_deleted = 0
         ${personId ? `AND person_id = '${personId}'` : ''}
         ${onlyVersionHigherEqualThan > 0 ? `AND version >= ${onlyVersionHigherEqualThan}` : ''}
         ORDER BY person_id, version DESC
@@ -217,4 +222,26 @@ export async function fetchDeadLetterQueueEvents(teamId: number) {
         .query({ query })
         .then((res) => res.json<{ data: DeadLetterQueueEvent[] }>())
         .then((res) => res.data)
+}
+
+export async function fetchAppMetrics(teamId: number) {
+    const query = `
+        SELECT * FROM app_metrics FINAL
+        WHERE team_id = ${teamId}
+        ORDER BY timestamp ASC
+    `
+
+    return await clickHouseClient
+        .query({ query })
+        .then((res) => res.json<{ data: AppMetrics[] }>().then((res) => res.data))
+}
+
+export async function fetchIngestionWarnings(teamId: number) {
+    const query = `
+        SELECT * FROM ingestion_warnings 
+        WHERE team_id = ${teamId}
+        ORDER BY timestamp ASC
+    `
+
+    return await clickHouseClient.query({ query }).then((res) => res.json<{ data: any[] }>().then((res) => res.data))
 }

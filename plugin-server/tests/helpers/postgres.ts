@@ -90,13 +90,13 @@ export const fetchDistinctIdValues = async (personId: number) => {
         .then((res) => res.rows.map((row) => row.distinct_id as string))
 }
 
-export const fetchDistinctIds = async (teamId: number, personId?: number) => {
+export const fetchDistinctIds = async (teamId: number, personId: number) => {
     return await postgres
         .query(
             `
             SELECT distinct_id FROM posthog_persondistinctid
             WHERE team_id = $1
-            ${personId ? `AND person_id = $2` : ''}
+            AND person_id = $2
             ORDER BY person_id, id DESC
             `,
             [teamId, personId]

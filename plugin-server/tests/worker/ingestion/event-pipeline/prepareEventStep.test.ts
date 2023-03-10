@@ -37,9 +37,12 @@ describe('prepareEventStep()', () => {
     let closeHub: () => Promise<void>
     let teamId: number
 
+    beforeAll(async () => {
+        ;[hub, closeHub] = await createHub()
+    })
+
     beforeEach(async () => {
         ;({ teamId } = await resetTestDatabase())
-        ;[hub, closeHub] = await createHub()
 
         // :KLUDGE: We test below whether kafka messages are produced, so make sure the person exists beforehand.
         await hub.db.createPerson(person.created_at, {}, {}, {}, teamId, null, false, person.uuid, ['my_id'])
@@ -51,7 +54,7 @@ describe('prepareEventStep()', () => {
         }
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 
