@@ -1,4 +1,3 @@
-import { FilterType } from './../types'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { userLogicType } from './userLogicType'
@@ -26,7 +25,6 @@ export const userLogic = kea<userLogicType>([
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
-        setGlobalSessionFilters: (globalSessionFilters: Partial<FilterType>) => ({ globalSessionFilters }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -89,12 +87,6 @@ export const userLogic = kea<userLogicType>([
                     first_name: user?.first_name || '',
                     email: user?.email || '',
                 }),
-            },
-        ],
-        globalSessionFilters: [
-            {} as Partial<FilterType>,
-            {
-                setGlobalSessionFilters: (_, { globalSessionFilters }) => globalSessionFilters,
             },
         ],
     }),

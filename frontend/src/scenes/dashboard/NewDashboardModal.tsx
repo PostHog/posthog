@@ -20,35 +20,11 @@ import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { Form } from 'kea-forms'
 import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
-import { getSeriesColor } from 'lib/colors'
+
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 import './NewDashboardModal.scss'
+import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import clsx from 'clsx'
-
-function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt: string; index: number }): JSX.Element {
-    const [hasError, setHasError] = useState(false)
-
-    const handleImageError = (): void => {
-        setHasError(true)
-    }
-
-    return (
-        <>
-            {hasError || !src ? (
-                <div
-                    className="w-full h-full"
-                    // dynamic color based on index
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        background: getSeriesColor(index),
-                    }}
-                />
-            ) : (
-                <img className="object-cover w-full h-30" src={src} alt={alt} onError={handleImageError} />
-            )}
-        </>
-    )
-}
 
 function TemplateItem({
     template,
@@ -71,7 +47,7 @@ function TemplateItem({
             <div
                 className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30')}
             >
-                <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} />
+                <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} imageClassName="h-30" />
             </div>
 
             <h5 className="px-2 mb-1">{template?.template_name}</h5>
@@ -171,19 +147,14 @@ export function OriginalNewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
     const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { templatesList } = useValues(dashboardTemplatesLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const dashboardTemplates = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
 
-    const templates = dashboardTemplates
-        ? templatesList
-        : [
-              {
-                  value: 'DEFAULT_APP',
-                  label: 'Product analytics',
-                  'data-attr': 'dashboard-select-default-app',
-              },
-          ]
+    const templates = [
+        {
+            value: 'DEFAULT_APP',
+            label: 'Product analytics',
+            'data-attr': 'dashboard-select-default-app',
+        },
+    ]
 
     return (
         <LemonModal

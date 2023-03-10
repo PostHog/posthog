@@ -9,7 +9,9 @@ const dateOptionsMap = {
     m: 'months',
     w: 'weeks',
     d: 'days',
-}
+} as const
+
+export type DateOption = typeof dateOptionsMap[keyof typeof dateOptionsMap]
 
 export type RollingDateFilterLogicPropsType = {
     selected?: boolean

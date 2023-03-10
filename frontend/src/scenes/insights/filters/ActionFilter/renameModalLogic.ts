@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, props, key, path, connect, actions, reducers } from 'kea'
 import type { renameModalLogicType } from './renameModalLogicType'
 import { EntityFilterTypes } from '~/types'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
@@ -9,17 +9,17 @@ export interface RenameModalProps {
     typeKey: string
 }
 
-export const renameModalLogic = kea<renameModalLogicType>({
-    props: {} as RenameModalProps,
-    key: (props) => props.typeKey,
-    path: (key) => ['scenes', 'insights', 'ActionFilter', 'renameModalLogic', key],
-    connect: {
+export const renameModalLogic = kea<renameModalLogicType>([
+    props({} as RenameModalProps),
+    key((props) => props.typeKey),
+    path((key) => ['scenes', 'insights', 'ActionFilter', 'renameModalLogic', key]),
+    connect({
         actions: [entityFilterLogic, ['selectFilter']],
-    },
-    actions: () => ({
-        setName: (name: string) => ({ name }),
     }),
-    reducers: ({ props }) => ({
+    actions(() => ({
+        setName: (name: string) => ({ name }),
+    })),
+    reducers(({ props }) => ({
         name: [
             getDisplayNameFromEntityFilter(props.filter) ?? '',
             {
@@ -27,5 +27,5 @@ export const renameModalLogic = kea<renameModalLogicType>({
                 selectFilter: (_, { filter }) => getDisplayNameFromEntityFilter(filter) ?? '',
             },
         ],
-    }),
-})
+    })),
+])

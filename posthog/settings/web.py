@@ -4,6 +4,8 @@ import os
 from datetime import timedelta
 from typing import List
 
+from corsheaders.defaults import default_headers
+
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.statsd import STATSD_HOST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
@@ -42,7 +44,6 @@ INSTALLED_APPS = [
     "django_otp.plugins.otp_totp",
     # 'django_otp.plugins.otp_email',  # <- if you want email capability.
     "two_factor",
-    "social_2fa",
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
@@ -149,7 +150,6 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
-    "social_2fa.social_pipeline.two_factor_auth",
 )
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
@@ -203,6 +203,7 @@ LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/.*$"
+CORS_ALLOW_HEADERS = default_headers + ("traceparent", "request-id", "request-context")
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [

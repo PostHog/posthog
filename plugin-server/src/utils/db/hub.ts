@@ -260,7 +260,6 @@ export async function createHub(
     hub.appMetrics = new AppMetrics(hub as Hub)
 
     const closeHub = async () => {
-        hub.mmdbUpdateJob?.cancel()
         await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
         await redisPool.clear()
     }

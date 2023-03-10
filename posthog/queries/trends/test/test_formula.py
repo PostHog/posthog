@@ -190,6 +190,14 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["label"], "Paris")
 
     @snapshot_clickhouse_queries
+    def test_breakdown_aggregated(self):
+        response = self._run({"formula": "A - B", "breakdown": "location", "display": TRENDS_PIE})
+        self.assertEqual(response[0]["aggregated_value"], 866.6666666666667)
+        self.assertEqual(response[0]["label"], "London")
+        self.assertEqual(response[1]["aggregated_value"], 250)
+        self.assertEqual(response[1]["label"], "Paris")
+
+    @snapshot_clickhouse_queries
     def test_breakdown_with_different_breakdown_values_per_series(self):
 
         response = self._run(
@@ -362,7 +370,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"], [1350.0, 0.0])
         self.assertEqual(response[1]["data"], [0.0, 1200.0])
 
-    def test_pie(self):
+    def test_aggregated(self):
         self.assertEqual(self._run({"display": TRENDS_PIE})[0]["aggregated_value"], 2160.0)
 
     def test_cumulative(self):

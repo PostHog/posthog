@@ -78,3 +78,23 @@ class TestInsightModel(BaseTest):
         filters_hash_two = generate_insight_cache_key(insight, dashboard)
 
         assert filters_hash_one != filters_hash_two
+
+    def test_query_hash_matches_same_query_source(self) -> None:
+        insight_with_query_at_top_level = Insight.objects.create(team=self.team, query={"kind": "EventsQuery"})
+        insight_with_query_in_source = Insight.objects.create(
+            team=self.team, query={"kind": "DataTable", "source": {"kind": "EventsQuery"}}
+        )
+
+        filters_hash_one = generate_insight_cache_key(insight_with_query_at_top_level, None)
+        filters_hash_two = generate_insight_cache_key(insight_with_query_in_source, None)
+
+        assert filters_hash_one == filters_hash_two
+
+    def test_query_hash_varies_with_query_content(self) -> None:
+        insight_one = Insight.objects.create(team=self.team, query={"kind": "EventsQuery"})
+        insight_two = Insight.objects.create(team=self.team, query={"kind": "EventsQuery", "anything": "else"})
+
+        filters_hash_one = generate_insight_cache_key(insight_one, None)
+        filters_hash_two = generate_insight_cache_key(insight_two, None)
+
+        assert filters_hash_one != filters_hash_two

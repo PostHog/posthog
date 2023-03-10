@@ -49,7 +49,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Ingestion]: () => import('./ingestion/IngestionWizard'),
     [Scene.Billing]: () => import('./billing/Billing'),
     [Scene.BillingSubscribed]: () => import('./billing/BillingSubscribed'),
-    [Scene.BillingLocked]: () => import('./billing/BillingLocked'),
     [Scene.Plugins]: () => import('./plugins/Plugins'),
     [Scene.FrontendAppScene]: () => import('./apps/FrontendAppScene'),
     [Scene.AppMetrics]: () => import('./apps/AppMetricsScene'),
@@ -63,4 +62,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.IngestionWarnings]: () => import('./data-management/ingestion-warnings/IngestionWarningsView'),
     [Scene.Query]: () => import('./query/QueryScene'),
     [Scene.VerifyEmail]: () => import('./authentication/signup/verify-email/VerifyEmail'),
+    [Scene.Feedback]: () => import('./feedback/Feedback'),
 }

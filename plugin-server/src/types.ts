@@ -72,11 +72,11 @@ export enum KafkaSaslMechanism {
     ScramSha512 = 'scram-sha-512',
 }
 
-export interface PluginsServerConfig extends Record<string, any> {
-    WORKER_CONCURRENCY: number
-    TASKS_PER_WORKER: number
-    TASK_TIMEOUT: number
-    DATABASE_URL: string
+export interface PluginsServerConfig {
+    WORKER_CONCURRENCY: number // number of concurrent worker threads
+    TASKS_PER_WORKER: number // number of parallel tasks per worker thread
+    TASK_TIMEOUT: number // how many seconds until tasks are timed out
+    DATABASE_URL: string // Postgres database URL
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
@@ -87,9 +87,12 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_DATABASE: string
     CLICKHOUSE_USER: string
     CLICKHOUSE_PASSWORD: string | null
-    CLICKHOUSE_CA: string | null
-    CLICKHOUSE_SECURE: boolean
-    KAFKA_HOSTS: string
+    CLICKHOUSE_CA: string | null // ClickHouse CA certs
+    CLICKHOUSE_SECURE: boolean // whether to secure ClickHouse connection
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
+    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
+    KAFKA_HOSTS: string // comma-delimited Kafka hosts
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
     KAFKA_TRUSTED_CERT_B64: string | null
@@ -107,54 +110,51 @@ export interface PluginsServerConfig extends Record<string, any> {
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
     POSTHOG_REDIS_PORT: number
-    BASE_DIR: string
-    PLUGINS_RELOAD_PUBSUB_CHANNEL: string
+    BASE_DIR: string // base path for resolving local plugins
+    PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
-    SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number
+    SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
     STATSD_HOST: string | null
     STATSD_PORT: number
     STATSD_PREFIX: string
-    SCHEDULE_LOCK_TTL: number
-    REDIS_POOL_MIN_SIZE: number
-    REDIS_POOL_MAX_SIZE: number
-    DISABLE_MMDB: boolean
+    SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
+    REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
+    REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
+    DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
-    EVENT_PROPERTY_LRU_SIZE: number
-    INTERNAL_MMDB_SERVER_PORT: number
-    JOB_QUEUES: string
-    JOB_QUEUE_GRAPHILE_URL: string
-    JOB_QUEUE_GRAPHILE_SCHEMA: string
-    JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean
+    EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
+    INTERNAL_MMDB_SERVER_PORT: number // port of the internal server used for IP location (0 means random)
+    JOB_QUEUES: string // retry queue engine and fallback queues
+    JOB_QUEUE_GRAPHILE_URL: string // use a different postgres connection in the graphile worker
+    JOB_QUEUE_GRAPHILE_SCHEMA: string // the postgres schema that the graphile worker
+    JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean // enable this to increase job queue throughput if not using pgbouncer
     JOB_QUEUE_S3_AWS_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_REGION: string
     JOB_QUEUE_S3_BUCKET_NAME: string
-    JOB_QUEUE_S3_PREFIX: string
-    CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
-    STALENESS_RESTART_SECONDS: number
-    HEALTHCHECK_MAX_STALE_SECONDS: number
-    PISCINA_USE_ATOMICS: boolean
-    PISCINA_ATOMICS_TIMEOUT: number
+    JOB_QUEUE_S3_PREFIX: string // S3 filename prefix for the S3 job queue
+    CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
+    STALENESS_RESTART_SECONDS: number // trigger a restart if no event ingested for this duration
+    HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
+    PISCINA_USE_ATOMICS: boolean // corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)
+    PISCINA_ATOMICS_TIMEOUT: number // (advanced) corresponds to the length of time a piscina worker should block for when looking for tasks
     SITE_URL: string | null
-    MAX_PENDING_PROMISES_PER_WORKER: number
-    KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
+    MAX_PENDING_PROMISES_PER_WORKER: number // (advanced) maximum number of promises that a worker can have running at once in the background. currently only targets the exportEvents buffer.
+    KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY: number
-    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
-    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
-    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CONVERSION_BUFFER_ENABLED: boolean
     CONVERSION_BUFFER_ENABLED_TEAMS: string
     CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
     BUFFER_CONVERSION_SECONDS: number
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
-    OBJECT_STORAGE_ENABLED: boolean
-    OBJECT_STORAGE_ENDPOINT: string
+    OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
+    OBJECT_STORAGE_ENDPOINT: string // minio endpoint
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
-    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
-    OBJECT_STORAGE_BUCKET: string
+    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string // the top level folder for storing session recordings inside the storage bucket
+    OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE:
         | 'ingestion'
         | 'ingestion-overflow'
@@ -166,13 +166,15 @@ export interface PluginsServerConfig extends Record<string, any> {
         | 'recordings-ingestion'
         | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
-    HISTORICAL_EXPORTS_ENABLED: boolean
+    HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
     HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
     HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
-    APP_METRICS_GATHERED_FOR_ALL: boolean
+    APP_METRICS_GATHERED_FOR_ALL: boolean // whether to gather app metrics for all teams
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
-    USE_KAFKA_FOR_SCHEDULED_TASKS: boolean
+    USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
+    EVENT_OVERFLOW_BUCKET_CAPACITY: number
+    EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -216,6 +218,8 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
+    // functions
+    enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
 }
 
 export interface PluginServerCapabilities {

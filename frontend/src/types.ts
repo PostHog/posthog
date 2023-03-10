@@ -96,7 +96,7 @@ export enum Region {
     EU = 'EU',
 }
 
-export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
@@ -197,7 +197,7 @@ export interface OrganizationDomainType {
     verified_at: string // Datetime
     verification_challenge: string
     jit_provisioning_enabled: boolean
-    sso_enforcement: SSOProviders | ''
+    sso_enforcement: SSOProvider | ''
     has_saml: boolean
     saml_entity_id: string
     saml_acs_url: string
@@ -1100,6 +1100,7 @@ export interface BillingV2Type {
     stripe_portal_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string
+    current_total_amount_usd_after_discount?: string
     products: BillingProductV2Type[]
     products_enterprise?: BillingProductV2Type[]
 
@@ -1109,11 +1110,14 @@ export interface BillingV2Type {
     billing_period?: {
         current_period_start: Dayjs
         current_period_end: Dayjs
+        interval: 'month' | 'year'
     }
     license?: {
         plan: LicensePlan
     }
     available_plans?: BillingV2PlanType[]
+    discount_percent?: number
+    discount_amount_usd?: string
 }
 
 export interface BillingV2PlanType {
@@ -1796,7 +1800,7 @@ export interface FunnelStep {
 
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
-    average_conversion_time: number
+    average_conversion_time: number | null
 }
 
 export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
@@ -2705,3 +2709,25 @@ export interface RecordingReportLoadTimes {
 }
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
+
+export type PromptButtonType = 'primary' | 'secondary'
+export type PromptType = 'modal' | 'popup'
+
+export type PromptPayload = {
+    title: string
+    body: string
+    type: PromptType
+    image?: string
+    url_match?: string
+    primaryButtonText?: string
+    secondaryButtonText?: string
+    primaryButtonURL?: string
+}
+
+export type PromptFlag = {
+    flag: string
+    payload: PromptPayload
+    showingPrompt: boolean
+    locationCSS?: Partial<CSSStyleDeclaration>
+    tooltipCSS?: Partial<CSSStyleDeclaration>
+}

@@ -83,6 +83,9 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLQuery"
+                },
+                {
+                    "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 }
             ]
         },
@@ -1347,6 +1350,9 @@
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -2781,8 +2787,8 @@
                     "type": "string"
                 },
                 "response": {
-                    "description": "Cached query response",
-                    "type": "object"
+                    "$ref": "#/definitions/TimeToSeeDataSessionsQueryResponse",
+                    "description": "Cached query response"
                 },
                 "teamId": {
                     "description": "Project to filter on. Defaults to current project",
@@ -2790,6 +2796,19 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "TimeToSeeDataSessionsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "TrendsFilter": {
