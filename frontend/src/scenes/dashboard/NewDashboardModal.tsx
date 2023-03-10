@@ -147,19 +147,14 @@ export function OriginalNewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
     const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { templatesList } = useValues(dashboardTemplatesLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const dashboardTemplates = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
 
-    const templates = dashboardTemplates
-        ? templatesList
-        : [
-              {
-                  value: 'DEFAULT_APP',
-                  label: 'Product analytics',
-                  'data-attr': 'dashboard-select-default-app',
-              },
-          ]
+    const templates = [
+        {
+            value: 'DEFAULT_APP',
+            label: 'Product analytics',
+            'data-attr': 'dashboard-select-default-app',
+        },
+    ]
 
     return (
         <LemonModal

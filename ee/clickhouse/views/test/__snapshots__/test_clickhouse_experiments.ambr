@@ -489,7 +489,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -556,7 +556,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -688,7 +688,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -755,7 +755,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT [now()] AS date,
-         [0] AS data,
+         [0] AS total,
          '' AS breakdown_value
   LIMIT 0
   '
@@ -831,7 +831,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -898,7 +898,7 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,

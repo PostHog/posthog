@@ -196,7 +196,7 @@ class TrendsBreakdown:
             # a "real" SELECT for this, we only include the below dummy SELECT.
             # It's a drop-in replacement for a "real" one, simply always returning 0 rows.
             # See https://github.com/PostHog/posthog/pull/5674 for context.
-            return ("SELECT [now()] AS date, [0] AS data, '' AS breakdown_value LIMIT 0", {}, lambda _: [])
+            return ("SELECT [now()] AS date, [0] AS total, '' AS breakdown_value LIMIT 0", {}, lambda _: [])
 
         person_join_condition, person_join_params = self._person_join_condition()
         groups_join_condition, groups_join_params = self._groups_join_condition()

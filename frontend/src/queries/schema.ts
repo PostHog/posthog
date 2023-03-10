@@ -97,6 +97,8 @@ export interface Node {
 
 // Data nodes
 
+export type AnyResponseType = Record<string, any> | HogQLQueryResponse | EventsNode['response'] | EventsQueryResponse
+
 export interface DataNode extends Node {
     /** Cached query response */
     response?: Record<string, any>
@@ -157,7 +159,15 @@ export interface EventsQueryResponse {
     results: any[][]
     hasMore?: boolean
 }
-
+export interface EventsQueryPersonColumn {
+    uuid: string
+    created_at: string
+    properties: {
+        name?: string
+        email?: string
+    }
+    distinct_id: string
+}
 export interface EventsQuery extends DataNode {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */

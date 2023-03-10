@@ -126,6 +126,7 @@ describe('dataNodeLogic', () => {
                 response: null,
             })
             .delay(0)
+
         await expectLogic(logic).toMatchValues({
             responseLoading: false,
             canLoadNewData: true,
@@ -419,7 +420,7 @@ describe('dataNodeLogic', () => {
 
         // Autoload is running in the background and will fire in 5 seconds. Check that there's a background script for this.
         expect(logic.cache.autoLoadInterval).toBeTruthy()
-        jest.advanceTimersByTime(6000)
+        jest.advanceTimersByTime(31000)
         await expectLogic(logic)
             .toDispatchActions(['loadNewData', 'loadNewDataSuccess'])
             .toMatchValues({
@@ -430,5 +431,20 @@ describe('dataNodeLogic', () => {
                 autoLoadRunning: true,
                 response: partial({ results: [...results3, ...results2, ...results] }),
             })
+    })
+
+    it('does not call query to fetch data if there are cached results', async () => {
+        logic = dataNodeLogic({
+            key: 'hasCachedResults',
+            query: {
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+            },
+            cachedResults: { some: 'results' },
+        })
+        logic.mount()
+        expect(query).toHaveBeenCalledTimes(0)
+
+        await expectLogic(logic).toMatchValues({ response: { some: 'results' } })
     })
 })

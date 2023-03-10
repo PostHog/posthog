@@ -268,6 +268,43 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
             self.assertEqual(len(response["results"]), 1)
 
+    @snapshot_clickhouse_queries
+    def test_select_event_person(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            person = _create_person(
+                properties={"name": "Tom", "email": "tom@posthog.com"},
+                distinct_ids=["2", "some-random-uid"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:12:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:13:00"):
+            _create_event(
+                team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3", "path": "a/b/c"}
+            )
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            query = EventsQuery(select=["event", "person", "person"])
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            self.assertEqual(len(response["results"]), 4)
+            self.assertEqual(response["results"][0][1], {"distinct_id": "4"})
+            self.assertEqual(response["results"][1][1], {"distinct_id": "3"})
+            self.assertEqual(response["results"][1][2], {"distinct_id": "3"})
+            expected_user = {
+                "uuid": str(person.uuid),
+                "properties": {"name": "Tom", "email": "tom@posthog.com"},
+                "distinct_id": "2",
+                "created_at": "2020-01-10T12:00:00Z",
+            }
+            self.assertEqual(response["results"][2][1], expected_user)
+            self.assertEqual(response["results"][3][1], expected_user)
+            self.assertEqual(response["results"][3][2], expected_user)
+
     @also_test_with_materialized_columns(event_properties=["key"])
     @snapshot_clickhouse_queries
     def test_full_hogql_query(self):

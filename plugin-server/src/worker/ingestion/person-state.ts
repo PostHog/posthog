@@ -316,6 +316,7 @@ export class PersonState {
             captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
                 illegalDistinctId: distinctId,
                 otherDistinctId: previousDistinctId,
+                eventUuid: this.event.uuid,
             })
             return
         }
@@ -324,6 +325,7 @@ export class PersonState {
             captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
                 illegalDistinctId: previousDistinctId,
                 otherDistinctId: distinctId,
+                eventUuid: this.event.uuid,
             })
             return
         }
@@ -438,6 +440,7 @@ export class PersonState {
             captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
                 sourcePersonDistinctId: otherPersonDistinctId,
                 targetPersonDistinctId: mergeIntoDistinctId,
+                eventUuid: this.event.uuid,
             })
             status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
             return

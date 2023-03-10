@@ -57,10 +57,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
         templatesTabIsVisible: [
             (selectors) => [selectors.user, selectors.featureFlags],
             (user, featureFlags) => {
-                return (
-                    (!!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] && !!user?.is_staff) ||
-                    !!featureFlags[FEATURE_FLAGS.TEMPLUKES]
-                )
+                return !!featureFlags[FEATURE_FLAGS.TEMPLUKES] && !!user?.is_staff
             },
         ],
         dashboards: [
