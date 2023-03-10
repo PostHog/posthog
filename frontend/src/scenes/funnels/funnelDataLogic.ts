@@ -21,7 +21,6 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { groupsModel, Noun } from '~/models/groupsModel'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { isFunnelsQuery } from '~/queries/utils'
 import { percentage, sum } from 'lib/utils'
 import {
@@ -45,8 +44,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series', 'insightData'],
             groupsModel,
             ['aggregationLabel'],
-            insightLogic(props),
-            ['hiddenLegendKeys'],
         ],
         actions: [insightDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
@@ -155,8 +152,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         visibleStepsWithConversionMetrics: [
-            (s) => [s.stepsWithConversionMetrics, s.hiddenLegendKeys, s.flattenedBreakdowns],
-            (steps, hiddenLegendKeys, flattenedBreakdowns): FunnelStepWithConversionMetrics[] => {
+            (s) => [s.stepsWithConversionMetrics, s.funnelsFilter, s.flattenedBreakdowns],
+            (steps, funnelsFilter, flattenedBreakdowns): FunnelStepWithConversionMetrics[] => {
                 const isOnlySeries = flattenedBreakdowns.length <= 1
                 const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
                 return steps.map((step, stepIndex) => ({
@@ -169,7 +166,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                             ...b,
                             order: breakdownIndex,
                         }))
-                        ?.filter((b) => isOnlySeries || !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]),
+                        ?.filter(
+                            (b) =>
+                                isOnlySeries ||
+                                !funnelsFilter?.hidden_legend_breakdowns?.includes(getVisibilityKey(b.breakdown_value))
+                        ),
                 }))
             },
         ],
