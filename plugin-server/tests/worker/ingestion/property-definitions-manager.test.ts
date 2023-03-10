@@ -31,8 +31,8 @@ describe('PropertyDefinitionsManager()', () => {
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
-        organizationId = await createOrganization(hub.db.postgres)
-        teamId = await createTeam(hub.db.postgres, organizationId)
+        organizationId = await createOrganization()
+        teamId = await createTeam(organizationId)
         const groupTypeManager = new GroupTypeManager(hub.db, hub.teamManager, hub.SITE_URL)
         manager = new PropertyDefinitionsManager(hub.teamManager, groupTypeManager, hub.db, hub)
 
@@ -371,8 +371,8 @@ describe('PropertyDefinitionsManager()', () => {
                 // member of the team. It will produce an event for each member
                 // of the team.
                 const distinctId = v4()
-                const userId = await createUser(hub.db.postgres, distinctId)
-                await createOrganizationMembership(hub.db.postgres, organizationId, userId)
+                const userId = await createUser(distinctId)
+                await createOrganizationMembership(organizationId, userId)
                 await hub.db.postgresQuery(
                     `
                         UPDATE posthog_team 

@@ -1,59 +1,83 @@
-import { KAFKA_EVENTS_JSON, KAFKA_GROUPS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../src/config/kafka-topics'
-import { ClickHouseEvent, ClickHousePerson, ClickHousePersonDistinctId2 } from '../../src/types'
+import { ClickHouseClient, createClient } from '@clickhouse/client'
+
+import { defaultConfig } from '../../src/config/config'
+import {
+    KAFKA_EVENTS_JSON,
+    KAFKA_GROUPS,
+    KAFKA_INGESTION_WARNINGS,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PLUGIN_LOG_ENTRIES,
+} from '../../src/config/kafka-topics'
+import {
+    ClickHouseEvent,
+    ClickhouseGroup,
+    ClickHousePerson,
+    ClickHousePersonDistinctId2,
+    DeadLetterQueueEvent,
+} from '../../src/types'
 import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { parseRawClickHouseEvent } from '../../src/utils/event'
 import { status } from '../../src/utils/status'
 import { delay } from '../../src/utils/utils'
 
-const clickHouseRows: Record<number, Record<string, any[]>> = {}
+let clickHouseClient: ClickHouseClient
 
 beforeAll(() => {
-    // Typically we would ingest into ClickHouse. Instead we can just mock and
-    // record the produced messages. For all messages we append to the
-    // approriate place in the clickHouseRows object. Note that while this is
-    // called `queueMessage` singular, it actually contains multiple messages as
-    // `record.messages` is an array. Use the team_id in the message's value to
-    // determine which team it belongs to.
-    jest.spyOn(KafkaProducerWrapper.prototype, 'queueMessage').mockImplementation(async (record) => {
-        for (const message of record.messages) {
-            const row = message.value ? JSON.parse(message.value.toString()) : null
-            const teamId = row.team_id
-            const topic = record.topic
-
-            // To maintain the same test assertions as before adding these
-            // ClickHouse mocks, we need to convert ClickHouse formatted date
-            // strings of the form 2022-01-01 00:00:00 i.e. without millisecond
-            // granularity to ones with milliseconds i.e. by simply appending
-            // '.000'. We also need to convert boolean values to 1 or 0. To do
-            // so we convert the values or the row object.
-            if (row) {
-                for (const key of Object.keys(row)) {
-                    const value = row[key]
-                    if (typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)) {
-                        row[key] = `${value}.000`
-                    } else if (typeof value === 'boolean') {
-                        row[key] = value ? 1 : 0
-                    }
-                }
-            }
-
-            if (!clickHouseRows[teamId]) {
-                clickHouseRows[teamId] = {}
-            }
-            if (!clickHouseRows[teamId][topic]) {
-                clickHouseRows[teamId][topic] = []
-            }
-            clickHouseRows[teamId][topic].push(row)
-        }
-        return Promise.resolve()
+    // To avoid needing to handle eventual consistency in tests, and including
+    // the extra dependency of Kafka in tests, we mock the KafkaProducerWrapper
+    // class to instead INSERT directly into ClickHouse. This ensures that we
+    // have read after write consistency and thus do not need to wait arbitrary
+    // amounts of time for data to be available in ClickHouse.
+    //
+    // We could simply store the data in memory, but the tests rely on e.g.
+    // MATERIALIZED columns which would be difficult to replicate in memory.
+    clickHouseClient = createClient({
+        host: `http://${defaultConfig.CLICKHOUSE_HOST}:8123`,
+        username: defaultConfig.CLICKHOUSE_USER,
+        password: defaultConfig.CLICKHOUSE_PASSWORD || undefined,
+        database: defaultConfig.CLICKHOUSE_DATABASE,
+        clickhouse_settings: {
+            output_format_json_quote_64bit_integers: 0,
+        },
     })
+})
+
+beforeEach(() => {
+    jest.spyOn(KafkaProducerWrapper.prototype, 'queueMessage').mockImplementation(async (record) => {
+        // Insert the data into ClickHouse, first mapping the topic name to a
+        // table to insert into. Note that although this mock is for
+        // queueMessage singular, we actually have multiple events in
+        // `record.messages`.
+        const table = {
+            [KAFKA_EVENTS_JSON]: 'sharded_events',
+            [KAFKA_PERSON]: 'person',
+            [KAFKA_PERSON_DISTINCT_ID]: 'person_distinct_id2',
+            [KAFKA_GROUPS]: 'groups',
+            [KAFKA_INGESTION_WARNINGS]: 'ingestion_warnings',
+            [KAFKA_PLUGIN_LOG_ENTRIES]: 'plugin_log_entries',
+        }[record.topic]
+
+        if (!table) {
+            throw Error(`Unknown topic ${record.topic}`)
+        }
+
+        // Now generate JSON strings to be used with ClickHouse's JSONEachRow
+        // and perform the insert.
+        const rows = record.messages.flatMap((message) => (message.value ? [JSON.parse(message.value.toString())] : []))
+        await clickHouseClient.insert({ table, format: 'JSONEachRow', values: rows })
+    })
+})
+
+afterAll(async () => {
+    await clickHouseClient.close()
 })
 
 export async function delayUntilEventIngested<T extends any[] | number>(
     fetchData: () => T | Promise<T>,
     minLength = 1,
     delayMs = 100,
-    maxDelayCount = 100
+    maxDelayCount = 1
 ): Promise<T> {
     const timer = performance.now()
     let data: T | undefined = undefined
@@ -74,53 +98,87 @@ export async function delayUntilEventIngested<T extends any[] | number>(
     throw Error(`Failed to get data in time, got ${JSON.stringify(data)}`)
 }
 
-export const fetchEvents = (teamId: number): ClickHouseEvent[] => {
+export const fetchEvents = async (teamId: number) => {
     // Pull out the events from the clickHouseRows object defaulting to using
     // the global teamId if not specified
-    const events = clickHouseRows[teamId][KAFKA_EVENTS_JSON] ?? []
-    return events.map(parseRawClickHouseEvent)
+    return await clickHouseClient
+        .query({
+            query: `
+                SELECT * FROM events 
+                WHERE team_id = ${teamId} 
+                ORDER BY timestamp ASC
+            `,
+        })
+        .then((res) => res.json<{ data: ClickHouseEvent[] }>())
+        .then((res) => res.data.map(parseRawClickHouseEvent))
 }
 
-export const fetchClickHousePersons = (teamId: number, includeDeleted = false): ClickHousePerson[] => {
-    // Pull out the persons from the clickHouseRows object defaulting to using
-    // the global teamId if not specified. Note the ClickHouse persons table is
-    // a ReplacingMergeTree table using the person id for the key, which means
-    // we just want to get the latest version of each person. Version is
-    // specified by the `version` attribute of the rows and is a monotonically
-    // increasing number per person id.
+export const fetchClickHousePersons = async (teamId: number, includeDeleted = false) => {
+    // Pull out the persons from the ClickHouse using clickHouseClient. Note the
+    // ClickHouse persons table is a ReplacingMergeTree table using the person
+    // id for the key, which means we just want to get the latest version of
+    // each person. Version is specified by the `version` attribute of the rows
+    // and is a monotonically increasing number per person id.
     //
     // Further, if the is_deleted attribute is true for the latest version, we
     // do not want to include that person in the results.
-    const persons = clickHouseRows[teamId][KAFKA_PERSON] ?? []
-    const latestPersons: Record<string, ClickHousePerson> = {}
-    for (const person of persons) {
-        const personId = person.id
-        if (!latestPersons[personId] || latestPersons[personId].version < person.version) {
-            latestPersons[personId] = person
-        }
-    }
-    return Object.values(latestPersons)
-        .filter((p) => includeDeleted || !p.is_deleted)
-        .sort((a, b) => b.id.localeCompare(a.id))
+    const query = `
+        SELECT * FROM person FINAL
+        WHERE team_id = ${teamId}
+        ${includeDeleted ? '' : 'AND NOT is_deleted'}
+        ORDER BY id, version DESC
+    `
+    return await clickHouseClient
+        .query({ query })
+        .then((res) => res.json<{ data: ClickHousePerson[] }>())
+        .then((res) => res.data)
 }
 
-export const fetchClickhouseGroups = (teamId: number): any[] => {
-    // Pull out the groups from the clickHouseRows object
-    const groups = clickHouseRows[teamId][KAFKA_GROUPS] ?? []
-    return groups.map((group) => ({
-        ...group,
-        properties: group.properties ? JSON.parse(group.properties) : undefined,
-        team_id: teamId,
-        version: undefined,
-    }))
+export const fetchClickhouseGroups = async (teamId: number) => {
+    // Pull out the groups from ClickHouse using clickHouseClient. Note the
+    // ClickHouse groups table is a ReplacingMergeTree table using the group
+    // id for the key, which means we just want to get the latest version of
+    // each group. Version is specified by the `version` attribute of the rows
+    // and is a monotonically increasing number per group id.
+
+    const query = `
+        SELECT group_type_index, group_key, created_at, team_id, group_properties 
+        FROM groups FINAL
+        WHERE team_id = ${teamId}
+    `
+
+    return await clickHouseClient
+        .query({ query })
+        .then((res) => res.json<{ data: ClickhouseGroup[] }>())
+        .then((res) => res.data)
 }
 
-export function fetchClickHousePersonsWithVersionHigerEqualThan(teamId: number, version = 1) {
-    // Fetch only persons with version higher or equal than the specified version.
-    return fetchClickHousePersons(teamId).filter((person) => person.version >= version)
+export async function fetchClickHousePersonsWithVersionHigerEqualThan(teamId: number, version = 1) {
+    // Fetch only persons with version higher or equal than the specified
+    // version.
+    const query = `SELECT * FROM person FINAL WHERE team_id = ${teamId} AND version >= ${version}`
+
+    return await clickHouseClient
+        .query({ query })
+        .then((res) => res.json<{ data: ClickHousePerson[] }>())
+        .then((res) => res.data)
 }
 
-export function fetchDistinctIdsClickhouse(teamId: number, personId?: string, onlyVersionHigherEqualThan = 0) {
+export async function fetchClickHouseDistinctIdValues(teamId: number, personId: string) {
+    // Pull just the distinct_ids for the specified personId
+    const query = `
+        SELECT distinct_id FROM person_distinct_id2 FINAL 
+        WHERE team_id = ${teamId} AND person_id = '${personId}'
+        ORDER BY person_id, version DESC
+    `
+
+    return await clickHouseClient
+        .query({ query })
+        .then((res) => res.json<{ data: ClickHousePersonDistinctId2[] }>())
+        .then((res) => res.data.map((row) => row.distinct_id))
+}
+
+export async function fetchDistinctIdsClickhouse(teamId: number, personId?: string, onlyVersionHigherEqualThan = 0) {
     // Pull out the person distinct id rows from the clickHouseRows object.
 
     // Note the ClickHouse persons_distinct_id table is
@@ -131,22 +189,32 @@ export function fetchDistinctIdsClickhouse(teamId: number, personId?: string, on
     //
     // Further, if the is_deleted attribute is true for the latest version, we
     // do not want to include that person in the results.
-    const personDistinctIdRows = clickHouseRows[teamId][KAFKA_PERSON_DISTINCT_ID] ?? []
-    const latestDistinctIds: Record<string, ClickHousePersonDistinctId2> = {}
-    for (const row of personDistinctIdRows) {
-        const distinctId = row.distinct_id
-        if (!latestDistinctIds[distinctId] || latestDistinctIds[distinctId].version < row.version) {
-            latestDistinctIds[distinctId] = row
-        }
-    }
-
-    return Object.values(latestDistinctIds)
-        .filter((p) => !personId || p.person_id === personId)
-        .filter((p) => p.version >= onlyVersionHigherEqualThan)
-        .map((p) => p.distinct_id)
+    const query = `
+        SELECT * FROM person_distinct_id2
+        WHERE team_id = ${teamId}
+        ${personId ? `AND person_id = '${personId}'` : ''}
+        ${onlyVersionHigherEqualThan > 0 ? `AND version >= ${onlyVersionHigherEqualThan}` : ''}
+        ORDER BY person_id, version DESC
+    `
+    return await clickHouseClient
+        .query({ query })
+        .then((res) => res.json<{ data: ClickHousePersonDistinctId2[] }>())
+        .then((res) => res.data)
 }
 
-export function fetchDistinctIdsClickhouseVersion1(teamId: number) {
+export async function fetchDistinctIdsClickhouseVersion1(teamId: number) {
     // Fetch only distinct ids with version 1.
-    return fetchDistinctIdsClickhouse(teamId, undefined, 1)
+    return await fetchDistinctIdsClickhouse(teamId, undefined, 1)
+}
+
+export async function fetchDeadLetterQueueEvents(teamId: number) {
+    const query = `
+        SELECT * FROM events_dead_letter_queue 
+        WHERE team_id = ${teamId}
+        ORDER BY _timestamp ASC
+    `
+    return await clickHouseClient
+        .query({ query })
+        .then((res) => res.json<{ data: DeadLetterQueueEvent[] }>())
+        .then((res) => res.data)
 }

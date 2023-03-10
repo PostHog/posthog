@@ -5,7 +5,7 @@ import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
 import { workerTasks } from '../../src/worker/tasks'
-import { delayUntilEventIngested } from '../helpers/clickhouse'
+import { delayUntilEventIngested, fetchDeadLetterQueueEvents } from '../helpers/clickhouse'
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
@@ -46,11 +46,12 @@ function createEvent(): PluginEvent {
 describe('events dead letter queue', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
+    let teamId: number
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         console.warn = jest.fn() as any
-        await resetTestDatabase()
+        ;({ teamId } = await resetTestDatabase())
     })
 
     afterEach(async () => {
@@ -66,9 +67,9 @@ describe('events dead letter queue', () => {
         })
         expect(generateEventDeadLetterQueueMessage).toHaveBeenCalled()
 
-        await delayUntilEventIngested(() => hub.db.fetchDeadLetterQueueEvents(), 1)
+        await delayUntilEventIngested(() => fetchDeadLetterQueueEvents(teamId), 1)
 
-        const deadLetterQueueEvents = await hub.db.fetchDeadLetterQueueEvents()
+        const deadLetterQueueEvents = await fetchDeadLetterQueueEvents(teamId)
 
         expect(deadLetterQueueEvents.length).toEqual(1)
 

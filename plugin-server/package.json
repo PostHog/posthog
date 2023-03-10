@@ -84,6 +84,7 @@
     "devDependencies": {
         "@babel/cli": "^7.18.10",
         "@babel/types": "^7.20.2",
+        "@clickhouse/client": "^0.0.12",
         "@sentry/types": "^7.17.4",
         "@swc-node/register": "^1.5.1",
         "@swc/core": "^1.2.186",

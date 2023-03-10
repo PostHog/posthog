@@ -9,10 +9,12 @@ import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-c
 import { ageInMonthsLowCardinality, PersonState } from '../../../src/worker/ingestion/person-state'
 import {
     delayUntilEventIngested,
+    fetchClickHouseDistinctIdValues,
     fetchClickHousePersons,
-    fetchDistinctIdsClickhouse,
+    fetchClickHousePersonsWithVersionHigerEqualThan,
     fetchDistinctIdsClickhouseVersion1,
 } from '../../helpers/clickhouse'
+import { fetchDistinctIdValues } from '../../helpers/postgres'
 import { createOrganization, createTeam, insertRow } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
@@ -121,7 +123,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
@@ -156,7 +158,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
@@ -194,7 +196,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
@@ -233,7 +235,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
@@ -390,7 +392,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
@@ -425,7 +427,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -562,7 +564,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -596,7 +598,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -634,7 +636,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -669,12 +671,12 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
-            const clickhousePersons = fetchClickHousePersons(teamId, true) // but verify full state
+            await delayUntilEventIngested(() => fetchClickHousePersonsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchClickHousePersons(teamId, true) // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -695,7 +697,7 @@ describe('PersonState.update()', () => {
 
             // verify ClickHouse distinct_ids
             await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(teamId))
-            const clickHouseDistinctIds = fetchDistinctIdsClickhouse(teamId, persons[0].uuid)
+            const clickHouseDistinctIds = await fetchClickHouseDistinctIdValues(teamId, persons[0].uuid)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -730,12 +732,12 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
-            const clickhousePersons = fetchClickHousePersons(teamId, true) // but verify full state
+            await delayUntilEventIngested(() => fetchClickHousePersonsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchClickHousePersons(teamId, true) // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -756,7 +758,7 @@ describe('PersonState.update()', () => {
 
             // verify ClickHouse distinct_ids
             await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(teamId))
-            const clickHouseDistinctIds = fetchDistinctIdsClickhouse(teamId, persons[0].uuid)
+            const clickHouseDistinctIds = await fetchClickHouseDistinctIdValues(teamId, persons[0].uuid)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -801,9 +803,9 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user']))
-            const distinctIds2 = await hub.db.fetchDistinctIdValues(persons[1])
+            const distinctIds2 = await fetchDistinctIdValues(persons[1].id)
             expect(distinctIds2).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
@@ -848,9 +850,9 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user']))
-            const distinctIds2 = await hub.db.fetchDistinctIdValues(persons[1])
+            const distinctIds2 = await fetchDistinctIdValues(persons[1].id)
             expect(distinctIds2).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
@@ -891,12 +893,12 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
-            const clickhousePersons = fetchClickHousePersons(teamId, true) // but verify full state
+            await delayUntilEventIngested(() => fetchClickHousePersonsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchClickHousePersons(teamId, true) // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -917,7 +919,7 @@ describe('PersonState.update()', () => {
 
             // verify ClickHouse distinct_ids
             await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(teamId))
-            const clickHouseDistinctIds = fetchDistinctIdsClickhouse(teamId, persons[0].uuid)
+            const clickHouseDistinctIds = await fetchClickHouseDistinctIdValues(teamId, persons[0].uuid)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -982,12 +984,12 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(2), 2) // wait until merge and delete processed
-            const clickhousePersons = fetchClickHousePersons(teamId, true) // but verify full state
+            await delayUntilEventIngested(() => fetchClickHousePersonsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchClickHousePersons(teamId, true) // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -1009,7 +1011,7 @@ describe('PersonState.update()', () => {
 
             // verify ClickHouse distinct_ids
             await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(teamId))
-            const clickHouseDistinctIds = fetchDistinctIdsClickhouse(teamId, persons[0].uuid)
+            const clickHouseDistinctIds = await fetchClickHouseDistinctIdValues(teamId, persons[0].uuid)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1045,7 +1047,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
@@ -1080,7 +1082,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1179,7 +1181,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1213,7 +1215,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1251,7 +1253,7 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1296,9 +1298,9 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user']))
-            const distinctIds2 = await hub.db.fetchDistinctIdValues(persons[1])
+            const distinctIds2 = await fetchDistinctIdValues(persons[1].id)
             expect(distinctIds2).toEqual(expect.arrayContaining(['new-user']))
 
             // verify personContainer
@@ -1333,12 +1335,12 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
-            const clickhousePersons = fetchClickHousePersons(teamId, true) // but verify full state
+            await delayUntilEventIngested(() => fetchClickHousePersonsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchClickHousePersons(teamId, true) // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -1359,7 +1361,7 @@ describe('PersonState.update()', () => {
 
             // verify ClickHouse distinct_ids
             await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(teamId))
-            const clickHouseDistinctIds = fetchDistinctIdsClickhouse(teamId, persons[0].uuid)
+            const clickHouseDistinctIds = await fetchClickHouseDistinctIdValues(teamId, persons[0].uuid)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1394,12 +1396,12 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
-            const clickhousePersons = fetchClickHousePersons(teamId, true) // but verify full state
+            await delayUntilEventIngested(() => fetchClickHousePersonsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchClickHousePersons(teamId, true) // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -1420,7 +1422,7 @@ describe('PersonState.update()', () => {
 
             // verify ClickHouse distinct_ids
             await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(teamId))
-            const clickHouseDistinctIds = fetchDistinctIdsClickhouse(teamId, persons[0].uuid)
+            const clickHouseDistinctIds = await fetchClickHouseDistinctIdValues(teamId, persons[0].uuid)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1461,12 +1463,12 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
-            const clickhousePersons = fetchClickHousePersons(teamId, true) // but verify full state
+            await delayUntilEventIngested(() => fetchClickHousePersonsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchClickHousePersons(teamId, true) // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
@@ -1487,7 +1489,7 @@ describe('PersonState.update()', () => {
 
             // verify ClickHouse distinct_ids
             await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(teamId))
-            const clickHouseDistinctIds = fetchDistinctIdsClickhouse(teamId, persons[0].uuid)
+            const clickHouseDistinctIds = await fetchClickHouseDistinctIdValues(teamId, persons[0].uuid)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
@@ -1512,7 +1514,7 @@ describe('PersonState.update()', () => {
             const persons = await fetchPostgresPersons()
             expect(persons.length).toEqual(1)
 
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['[object Object]']))
             expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
                 distinctId: '[object Object]',
@@ -1531,7 +1533,7 @@ describe('PersonState.update()', () => {
             const persons = await fetchPostgresPersons()
             expect(persons.length).toEqual(1)
 
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['some_distinct_id']))
             expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
                 distinctId: 'undefined',
@@ -1550,7 +1552,7 @@ describe('PersonState.update()', () => {
             const persons = await fetchPostgresPersons()
             expect(persons.length).toEqual(1)
 
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['false']))
             expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', {
                 distinctId: 'false',
@@ -1569,7 +1571,7 @@ describe('PersonState.update()', () => {
             const persons = await fetchPostgresPersons()
             expect(persons.length).toEqual(1)
 
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['some_distinct_id']))
             expect(hub.statsd!.increment).toHaveBeenCalledWith('illegal_distinct_ids.total', { distinctId: 'null' })
         })
@@ -1620,7 +1622,7 @@ describe('PersonState.update()', () => {
 
             const [person] = await fetchPostgresPersons()
             expect(person.id).toEqual(identifiedPerson.id)
-            expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
+            expect(await fetchDistinctIdValues(person.id)).toEqual(['anonymous_id', 'new_distinct_id'])
             expect(person.is_identified).toEqual(true)
 
             const result = await hub.db.postgresQuery(
@@ -1695,7 +1697,7 @@ describe('PersonState.update()', () => {
 
             const [person] = await fetchPostgresPersons()
             expect(person.id).toEqual(identifiedPerson.id)
-            expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
+            expect(await fetchDistinctIdValues(person.id)).toEqual(['anonymous_id', 'new_distinct_id'])
             expect(person.is_identified).toEqual(true)
 
             const result = await hub.db.postgresQuery(
@@ -1757,7 +1759,7 @@ describe('PersonState.update()', () => {
 
             const [person] = await fetchPostgresPersons()
             expect(person.id).toEqual(identifiedPerson.id)
-            expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
+            expect(await fetchDistinctIdValues(person.id)).toEqual(['anonymous_id', 'new_distinct_id'])
             expect(person.is_identified).toEqual(true)
 
             const result = await hub.db.postgresQuery(
@@ -1870,12 +1872,12 @@ describe('PersonState.update()', () => {
             )
 
             // verify Postgres distinct_ids
-            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            const distinctIds = await fetchDistinctIdValues(persons[0].id)
             expect(distinctIds).toEqual(expect.arrayContaining(['first', 'second']))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
-            const clickhousePersons = fetchClickHousePersons(teamId, true) // but verify full state
+            await delayUntilEventIngested(() => fetchClickHousePersonsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchClickHousePersons(teamId, true) // but verify full state
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
@@ -1895,7 +1897,7 @@ describe('PersonState.update()', () => {
 
             // verify ClickHouse distinct_ids
             await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(teamId))
-            const clickHouseDistinctIds = fetchDistinctIdsClickhouse(teamId, persons[0].uuid)
+            const clickHouseDistinctIds = await fetchClickHouseDistinctIdValues(teamId, persons[0].uuid)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['first', 'second']))
         })
         it('throws if postgres unavailable', async () => {

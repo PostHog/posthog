@@ -23,13 +23,12 @@ describe('ActionMatcher', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
     let actionMatcher: ActionMatcher
-    let actionCounter: number
+    let teamId: number
 
     beforeEach(async () => {
-        await resetTestDatabase(undefined, undefined, undefined, { withExtendedTestData: false })
+        ;({ teamId } = await resetTestDatabase(undefined, { withExtendedTestData: false }))
         ;[hub, closeServer] = await createHub()
         actionMatcher = hub.actionMatcher
-        actionCounter = 0
     })
 
     afterEach(async () => {
@@ -38,9 +37,8 @@ describe('ActionMatcher', () => {
 
     /** Return a test action created on a common base using provided steps. */
     async function createTestAction(partialSteps: Partial<ActionStep>[]): Promise<Action> {
-        const action: RawAction = {
-            id: actionCounter++,
-            team_id: 2,
+        const actionColumns: Omit<RawAction, 'id'> = {
+            team_id: teamId,
             name: 'Test',
             description: '',
             created_at: new Date().toISOString(),
@@ -52,10 +50,10 @@ describe('ActionMatcher', () => {
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
         }
-        const steps: ActionStep[] = partialSteps.map(
-            (partialStep, index) =>
+        const action = await insertRow('posthog_action', actionColumns)
+        const stepColumns: ActionStep[] = partialSteps.map(
+            (partialStep) =>
                 ({
-                    id: action.id * 100 + index,
                     action_id: action.id,
                     tag_name: null,
                     text: null,
@@ -69,8 +67,7 @@ describe('ActionMatcher', () => {
                     ...partialStep,
                 } as ActionStep)
         )
-        await insertRow(hub.db.postgres, 'posthog_action', action)
-        await Promise.all(steps.map((step) => insertRow(hub.db.postgres, 'posthog_actionstep', step)))
+        const steps = await Promise.all(stepColumns.map((step) => insertRow('posthog_actionstep', step)))
         await hub.actionManager.reloadAction(action.team_id, action.id)
         return { ...action, steps, hooks: [] }
     }
@@ -82,7 +79,7 @@ describe('ActionMatcher', () => {
             eventUuid: 'uuid1',
             distinctId: 'my_id',
             ip: '127.0.0.1',
-            teamId: 2,
+            teamId: teamId,
             timestamp: new Date().toISOString(),
             event: '$pageview',
             properties: { $current_url: url },
@@ -94,8 +91,8 @@ describe('ActionMatcher', () => {
     /** Return a test person created on a common base using provided property overrides. */
     function createTestPerson(overrides: Partial<Person> = {}): Person {
         return {
-            id: 2,
-            team_id: 2,
+            id: 2, // NOTE: we don't need to insert this into the DB, so we don't worry about collisions
+            team_id: teamId,
             properties: {},
             properties_last_updated_at: {},
             properties_last_operation: {},

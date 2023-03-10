@@ -6,7 +6,7 @@ import { UUIDT } from '../../../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../../../src/worker/ingestion/event-pipeline/runner'
 import { fetchEventsForInterval } from '../../../../../src/worker/vm/upgrades/utils/fetchEventsForInterval'
 import { HistoricalExportEvent } from '../../../../../src/worker/vm/upgrades/utils/utils'
-import { delayUntilEventIngested } from '../../../../helpers/clickhouse'
+import { delayUntilEventIngested, fetchEvents } from '../../../../helpers/clickhouse'
 import { resetTestDatabase } from '../../../../helpers/sql'
 
 jest.mock('../../../../../src/utils/status')
@@ -64,7 +64,7 @@ describe('fetchEventsForInterval()', () => {
         ])
 
         await hub.kafkaProducer.flush()
-        await delayUntilEventIngested(() => hub.db.fetchEvents(), 7)
+        await delayUntilEventIngested(() => fetchEvents(teamId), 7)
 
         const events = await fetchEventsForInterval(
             hub.db,

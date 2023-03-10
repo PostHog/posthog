@@ -8,7 +8,8 @@ import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
-import { delayUntilEventIngested } from '../../../helpers/clickhouse'
+import { delayUntilEventIngested, fetchEvents } from '../../../helpers/clickhouse'
+import { fetchPostgresPersons } from '../../../helpers/postgres'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
 jest.mock('../../../../src/utils/status')
@@ -70,8 +71,8 @@ describe('Event Pipeline integration test', () => {
 
         await ingestEvent(event)
 
-        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
-        const persons = await delayUntilEventIngested(() => hub.db.fetchPersons())
+        const events = await delayUntilEventIngested(() => fetchEvents(teamId))
+        const persons = await delayUntilEventIngested(() => fetchPostgresPersons(teamId))
 
         expect(events.length).toEqual(1)
         expect(events[0]).toEqual(
