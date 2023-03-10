@@ -143,6 +143,7 @@ export const FEATURE_FLAGS = {
     SAMPLING: 'sampling', // owner: @yakkomajuri
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
+    FF_CODE_EXAMPLE: 'ff-code-example', // owner: @liyiy
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
 }
 

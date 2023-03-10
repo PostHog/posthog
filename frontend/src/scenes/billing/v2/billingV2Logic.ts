@@ -30,6 +30,7 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
         data.billing_period = {
             current_period_start: dayjs(data.billing_period.current_period_start),
             current_period_end: dayjs(data.billing_period.current_period_end),
+            interval: data.billing_period.interval,
         }
 
         data.products?.forEach((x) => {

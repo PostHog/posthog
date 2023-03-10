@@ -131,6 +131,7 @@ export interface ExportParams {
     parallelism: number
     dateFrom: ISOTimestamp
     dateTo: ISOTimestamp
+    abortMessage?: string
 }
 
 interface CoordinationPayload {
@@ -249,6 +250,12 @@ export function addHistoricalEventsExportCapabilityV2(
 
         if (!params) {
             // No export running!
+            return
+        }
+
+        if (params.abortMessage) {
+            // For manually triggering the export to abort
+            await stopExport(params, `Export aborted: ${params.abortMessage}`, 'fail')
             return
         }
 
@@ -396,6 +403,14 @@ export function addHistoricalEventsExportCapabilityV2(
         const activeExportParameters = await getExportParameters()
         if (activeExportParameters?.id != payload.exportId) {
             // This export has finished or has been stopped
+            return
+        }
+
+        if (activeExportParameters.abortMessage) {
+            // For manually triggering the export to abort
+            createLog(`Export manually aborted ${activeExportParameters.abortMessage}`, {
+                type: PluginLogEntryType.Info,
+            })
             return
         }
 

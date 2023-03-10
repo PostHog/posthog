@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0308_add_indirect_person_override_constraints"),
+        ("posthog", "0309_add_starter_dashboard_template"),
     ]
 
     operations = [
@@ -14,5 +14,12 @@ class Migration(migrations.Migration):
             model_name="dashboardtemplate",
             name="is_public",
             field=models.BooleanField(blank=True, null=True),
+        ),
+        # only applies to the default templates
+        migrations.RunSQL(
+            """UPDATE posthog_dashboardtemplate
+            SET is_public = true
+            WHERE team_id IS NULL""",
+            reverse_sql=migrations.RunSQL.noop,
         ),
     ]

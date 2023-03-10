@@ -1110,6 +1110,7 @@ export interface BillingV2Type {
     billing_period?: {
         current_period_start: Dayjs
         current_period_end: Dayjs
+        interval: 'month' | 'year'
     }
     license?: {
         plan: LicensePlan
