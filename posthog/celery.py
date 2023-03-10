@@ -131,7 +131,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
     )
-    sender.add_periodic_task(120, graphile_worker_queue_size.s(), name="Graphile Worker queue size")
+    sender.add_periodic_task(60, graphile_worker_queue_size.s(), name="Graphile Worker queue size")
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
