@@ -13,9 +13,6 @@ import { EditorFilters } from './EditorFilters/EditorFilters'
 import clsx from 'clsx'
 import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { isInsightVizNode } from '~/queries/utils'
 
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
@@ -69,8 +66,6 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         return <InsightSkeleton />
     }
 
-    const showQueryEditorPanel = insightMode === ItemMode.Edit && !!query && !isInsightVizNode(query)
-
     const insightScene = (
         <div className={'insights-page'}>
             <InsightPageHeader insightLogicProps={insightProps} />
@@ -79,18 +74,11 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
             {isUsingDataExploration && query !== null ? (
                 <>
-                    {showQueryEditorPanel ? (
-                        <>
-                            <QueryEditor
-                                query={JSON.stringify(query)}
-                                setQuery={(stringQuery) => setQuery(JSON.parse(stringQuery))}
-                            />
-                            <div className="my-4">
-                                <LemonDivider />
-                            </div>
-                        </>
-                    ) : null}
-                    <Query query={query} setQuery={setQuery} />
+                    <Query
+                        query={query}
+                        setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
+                        context={{ hideInlineEditorButton: true }}
+                    />
                 </>
             ) : (
                 <>

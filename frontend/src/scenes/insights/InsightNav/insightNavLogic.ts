@@ -10,8 +10,8 @@ import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogi
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { isInsightVizNode } from '~/queries/utils'
-import { TotalEventsTable } from '~/queries/examples'
+import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
+import { examples, TotalEventsTable } from '~/queries/examples'
 
 export interface Tab {
     label: string
@@ -49,6 +49,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     if (isInsightVizNode(query)) {
                         return insightMap[query.source.kind] || InsightType.TRENDS
                     } else if (!!query) {
+                        if (isHogQLQuery(query) || (isDataTableNode(query) && isHogQLQuery(query.source))) {
+                            return InsightType.SQL
+                        }
                         return InsightType.QUERY
                     } else {
                         return InsightType.TRENDS
@@ -96,6 +99,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
 
                 if (isUsingDataExploration) {
                     tabs.push({
+                        label: 'SQL',
+                        type: InsightType.SQL,
+                        dataAttr: 'insight-sql-tab',
+                    })
+                    tabs.push({
                         label: 'Query',
                         type: InsightType.QUERY,
                         dataAttr: 'insight-query-tab',
@@ -123,6 +131,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     actions.setQuery(queryFromKind(NodeKind.LifecycleQuery))
                 } else if (view === InsightType.QUERY) {
                     actions.setQuery(TotalEventsTable)
+                } else if (view === InsightType.SQL) {
+                    actions.setQuery(examples.HogQLTable)
                 }
             } else {
                 actions.setFilters(

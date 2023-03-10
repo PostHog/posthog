@@ -25,6 +25,7 @@ import {
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
+    InsightSQLIcon,
     InsightsQueryIcon,
     InsightsRetentionIcon,
     InsightsStickinessIcon,
@@ -103,6 +104,12 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         name: 'Lifecycle',
         description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
         icon: InsightsLifecycleIcon,
+        inMenu: true,
+    },
+    [InsightType.SQL]: {
+        name: 'SQL',
+        description: 'Use SQL to query your data',
+        icon: InsightSQLIcon,
         inMenu: true,
     },
     [InsightType.QUERY]: {

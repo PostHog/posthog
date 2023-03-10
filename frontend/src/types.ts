@@ -1452,6 +1452,8 @@ export enum InsightType {
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
     QUERY = 'QUERY',
+
+    SQL = 'SQL',
 }
 
 export enum PathType {

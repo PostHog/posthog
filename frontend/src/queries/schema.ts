@@ -240,6 +240,7 @@ export interface DataTableNode extends Node {
     hiddenColumns?: HogQLExpression[]
     /** Show with most visual options enabled. Used in scenes. */
     full?: boolean
+
     /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
     /** Include a free text search field (PersonsNode only) */
@@ -468,7 +469,11 @@ export interface QueryContext {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
 
-    readonly?: boolean
+    /** Whether to hide the inline editor button,
+     * it will be hidden when readonly
+     * but, in some circumstances the query is editable
+     * and the button should be hidden */
+    hideInlineEditorButton?: boolean
 }
 
 interface QueryContextColumn {
