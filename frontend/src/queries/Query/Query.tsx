@@ -17,6 +17,8 @@ import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
@@ -77,10 +79,15 @@ export function Query(props: QueryProps): JSX.Element {
     if (component) {
         return (
             <ErrorBoundary>
-                <>
-                    <AddToNotebook node={NodeType.Query} properties={{ query }} />
+                <div className="relative">
+                    <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS}>
+                        <span className="absolute top-0 right-0 -mr-9">
+                            <AddToNotebook node={NodeType.Query} properties={{ query }} />
+                        </span>
+                    </FlaggedFeature>
+
                     {component}
-                </>
+                </div>
             </ErrorBoundary>
         )
     }
