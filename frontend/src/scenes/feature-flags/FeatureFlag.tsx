@@ -332,42 +332,52 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </>
                         )}
                         <LemonDivider />
-                        <div>
-                            <LemonButton
-                                fullWidth
-                                status="default-dark"
-                                onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
-                                sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                            >
-                                <div>
-                                    <h3 className="l4">Advanced settings</h3>
-                                    <div className="text-muted mb-4 font-medium">Define who can modify this flag.</div>
-                                </div>
-                            </LemonButton>
-                        </div>
-                        {advancedSettingsExpanded && (
+                        {isNewFeatureFlag && (
                             <>
-                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
-                                {isNewFeatureFlag && featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
-                                    <Card title="Permissions" className="mb-4">
-                                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                            <ResourcePermission
-                                                resourceType={Resource.FEATURE_FLAGS}
-                                                onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                                rolesToAdd={rolesToAdd}
-                                                addableRoles={addableRoles}
-                                                addableRolesLoading={unfilteredAddableRolesLoading}
-                                                onAdd={() => addAssociatedRoles()}
-                                                roles={derivedRoles}
-                                                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
-                                                canEdit={featureFlag.can_edit}
-                                            />
-                                        </PayGateMini>
-                                    </Card>
+                                <div>
+                                    <LemonButton
+                                        fullWidth
+                                        status="default-dark"
+                                        onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
+                                        sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                    >
+                                        <div>
+                                            <h3 className="l4">Advanced settings</h3>
+                                            <div className="text-muted mb-4 font-medium">
+                                                Define who can modify this flag.
+                                            </div>
+                                        </div>
+                                    </LemonButton>
+                                </div>
+                                {advancedSettingsExpanded && (
+                                    <>
+                                        {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                            <FeatureFlagAutoRollback />
+                                        )}
+                                        {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                                            <Card title="Permissions" className="mb-4">
+                                                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                                    <ResourcePermission
+                                                        resourceType={Resource.FEATURE_FLAGS}
+                                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                        rolesToAdd={rolesToAdd}
+                                                        addableRoles={addableRoles}
+                                                        addableRolesLoading={unfilteredAddableRolesLoading}
+                                                        onAdd={() => addAssociatedRoles()}
+                                                        roles={derivedRoles}
+                                                        deleteAssociatedRole={(id) =>
+                                                            deleteAssociatedRole({ roleId: id })
+                                                        }
+                                                        canEdit={featureFlag.can_edit}
+                                                    />
+                                                </PayGateMini>
+                                            </Card>
+                                        )}
+                                    </>
                                 )}
+                                <LemonDivider />
                             </>
                         )}
-                        <LemonDivider />
                         <div className="flex items-center gap-2 justify-end">
                             <LemonButton
                                 data-attr="cancel-feature-flag"
@@ -1375,7 +1385,9 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         featureFlag.filters.groups.length == 1
                                             ? group.rollout_percentage == null || group.rollout_percentage == 100
                                                 ? 'highlight'
-                                                : 'caution'
+                                                : group.rollout_percentage == 0
+                                                ? 'caution'
+                                                : 'none'
                                             : 'none'
                                     }
                                 >
