@@ -523,7 +523,7 @@ class FunnelsFilter(BaseModel):
     funnel_viz_type: Optional[FunnelVizType] = None
     funnel_window_interval: Optional[float] = None
     funnel_window_interval_unit: Optional[FunnelConversionWindowTimeUnit] = None
-    hidden_legend_series: Optional[List[str]] = None
+    hidden_legend_breakdowns: Optional[List[str]] = None
     layout: Optional[FunnelLayout] = None
 
 
