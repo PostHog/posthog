@@ -37,6 +37,7 @@ class LicenseInfo(TypedDict):
 class BillingPeriod(TypedDict):
     current_period_start: str
     current_period_end: str
+    interval: str
 
 
 class UsageSummary(TypedDict):

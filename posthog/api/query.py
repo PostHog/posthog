@@ -177,7 +177,10 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
         serializer.is_valid(raise_exception=True)
         return get_session_events(serializer) or {}
     else:
-        raise ValidationError("Unsupported query kind: %s" % query_kind)
+        if query_json.get("source"):
+            return process_query(team, query_json["source"], is_hogql_enabled)
+
+        raise ValidationError(f"Unsupported query kind: {query_kind}")
 
 
 def _is_hogql_enabled(user: User, organization_id: str, organization_created_at: datetime) -> bool:
