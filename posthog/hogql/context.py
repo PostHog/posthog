@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
+from posthog.hogql.database import Database
+
 
 @dataclass
 class HogQLFieldAccess:
@@ -14,6 +16,8 @@ class HogQLFieldAccess:
 class HogQLContext:
     """Context given to a HogQL expression printer"""
 
+    # Database object built for this query/team
+    database: Database
     # If set, will save string constants to this dict. Inlines strings into the query if None.
     values: Dict = field(default_factory=dict)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.

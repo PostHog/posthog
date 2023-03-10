@@ -1,5 +1,6 @@
 from typing import Dict
 
+from posthog.hogql.database import create_hogql_database
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -9,7 +10,10 @@ class HogQLParamMixin:
 
     @cached_property
     def hogql_context(self) -> HogQLContext:
-        context = self.kwargs.get("hogql_context", HogQLContext(within_non_hogql_query=True))
-        if self.kwargs.get("team"):
-            context.using_person_on_events = self.kwargs["team"].person_on_events_querying_enabled
+        team = self.kwargs.get("team")
+        context = self.kwargs.get(
+            "hogql_context", HogQLContext(within_non_hogql_query=True, database=create_hogql_database(team))
+        )
+        if team:
+            context.using_person_on_events = team.person_on_events_querying_enabled
         return context

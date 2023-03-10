@@ -1,19 +1,22 @@
 from typing import Literal, Optional
 
-from django.test.testcases import TestCase
-
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database import create_hogql_database
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.test.base import BaseTest
 
 
-class TestPrinter(TestCase):
+class TestPrinter(BaseTest):
+    def setUp(self):
+        self.database = create_hogql_database(self.team)
+
     # Helper to always translate HogQL with a blank context
     def _expr(
         self, query: str, context: Optional[HogQLContext] = None, dialect: Literal["hogql", "clickhouse"] = "clickhouse"
     ) -> str:
-        return translate_hogql(query, context or HogQLContext(), dialect)
+        return translate_hogql(query, context or HogQLContext(database=self.database), dialect)
 
     # Helper to always translate HogQL with a blank context,
     def _select(self, query: str, context: Optional[HogQLContext] = None) -> str:
@@ -54,7 +57,7 @@ class TestPrinter(TestCase):
             self._expr("properties['bla']"),
             "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
-        context = HogQLContext()
+        context = HogQLContext(database=self.database)
         self.assertEqual(
             self._expr("properties.$bla", context),
             "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
@@ -87,39 +90,39 @@ class TestPrinter(TestCase):
 
     def test_hogql_properties(self):
         self.assertEqual(
-            self._expr("event", HogQLContext(), "hogql"),
+            self._expr("event", HogQLContext(database=self.database), "hogql"),
             "event",
         )
         self.assertEqual(
-            self._expr("person", HogQLContext(), "hogql"),
+            self._expr("person", HogQLContext(database=self.database), "hogql"),
             "person",
         )
         self.assertEqual(
-            self._expr("person.properties.$browser", HogQLContext(), "hogql"),
+            self._expr("person.properties.$browser", HogQLContext(database=self.database), "hogql"),
             "person.properties.$browser",
         )
         self.assertEqual(
-            self._expr("properties.$browser", HogQLContext(), "hogql"),
+            self._expr("properties.$browser", HogQLContext(database=self.database), "hogql"),
             "properties.$browser",
         )
         self.assertEqual(
-            self._expr("properties.`$browser with a space`", HogQLContext(), "hogql"),
+            self._expr("properties.`$browser with a space`", HogQLContext(database=self.database), "hogql"),
             "properties.`$browser with a space`",
         )
         self.assertEqual(
-            self._expr('properties."$browser with a space"', HogQLContext(), "hogql"),
+            self._expr('properties."$browser with a space"', HogQLContext(database=self.database), "hogql"),
             "properties.`$browser with a space`",
         )
         self.assertEqual(
-            self._expr("properties['$browser with a space']", HogQLContext(), "hogql"),
+            self._expr("properties['$browser with a space']", HogQLContext(database=self.database), "hogql"),
             "properties.`$browser with a space`",
         )
         self.assertEqual(
-            self._expr("properties['$browser with a ` tick']", HogQLContext(), "hogql"),
+            self._expr("properties['$browser with a ` tick']", HogQLContext(database=self.database), "hogql"),
             "properties.`$browser with a \\` tick`",
         )
         self.assertEqual(
-            self._expr("properties['$browser \\\\with a \\n` tick']", HogQLContext(), "hogql"),
+            self._expr("properties['$browser \\\\with a \\n` tick']", HogQLContext(database=self.database), "hogql"),
             "properties.`$browser \\\\with a \\n\\` tick`",
         )
         self._assert_expr_error("properties.0", "Unsupported node: ColumnExprTupleAccess", "hogql")
@@ -153,7 +156,7 @@ class TestPrinter(TestCase):
         self.assertEqual(self._expr("sumIf(1, 1 == 2)"), "sumIf(1, equals(1, 2))")
 
     def test_functions(self):
-        context = HogQLContext()  # inline values
+        context = HogQLContext(database=self.database)  # inline values
         self.assertEqual(self._expr("abs(1)"), "abs(1)")
         self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
         self.assertEqual(self._expr("toInt('1')", context), "toInt64OrNull(%(hogql_val_0)s)")
@@ -189,19 +192,19 @@ class TestPrinter(TestCase):
         self._assert_expr_error("b.a(bla)", "SyntaxError: line 1, column 3: mismatched input '(' expecting '.'")
 
     def test_returned_properties(self):
-        context = HogQLContext()
+        context = HogQLContext(database=self.database)
         self._expr("avg(properties.prop) + avg(uuid) + event", context)
         self.assertEqual(context.found_aggregation, True)
 
-        context = HogQLContext()
+        context = HogQLContext(database=self.database)
         self._expr("coalesce(event, properties.event)", context)
         self.assertEqual(context.found_aggregation, False)
 
-        context = HogQLContext()
+        context = HogQLContext(database=self.database)
         self._expr("count() + sum(timestamp)", context)
         self.assertEqual(context.found_aggregation, True)
 
-        context = HogQLContext()
+        context = HogQLContext(database=self.database)
         self._expr("event + avg(event + properties.event) + avg(event + properties.event)", context)
         self.assertEqual(context.found_aggregation, True)
 
@@ -224,7 +227,7 @@ class TestPrinter(TestCase):
         )
 
     def test_comparisons(self):
-        context = HogQLContext()
+        context = HogQLContext(database=self.database)
         self.assertEqual(self._expr("event == 'E'", context), "equals(event, %(hogql_val_0)s)")
         self.assertEqual(self._expr("event != 'E'", context), "notEquals(event, %(hogql_val_1)s)")
         self.assertEqual(self._expr("event > 'E'", context), "greater(event, %(hogql_val_2)s)")
@@ -239,11 +242,11 @@ class TestPrinter(TestCase):
         self.assertEqual(self._expr("event not in 'E'", context), "not(in(event, %(hogql_val_11)s))")
 
     def test_comments(self):
-        context = HogQLContext()
+        context = HogQLContext(database=self.database)
         self.assertEqual(self._expr("event -- something", context), "event")
 
     def test_values(self):
-        context = HogQLContext()
+        context = HogQLContext(database=self.database)
         self.assertEqual(self._expr("event == 'E'", context), "equals(event, %(hogql_val_0)s)")
         self.assertEqual(context.values, {"hogql_val_0": "E"})
         self.assertEqual(

@@ -1,10 +1,11 @@
-from typing import Dict, List, Optional, Union, cast
+from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, Extra
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+from posthog.hogql.database import create_hogql_database
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
@@ -48,12 +49,12 @@ def execute_hogql_query(
         select_query.limit = ast.Constant(value=DEFAULT_RETURNED_ROWS)
 
     # Make a copy for hogql printing later. we don't want it to contain joined SQL tables for example
-    select_query_hogql = cast(ast.SelectQuery, clone_expr(select_query))
-
-    # Make a copy for hogql printing later. we don't want it to contain joined SQL tables for example
     select_query_hogql = clone_expr(select_query)
 
-    hogql_context = HogQLContext(select_team_id=team.pk, using_person_on_events=team.person_on_events_querying_enabled)
+    database = create_hogql_database(team)
+    hogql_context = HogQLContext(
+        select_team_id=team.pk, using_person_on_events=team.person_on_events_querying_enabled, database=database
+    )
     clickhouse = print_ast(select_query, hogql_context, "clickhouse")
 
     hogql = print_ast(select_query_hogql, hogql_context, "hogql")

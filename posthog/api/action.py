@@ -17,6 +17,7 @@ from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, Tempor
 from posthog.client import sync_execute
 from posthog.constants import LIMIT, TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
+from posthog.hogql.database import create_hogql_database
 from posthog.hogql.hogql import HogQLContext
 from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
@@ -236,7 +237,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
     def count(self, request: request.Request, **kwargs) -> Response:
         action = self.get_object()
         # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
-        hogql_context = HogQLContext(within_non_hogql_query=True)
+        hogql_context = HogQLContext(within_non_hogql_query=True, database=create_hogql_database(action.team))
         query, params = format_action_filter(team_id=action.team_id, action=action, hogql_context=hogql_context)
         if query == "":
             return Response({"count": 0})

@@ -35,7 +35,7 @@ def print_ast(
     ref = stack[-1].ref if stack else None
 
     # resolve refs
-    resolve_refs(node, ref)
+    resolve_refs(node, context.database, ref)
 
     # modify the cloned tree as needed
     if dialect == "clickhouse":

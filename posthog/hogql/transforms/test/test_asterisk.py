@@ -1,5 +1,5 @@
 from posthog.hogql import ast
-from posthog.hogql.database import database
+from posthog.hogql.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import ResolverException, resolve_refs
 from posthog.hogql.transforms import expand_asterisks
@@ -7,11 +7,14 @@ from posthog.test.base import BaseTest
 
 
 class TestAsteriskExpander(BaseTest):
+    def setUp(self):
+        self.database = create_hogql_database(self.team)
+
     def test_asterisk_expander_table(self):
         node = parse_select("select * from events")
         resolve_refs(node)
         expand_asterisks(node)
-        events_table_ref = ast.TableRef(table=database.events)
+        events_table_ref = ast.TableRef(table=self.database.events)
         self.assertEqual(
             node.select,
             [
@@ -29,7 +32,7 @@ class TestAsteriskExpander(BaseTest):
         node = parse_select("select * from events e")
         resolve_refs(node)
         expand_asterisks(node)
-        events_table_ref = ast.TableRef(table=database.events)
+        events_table_ref = ast.TableRef(table=self.database.events)
         events_table_alias_ref = ast.TableAliasRef(table_ref=events_table_ref, name="e")
         self.assertEqual(
             node.select,
@@ -103,7 +106,7 @@ class TestAsteriskExpander(BaseTest):
         resolve_refs(node)
         expand_asterisks(node)
 
-        events_table_ref = ast.TableRef(table=database.events)
+        events_table_ref = ast.TableRef(table=self.database.events)
         inner_select_ref = ast.SelectQueryRef(
             tables={"events": events_table_ref},
             anonymous_tables=[],
@@ -148,7 +151,7 @@ class TestAsteriskExpander(BaseTest):
         resolve_refs(node)
         expand_asterisks(node)
 
-        events_table_ref = ast.TableRef(table=database.events)
+        events_table_ref = ast.TableRef(table=self.database.events)
         inner_select_ref = ast.SelectUnionQueryRef(
             refs=[
                 ast.SelectQueryRef(

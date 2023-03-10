@@ -60,7 +60,8 @@ class Retention:
         self, filter: RetentionFilter, selected_interval: int, breakdown_values: BreakdownValues
     ):
         params = RetentionFilter(
-            {**filter._data, "breakdown_values": breakdown_values, "selected_interval": selected_interval}
+            data={**filter._data, "breakdown_values": breakdown_values, "selected_interval": selected_interval},
+            team=filter.team,
         ).to_params()
         return f"{self._base_uri}api/person/retention/?{urlencode(params)}"
 

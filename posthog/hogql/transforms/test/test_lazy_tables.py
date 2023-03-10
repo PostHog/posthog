@@ -1,4 +1,5 @@
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.test.base import BaseTest
@@ -118,4 +119,5 @@ class TestLazyTables(BaseTest):
 
     def _print_select(self, select: str):
         expr = parse_select(select)
-        return print_ast(expr, HogQLContext(select_team_id=42), "clickhouse")
+        database = create_hogql_database(self.team)
+        return print_ast(expr, HogQLContext(select_team_id=42, database=database), "clickhouse")
