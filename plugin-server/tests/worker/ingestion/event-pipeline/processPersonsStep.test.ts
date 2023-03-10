@@ -20,7 +20,7 @@ const pluginEvent: PluginEvent = {
     uuid: '017ef865-19da-0000-3b60-1506093bf40f',
 }
 
-describe('processPersonsStep()', () => {
+describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
     let runner: any
     let personContainer: any
 
@@ -37,7 +37,7 @@ describe('processPersonsStep()', () => {
                     },
                 },
             },
-            poEEmbraceJoin: true,
+            poEEmbraceJoin: poEEmbraceJoin,
         }
         personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)
 
