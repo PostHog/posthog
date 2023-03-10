@@ -1,13 +1,15 @@
 import re
 from collections import defaultdict
 from datetime import timedelta
-from typing import Dict, Generator, List, Optional, Set, Tuple
+from typing import Dict, Generator, List, Optional, Set, Tuple, cast
 
 import structlog
 
 from ee.clickhouse.materialized_columns.columns import (
     DEFAULT_TABLE_COLUMN,
+    ColumnName,
     backfill_materialized_columns,
+    create_minmax_index,
     get_materialized_columns,
     materialize,
 )
@@ -24,6 +26,7 @@ from posthog.models.person.sql import GET_EVENT_PROPERTIES_COUNT, GET_PERSON_PRO
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
+from posthog.utils import chunked_iterable
 
 Suggestion = Tuple[TableWithProperties, TableColumn, PropertyName, int]
 
@@ -178,8 +181,8 @@ def materialize_properties_task(
         columns_to_materialize = _analyze(_get_queries(time_to_analyze_hours, min_query_time))
     result = []
     for suggestion in columns_to_materialize:
-        table, table_column, property_name, _ = suggestion
-        if (property_name, table_column) not in get_materialized_columns(table):
+        table, properties_table_column, property_name, _ = suggestion
+        if (property_name, properties_table_column) not in get_materialized_columns(table):
             result.append(suggestion)
 
     if len(result) > 0:
@@ -187,13 +190,23 @@ def materialize_properties_task(
     else:
         logger.info("Found no columns to materialize.")
 
-    properties: Dict[TableWithProperties, List[Tuple[PropertyName, TableColumn]]] = {"events": [], "person": []}
-    for table, table_column, property_name, cost in result[:maximum]:
-        logger.info(f"Materializing column. table={table}, property_name={property_name}, cost={cost}")
+    properties: Dict[TableWithProperties, List[Tuple[PropertyName, TableColumn, ColumnName]]] = {
+        "events": [],
+        "person": [],
+    }
+    for table, properties_table_column, property_name, cost in result[:maximum]:
+        logger.info("Materializing column.", table=table, property_name=property_name, cost=cost)
 
         if not dry_run:
-            materialize(table, property_name, table_column=table_column)
-        properties[table].append((property_name, table_column))
+            column_name = materialize(table, property_name, table_column=properties_table_column, create_index=False)
+            properties[table].append((property_name, properties_table_column, cast(str, column_name)))
+
+    for table in properties:
+        column_names = [column_name for _, _, column_name in properties[table]]
+        for chunk in chunked_iterable(column_names, MATERIALIZE_COLUMNS_MAX_AT_ONCE):
+            logger.info("Creating index for materialized columns.", table=table, column_names=chunk)
+            if not dry_run:
+                create_minmax_index(table, chunk)
 
     if backfill_period_days > 0 and not dry_run:
         logger.info(f"Starting backfill for new materialized columns. period_days={backfill_period_days}")

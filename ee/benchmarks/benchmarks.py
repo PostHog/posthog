@@ -1,8 +1,9 @@
 # isort: skip_file
 # Needs to be first to set up django environment
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from .helpers import *
 from datetime import timedelta
-from typing import List, Tuple
+from typing import List, Tuple, cast
 from ee.clickhouse.materialized_columns.analyze import (
     backfill_materialized_columns,
     get_materialized_columns,
@@ -635,8 +636,12 @@ class QuerySuite:
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:
             if (property, "properties") not in get_materialized_columns(table):
-                materialize(table, property)
-                backfill_materialized_columns(table, [(property, "properties")], backfill_period=timedelta(days=1_000))
+                column_name = materialize(table, property)
+                backfill_materialized_columns(
+                    table,
+                    [(property, "properties", cast(ColumnName, column_name))],
+                    backfill_period=timedelta(days=1_000),
+                )
 
         # :TRICKY: Data in benchmark servers has ID=2
         team = Team.objects.filter(id=2).first()

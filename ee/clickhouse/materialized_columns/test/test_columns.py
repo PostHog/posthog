@@ -58,9 +58,9 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
     def test_caching_and_materializing(self):
         with freeze_time("2020-01-04T13:01:01Z"):
-            materialize("events", "$foo", create_minmax_index=True)
-            materialize("events", "$bar", create_minmax_index=True)
-            materialize("person", "$zeta", create_minmax_index=True)
+            materialize("events", "$foo", create_index=True)
+            materialize("events", "$bar", create_index=True)
+            materialize("person", "$zeta", create_index=True)
 
             self.assertCountEqual(
                 [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
@@ -68,7 +68,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             )
             self.assertCountEqual(get_materialized_columns("person", use_cache=True).keys(), [("$zeta", "properties")])
 
-            materialize("events", "abc", create_minmax_index=True)
+            materialize("events", "abc", create_index=True)
 
             self.assertCountEqual(
                 [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
@@ -84,10 +84,10 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
     def test_materialized_column_naming(self):
         random.seed(0)
 
-        materialize("events", "$foO();--sqlinject", create_minmax_index=True)
-        materialize("events", "$foO();ääsqlinject", create_minmax_index=True)
-        materialize("events", "$foO_____sqlinject", create_minmax_index=True)
-        materialize("person", "SoMePrOp", create_minmax_index=True)
+        materialize("events", "$foO();--sqlinject", create_index=True)
+        materialize("events", "$foO();ääsqlinject", create_index=True)
+        materialize("events", "$foO_____sqlinject", create_index=True)
+        materialize("person", "SoMePrOp", create_index=True)
 
         self.assertDictContainsSubset(
             {
@@ -133,8 +133,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             properties={"another": 6},
         )
 
-        materialize("events", "prop", create_minmax_index=True)
-        materialize("events", "another", create_minmax_index=True)
+        materialize("events", "prop", create_index=True)
+        materialize("events", "another", create_index=True)
 
         self.assertEqual(self._count_materialized_rows("mat_prop"), 0)
         self.assertEqual(self._count_materialized_rows("mat_another"), 0)
@@ -142,7 +142,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         with freeze_time("2021-05-10T14:00:01Z"):
             backfill_materialized_columns(
                 "events",
-                [("prop", "properties"), ("another", "properties")],
+                [("prop", "properties", "mat_prop"), ("another", "properties", "mat_another")],
                 timedelta(days=50),
                 test_settings={"mutations_sync": "0"},
             )
@@ -169,12 +169,12 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         )
 
     def test_column_types(self):
-        materialize("events", "myprop", create_minmax_index=True)
+        materialize("events", "myprop", create_index=True)
 
         expr = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
         self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
-        backfill_materialized_columns("events", [("myprop", "properties")], timedelta(days=50))
+        backfill_materialized_columns("events", [("myprop", "properties", "mat_myprop")], timedelta(days=50))
         self.assertEqual(("DEFAULT", expr), self._get_column_types("mat_myprop"))
 
         try:

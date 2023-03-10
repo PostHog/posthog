@@ -1,8 +1,7 @@
 import re
 from datetime import timedelta
-from typing import Dict, List, Literal, Tuple, Union, cast
+from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
-from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
 
 from posthog.cache_utils import cache_for
@@ -12,6 +11,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, TEST
+from posthog.utils import generate_short_id
 
 ColumnName = str
 DEFAULT_TABLE_COLUMN: Literal["properties"] = "properties"
@@ -58,11 +58,11 @@ def materialize(
     property: PropertyName,
     column_name=None,
     table_column: TableColumn = DEFAULT_TABLE_COLUMN,
-    create_minmax_index=not TEST,
-) -> None:
+    create_index=not TEST,
+) -> Optional[ColumnName]:
     if (property, table_column) in get_materialized_columns(table, use_cache=False):
         if TEST:
-            return
+            return None
 
         raise ValueError(f"Property already materialized. table={table}, property={property}, column={table_column}")
 
@@ -111,37 +111,36 @@ def materialize(
         settings={"alter_sync": 1},
     )
 
-    if create_minmax_index:
-        add_minmax_index(table, column_name)
+    if create_index:
+        create_minmax_index(table, [column_name])
+
+    return column_name
 
 
-def add_minmax_index(table: TablesWithMaterializedColumns, column_name: str):
+def create_minmax_index(table: TablesWithMaterializedColumns, column_names: List[ColumnName]):
     # Note: This will be populated on backfill
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
     updated_table = "sharded_events" if table == "events" else table
-    index_name = f"minmax_{column_name}"
+    index_name = f"minmax_{generate_short_id()}_{now().strftime('%Y%m%d%H%M%S%f')}"
+    expression = ", ".join(f"`{column_name}`" for column_name in column_names)
 
-    try:
-        sync_execute(
-            f"""
-            ALTER TABLE {updated_table}
-            {execute_on_cluster}
-            ADD INDEX {index_name} {column_name}
-            TYPE minmax GRANULARITY 1
-            """,
-            settings={"alter_sync": 1},
-        )
-    except ServerException as err:
-        if "index with this name already exists" not in str(err):
-            raise err
+    sync_execute(
+        f"""
+        ALTER TABLE {updated_table}
+        {execute_on_cluster}
+        ADD INDEX {index_name} ({expression})
+        TYPE minmax GRANULARITY 1
+        """,
+        settings={"alter_sync": 1},
+    )
 
     return index_name
 
 
 def backfill_materialized_columns(
     table: TableWithProperties,
-    properties: List[Tuple[PropertyName, TableColumn]],
+    properties: List[Tuple[PropertyName, TableColumn, ColumnName]],
     backfill_period: timedelta,
     test_settings=None,
 ) -> None:
@@ -158,28 +157,23 @@ def backfill_materialized_columns(
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
-    materialized_columns = get_materialized_columns(table, use_cache=False)
-
     # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
     # Note that for this to work all inserts should list columns explicitly
     # Improve this if https://github.com/ClickHouse/ClickHouse/issues/27730 ever gets resolved
-    for property, table_column in properties:
+    for property, table_column, column_name in properties:
         sync_execute(
             f"""
             ALTER TABLE {updated_table}
             {execute_on_cluster}
             MODIFY COLUMN
-            {materialized_columns[(property, table_column)]} VARCHAR DEFAULT {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
+            {column_name} VARCHAR DEFAULT {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
             """,
             {"property": property},
             settings=test_settings,
         )
 
     # Kick off mutations which will update clickhouse partitions in the background. This will return immediately
-    assignments = ", ".join(
-        f"{materialized_columns[property_and_column]} = {materialized_columns[property_and_column]}"
-        for property_and_column in properties
-    )
+    assignments = ", ".join(f"{column_name} = {column_name}" for _, _, column_name in properties)
 
     sync_execute(
         f"""

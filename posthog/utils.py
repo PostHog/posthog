@@ -15,6 +15,7 @@ import uuid
 import zlib
 from enum import Enum
 from functools import lru_cache, wraps
+from itertools import islice
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -1232,3 +1233,12 @@ def patchable(fn):
     inner._patch = patch  # type: ignore
 
     return inner
+
+
+def chunked_iterable(iterable, size):
+    it = iter(iterable)
+    while True:
+        chunk = tuple(islice(it, size))
+        if not chunk:
+            break
+        yield chunk
