@@ -43,7 +43,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     insight = target if isinstance(target, Insight) else target.insight
     dashboard = target.dashboard if isinstance(target, DashboardTile) else None
 
-    if insight is None or not insight.filters:
+    if insight is None or (not insight.filters and insight.query is None):
         return None
 
     return generate_insight_cache_key(insight, dashboard)

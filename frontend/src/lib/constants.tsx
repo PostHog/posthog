@@ -1,5 +1,5 @@
 import { urls } from 'scenes/urls'
-import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProviders } from '../types'
+import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProvider } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -198,11 +198,11 @@ export enum CohortTypeEnum {
  */
 export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
 
-export const SSO_PROVIDER_NAMES: Record<SSOProviders, string> = {
+export const SSO_PROVIDER_NAMES: Record<SSOProvider, string> = {
     'google-oauth2': 'Google',
     github: 'GitHub',
     gitlab: 'GitLab',
-    saml: 'single sign-on (SAML)',
+    saml: 'Single sign-on (SAML)',
 }
 
 // TODO: Remove UPGRADE_LINK, as the billing page is now universal

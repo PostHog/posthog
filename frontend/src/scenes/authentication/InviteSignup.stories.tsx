@@ -69,6 +69,24 @@ export const Cloud = (): JSX.Element => {
     }, [])
     return <InviteSignup />
 }
+export const CloudEU = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: true,
+                region: 'EU',
+                realm: 'cloud',
+                can_create_org: true,
+                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+            },
+        },
+    })
+    useEffect(() => {
+        inviteSignupLogic.actions.prevalidateInvite('1234')
+    }, [])
+    return <InviteSignup />
+}
 
 export const InvalidLink = (): JSX.Element => {
     useStorybookMocks({

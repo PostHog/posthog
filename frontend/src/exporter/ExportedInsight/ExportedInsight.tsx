@@ -98,7 +98,7 @@ export function ExportedInsight({
                 >
                     {!!query ? (
                         !!insight.result ? (
-                            <Query query={query} />
+                            <Query query={query} cachedResults={insight.result} />
                         ) : (
                             <QueriesUnsupportedHere />
                         )
