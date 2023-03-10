@@ -21,7 +21,7 @@ export function SuperpowersPanel(): JSX.Element {
                     session_recording_opt_in: sessionRecordingsChecked,
                     capture_console_log_opt_in: sessionRecordingsChecked,
                     capture_performance_opt_in: sessionRecordingsChecked,
-                    autocapture_opt_in: autocaptureChecked,
+                    autocapture_opt_out: !autocaptureChecked,
                 })
                 if (!showBillingStep) {
                     completeOnboarding()
