@@ -3,7 +3,10 @@ import { useEffect, useState } from 'react'
 import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 import { CSSTransition } from 'react-transition-group'
 import './BridgePage.scss'
-import { LaptopHog3 } from '../hedgehogs'
+import { LaptopHog4, LaptopHogEU } from '../hedgehogs'
+import { useValues } from 'kea'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Region } from '~/types'
 
 export type BridgePageCommonProps = {
     className?: string
@@ -46,6 +49,7 @@ export function BridgePage({
     fullScreen = true,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
+    const { preflight } = useValues(preflightLogic)
 
     useEffect(() => {
         const t = setTimeout(() => {
@@ -75,7 +79,11 @@ export function BridgePage({
                             {leftContainerContent && leftContainerContent}
                             {hedgehog && (
                                 <div className="BridgePage__left__art">
-                                    <LaptopHog3 alt="" draggable="false" />
+                                    {preflight?.region === Region.EU ? (
+                                        <LaptopHogEU alt="" draggable="false" />
+                                    ) : (
+                                        <LaptopHog4 alt="" draggable="false" />
+                                    )}
                                     {message ? (
                                         <CSSTransition
                                             in={messageShowing}

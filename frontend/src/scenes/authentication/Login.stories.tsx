@@ -38,7 +38,21 @@ export const Cloud = (): JSX.Element => {
     })
     return <Login />
 }
-
+export const CloudEU = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: true,
+                region: 'EU',
+                realm: 'cloud',
+                can_create_org: true,
+                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+            },
+        },
+    })
+    return <Login />
+}
 export const CloudWithGoogleLoginEnforcement = (): JSX.Element => {
     useStorybookMocks({
         get: {
@@ -61,7 +75,6 @@ export const CloudWithGoogleLoginEnforcement = (): JSX.Element => {
     }, [])
     return <Login />
 }
-
 export const SelfHosted = (): JSX.Element => {
     useStorybookMocks({
         get: {
