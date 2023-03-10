@@ -2192,6 +2192,7 @@ describe('person id overrides', () => {
 
     afterAll(async () => {
         await closeHub()
+        await hub.db.clickhouseQuery('SYSTEM START MERGES')
     })
 
     async function updatePersonStateFromEvent(event: Partial<PluginEvent>, ts = '', mergeAttempts = 0) {
