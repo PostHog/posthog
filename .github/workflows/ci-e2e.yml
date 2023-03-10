@@ -6,6 +6,7 @@
 name: E2E CI
 
 on:
+    workflow_dispatch:
     pull_request:
     push:
         branches:
