@@ -2,12 +2,32 @@ import { mergeAttributes, Node, NodeViewRendererProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NodeType } from 'scenes/notebooks/Nodes/types'
-import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import {
+    RecordingsLists,
+    SessionRecordingsPlaylist,
+} from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { SessionRecordingsPlaylistFilters } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistFilters'
+
+export const PLAYLIST_PREVIEW_RECORDINGS_LIMIT = 5
 
 const Component = (props: NodeViewRendererProps): JSX.Element => {
+    const recordingPlaylistLogicProps = {
+        embedded: true,
+        filters: props.node.attrs.filters,
+        updateSearchParams: false,
+    }
+
     return (
-        <NodeWrapper className={NodeType.RecordingPlaylist} title="Playlist">
-            <SessionRecordingsPlaylist filters={props.node.attrs.filters} updateSearchParams={false} />
+        <NodeWrapper
+            className={NodeType.RecordingPlaylist}
+            title="Playlist"
+            edit={<SessionRecordingsPlaylistFilters {...recordingPlaylistLogicProps} />}
+            preview={<RecordingsLists {...recordingPlaylistLogicProps} />}
+        >
+            {/* TODO: replace hardcoded height, 32 (top) + 500 (player) + 16 (margins) + 88 (seekbar) = 620 */}
+            <div style={{ maxHeight: 636 }}>
+                <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
+            </div>
         </NodeWrapper>
     )
 }
