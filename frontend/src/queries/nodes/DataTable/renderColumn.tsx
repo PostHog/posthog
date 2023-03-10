@@ -6,7 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { DataTableNode, HasPropertiesNode, QueryContext } from '~/queries/schema'
+import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, QueryContext } from '~/queries/schema'
 import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuery } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -151,9 +151,9 @@ export function renderColumn(
         }
         return <Property value={eventRecord.person?.properties?.[propertyKey]} />
     } else if (key === 'person' && isEventsQuery(query.source)) {
-        const personRecord = value as PersonType
-        return !!personRecord.distinct_ids.length ? (
-            <Link to={urls.person(personRecord.distinct_ids[0])}>
+        const personRecord = value as EventsQueryPersonColumn
+        return !!personRecord.distinct_id ? (
+            <Link to={urls.person(personRecord.distinct_id)}>
                 <PersonHeader noLink withIcon person={personRecord} />
             </Link>
         ) : (

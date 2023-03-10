@@ -42,7 +42,11 @@ export function StepField({ field, step, item, label, caption }: StepFieldProps)
                 </Form.Item>
             ) : null}
             <Form.Item name={[field.name, item]} fieldKey={[field.fieldKey, item] as unknown as number}>
-                {item === 'selector' ? <Input.TextArea autoSize style={fieldStyle} /> : <Input style={fieldStyle} />}
+                {item === 'selector' ? (
+                    <Input.TextArea onChange={(e) => e.stopPropagation()} autoSize style={fieldStyle} />
+                ) : (
+                    <Input onChange={(e) => e.stopPropagation()} style={fieldStyle} />
+                )}
             </Form.Item>
             {item === 'url' && step?.url_matching && step.url_matching in URL_MATCHING_HINTS ? (
                 <div className="action-field-hint">{URL_MATCHING_HINTS[step.url_matching]}</div>

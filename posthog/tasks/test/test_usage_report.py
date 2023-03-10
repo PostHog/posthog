@@ -544,9 +544,6 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
-        mock_posthog = MagicMock()
-        mock_client.return_value = mock_posthog
-
         send_all_org_usage_reports(dry_run=False)
 
         self.team.organization.refresh_from_db()
@@ -555,6 +552,20 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             "recordings": {"limit": None, "usage": 1000, "todays_usage": 0},
             "period": ["2021-10-01T00:00:00Z", "2021-10-31T00:00:00Z"],
         }
+
+
+class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+    @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("requests.post")
+    def test_usage_not_sent_if_zero(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+
+        send_all_org_usage_reports(dry_run=False)
+
+        mock_post.assert_not_called()
 
 
 class SendUsageNoLicenseTest(APIBaseTest):

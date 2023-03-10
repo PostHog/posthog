@@ -66,7 +66,7 @@ import { dateRangeFor, isInsightQueryNode, isInsightVizNode } from '~/queries/ut
 import { InsightVizNode } from '~/queries/schema'
 import { PieChartFilled } from '@ant-design/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import QueriesUnsupportedHere from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
+import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -567,18 +567,20 @@ function InsightCardInternal(
     const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueryTiles } = useValues(
         insightLogic(insightLogicProps)
     )
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightLogicProps))
+    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
+        funnelLogic(insightLogicProps)
+    )
 
     let tooFewFunnelSteps = false
     let invalidFunnelExclusion = false
     let empty = false
     if (insight.filters.insight === InsightType.FUNNELS) {
-        if (!areFiltersValid) {
+        if (!isFunnelWithEnoughSteps) {
             tooFewFunnelSteps = true
         } else if (!areExclusionFiltersValid) {
             invalidFunnelExclusion = true
         }
-        if (!isValidFunnel) {
+        if (!hasFunnelResults) {
             empty = true
         }
     }
@@ -594,6 +596,14 @@ function InsightCardInternal(
 
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
     const [areDetailsShown, setAreDetailsShown] = useState(false)
+
+    const exportedAndCached = dashboardPlacement && dashboardPlacement == DashboardPlacement.Export && !!insight.result
+    const sharedAndCached = dashboardPlacement && dashboardPlacement == DashboardPlacement.Public && !!insight.result
+    const canMakeQueryAPICalls =
+        dashboardPlacement &&
+        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
+            dashboardPlacement
+        )
 
     return (
         <div
@@ -633,9 +643,9 @@ function InsightCardInternal(
                                 : undefined
                         }
                     >
-                        {isUsingDashboardQueryTiles &&
-                        dashboardPlacement &&
-                        ![DashboardPlacement.Public, DashboardPlacement.Export].includes(dashboardPlacement) ? (
+                        {exportedAndCached || (isUsingDashboardQueryTiles && sharedAndCached) ? (
+                            <Query query={insight.query} readOnly={true} cachedResults={insight.result} />
+                        ) : isUsingDashboardQueryTiles && canMakeQueryAPICalls ? (
                             <Query query={insight.query} readOnly={true} />
                         ) : (
                             <>

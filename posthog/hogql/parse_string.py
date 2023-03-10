@@ -20,7 +20,7 @@ def parse_string(text: str) -> str:
         text = text.replace("{{", "{")
         text = text.replace("\\{", "{")
     else:
-        raise ValueError(f"Invalid string literal, must start and end with the same quote symbol: {text}")
+        raise ValueError(f"Invalid string literal, must start and end with the same quote ref: {text}")
 
     # copied from clickhouse_driver/util/escape.py
     text = text.replace("\\b", "\b")

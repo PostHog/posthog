@@ -24,6 +24,7 @@ import { membersLogic } from './organization/Settings/membersLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Navigation as Navigation3000 } from '~/layout/navigation-3000/Navigation'
 import { useEffect } from 'react'
+import { Prompt } from 'lib/logic/newPrompt/Prompt'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -189,6 +190,7 @@ function AppScene(): JSX.Element | null {
                     />
                 </LemonModal>
             )}
+            {featureFlags[FEATURE_FLAGS.ENABLE_PROMPTS] && <Prompt />}
         </>
     )
 }

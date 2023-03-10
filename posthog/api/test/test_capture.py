@@ -1249,6 +1249,36 @@ class TestCapture(BaseTest):
             response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
         )
 
+    def test_azure_app_insights_tracing_headers(self):
+        # Azure App Insights sends the same tracing headers as Sentry
+        # _and_ a request-context header
+
+        response = self.client.generic(
+            "OPTIONS",
+            "/e/?ip=1&_=1651741927805",
+            HTTP_ORIGIN="https://localhost",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        )
+        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(
+            response.headers["Access-Control-Allow-Headers"],
+            "X-Requested-With,Content-Type,traceparent,request-id,request-context",
+        )
+
+        response = self.client.generic(
+            "OPTIONS",
+            "/decide/",
+            HTTP_ORIGIN="https://localhost",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        )
+        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(
+            response.headers["Access-Control-Allow-Headers"],
+            "X-Requested-With,Content-Type,traceparent,request-id,request-context",
+        )
+
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_recording_data_sent_to_kafka(self, kafka_produce) -> None:
         self._send_session_recording_event()

@@ -11,6 +11,7 @@ from posthog.queries.base import handle_compare
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.stickiness.stickiness_actors import StickinessActors
 from posthog.queries.stickiness.stickiness_event_query import StickinessEventsQuery
+from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import encode_get_request_params
 
 
@@ -63,7 +64,11 @@ class Stickiness:
         for day in range(1, filter.total_intervals):
             label = "{} {}{}".format(day, filter.interval, "s" if day > 1 else "")
             labels.append(label)
-            data.append(response[day] if day in response else 0)
+            data.append(
+                correct_result_for_sampling(response[day], filter.sampling_factor, entity.math)
+                if day in response
+                else 0
+            )
         filter_params = filter.to_params()
 
         return {

@@ -55,61 +55,23 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     )
     def list(self, request: Request, **kw) -> HttpResponse:
         query_json = self._query_json_from_request(request)
-        return self._process_query(self.team, query_json)
+        is_hogql_enabled = _is_hogql_enabled(
+            user=cast(User, self.request.user),
+            organization_id=self.organization_id,
+            organization_created_at=self.organization.created_at,
+        )
+        # allow lists as well as dicts in response with safe=False
+        return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
 
     def post(self, request, *args, **kwargs):
         query_json = request.data
-        return self._process_query(self.team, query_json)
-
-    def _process_query(self, team: Team, query_json: Dict) -> JsonResponse:
-        try:
-            query_kind = query_json.get("kind")
-            if query_kind == "EventsQuery":
-                events_query = EventsQuery.parse_obj(query_json)
-                response = run_events_query(query=events_query, team=team)
-                return self._response_to_json_response(response)
-            elif query_kind == "HogQLQuery":
-                if not self._is_hogql_enabled():
-                    return JsonResponse({"error": "HogQL is not enabled for this organization"}, status=400)
-                hogql_query = HogQLQuery.parse_obj(query_json)
-                response = execute_hogql_query(query=hogql_query.query, team=team)
-                return self._response_to_json_response(response)
-            elif query_kind == "RecentPerformancePageViewNode":
-                try:
-                    # noinspection PyUnresolvedReferences
-                    from ee.api.performance_events import load_performance_events_recent_pageviews
-                except ImportError:
-                    return JsonResponse({"error": "Performance events are not enabled for this instance"}, status=400)
-
-                recent_performance_query = RecentPerformancePageViewNode.parse_obj(query_json)
-                results = load_performance_events_recent_pageviews(
-                    team_id=team.pk,
-                    date_from=parse_as_date_or(
-                        recent_performance_query.dateRange.date_from, now() - timedelta(hours=1)
-                    ),
-                    date_to=parse_as_date_or(recent_performance_query.dateRange.date_to, now()),
-                )
-
-                return JsonResponse(results, safe=False)  # allow non-dict responses with safe=False
-            elif query_kind == "TimeToSeeDataSessionsQuery":
-                sessions_query_serializer = SessionsQuerySerializer(data=query_json)
-                sessions_query_serializer.is_valid(raise_exception=True)
-                return JsonResponse(get_sessions(sessions_query_serializer).data, safe=False)
-            elif query_kind == "TimeToSeeDataQuery":
-                serializer = SessionEventsQuerySerializer(
-                    data={
-                        "team_id": team.pk,
-                        "session_start": query_json["sessionStart"],
-                        "session_end": query_json["sessionEnd"],
-                        "session_id": query_json["sessionId"],
-                    }
-                )
-                serializer.is_valid(raise_exception=True)
-                return JsonResponse(get_session_events(serializer), safe=False)
-            else:
-                raise ValidationError("Unsupported query kind: %s" % query_kind)
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=400)
+        is_hogql_enabled = _is_hogql_enabled(
+            user=cast(User, self.request.user),
+            organization_id=self.organization_id,
+            organization_created_at=self.organization.created_at,
+        )
+        # allow lists as well as dicts in response with safe=False
+        return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
 
     def _query_json_from_request(self, request):
         if request.method == "POST":
@@ -135,27 +97,78 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise ValidationError("Invalid JSON: %s" % (str(error_main)))
         return query
 
-    def _response_to_json_response(self, response: BaseModel) -> JsonResponse:
-        dict = {}
-        for key in response.__fields__.keys():
-            dict[key] = getattr(response, key)
-        return JsonResponse(dict)
 
-    def _is_hogql_enabled(self) -> bool:
-        # enabled for all self-hosted
-        if not is_cloud():
-            return True
+def _response_to_dict(response: BaseModel) -> Dict:
+    dict = {}
+    for key in response.__fields__.keys():
+        dict[key] = getattr(response, key)
+    return dict
 
-        # on PostHog Cloud, use the feature flag
-        user: User = cast(User, self.request.user)
-        return posthoganalytics.feature_enabled(
-            "hogql-queries",
-            str(user.distinct_id),
-            person_properties={"email": user.email},
-            groups={"organization": str(self.organization_id)},
-            group_properties={
-                "organization": {"id": str(self.organization_id), "created_at": self.organization.created_at}
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
+
+def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
+    try:
+        query_kind = query_json.get("kind")
+        if query_kind == "EventsQuery":
+            events_query = EventsQuery.parse_obj(query_json)
+            response = run_events_query(query=events_query, team=team)
+            return _response_to_dict(response)
+        elif query_kind == "HogQLQuery":
+            if not is_hogql_enabled:
+                raise ValidationError("HogQL is not enabled for this organization")
+            hogql_query = HogQLQuery.parse_obj(query_json)
+            response = execute_hogql_query(query=hogql_query.query, team=team)
+            return _response_to_dict(response)
+        elif query_kind == "RecentPerformancePageViewNode":
+            try:
+                # noinspection PyUnresolvedReferences
+                from ee.api.performance_events import load_performance_events_recent_pageviews
+            except ImportError:
+                raise ValidationError("Performance events are not enabled for this instance")
+
+            recent_performance_query = RecentPerformancePageViewNode.parse_obj(query_json)
+            results = load_performance_events_recent_pageviews(
+                team_id=team.pk,
+                date_from=parse_as_date_or(recent_performance_query.dateRange.date_from, now() - timedelta(hours=1)),
+                date_to=parse_as_date_or(recent_performance_query.dateRange.date_to, now()),
+            )
+
+            return results
+        elif query_kind == "TimeToSeeDataSessionsQuery":
+            sessions_query_serializer = SessionsQuerySerializer(data=query_json)
+            sessions_query_serializer.is_valid(raise_exception=True)
+            return {"results": get_sessions(sessions_query_serializer).data}
+        elif query_kind == "TimeToSeeDataQuery":
+            serializer = SessionEventsQuerySerializer(
+                data={
+                    "team_id": team.pk,
+                    "session_start": query_json["sessionStart"],
+                    "session_end": query_json["sessionEnd"],
+                    "session_id": query_json["sessionId"],
+                }
+            )
+            serializer.is_valid(raise_exception=True)
+            return get_session_events(serializer) or {}
+        else:
+            if query_json.get("source"):
+                return process_query(team, query_json["source"], is_hogql_enabled)
+            else:
+                raise ValidationError(f"Unsupported query kind: {query_kind}")
+    except Exception as e:
+        raise ValidationError(str(e))
+
+
+def _is_hogql_enabled(user: User, organization_id: str, organization_created_at: datetime) -> bool:
+    # enabled for all self-hosted
+    if not is_cloud():
+        return True
+
+    # on PostHog Cloud, use the feature flag
+    return posthoganalytics.feature_enabled(
+        "hogql-queries",
+        str(user.distinct_id),
+        person_properties={"email": user.email},
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id, "created_at": organization_created_at}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )

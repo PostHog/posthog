@@ -3,7 +3,7 @@
     perspective-origin: top;
     z-index: var(--z-popover);
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     h5 {
         margin: 0.25rem 0.5rem;
     }
@@ -111,4 +111,5 @@
 
 .Popover__content {
     overflow: auto;
+    max-height: 100%;
 }

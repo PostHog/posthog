@@ -1,22 +1,22 @@
-import { kea } from 'kea'
+import { kea, props, key, path, connect, actions, reducers, selectors } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLogicProps, TrendResult } from '~/types'
 import { keyForInsightLogicProps } from '../../sharedUtils'
 import type { worldMapLogicType } from './worldMapLogicType'
 
-export const worldMapLogic = kea<worldMapLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps('new'),
-    path: (key) => ['scenes', 'insights', 'WorldMap', 'worldMapLogic', key],
-    connect: () => ({
+export const worldMapLogic = kea<worldMapLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('new')),
+    path((key) => ['scenes', 'insights', 'WorldMap', 'worldMapLogic', key]),
+    connect(() => ({
         values: [insightLogic, ['insight', 'filters']],
-    }),
-    actions: {
+    })),
+    actions({
         showTooltip: (countryCode: string, countrySeries: TrendResult | null) => ({ countryCode, countrySeries }),
         hideTooltip: true,
         updateTooltipCoordinates: (x: number, y: number) => ({ x, y }),
-    },
-    reducers: {
+    }),
+    reducers({
         isTooltipShown: [
             false,
             {
@@ -36,8 +36,8 @@ export const worldMapLogic = kea<worldMapLogicType>({
                 updateTooltipCoordinates: (_, { x, y }) => [x, y],
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         countryCodeToSeries: [
             (s) => [s.insight],
             (insight): Record<string, TrendResult> =>
@@ -54,5 +54,5 @@ export const worldMapLogic = kea<worldMapLogicType>({
                     ? Math.max(...insight.result.map((series: TrendResult) => series.aggregated_value))
                     : 0,
         ],
-    },
-})
+    }),
+])

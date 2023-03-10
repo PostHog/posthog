@@ -1,5 +1,5 @@
 import { Input } from 'antd'
-import { rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
+import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -7,11 +7,11 @@ import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
 import './RollingDateRangeFilter.scss'
 
-const dateOptions: LemonSelectOptions<'days' | 'weeks' | 'months' | 'quarter'> = [
+const dateOptions: LemonSelectOptions<DateOption> = [
     { value: 'days', label: 'days' },
     { value: 'weeks', label: 'weeks' },
     { value: 'months', label: 'months' },
-    { value: 'quarter', label: 'quarters' },
+    { value: 'quarters', label: 'quarters' },
 ]
 
 type RollingDateRangeFilterProps = {

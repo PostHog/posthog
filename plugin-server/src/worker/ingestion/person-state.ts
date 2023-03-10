@@ -276,7 +276,7 @@ export class PersonState {
          */
         const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
         try {
-            if (this.event.event === '$create_alias' && this.eventProperties['alias']) {
+            if (['$create_alias', '$merge_dangerously'].includes(this.event.event) && this.eventProperties['alias']) {
                 await this.merge(
                     String(this.eventProperties['alias']),
                     this.distinctId,
@@ -316,6 +316,7 @@ export class PersonState {
             captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
                 illegalDistinctId: distinctId,
                 otherDistinctId: previousDistinctId,
+                eventUuid: this.event.uuid,
             })
             return
         }
@@ -324,6 +325,7 @@ export class PersonState {
             captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
                 illegalDistinctId: previousDistinctId,
                 otherDistinctId: distinctId,
+                eventUuid: this.event.uuid,
             })
             return
         }
@@ -371,7 +373,6 @@ export class PersonState {
                 this.personContainer = this.personContainer.with(person)
             } else if (oldPerson && newPerson && oldPerson.id !== newPerson.id) {
                 await this.mergePeople({
-                    shouldIdentifyPerson: isIdentifyCall,
                     mergeInto: newPerson,
                     mergeIntoDistinctId: distinctId,
                     otherPerson: oldPerson,
@@ -411,13 +412,11 @@ export class PersonState {
         mergeIntoDistinctId,
         otherPerson,
         otherPersonDistinctId,
-        shouldIdentifyPerson = true,
     }: {
         mergeInto: Person
         mergeIntoDistinctId: string
         otherPerson: Person
         otherPersonDistinctId: string
-        shouldIdentifyPerson?: boolean
     }): Promise<void> {
         const olderCreatedAt = DateTime.min(mergeInto.created_at, otherPerson.created_at)
         const newerCreatedAt = DateTime.max(mergeInto.created_at, otherPerson.created_at)
@@ -425,7 +424,7 @@ export class PersonState {
         const mergeAllowed = this.isMergeAllowed(otherPerson)
 
         this.statsd?.increment('merge_users', {
-            call: shouldIdentifyPerson ? 'identify' : 'alias',
+            call: this.event.event, // $identify, $create_alias or $merge_dangerously
             teamId: this.teamId.toString(),
             oldPersonIdentified: String(otherPerson.is_identified),
             newPersonIdentified: String(mergeInto.is_identified),
@@ -441,6 +440,7 @@ export class PersonState {
             captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
                 sourcePersonDistinctId: otherPersonDistinctId,
                 targetPersonDistinctId: mergeIntoDistinctId,
+                eventUuid: this.event.uuid,
             })
             status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
             return
@@ -477,8 +477,9 @@ export class PersonState {
     }
 
     private isMergeAllowed(mergeFrom: Person): boolean {
+        // $merge_dangerously has no restrictions
         // $create_alias and $identify will not merge a user who's already identified into anyone else
-        return !mergeFrom.is_identified
+        return this.event.event === '$merge_dangerously' || !mergeFrom.is_identified
     }
 
     private async handleMergeTransaction(

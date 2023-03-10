@@ -20,7 +20,7 @@ export interface LemonModalProps {
     onAfterClose?: () => void
     width?: number | string
     inline?: boolean
-    title: React.ReactNode
+    title?: React.ReactNode
     description?: React.ReactNode
     footer?: React.ReactNode
     /** When enabled, the modal content will only include children allowing greater customisation */

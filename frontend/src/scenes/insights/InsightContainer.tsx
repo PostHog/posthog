@@ -68,7 +68,7 @@ export function InsightContainer({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -81,13 +81,13 @@ export function InsightContainer({
         }
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
-            if (!areFiltersValid) {
+            if (!isFunnelWithEnoughSteps) {
                 return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !insightLoading) {
+            if (!hasFunnelResults && !insightLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -115,8 +115,8 @@ export function InsightContainer({
             isFunnelsFilter(filters) &&
             erroredQueryId === null &&
             timedOutQueryId === null &&
-            areFiltersValid &&
-            isValidFunnel &&
+            isFunnelWithEnoughSteps &&
+            hasFunnelResults &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
             !disableTable
         ) {
@@ -202,25 +202,50 @@ export function InsightContainer({
                 className="insights-graph-container"
             >
                 <div>
-                    <Row
-                        className={clsx('insights-graph-header', {
-                            funnels: isFunnelsFilter(filters),
-                        })}
-                        align="middle"
-                        justify="space-between"
-                    >
-                        {/*Don't add more than two columns in this row.*/}
-                        {!disableLastComputation && (
-                            <Col>
-                                <ComputationTimeWithRefresh />
+                    {isFunnelsFilter(filters) ? (
+                        <div
+                            className={clsx(
+                                'insights-graph-header',
+                                {
+                                    funnels: isFunnelsFilter(filters),
+                                },
+                                'justify-between',
+                                'items-center',
+                                'flex',
+                                'flex-row'
+                            )}
+                        >
+                            <div className="flex flex-col">
+                                {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
+                            </div>
+                        </div>
+                    ) : null}
+
+                    {!disableLastComputation || !!filters.sampling_factor ? (
+                        <Row
+                            className="insights-graph-header computation-time-and-sampling-notice"
+                            align="middle"
+                            justify="space-between"
+                        >
+                            {/*Don't add more than two columns in this row.*/}
+                            <Col className="flex items-center gap-1">
+                                {!disableLastComputation && <ComputationTimeWithRefresh />}
+                                {!!filters.sampling_factor ? (
+                                    <span className="text-muted-alt">
+                                        {!disableLastComputation ? '• ' : ' '}
+                                        Results calculated from {filters.sampling_factor * 100}% of users
+                                    </span>
+                                ) : null}
                             </Col>
-                        )}
-                        <Col>
-                            {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
-                            {isPathsFilter(filters) ? <PathCanvasLabel /> : null}
-                            <InsightLegendButton />
-                        </Col>
-                    </Row>
+
+                            <Col>
+                                {isPathsFilter(filters) ? <PathCanvasLabel /> : null}
+
+                                <InsightLegendButton />
+                            </Col>
+                        </Row>
+                    ) : null}
+
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : isFilterWithDisplay(filters) && filters.show_legend ? (

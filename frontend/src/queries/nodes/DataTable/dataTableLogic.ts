@@ -122,7 +122,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 }
 
                 if (response && sourceKind === NodeKind.TimeToSeeDataSessionsQuery) {
-                    return (response as NonNullable<TimeToSeeDataSessionsQuery['response']>).map((row) => ({
+                    return (response as NonNullable<TimeToSeeDataSessionsQuery['response']>).results.map((row) => ({
                         result: row,
                     }))
                 }
