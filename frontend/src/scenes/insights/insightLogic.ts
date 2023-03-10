@@ -179,7 +179,6 @@ export const insightLogic = kea<insightLogicType>([
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
-        setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
         abortAnyRunningQuery: true,
         acknowledgeRefreshButtonChanged: true,
@@ -1127,19 +1126,6 @@ export const insightLogic = kea<insightLogicType>([
                 hidden_legend_keys: {
                     ...values.hiddenLegendKeys,
                     [`${index}`]: currentIsHidden ? undefined : true,
-                },
-            }
-            actions.setFilters(newFilters)
-        },
-        setHiddenById: ({ entry }) => {
-            const nextEntries = Object.fromEntries(
-                Object.entries(entry).map(([index, hiddenState]) => [index, hiddenState ? true : undefined])
-            )
-            const newFilters: Partial<TrendsFilterType> = {
-                ...values.filters,
-                hidden_legend_keys: {
-                    ...values.hiddenLegendKeys,
-                    ...nextEntries,
                 },
             }
             actions.setFilters(newFilters)
