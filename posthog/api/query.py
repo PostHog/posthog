@@ -61,7 +61,7 @@ class QuerySchemaParser(JSONParser):
 
     def parse(self, stream, media_type=None, parser_context=None):
         data = super(QuerySchemaParser, self).parse(stream, media_type, parser_context)
-        QuerySchemaParser.validate_query(data["query"])
+        QuerySchemaParser.validate_query(data.get("query"))
         return data
 
 

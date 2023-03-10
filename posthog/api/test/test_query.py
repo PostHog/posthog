@@ -349,7 +349,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert api_response.status_code == 400
 
     def test_invalid_query_kind(self):
-        api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"kind": "Tomato Soup"})
+        api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
         assert api_response.status_code == 400
         assert api_response.json()["code"] == "parse_error"
         assert "validation errors for Model" in api_response.json()["detail"]
