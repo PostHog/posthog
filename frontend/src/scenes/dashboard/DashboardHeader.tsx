@@ -239,7 +239,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
                                             <ExportButton fullWidth status="stealth" items={exportOptions} />
-                                            {!!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] && user?.is_staff && (
+                                            {!!featureFlags[FEATURE_FLAGS.TEMPLUKES] && user?.is_staff && (
                                                 <LemonButton
                                                     onClick={() => {
                                                         if (asDashboardTemplate) {

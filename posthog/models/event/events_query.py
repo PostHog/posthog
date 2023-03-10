@@ -1,20 +1,21 @@
 import json
 from datetime import timedelta
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from dateutil.parser import isoparse
+from django.db.models import Prefetch
 from django.utils.timezone import now
 
 from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-from posthog.hogql.constants import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Action, Person, Team
 from posthog.models.element import chain_to_elements
+from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.schema import EventsQuery, EventsQueryResponse
 from posthog.utils import relative_date_parse
 
@@ -22,13 +23,24 @@ QUERY_DEFAULT_LIMIT = 100
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
 QUERY_MAXIMUM_LIMIT = 100_000
 
+# Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
+SELECT_STAR_FROM_EVENTS_FIELDS = [
+    "uuid",
+    "event",
+    "properties",
+    "timestamp",
+    "team_id",
+    "distinct_id",
+    "elements_chain",
+    "created_at",
+]
+
 
 def run_events_query(
     team: Team,
     query: EventsQuery,
 ) -> EventsQueryResponse:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
-    # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
 
     # limit & offset
     # adding +1 to the limit to check if there's a "next page" after the requested results
@@ -44,10 +56,8 @@ def run_events_query(
         if col == "*":
             select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})")
         elif col == "person":
-            # Select just enough person fields to show the name/email in the UI. Put it back into a dict later.
-            select_input.append(
-                "tuple(distinct_id, person_id, person.created_at, person.properties.name, person.properties.email)"
-            )
+            # This will be expanded into a followup query
+            select_input.append("distinct_id")
         else:
             select_input.append(col)
 
@@ -60,9 +70,9 @@ def run_events_query(
     where_input = query.where or []
     where_exprs = [parse_expr(expr) for expr in where_input]
     if query.properties:
-        where_exprs.extend(property_to_expr(property) for property in query.properties)
+        where_exprs.extend(property_to_expr(property, team) for property in query.properties)
     if query.fixedProperties:
-        where_exprs.extend(property_to_expr(property) for property in query.fixedProperties)
+        where_exprs.extend(property_to_expr(property, team) for property in query.fixedProperties)
     if query.event:
         where_exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=query.event)}))
     if query.actionId:
@@ -140,29 +150,40 @@ def run_events_query(
                 new_result["elements"] = ElementSerializer(
                     chain_to_elements(new_result["elements_chain"]), many=True
                 ).data
-            new_result["person"] = {
-                "id": new_result["person_id"],
-                "created_at": new_result["person.created_at"],
-                "properties": json.loads(new_result["person.properties"]),
-                "distinct_ids": [new_result["distinct_id"]],
-            }
-            del new_result["person_id"]
-            del new_result["person.created_at"]
-            del new_result["person.properties"]
             query_result.results[index][star_idx] = new_result
 
-    # Convert person field from tuple to dict in each result
-    if "person" in select_input_raw:
+    if "person" in select_input_raw and len(query_result.results) > 0:
+        # Make a query into postgres to fetch person
         person_idx = select_input_raw.index("person")
-        for index, result in enumerate(query_result.results):
-            person_tuple: Tuple = result[person_idx]
-            query_result.results[index] = list(result)
-            query_result.results[index][person_idx] = {
-                "id": person_tuple[1],
-                "created_at": person_tuple[2],
-                "properties": {"name": person_tuple[3], "email": person_tuple[4]},
-                "distinct_ids": [person_tuple[0]],
-            }
+        distinct_ids = list(set(event[person_idx] for event in query_result.results))
+        persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
+        persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        distinct_to_person: Dict[str, Person] = {}
+        for person in persons:
+            if person:
+                for person_distinct_id in person.distinct_ids:
+                    distinct_to_person[person_distinct_id] = person
+
+        # Loop over all columns in case there is more than one "person" column
+        for column_index, column in enumerate(select_input_raw):
+            if column != "person":
+                continue
+            for index, result in enumerate(query_result.results):
+                distinct_id: str = result[column_index]
+                query_result.results[index] = list(result)
+                if distinct_to_person.get(distinct_id):
+                    person = distinct_to_person[distinct_id]
+                    properties = person.properties or {}
+                    query_result.results[index][column_index] = {
+                        "uuid": person.uuid,
+                        "created_at": person.created_at,
+                        "properties": {"name": properties.get("name"), "email": properties.get("email")},
+                        "distinct_id": distinct_id,
+                    }
+                else:
+                    query_result.results[index][column_index] = {
+                        "distinct_id": distinct_id,
+                    }
 
     received_extra_row = len(query_result.results) == limit  # limit was +=1'd above
     return EventsQueryResponse(

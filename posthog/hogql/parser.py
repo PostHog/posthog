@@ -1,4 +1,4 @@
-from typing import Dict, Literal, Optional, cast
+from typing import Dict, List, Literal, Optional, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
@@ -37,7 +37,7 @@ def parse_order_expr(
 
 def parse_select(
     statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
-) -> ast.SelectQuery:
+) -> ast.SelectQuery | ast.SelectUnionQuery:
     parse_tree = get_parser(statement).select()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
@@ -67,10 +67,20 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
-        selects = ctx.selectStmtWithParens()
-        if len(selects) != 1:
-            raise NotImplementedError(f"Unsupported: UNION ALL")
-        return self.visit(selects[0])
+        select_queries: List[ast.SelectQuery | ast.SelectUnionQuery] = [
+            self.visit(select) for select in ctx.selectStmtWithParens()
+        ]
+        flattened_queries: List[ast.SelectQuery] = []
+        for query in select_queries:
+            if isinstance(query, ast.SelectQuery):
+                flattened_queries.append(query)
+            elif isinstance(query, ast.SelectUnionQuery):
+                flattened_queries.extend(query.select_queries)
+            else:
+                raise Exception(f"Unexpected query node type {type(query).__name__}")
+        if len(flattened_queries) == 1:
+            return flattened_queries[0]
+        return ast.SelectUnionQuery(select_queries=flattened_queries)
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
         return self.visit(ctx.selectStmt() or ctx.selectUnionStmt())

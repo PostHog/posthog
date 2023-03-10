@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Dict, List, cast
+from typing import Dict, cast
 
 import posthoganalytics
 from dateutil.parser import isoparse
@@ -105,7 +105,7 @@ def _response_to_dict(response: BaseModel) -> Dict:
     return dict
 
 
-def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict | List:
+def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
     try:
         query_kind = query_json.get("kind")
         if query_kind == "EventsQuery":
@@ -136,7 +136,7 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict 
         elif query_kind == "TimeToSeeDataSessionsQuery":
             sessions_query_serializer = SessionsQuerySerializer(data=query_json)
             sessions_query_serializer.is_valid(raise_exception=True)
-            return get_sessions(sessions_query_serializer).data
+            return {"results": get_sessions(sessions_query_serializer).data}
         elif query_kind == "TimeToSeeDataQuery":
             serializer = SessionEventsQuerySerializer(
                 data={
@@ -147,9 +147,12 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict 
                 }
             )
             serializer.is_valid(raise_exception=True)
-            return get_session_events(serializer) or []
+            return get_session_events(serializer) or {}
         else:
-            raise ValidationError("Unsupported query kind: %s" % query_kind)
+            if query_json.get("source"):
+                return process_query(team, query_json["source"], is_hogql_enabled)
+            else:
+                raise ValidationError(f"Unsupported query kind: {query_kind}")
     except Exception as e:
         raise ValidationError(str(e))
 
