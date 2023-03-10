@@ -50,7 +50,7 @@ export function InsightTimeoutState({
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                <div className="illustration-main" style={{ height: 'auto' }}>
+                <div className="illustration-main height-auto">
                     {isLoading ? <Animation type={AnimationType.SportsHog} /> : <IconErrorOutline />}
                 </div>
                 {isLoading ? (

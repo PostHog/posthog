@@ -227,7 +227,7 @@ export function ActionFilterRow({
             onClick={onClick}
             disabled={disabled || readOnly}
         >
-            <span className="text-overflow" style={{ maxWidth: '100%' }}>
+            <span className="text-overflow max-w-full">
                 <EntityFilterInfo filter={filter} />
             </span>
         </LemonButtonWithDropdown>
