@@ -21,6 +21,10 @@ import { StickyView } from 'lib/components/StickyView/StickyView'
 import { createPlaylist } from './playlistUtils'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import clsx from 'clsx'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 
 const MARGIN_TOP = 16
 
@@ -62,6 +66,7 @@ export function SessionRecordingsPlaylist({
     const { setSelectedRecordingId, loadNext, loadPrev, setFilters, reportRecordingsListFilterAdded, setShowFilters } =
         useActions(logic)
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
@@ -144,6 +149,17 @@ export function SessionRecordingsPlaylist({
                             >
                                 Save as playlist
                             </LemonButton>
+                        ) : null}
+                        {!!featureFlags[FEATURE_FLAGS.NOTEBOOKS] ? (
+                            <AddToNotebook
+                                type="secondary"
+                                icon={null}
+                                node={NodeType.RecordingPlaylist}
+                                properties={{ filters: {} }}
+                                data-attr="add-playlist-to-notebook-button"
+                            >
+                                Add to notebook
+                            </AddToNotebook>
                         ) : null}
                     </>
                 </div>

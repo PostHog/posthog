@@ -9,7 +9,13 @@ export type AddToNotebookProps = {
     properties: Record<string, any>
 } & LemonButtonProps
 
-export function AddToNotebook({ node, properties, ...buttonProps }: AddToNotebookProps): JSX.Element {
+export function AddToNotebook({
+    node,
+    properties,
+    icon = <IconJournalPlus className="text-lg" />,
+    children,
+    ...buttonProps
+}: AddToNotebookProps): JSX.Element {
     const { addNodeToNotebook } = useActions(notebookLogic)
 
     return (
@@ -21,7 +27,8 @@ export function AddToNotebook({ node, properties, ...buttonProps }: AddToNoteboo
             tooltip="Add to notebook"
             {...buttonProps}
         >
-            <IconJournalPlus className="text-lg" />
+            {children}
+            {icon}
         </LemonButton>
     )
 }

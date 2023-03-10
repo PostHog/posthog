@@ -1,8 +1,9 @@
-import { actions, defaults, kea, key, listeners, path, reducers } from 'kea'
+import { actions, connect, defaults, kea, key, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { NodeType } from 'scenes/notebooks/Nodes/types'
 import { Editor } from '@tiptap/core'
 import type { notebookLogicType } from './notebookLogicType'
+import { notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
 
 const START_CONTENT = `
 <h2>Introducing Notebook!</h2>
@@ -12,13 +13,16 @@ const START_CONTENT = `
 <h3>An interesting recording I found</h3>
 <p>This recording highlights perectly why...</p>
 <br/>
-<ph-recording sessionRecordingId="186c620122516e6-0ebf2e4cc8b8da-1f525634-16a7f0-186c62012262dfa"></ph-recording>
-
+<ph-recording sessionRecordingId="186cafad53bdcb-05999ec7735ee7-1f525634-16a7f0-186cafad53df8a"></ph-recording>
+<ph-recording-playlist filters="{}"/>
 `
 
 export const notebookLogic = kea<notebookLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookLogic']),
     key(() => 'global'),
+    connect(() => ({
+        actions: [notebookSidebarLogic, ['setFullScreen']],
+    })),
     actions({
         setEditorRef: (editor: Editor) => ({ editor }),
         addNodeToNotebook: (type: NodeType, props: Record<string, any>) => ({ type, props }),
@@ -45,7 +49,7 @@ export const notebookLogic = kea<notebookLogicType>([
             setIsEditable: (_, { isEditable }) => isEditable,
         },
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
         addNodeToNotebook: ({ type, props }) => {
             if (!values.editor) {
                 return
@@ -59,6 +63,9 @@ export const notebookLogic = kea<notebookLogicType>([
                     attrs: props,
                 })
                 .run()
+
+            // Make notebook fullscreen
+            actions.setFullScreen(true)
         },
     })),
 ])

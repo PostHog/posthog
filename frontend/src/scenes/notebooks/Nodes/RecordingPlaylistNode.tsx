@@ -2,11 +2,12 @@ import { mergeAttributes, Node, NodeViewRendererProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 
-const Component = ({}: NodeViewRendererProps): JSX.Element => {
+const Component = (props: NodeViewRendererProps): JSX.Element => {
     return (
         <NodeWrapper className={NodeType.RecordingPlaylist} title="Playlist">
-            <div className="aspect-video">Session Playlist</div>
+            <SessionRecordingsPlaylist filters={props.node.attrs.filters} updateSearchParams={false} />
         </NodeWrapper>
     )
 }
@@ -19,8 +20,8 @@ export const RecordingPlaylistNode = Node.create({
 
     addAttributes() {
         return {
-            sessionRecordingId: {
-                default: null,
+            filters: {
+                default: {},
             },
         }
     },

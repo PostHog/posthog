@@ -19,7 +19,6 @@
         background-color: var(--bg-light);
         min-width: 1px;
         height: 500px;
-        min-height: 500px;
         margin: 0.5rem;
         overflow: hidden;
         border-radius: var(--radius);
@@ -41,7 +40,6 @@
 
         .SessionRecordingPlayer__body {
             height: 100%;
-            min-height: auto;
             margin: 0rem;
             border-radius: 0;
         }
@@ -79,13 +77,11 @@
         .SessionRecordingPlayer__body {
             // Rough aproximation of the parent elements
             height: calc(100vh - 20rem);
-            min-height: calc(100vh - 20rem);
         }
 
         .LemonModal & {
             .SessionRecordingPlayer__body {
                 height: calc(90vh - 15rem);
-                min-height: auto;
             }
         }
     }
