@@ -1689,6 +1689,67 @@ class TestFeatureFlag(APIBaseTest):
             response.json(),
         )
 
+    def test_creating_feature_flag_with_nested_behavioral_cohort(self):
+
+        cohort_not_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                        {"key": "email", "value": "test@posthog.com", "type": "person"},
+                    ],
+                }
+            },
+            name="cohort-behavioural",
+        )
+
+        nested_cohort_not_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "id", "value": cohort_not_valid_for_ff.pk, "type": "cohort"}]}],
+            name="cohort-not-behavioural",
+        )
+
+        cohort_request = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": nested_cohort_not_valid_for_ff.id}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'cohort-behavioural' with behavioral filters cannot be used in feature flags.",
+                "attr": "filters",
+            },
+            cohort_request.json(),
+        )
+
+        cohort_request = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort_not_valid_for_ff.id}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'cohort-behavioural' with behavioral filters cannot be used in feature flags.",
+                "attr": "filters",
+            },
+            cohort_request.json(),
+        )
+
     def test_validation_group_properties(self):
         groups_request = self._create_flag_with_properties(
             "groups-flag",
