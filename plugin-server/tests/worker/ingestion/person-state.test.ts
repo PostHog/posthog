@@ -12,6 +12,7 @@ import {
     fetchClickHouseDistinctIdValues,
     fetchClickHousePersons,
     fetchClickHousePersonsWithVersionHigerEqualThan,
+    fetchDistinctIdsClickhouse,
     fetchDistinctIdsClickhouseVersion1,
 } from '../../helpers/clickhouse'
 import { fetchDistinctIdValues } from '../../helpers/postgres'
@@ -1339,8 +1340,8 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify ClickHouse persons
-            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
-            const clickhousePersons = await fetchPersonsRows() // but verify full state
+            await delayUntilEventIngested(() => fetchClickHousePersonsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchClickHousePersons(teamId) // but verify full state
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
@@ -1359,8 +1360,8 @@ describe('PersonState.update()', () => {
             )
 
             // verify ClickHouse distinct_ids
-            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
-            const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(teamId))
+            const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(teamId, persons[0].uuid)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer
