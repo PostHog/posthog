@@ -153,4 +153,4 @@ class Migration(migrations.Migration):
         ("posthog", "0308_add_indirect_person_override_constraints"),
     ]
 
-    operations = [migrations.RunPython(create_starter_template)]
+    operations = [migrations.RunPython(create_starter_template, reverse_code=migrations.RunPython.noop)]
