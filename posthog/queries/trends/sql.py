@@ -456,7 +456,7 @@ WITH
             )
         )
     )
-SELECT groupArray(start_of_period) AS total,
+SELECT groupArray(start_of_period) AS date,
         groupArray(counts) AS total,
         status
 FROM (
