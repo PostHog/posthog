@@ -545,11 +545,6 @@ export class PersonState {
          1. Add the persons involved to the helper table (2 of them)
          2. Add an override from oldPerson to override person
          3. Update any entries that have oldPerson as the override person to now also point to the new override person. Note that we don't update `oldest_event`, because it's a heuristic (used to optimise squashing) tied to the old_person and nothing changed about the old_person who's events need to get squashed.
-
-         I'm thinking: we write it if it's not there, but don't update it on conflicts (alternative update to the older date)
-         In the transitive one the same don't update or update to older data (if that's not too complex to do)
-         it's an optimization anyway and squash job might be updating those values anyway and it's just a hint, so ignoring if complex seems better
-         in any case it's important that we use the oldest_event we stored in postgres in CH too.
          */
         const oldPersonId = await this.addPersonOverrideMapping(oldPerson, client)
         const overridePersonId = await this.addPersonOverrideMapping(overridePerson, client)
