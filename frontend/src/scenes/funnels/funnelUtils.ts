@@ -485,3 +485,31 @@ export function flattenedStepsByBreakdown(
     }
     return flattenedStepsByBreakdown
 }
+
+/**
+ * Transform pre-#12113 funnel series keys to the current more reliable format.
+ *
+ * Old: `${step.type}/${step.action_id}/${step.order}/${breakdownValues.join('_')}`
+ * New: `breakdownValues.join('::')`
+ *
+ * If you squint you'll notice this doesn't actually handle the .join() part, but that's fine,
+ * because that's only relevant for funnels with multiple breakdowns, and that hasn't been
+ * released to users at the point of the format change.
+ */
+export const transformLegacyHiddenLegendKeys = (
+    hidden_legend_keys: Record<string, boolean | undefined>
+): Record<string, boolean | undefined> => {
+    const hiddenLegendKeys: Record<string, boolean | undefined> = {}
+    for (const [key, value] of Object.entries(hidden_legend_keys)) {
+        const oldFormatMatch = key.match(/\w+\/.+\/\d+\/(.+)/)
+        if (oldFormatMatch) {
+            // Don't override values for series if already set from a previously-seen old-format key
+            if (!(oldFormatMatch[1] in hiddenLegendKeys)) {
+                hiddenLegendKeys[oldFormatMatch[1]] = value
+            }
+        } else {
+            hiddenLegendKeys[key] = value
+        }
+    }
+    return hiddenLegendKeys
+}
