@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import React, { ReactNode, useState } from 'react'
 import { Transition } from 'react-transition-group'
 import { ENTERED, ENTERING } from 'react-transition-group/Transition'
@@ -8,42 +9,70 @@ import './LemonCollapse.scss'
 
 export interface LemonCollapsePanel<K extends React.Key> {
     key: K
-    header: string
+    header: ReactNode
     content: ReactNode
 }
 
-export interface LemonCollapseProps<K extends React.Key> {
+interface LemonCollapsePropsBase<K extends React.Key> {
     panels: LemonCollapsePanel<K>[]
-    activeKeys?: Set<K>
-    onChange?: (activeKeys: Set<K>) => void
+    className?: string
 }
+
+interface LemonCollapsePropsSingle<K extends React.Key> extends LemonCollapsePropsBase<K> {
+    activeKey?: K
+    defaultActiveKey?: K
+    onChange?: (activeKey: K | null) => void
+    multiple?: false
+}
+
+interface LemonCollapsePropsMultiple<K extends React.Key> extends LemonCollapsePropsBase<K> {
+    activeKeys?: Set<K>
+    defaultActiveKeys?: Set<K>
+    onChange?: (activeKeys: Set<K>) => void
+    multiple: true
+}
+
+type LemonCollapseProps<K extends React.Key> = LemonCollapsePropsSingle<K> | LemonCollapsePropsMultiple<K>
 
 export function LemonCollapse<K extends React.Key>({
     panels,
-    activeKeys,
-    onChange,
+    className,
+    ...props
 }: LemonCollapseProps<K>): JSX.Element {
-    const [localActiveKeys, setLocalActiveKeys] = useState<Set<K>>(activeKeys ?? new Set())
-
-    function panelSpecificOnChange(key: K, isExpanded: boolean): void {
-        const newActiveKeys = new Set(localActiveKeys)
-        if (isExpanded) {
-            newActiveKeys.add(key)
-        } else {
-            newActiveKeys.delete(key)
+    let isPanelExpanded: (key: K) => boolean
+    let onPanelChange: (key: K, isExpanded: boolean) => void
+    if (props.multiple) {
+        const [localActiveKeys, setLocalActiveKeys] = useState<Set<K>>(props.defaultActiveKeys ?? new Set())
+        const effectiveActiveKeys = props.activeKeys ?? localActiveKeys
+        isPanelExpanded = (key: K) => effectiveActiveKeys.has(key)
+        onPanelChange = (key: K, isExpanded: boolean): void => {
+            const newActiveKeys = new Set(effectiveActiveKeys)
+            if (isExpanded) {
+                newActiveKeys.add(key)
+            } else {
+                newActiveKeys.delete(key)
+            }
+            props.onChange?.(newActiveKeys)
+            setLocalActiveKeys(newActiveKeys)
         }
-        onChange?.(newActiveKeys)
-        setLocalActiveKeys(newActiveKeys)
+    } else {
+        const [localActiveKey, setLocalActiveKey] = useState<K | null>(props.defaultActiveKey ?? null)
+        const effectiveActiveKey = props.activeKey ?? localActiveKey
+        isPanelExpanded = (key: K) => key === effectiveActiveKey
+        onPanelChange = (key: K, isExpanded: boolean): void => {
+            props.onChange?.(isExpanded ? key : null)
+            setLocalActiveKey(isExpanded ? key : null)
+        }
     }
 
     return (
-        <div className="LemonCollapse">
+        <div className={clsx('LemonCollapse', className)}>
             {panels.map(({ key, ...panel }) => (
                 <LemonCollapsePanel
                     key={key}
                     {...panel}
-                    isExpanded={localActiveKeys.has(key)}
-                    onChange={(isExanded) => panelSpecificOnChange(key, isExanded)}
+                    isExpanded={isPanelExpanded(key)}
+                    onChange={(isExanded) => onPanelChange(key, isExanded)}
                 />
             ))}
         </div>
@@ -51,7 +80,7 @@ export function LemonCollapse<K extends React.Key>({
 }
 
 interface LemonCollapsePanelProps {
-    header: string
+    header: ReactNode
     content: ReactNode
     isExpanded: boolean
     onChange: (isExpanded: boolean) => void
