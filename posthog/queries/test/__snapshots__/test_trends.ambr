@@ -28,7 +28,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -141,7 +141,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -218,7 +218,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -287,7 +287,7 @@
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
   '
   SELECT [now()] AS date,
-         [0] AS data,
+         [0] AS total,
          '' AS breakdown_value
   LIMIT 0
   '
@@ -437,7 +437,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -559,7 +559,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -631,7 +631,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -702,7 +702,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -755,7 +755,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -765,8 +765,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT group_key,
@@ -837,7 +837,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -847,8 +847,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT group_key,
@@ -873,7 +873,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -883,8 +883,8 @@
         FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific')), toDateTime('2022-11-30 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -899,7 +899,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -909,8 +909,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -944,7 +944,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -954,8 +954,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -989,7 +989,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -999,8 +999,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'watched movie'
@@ -1016,7 +1016,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1026,8 +1026,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -1061,7 +1061,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1071,8 +1071,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'watched movie'
@@ -1088,7 +1088,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1098,8 +1098,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -1413,7 +1413,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1423,8 +1423,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), toDateTime('2020-01-05 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -1439,7 +1439,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1449,8 +1449,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')), toDateTime('2020-01-05 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC'))
-        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -1472,7 +1472,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1522,7 +1522,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1532,8 +1532,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), toDateTime('2020-01-05 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -1566,7 +1566,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -1619,7 +1619,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1629,8 +1629,8 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-03 00:00:00', 'UTC')), toDateTime('2020-01-03 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-03 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -1645,7 +1645,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1655,8 +1655,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC')), toDateTime('2020-01-03 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -1671,7 +1671,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1681,8 +1681,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 23:59:59', 'America/Phoenix')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -1697,7 +1697,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1707,8 +1707,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 23:59:59', 'America/Phoenix')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-22 00:00:00', 'America/Phoenix'))
-        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -1730,7 +1730,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1780,7 +1780,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1790,8 +1790,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 23:59:59', 'America/Phoenix')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -1824,7 +1824,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -1877,7 +1877,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1887,8 +1887,8 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-03 00:00:00', 'America/Phoenix')), toDateTime('2020-01-03 23:59:59', 'America/Phoenix')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-03 00:00:00', 'America/Phoenix'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -1903,7 +1903,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1913,8 +1913,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'America/Phoenix')), toDateTime('2020-01-03 23:59:59', 'America/Phoenix')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-03 00:00:00', 'America/Phoenix'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -1929,7 +1929,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1939,8 +1939,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -1955,7 +1955,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -1965,8 +1965,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo'))
-        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -1988,7 +1988,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2038,7 +2038,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2048,8 +2048,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -2082,7 +2082,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -2135,7 +2135,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2145,8 +2145,8 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-03 23:59:59', 'Asia/Tokyo')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -2161,7 +2161,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2171,8 +2171,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-03 23:59:59', 'Asia/Tokyo')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -2187,7 +2187,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2197,8 +2197,8 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), toDateTime('2020-01-05 10:02:01', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC'))
-        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
-                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -2249,7 +2249,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2259,8 +2259,8 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), toDateTime('2020-01-05 10:02:01', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -2275,7 +2275,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2285,8 +2285,8 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 10:02:01', 'America/Phoenix')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix'))
-        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
-                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -2337,7 +2337,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2347,8 +2347,8 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 10:02:01', 'America/Phoenix')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -2363,7 +2363,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2373,8 +2373,8 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 10:02:01', 'Asia/Tokyo')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo'))
-        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
-                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -2425,7 +2425,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2435,8 +2435,8 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 10:02:01', 'Asia/Tokyo')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -2451,7 +2451,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2461,8 +2461,8 @@
         FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'UTC')), toDateTime('2020-01-26 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -2477,7 +2477,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2487,8 +2487,8 @@
         FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'America/Phoenix')), toDateTime('2020-01-26 23:59:59', 'America/Phoenix')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'America/Phoenix'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -2503,7 +2503,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2513,8 +2513,8 @@
         FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-26 23:59:59', 'Asia/Tokyo')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -2529,7 +2529,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2539,8 +2539,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(DISTINCT person_id) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -2667,7 +2667,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -2780,7 +2780,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -2851,7 +2851,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2861,8 +2861,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), toDateTime('2019-12-31 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC'))
-        UNION ALL SELECT count(DISTINCT e.distinct_id) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(DISTINCT e.distinct_id) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -2877,7 +2877,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -2887,8 +2887,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), toDateTime('2019-12-31 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC'))
-        UNION ALL SELECT count(DISTINCT e.distinct_id) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(DISTINCT e.distinct_id) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -2954,7 +2954,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -3014,7 +3014,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -3057,7 +3057,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -3118,7 +3118,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -3283,7 +3283,7 @@
 # name: TestTrends.test_trends_count_per_group_average_aggregated
   '
   
-  SELECT avg(intermediate_count) as data
+  SELECT avg(intermediate_count) AS total
   FROM
     (SELECT count() AS intermediate_count
      FROM events e
@@ -3299,7 +3299,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -3309,7 +3309,7 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-        UNION ALL SELECT avg(intermediate_count) AS data, date
+        UNION ALL SELECT avg(intermediate_count) AS total, date
         FROM
           (SELECT count() AS intermediate_count,
                   toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
@@ -3328,7 +3328,7 @@
 # name: TestTrends.test_trends_count_per_user_average_aggregated
   '
   
-  SELECT avg(intermediate_count) as data
+  SELECT avg(intermediate_count) AS total
   FROM
     (SELECT count() AS intermediate_count
      FROM events e
@@ -3421,7 +3421,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -3431,7 +3431,7 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-        UNION ALL SELECT avg(intermediate_count) AS data, date
+        UNION ALL SELECT avg(intermediate_count) AS total, date
         FROM
           (SELECT count() AS intermediate_count,
                   toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
@@ -3463,7 +3463,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -3473,8 +3473,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-30 00:00:00', 'UTC')), toDateTime('2020-01-06 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-30 00:00:00', 'UTC'))
-        UNION ALL SELECT COUNT(DISTINCT actor_id) as data,
-                         toStartOfDay(toTimeZone(toDateTime(first_seen_timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT COUNT(DISTINCT actor_id) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(first_seen_timestamp, 'UTC'), 'UTC')) AS date
         FROM
           (SELECT "$group_0" AS actor_id,
                   min(timestamp) AS first_seen_timestamp
@@ -3494,7 +3494,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -3504,8 +3504,8 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        UNION ALL SELECT count(*) AS total,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -3607,7 +3607,7 @@
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math
   '
   
-  SELECT quantile(0.50)(session_duration) as data
+  SELECT quantile(0.50)(session_duration) AS total
   FROM
     (SELECT any(session_duration) as session_duration
      FROM events e
@@ -3630,7 +3630,7 @@
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math.1
   '
   
-  SELECT quantile(0.50)(session_duration) as data
+  SELECT quantile(0.50)(session_duration) AS total
   FROM
     (SELECT any(session_duration) as session_duration
      FROM events e
@@ -3654,7 +3654,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -3664,7 +3664,7 @@
         FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT quantile(0.50)(session_duration) as data, date
+        UNION ALL SELECT quantile(0.50)(session_duration) AS total, date
         FROM
           (SELECT toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date,
                   any(sessions.session_duration) as session_duration
@@ -3692,7 +3692,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -3702,7 +3702,7 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT quantile(0.50)(session_duration) as data, date
+        UNION ALL SELECT quantile(0.50)(session_duration) AS total, date
         FROM
           (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date,
                   any(sessions.session_duration) as session_duration
@@ -3757,7 +3757,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -3851,7 +3851,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -3972,7 +3972,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -4068,7 +4068,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -4118,7 +4118,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -4168,7 +4168,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -4230,7 +4230,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -4292,7 +4292,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -4342,7 +4342,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -4438,7 +4438,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -4488,7 +4488,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -4538,7 +4538,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -4634,7 +4634,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
@@ -4684,7 +4684,7 @@
   '
   
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data
+         groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
