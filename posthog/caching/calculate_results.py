@@ -43,7 +43,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     insight = target if isinstance(target, Insight) else target.insight
     dashboard = target.dashboard if isinstance(target, DashboardTile) else None
 
-    if insight is None or not insight.filters:
+    if insight is None or (not insight.filters and insight.query is None):
         return None
 
     return generate_insight_cache_key(insight, dashboard)
@@ -82,12 +82,16 @@ def get_cache_type_for_query(cacheable: Dict) -> CacheType:
 
 
 def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheType:
-    if isinstance(cacheable, Filter):
-        return get_cache_type_for_filter(cacheable)
-    elif isinstance(cacheable, dict):
+    if isinstance(cacheable, dict):
         return get_cache_type_for_query(cacheable)
+    elif cacheable is not None:
+        # even though it appears to work mypy does not like
+        # elif isinstance(cacheable, FilterType):
+        # you should not, apparently, use isinstance with a Generic type
+        # luckily if cacheable is not a dict it must be a filter
+        return get_cache_type_for_filter(cacheable)
     else:
-        logger.error("could_not_determine_cache_type_for_insight")
+        logger.error("could_not_determine_cache_type_for_insight", cacheable=cacheable)
         raise Exception("Could not determine cache type. Must provide a filter or a query")
 
 

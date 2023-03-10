@@ -23,7 +23,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
 # The number of sessions to generate and ingest, defaulting to 10 if not already
 # set.
-SESSONS_COUNT=${SESSONS_COUNT:-10}
+SESSIONS_COUNT=${SESSIONS_COUNT:-10}
 TOKEN=e2e_token_1239 # Created by the setup_dev management command.
 
 LOG_FILE=$(mktemp)
@@ -87,9 +87,9 @@ docker compose \
     --topic $SESSION_RECORDING_EVENTS_TOPIC >/dev/null 2>&1
 
 # Generate the session recording events and send them to Kafka.
-echo "Generating $SESSONS_COUNT session recording events"
+echo "Generating $SESSIONS_COUNT session recording events"
 "$DIR"/generate_session_recordings_messages.py \
-    --count "$SESSONS_COUNT" \
+    --count "$SESSIONS_COUNT" \
     --token $TOKEN |
     docker compose \
         -f "$DIR"/../../docker-compose.dev.yml exec \
@@ -175,7 +175,7 @@ fi
 # second that were ingested.
 echo "Ingestion lag dropped to zero after $SECONDS seconds"
 
-SESSIONS_PER_SECOND=$(echo "$SESSONS_COUNT $SECONDS" | awk '{printf "%.2f", $1 / $2}')
+SESSIONS_PER_SECOND=$(echo "$SESSIONS_COUNT $SECONDS" | awk '{printf "%.2f", $1 / $2}')
 echo "Sessions per second: $SESSIONS_PER_SECOND" | tee -a "$GITHUB_STEP_SUMMARY"
 
 # Kill the plugin server process and poll for up to 60 seconds for it to exit.
