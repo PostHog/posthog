@@ -589,7 +589,7 @@ export class PersonState {
                     RETURNING
                         old_person_id,
                         version,
-                    oldest_event
+                        oldest_event
                 )
                 SELECT
                     helper.uuid as old_person_id,
