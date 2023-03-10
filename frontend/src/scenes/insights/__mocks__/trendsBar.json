@@ -20,7 +20,8 @@
             "type": "AND",
             "values": []
         },
-        "filter_test_accounts": false
+        "filter_test_accounts": false,
+        "sampling_factor": 0.1
     },
     "filters_hash": "cache_ec1c7cf9db62346f315fbd5ce9bd3933",
     "order": null,
