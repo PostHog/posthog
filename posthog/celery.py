@@ -415,7 +415,7 @@ def graphile_worker_queue_size():
         # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
         cursor.execute(
             """
-        SELECT task_identifier, count(*) as c, min(created_at) as oldest FROM graphile_worker.jobs
+        SELECT task_identifier, count(*) as c, EXTRACT(EPOCH FROM MIN(updated_at)) as oldest FROM graphile_worker.jobs
         WHERE attempts < max_attempts
         GROUP BY task_identifier
         """
@@ -425,7 +425,7 @@ def graphile_worker_queue_size():
         with pushed_metrics_registry("celery_graphile_worker_queue_size") as registry:
             processing_lag_gauge = Gauge(
                 "posthog_celery_graphile_lag_seconds",
-                "Age of the oldest non-attempted Graphile job per task identifier, zero if queue empty.",
+                "Oldest update (creation or retry) on pending Graphile jobs per task identifier, zero if queue empty.",
                 labelnames=["task_identifier"],
                 registry=registry,
             )
