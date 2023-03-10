@@ -30,4 +30,4 @@ export const Single = Template.bind({})
 Single.args = { defaultActiveKey: '1' }
 
 export const Multiple = Template.bind({})
-Multiple.args = { defaultActiveKeys: new Set(['1', '2']), multiple: true }
+Multiple.args = { defaultActiveKeys: ['1', '2'], multiple: true }

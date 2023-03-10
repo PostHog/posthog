@@ -18,8 +18,8 @@
 
 .LemonCollapsePanel__header {
     min-height: 3rem;
-    padding: 0.25rem 0.75rem;
     border-radius: 0;
+    font-weight: 500 !important; // Override status="stealth"'s font-weight
 }
 
 .LemonCollapsePanel__body {

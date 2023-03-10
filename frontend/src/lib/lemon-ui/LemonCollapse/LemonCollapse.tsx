@@ -14,7 +14,8 @@ export interface LemonCollapsePanel<K extends React.Key> {
 }
 
 interface LemonCollapsePropsBase<K extends React.Key> {
-    panels: LemonCollapsePanel<K>[]
+    /** Panels in order of display. Falsy values mean that the panel isn't rendered. */
+    panels: (LemonCollapsePanel<K> | null | false)[]
     className?: string
 }
 
@@ -26,9 +27,9 @@ interface LemonCollapsePropsSingle<K extends React.Key> extends LemonCollapsePro
 }
 
 interface LemonCollapsePropsMultiple<K extends React.Key> extends LemonCollapsePropsBase<K> {
-    activeKeys?: Set<K>
-    defaultActiveKeys?: Set<K>
-    onChange?: (activeKeys: Set<K>) => void
+    activeKeys?: K[]
+    defaultActiveKeys?: K[]
+    onChange?: (activeKeys: K[]) => void
     multiple: true
 }
 
@@ -42,8 +43,8 @@ export function LemonCollapse<K extends React.Key>({
     let isPanelExpanded: (key: K) => boolean
     let onPanelChange: (key: K, isExpanded: boolean) => void
     if (props.multiple) {
-        const [localActiveKeys, setLocalActiveKeys] = useState<Set<K>>(props.defaultActiveKeys ?? new Set())
-        const effectiveActiveKeys = props.activeKeys ?? localActiveKeys
+        const [localActiveKeys, setLocalActiveKeys] = useState<Set<K>>(new Set(props.defaultActiveKeys ?? []))
+        const effectiveActiveKeys = props.activeKeys ? new Set(props.activeKeys) : localActiveKeys
         isPanelExpanded = (key: K) => effectiveActiveKeys.has(key)
         onPanelChange = (key: K, isExpanded: boolean): void => {
             const newActiveKeys = new Set(effectiveActiveKeys)
@@ -52,7 +53,7 @@ export function LemonCollapse<K extends React.Key>({
             } else {
                 newActiveKeys.delete(key)
             }
-            props.onChange?.(newActiveKeys)
+            props.onChange?.(Array.from(newActiveKeys))
             setLocalActiveKeys(newActiveKeys)
         }
     } else {
@@ -67,7 +68,7 @@ export function LemonCollapse<K extends React.Key>({
 
     return (
         <div className={clsx('LemonCollapse', className)}>
-            {panels.map(({ key, ...panel }) => (
+            {(panels.filter(Boolean) as LemonCollapsePanel<K>[]).map(({ key, ...panel }) => (
                 <LemonCollapsePanel
                     key={key}
                     {...panel}
