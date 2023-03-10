@@ -82,12 +82,12 @@ def get_cache_type_for_query(cacheable: Dict) -> CacheType:
 
 
 def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheType:
-    if isinstance(cacheable, Filter):
+    if isinstance(cacheable, FilterType):
         return get_cache_type_for_filter(cacheable)
     elif isinstance(cacheable, dict):
         return get_cache_type_for_query(cacheable)
     else:
-        logger.error("could_not_determine_cache_type_for_insight")
+        logger.error("could_not_determine_cache_type_for_insight", cacheable=cacheable)
         raise Exception("Could not determine cache type. Must provide a filter or a query")
 
 
