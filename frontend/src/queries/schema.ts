@@ -283,7 +283,12 @@ export interface InsightsQueryBase extends Node {
     aggregation_group_type_index?: number
 }
 
-export type TrendsFilter = Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+// using everything except what it inherits from FilterType
+// replace hidden_legend_keys with hidden_legend_indexes
+export type TrendsFilter = Omit<
+    TrendsFilterType & { hidden_legend_indexes?: number[] },
+    keyof FilterType | 'hidden_legend_keys'
+>
 export interface TrendsQuery extends InsightsQueryBase {
     kind: NodeKind.TrendsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -296,7 +301,12 @@ export interface TrendsQuery extends InsightsQueryBase {
     breakdown?: BreakdownFilter
 }
 
-export type FunnelsFilter = Omit<FunnelsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+// using everything except what it inherits from FilterType
+// replace hidden_legend_keys with hidden_legend_series
+export type FunnelsFilter = Omit<
+    FunnelsFilterType & { hidden_legend_series?: string[] },
+    keyof FilterType | 'hidden_legend_keys'
+>
 export interface FunnelsQuery extends InsightsQueryBase {
     kind: NodeKind.FunnelsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -323,7 +333,12 @@ export interface PathsQuery extends InsightsQueryBase {
     pathsFilter?: PathsFilter
 }
 
-export type StickinessFilter = Omit<StickinessFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+// using everything except what it inherits from FilterType
+// replace hidden_legend_keys with hidden_legend_indexes
+export type StickinessFilter = Omit<
+    StickinessFilterType & { hidden_legend_indexes?: number[] },
+    keyof FilterType | 'hidden_legend_keys'
+>
 export interface StickinessQuery extends InsightsQueryBase {
     kind: NodeKind.StickinessQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
