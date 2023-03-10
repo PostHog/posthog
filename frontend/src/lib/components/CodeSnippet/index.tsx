@@ -94,6 +94,7 @@ export function CodeSnippet({
     hideCopyButton = false,
 }: CodeSnippetProps): JSX.Element {
     return (
+        // eslint-disable-next-line react/forbid-dom-props
         <div className="CodeSnippet" style={style}>
             <div className="CodeSnippet__actions">
                 {actions &&
