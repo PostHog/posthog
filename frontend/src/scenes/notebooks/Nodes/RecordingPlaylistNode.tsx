@@ -5,7 +5,7 @@ import { NodeType } from 'scenes/notebooks/Nodes/types'
 
 const Component = ({}: NodeViewRendererProps): JSX.Element => {
     return (
-        <NodeWrapper className={NodeType.RecordingPlaylist}>
+        <NodeWrapper className={NodeType.RecordingPlaylist} title="Playlist">
             <div className="aspect-video">Session Playlist</div>
         </NodeWrapper>
     )

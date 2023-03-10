@@ -1,23 +1,21 @@
 import { ReactNode } from 'react'
 import { NodeViewWrapper } from '@tiptap/react'
 import clsx from 'clsx'
-import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconDragHandle } from 'lib/lemon-ui/icons'
 
 export interface NodeWrapperProps {
+    title: string
     className: string
     children: ReactNode
 }
 
-export function NodeWrapper({ className, children }: NodeWrapperProps): JSX.Element {
+export function NodeWrapper({ title, className, children }: NodeWrapperProps): JSX.Element {
     return (
-        <NodeViewWrapper as="div" className={clsx(className, 'flex items-start gap-1')}>
-            <div className="flex flex-col gap-2">
-                <LemonButton size="small" noPadding icon={<IconDragHandle />} status="primary-alt" data-drag-handle />
-
-                <LemonButton size="small" noPadding icon={<IconLink />} status="primary-alt" />
+        <NodeViewWrapper as="div" className={clsx(className, 'flex flex-col gap-1 overflow-hidden')}>
+            <div className="flex items-center text-xs text-muted-alt truncate" data-drag-handle>
+                <IconDragHandle className="text-muted-alt cursor-move text-base shrink-0" />
+                {title}
             </div>
-
             <div className={clsx('border bg-white rounded-lg mb-2 overflow-y-auto flex-1')}>{children}</div>
         </NodeViewWrapper>
     )

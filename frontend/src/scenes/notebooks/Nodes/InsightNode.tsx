@@ -12,7 +12,7 @@ const Component = (props: NodeViewRendererProps): JSX.Element => {
     const { insightProps } = useValues(logic)
 
     return (
-        <NodeWrapper className={NodeType.Insight}>
+        <NodeWrapper className={NodeType.Insight} title="Insight">
             <BindLogic logic={insightLogic} props={insightProps}>
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer

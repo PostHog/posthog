@@ -6,7 +6,7 @@ import { NodeType } from 'scenes/notebooks/Nodes/types'
 
 const Component = (props: NodeViewRendererProps): JSX.Element => {
     return (
-        <NodeWrapper className={NodeType.Recording}>
+        <NodeWrapper className={NodeType.Recording} title="Recording">
             <div className="aspect-square">
                 <SessionRecordingPlayer
                     embedded

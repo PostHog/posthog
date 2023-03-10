@@ -24,7 +24,7 @@ const Component = (): JSX.Element => {
     const [query, setQuery] = useState<QuerySchema>(DEFAULT_QUERY)
 
     return (
-        <NodeWrapper className={NodeType.Query}>
+        <NodeWrapper className={NodeType.Query} title="Query">
             <div className="max-h-60 overflow-y-auto">
                 <Query query={query} setQuery={(t) => setQuery(t)} />
             </div>

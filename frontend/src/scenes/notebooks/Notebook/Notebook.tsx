@@ -70,6 +70,7 @@ export function Notebook({ controls, breadcrumbs }: NotebookProps): JSX.Element 
                     <LemonButton
                         size="small"
                         status="primary-alt"
+                        noPadding
                         onClick={() => editor.chain().focus().insertContent('<ph-query />').run()}
                     >
                         Query
@@ -78,6 +79,7 @@ export function Notebook({ controls, breadcrumbs }: NotebookProps): JSX.Element 
                     <LemonButton
                         size="small"
                         status="primary-alt"
+                        noPadding
                         onClick={() => editor.chain().focus().insertContent('<ph-playlist />').run()}
                     >
                         Recordings
@@ -86,6 +88,7 @@ export function Notebook({ controls, breadcrumbs }: NotebookProps): JSX.Element 
                     <LemonButton
                         size="small"
                         status="primary-alt"
+                        noPadding
                         onClick={() => editor.chain().focus().insertContent('<ph-embed />').run()}
                     >
                         Embed
