@@ -639,8 +639,16 @@ describe('funnelDataLogic', () => {
                     },
                     result: funnelResultWithBreakdown.result,
                 }
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        hidden_legend_breakdowns: ['Firefox'],
+                    },
+                }
 
                 await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     visibleStepsWithConversionMetrics: [
@@ -667,10 +675,6 @@ describe('funnelDataLogic', () => {
                                     count: 66,
                                 }),
                                 expect.objectContaining({
-                                    breakdown_value: ['Firefox'],
-                                    count: 27,
-                                }),
-                                expect.objectContaining({
                                     breakdown_value: ['Safari'],
                                     count: 6,
                                 }),
@@ -687,8 +691,17 @@ describe('funnelDataLogic', () => {
                     },
                     result: funnelResultWithMultiBreakdown.result,
                 }
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        hidden_legend_breakdowns: ['Chrome::Mac OS X'],
+                    },
+                }
 
                 await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     visibleStepsWithConversionMetrics: [
@@ -709,10 +722,6 @@ describe('funnelDataLogic', () => {
                                 expect.objectContaining({
                                     breakdown_value: 'Baseline',
                                     count: 37,
-                                }),
-                                expect.objectContaining({
-                                    breakdown_value: ['Chrome', 'Mac OS X'],
-                                    count: 26,
                                 }),
                                 expect.objectContaining({
                                     breakdown_value: ['Chrome', 'Linux'],
