@@ -1,11 +1,16 @@
 from temporalio.client import Client
-from temporalio.worker import Worker
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.temporal.workflows import ACTIVITIES, WORKFLOWS
 
 
-async def start_worker(host, port):
-    # Create client connected to server at the given address
+async def start_worker(host, port, task_queue):
     client = await Client.connect(f"{host}:{port}")
-
-    # Run the worker
-    worker = Worker(client, task_queue="my-task-queue", workflows=[], activities=[])
+    worker = Worker(
+        client,
+        task_queue=task_queue,
+        workflows=WORKFLOWS,
+        activities=ACTIVITIES,
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    )
     await worker.run()

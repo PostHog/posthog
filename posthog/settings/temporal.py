@@ -1,0 +1,5 @@
+import os
+
+TEMPORAL_TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "temporal_posthog_task_queue")
+TEMPORAL_SCHEDULER_HOST = os.getenv("TEMPORAL_SCHEDULER_HOST", "127.0.0.1")
+TEMPORAL_SCHEDULER_PORT = os.getenv("TEMPORAL_SCHEDULER_PORT", "7233")
