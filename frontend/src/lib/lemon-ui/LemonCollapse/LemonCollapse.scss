@@ -17,8 +17,9 @@
 }
 
 .LemonCollapsePanel__header {
-    min-height: 3rem;
+    min-height: 2.875rem;
     border-radius: 0;
+    padding: 0.5rem 0.75rem !important; // Override reduced side padding
     font-weight: 500 !important; // Override status="stealth"'s font-weight
 }
 
@@ -27,6 +28,7 @@
     height: 0;
     overflow: hidden;
     border-top-width: 1px;
+    box-sizing: content-box;
 }
 
 .LemonCollapsePanel__content {
