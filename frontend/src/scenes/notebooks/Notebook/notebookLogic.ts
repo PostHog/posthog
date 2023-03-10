@@ -13,6 +13,7 @@ const START_CONTENT = `
 <p>This recording highlights perectly why...</p>
 <br/>
 <ph-recording sessionRecordingId="186c620122516e6-0ebf2e4cc8b8da-1f525634-16a7f0-186c62012262dfa"></ph-recording>
+
 `
 
 export const notebookLogic = kea<notebookLogicType>([
@@ -26,15 +27,17 @@ export const notebookLogic = kea<notebookLogicType>([
     }),
     defaults({
         editor: null as Editor | null,
-        content: START_CONTENT as string,
         isEditable: true,
     }),
-    loaders(() => ({
-        content: {
-            syncContent: ({ content }) => content,
-        },
-    })),
     reducers({
+        content: [
+            START_CONTENT as string,
+            { persist: true },
+            {
+                syncContent: (_, { content }) => content,
+            },
+        ],
+
         editor: {
             setEditorRef: (_, { editor }) => editor,
         },
