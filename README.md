@@ -17,7 +17,7 @@
 </p>
 
 ## PostHog is an open-source suite of product and data tools, built for engineers
-
+trigger
 - Specify events manually, or use autocapture to get started quickly
 - Analyze your data with visualizations and session recordings
 - Improve your product with A/B testing and feature flags
