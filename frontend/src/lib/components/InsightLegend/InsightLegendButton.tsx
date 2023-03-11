@@ -1,3 +1,4 @@
+import './InsightLegendButton.scss'
 import { Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IconLegend } from 'lib/lemon-ui/icons'
