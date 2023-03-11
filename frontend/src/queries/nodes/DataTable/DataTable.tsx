@@ -30,7 +30,14 @@ import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
-import { isEventsQuery, isHogQlAggregation, isHogQLQuery, isPersonsNode, taxonomicFilterToHogQl } from '~/queries/utils'
+import {
+    isEventsQuery,
+    isHogQlAggregation,
+    isHogQLQuery,
+    isOnInsightPage,
+    isPersonsNode,
+    taxonomicFilterToHogQl,
+} from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -337,8 +344,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     ].filter((x) => !!x)
 
     const secondRowLeft = [
-        showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null,
-        showElapsedTime ? <ElapsedTime /> : null,
+        isOnInsightPage(context) ? null : showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null,
+        isOnInsightPage(context) ? null : showElapsedTime ? <ElapsedTime /> : null,
     ].filter((x) => !!x)
 
     const secondRowRight = [
@@ -364,7 +371,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             {firstRowLeft}
                             <div className="flex-1" />
                             {firstRowRight}
-                            {!context?.hideInlineEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
+                            {!isOnInsightPage(context) && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
@@ -375,7 +382,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             {secondRowLeft}
                             <div className="flex-1" />
                             {secondRowRight}
-                            {!context?.hideInlineEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
+                            {!isOnInsightPage(context) && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
@@ -383,7 +390,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                     {showEventsBufferWarning && isEventsQuery(query.source) && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
-                    {!context?.hideInlineEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
+                    {!isOnInsightPage(context) && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
                         <div className="absolute right-0 z-10 p-1">
                             <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                         </div>

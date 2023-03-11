@@ -469,11 +469,8 @@ export interface QueryContext {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
 
-    /** Whether to hide the inline editor button,
-     * it will be hidden when readonly
-     * but, in some circumstances the query is editable
-     * and the button should be hidden */
-    hideInlineEditorButton?: boolean
+    /** Some behaviour changes depending on where the query is being shown */
+    placement?: 'InsightEdit' | 'InsightView'
 }
 
 interface QueryContextColumn {

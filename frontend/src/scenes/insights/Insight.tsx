@@ -77,7 +77,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                     <Query
                         query={query}
                         setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
-                        context={{ hideInlineEditorButton: true }}
+                        context={{ placement: insightMode === ItemMode.Edit ? 'InsightEdit' : 'InsightView' }}
                     />
                 </>
             ) : (
