@@ -38,7 +38,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { subscriptions } from 'kea-subscriptions'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
-import { trendTypeCanShowLegendDenyList } from 'lib/components/InsightLegend/InsightLegend'
+import { displayTypesWithoutLegend } from 'lib/components/InsightLegend/InsightLegend'
 
 const defaultQuery = (insightProps: InsightLogicProps): Node => {
     const filters = insightProps.cachedInsight?.filters
@@ -137,7 +137,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         hasLegend: [
             (s) => [s.isTrends, s.isStickiness, s.display],
             (isTrends, isStickiness, display) =>
-                (isTrends || isStickiness) && !!display && !trendTypeCanShowLegendDenyList.includes(display),
+                (isTrends || isStickiness) && !!display && !displayTypesWithoutLegend.includes(display),
         ],
 
         isQueryBasedInsight: [
