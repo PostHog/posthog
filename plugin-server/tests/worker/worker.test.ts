@@ -61,7 +61,9 @@ describe('worker', () => {
             return 4
         }
     `
-        const { teamId, pluginConfig: pluginConfig39 } = await resetTestDatabase(testCode)
+        const { teamId, pluginConfig: pluginConfig39 } = await resetTestDatabase(testCode, {
+            withExtendedTestData: true,
+        })
         const piscina = setupPiscina(workerThreads, 10)
 
         const runEveryDay = (pluginConfigId: number) => piscina.run({ task: 'runEveryDay', args: { pluginConfigId } })
@@ -107,7 +109,7 @@ describe('worker', () => {
             return event
         }
     `
-        const { teamId } = await resetTestDatabase(testCode)
+        const { teamId } = await resetTestDatabase(testCode, { withExtendedTestData: true })
         const piscina = setupPiscina(workerThreads, tasksPerWorker)
         const processEvent = (event: PluginEvent) => piscina.run({ task: '_testsRunProcessEvent', args: { event } })
         const promises: Array<Promise<any>> = []

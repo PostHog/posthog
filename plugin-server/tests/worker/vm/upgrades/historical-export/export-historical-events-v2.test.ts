@@ -125,7 +125,11 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         }
 
         beforeEach(async () => {
-            ;({ teamId, plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase())
+            ;({
+                teamId,
+                plugin: plugin60,
+                pluginConfig: pluginConfig39,
+            } = await resetTestDatabase(undefined, { withExtendedTestData: true }))
             await storage().set(EXPORT_PARAMETERS_KEY, exportParams)
         })
 
@@ -495,7 +499,11 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         const coordinateHistoricalExport = getTestMethod('coordinateHistoricalExport')
 
         beforeEach(async () => {
-            ;({ teamId, plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase())
+            ;({
+                teamId,
+                plugin: plugin60,
+                pluginConfig: pluginConfig39,
+            } = await resetTestDatabase(undefined, { withExtendedTestData: true }))
         })
 
         it('does nothing if export isnt running / is done', async () => {
@@ -700,7 +708,11 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         }
 
         beforeEach(async () => {
-            ;({ teamId, plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase())
+            ;({
+                teamId,
+                plugin: plugin60,
+                pluginConfig: pluginConfig39,
+            } = await resetTestDatabase(undefined, { withExtendedTestData: true }))
         })
 
         it('does nothing if enough tasks running', async () => {

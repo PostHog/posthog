@@ -29,7 +29,7 @@ describe('createPluginActivityLog()', () => {
     })
 
     beforeEach(async () => {
-        ;({ teamId, pluginConfigId } = await resetTestDatabase())
+        ;({ teamId, pluginConfigId } = await resetTestDatabase(undefined, { withExtendedTestData: true }))
     })
 
     afterAll(async () => {

@@ -21,7 +21,7 @@ describe('capabilities', () => {
         console.info = jest.fn() as any
         console.warn = jest.fn() as any
         ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Warn })
-        ;({ pluginConfig: pluginConfig39 } = await resetTestDatabase())
+        ;({ pluginConfig: pluginConfig39 } = await resetTestDatabase(undefined, { withExtendedTestData: true }))
     })
 
     afterAll(async () => {

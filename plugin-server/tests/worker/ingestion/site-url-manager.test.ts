@@ -20,6 +20,7 @@ describe('SiteUrlManager()', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
+        await hub.db.postgres.query(`DELETE FROM posthog_instancesetting`)
     })
 
     afterAll(async () => {
@@ -50,7 +51,7 @@ describe('SiteUrlManager()', () => {
             const mockPromise = createPromise<string>()
             const fetchInstanceSettingSpy = jest
                 .spyOn(hub.db, 'fetchInstanceSetting')
-                .mockImplementation(() => mockPromise.promise)
+                .mockImplementationOnce(() => mockPromise.promise)
 
             const manager = siteUrlManager()
             const promises = [manager.getSiteUrl(), manager.getSiteUrl(), manager.getSiteUrl()]

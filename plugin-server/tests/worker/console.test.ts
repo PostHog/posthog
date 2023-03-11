@@ -18,7 +18,7 @@ describe('console extension', () => {
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
-        ;({ pluginConfig: pluginConfig39 } = await resetTestDatabase())
+        ;({ pluginConfig: pluginConfig39 } = await resetTestDatabase(undefined, { withExtendedTestData: true }))
     })
 
     afterAll(async () => {

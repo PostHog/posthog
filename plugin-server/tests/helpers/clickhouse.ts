@@ -74,7 +74,7 @@ beforeEach(() => {
     })
 })
 
-afterEach(async () => {
+afterAll(async () => {
     await clickHouseClient.close()
 })
 
@@ -131,7 +131,7 @@ export const fetchClickHousePersons = async (teamId: number, includeDeleted = fa
         SELECT * FROM person FINAL
         WHERE team_id = ${teamId}
         ${includeDeleted ? '' : 'AND NOT is_deleted'}
-        ORDER BY id, version DESC
+        ORDER BY created_at
     `
     return await clickHouseClient
         .query({ query })

@@ -12,7 +12,6 @@ import {
     fetchClickHouseDistinctIdValues,
     fetchClickHousePersons,
     fetchClickHousePersonsWithVersionHigerEqualThan,
-    fetchDistinctIdsClickhouse,
     fetchDistinctIdsClickhouseVersion1,
 } from '../../helpers/clickhouse'
 import { fetchDistinctIdValues } from '../../helpers/postgres'
@@ -1309,8 +1308,14 @@ describe('PersonState.update()', () => {
         })
 
         it('merge_dangerously can merge people when alias id user is identified', async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, uuid.toString(), ['old-user'])
-            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, uuid2.toString(), ['new-user'])
+            const oldUuid = new UUIDT().toString()
+            const oldTimestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
+
+            const newUuid = new UUIDT().toString()
+            const newTimestamp = DateTime.fromISO('2020-02-02T12:00:05.200Z').toUTC()
+
+            await hub.db.createPerson(oldTimestamp, {}, {}, {}, teamId, null, true, oldUuid, ['old-user'])
+            await hub.db.createPerson(newTimestamp, {}, {}, {}, teamId, null, false, newUuid, ['new-user'])
 
             const personContainer = await personState({
                 event: '$merge_dangerously',
@@ -1327,7 +1332,7 @@ describe('PersonState.update()', () => {
             expect(persons[0]).toEqual(
                 expect.objectContaining({
                     id: expect.any(Number),
-                    uuid: uuid2.toString(),
+                    uuid: newUuid,
                     properties: {},
                     created_at: timestamp,
                     version: 1,
@@ -1341,25 +1346,27 @@ describe('PersonState.update()', () => {
 
             // verify ClickHouse persons
             await delayUntilEventIngested(() => fetchClickHousePersonsWithVersionHigerEqualThan(teamId), 2) // wait until merge and delete processed
-            const clickhousePersons = await fetchClickHousePersons(teamId) // but verify full state
+            const clickhousePersons = await fetchClickHousePersons(teamId, true)
             expect(clickhousePersons).toEqual([
                 expect.objectContaining({
-                    id: uuid2.toString(),
                     properties: '{}',
-                    created_at: timestampch,
-                    version: 1,
+                    version: 100,
+                    created_at: '2020-01-01 12:00:05.000',
                     is_identified: 1,
+                    is_deleted: 1,
+                    id: oldUuid,
                 }),
                 expect.objectContaining({
-                    id: uuid.toString(),
-                    is_deleted: 1,
-                    version: 100,
+                    id: newUuid,
+                    version: 1,
+                    is_deleted: 0,
+                    created_at: '2020-01-02 12:00:05.000',
                 }),
             ])
 
             // verify ClickHouse distinct_ids
             await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1(teamId))
-            const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(teamId, persons[0].uuid)
+            const clickHouseDistinctIds = await fetchClickHouseDistinctIdValues(teamId, persons[0].uuid)
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['old-user', 'new-user']))
 
             // verify personContainer

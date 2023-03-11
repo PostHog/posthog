@@ -53,7 +53,7 @@ describe('vm tests', () => {
     })
 
     test('empty plugins', async () => {
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase()
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(undefined, { withExtendedTestData: true })
 
         const indexJs = ''
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
@@ -81,7 +81,7 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const newEvent = await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         expect(newEvent.event).toEqual('haha')
@@ -98,7 +98,7 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const newEvent = await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         expect(newEvent.event).toEqual('haha')
@@ -117,7 +117,7 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         await vm.methods.processEvent!({
             ...defaultEvent,
@@ -136,7 +136,7 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         expect(vm.methods.processEvent).not.toEqual(undefined)
 
@@ -158,7 +158,7 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         expect(vm.methods.processEvent).not.toEqual(undefined)
 
@@ -183,7 +183,7 @@ describe('vm tests', () => {
                 })
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         expect(vm.methods.processEvent).not.toEqual(undefined)
 
@@ -207,7 +207,7 @@ describe('vm tests', () => {
                 })
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         expect(vm.methods.processEvent).not.toEqual(undefined)
 
@@ -235,7 +235,7 @@ describe('vm tests', () => {
                 })
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         expect(vm.methods.processEvent).not.toEqual(undefined)
 
@@ -256,7 +256,7 @@ describe('vm tests', () => {
                 event.event = 'changed event'
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         expect(vm.methods.processEvent).not.toEqual(undefined)
 
@@ -282,7 +282,7 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
         const event: PluginEvent = {
@@ -304,7 +304,7 @@ describe('vm tests', () => {
                 }
                 module.exports = { processEvent: myProcessEventFunction }
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
             const event: PluginEvent = {
@@ -325,7 +325,7 @@ describe('vm tests', () => {
                 }
                 module.exports.processEvent = myProcessEventFunction
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
             const event: PluginEvent = {
@@ -346,7 +346,7 @@ describe('vm tests', () => {
                 }
                 exports = { processEvent: myProcessEventFunction }
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
             const event: PluginEvent = {
                 ...defaultEvent,
@@ -366,7 +366,7 @@ describe('vm tests', () => {
                 }
                 exports.processEvent = myProcessEventFunction
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
             const event: PluginEvent = {
                 ...defaultEvent,
@@ -384,7 +384,7 @@ describe('vm tests', () => {
                     await fetch('https://google.com/results.json?query=' + event.event)
                 }
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
             const event: ProcessedPluginEvent = {
                 ...defaultEvent,
@@ -404,7 +404,7 @@ describe('vm tests', () => {
                 }
                 export default MyPlugin
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
             const event: ProcessedPluginEvent = {
                 ...defaultEvent,
@@ -423,7 +423,7 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -449,7 +449,7 @@ describe('vm tests', () => {
             }
         `
 
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -495,7 +495,7 @@ describe('vm tests', () => {
             }
         `
 
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -529,7 +529,7 @@ describe('vm tests', () => {
             }
         `
 
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -563,7 +563,7 @@ describe('vm tests', () => {
             }
         `
 
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -596,7 +596,7 @@ describe('vm tests', () => {
             }
         `
 
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -635,7 +635,7 @@ describe('vm tests', () => {
 
         `
 
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -679,7 +679,7 @@ describe('vm tests', () => {
 
         `
 
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -703,7 +703,9 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, {
+            withExtendedTestData: true,
+        })
         const vm = await createReadyPluginConfigVm(hub, { ...pluginConfig39, plugin: plugin60 }, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -736,7 +738,7 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -759,7 +761,7 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -781,7 +783,7 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -816,7 +818,19 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { apiToken, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, {
+            withExtendedTestData: true,
+        })
+        const encodedApiToken = apiToken.replace(/ /g, '+')
+        ;(fetch as any).mockImplementation(
+            () =>
+                new Promise((resolve) =>
+                    resolve({
+                        json: () => new Promise((resolve) => resolve({ hello: 'world' })),
+                    })
+                )
+        )
+
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
@@ -830,21 +844,21 @@ describe('vm tests', () => {
         expect((fetch as any).mock.calls.length).toEqual(8)
         expect((fetch as any).mock.calls).toEqual([
             [
-                'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+                `https://app.posthog.com/api/event?token=${encodedApiToken}`,
                 {
                     headers: { Authorization: expect.stringContaining('Bearer phx_') },
                     method: 'GET',
                 },
             ],
             [
-                'https://app.posthog.com/api/event?url=param&token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+                `https://app.posthog.com/api/event?url=param&token=${encodedApiToken}`,
                 {
                     headers: { Authorization: expect.stringContaining('Bearer phx_') },
                     method: 'GET',
                 },
             ],
             [
-                'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+                `https://app.posthog.com/api/event?token=${encodedApiToken}`,
                 {
                     headers: {
                         Authorization: expect.stringContaining('Bearer phx_'),
@@ -855,7 +869,7 @@ describe('vm tests', () => {
                 },
             ],
             [
-                'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+                `https://app.posthog.com/api/event?token=${encodedApiToken}`,
                 {
                     headers: { Authorization: expect.stringContaining('Bearer phx_') },
                     method: 'PUT',
@@ -863,7 +877,7 @@ describe('vm tests', () => {
                 },
             ],
             [
-                'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+                `https://app.posthog.com/api/event?token=${encodedApiToken}`,
                 {
                     headers: {
                         Authorization: expect.stringContaining('Bearer phx_'),
@@ -874,7 +888,7 @@ describe('vm tests', () => {
                 },
             ],
             [
-                'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+                `https://app.posthog.com/api/event?token=${encodedApiToken}`,
                 {
                     headers: { Authorization: expect.stringContaining('Bearer phx_') },
                     method: 'DELETE',
@@ -888,9 +902,7 @@ describe('vm tests', () => {
                 },
             ],
             [
-                'https://app.posthog.com/api/projects/' +
-                    pluginConfig39.team_id +
-                    '/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+                'https://app.posthog.com/api/projects/' + pluginConfig39.team_id + `/event?token=${encodedApiToken}`,
                 {
                     headers: { Authorization: expect.stringContaining('Bearer phx_') },
                     method: 'GET',
@@ -913,7 +925,7 @@ describe('vm tests', () => {
                 contents: Buffer.from('{"name": "plugin"}'),
             },
         }
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(
             hub,
             {
@@ -945,7 +957,7 @@ describe('vm tests', () => {
 
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
         expect(Object.keys(vm.tasks).sort()).toEqual(['job', 'schedule'])
@@ -971,7 +983,7 @@ describe('vm tests', () => {
             const runEveryHour = false
             const runEveryDay = { some: 'object' }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
         expect(Object.keys(vm.tasks.schedule)).toEqual(['runEveryMinute'])
@@ -987,7 +999,7 @@ describe('vm tests', () => {
                 return 'haha'
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const distinctId = v4()
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs, distinctId)
 
@@ -1017,7 +1029,7 @@ describe('vm tests', () => {
                 return 'haha'
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const distinctId = v4()
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs, distinctId)
 
@@ -1044,7 +1056,7 @@ describe('vm tests', () => {
                 return 'haha'
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
         const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
@@ -1073,7 +1085,7 @@ describe('vm tests', () => {
                 await fetch('https://google.com/results.json?query=' + event.event)
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: ProcessedPluginEvent = {
             ...defaultEvent,
@@ -1095,7 +1107,7 @@ describe('vm tests', () => {
                     await fetch('https://export.com/results.json?query=' + events[0].event + '&events=' + events.length)
                 }
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1146,7 +1158,7 @@ describe('vm tests', () => {
                     }
                 }
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1221,7 +1233,7 @@ describe('vm tests', () => {
                     throw new RetryError('Try again')
                 }
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1260,7 +1272,7 @@ describe('vm tests', () => {
                     await fetch('https://onevent.com/')
                 }
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1295,7 +1307,7 @@ describe('vm tests', () => {
                     await fetch('https://export.com/?length=' + JSON.stringify(events).length + '&count=' + events.length)
                 }
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1357,7 +1369,7 @@ describe('vm tests', () => {
                     await fetch('https://export.com/?length=' + JSON.stringify(events).length + '&count=' + events.length)
                 }
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1397,7 +1409,7 @@ describe('vm tests', () => {
                     await fetch('https://export.com/results.json?query=' + events[0].event + '&events=' + events.length)
                 }
             `
-            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1431,7 +1443,7 @@ describe('vm tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event = await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
 

@@ -29,7 +29,9 @@ describe('VMs are extra lazy 💤', () => {
             await fetch('https://onevent.com/')
         }
     `
-        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, {
+            withExtendedTestData: true,
+        })
 
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
@@ -54,7 +56,9 @@ describe('VMs are extra lazy 💤', () => {
             }
         }
     `
-        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, {
+            withExtendedTestData: true,
+        })
 
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
@@ -77,7 +81,9 @@ describe('VMs are extra lazy 💤', () => {
 
         }
     `
-        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, {
+            withExtendedTestData: true,
+        })
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
         pluginConfig.vm = lazyVm
@@ -104,7 +110,9 @@ describe('VMs are extra lazy 💤', () => {
 
         export async function runEveryMinute () {}
     `
-        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, {
+            withExtendedTestData: true,
+        })
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
         pluginConfig.vm = lazyVm

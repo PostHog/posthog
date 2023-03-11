@@ -49,7 +49,7 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const date = new Date()
         let errorMessage = undefined
@@ -71,7 +71,7 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
@@ -90,7 +90,7 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
@@ -109,7 +109,7 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
@@ -129,7 +129,7 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
@@ -148,7 +148,7 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
@@ -167,7 +167,7 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
@@ -187,7 +187,7 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
@@ -206,7 +206,7 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
@@ -233,7 +233,7 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const date = new Date()
         let errorMessage = undefined
@@ -271,7 +271,7 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const date = new Date()
         let errorMessage = undefined
@@ -295,7 +295,7 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs, { withExtendedTestData: true })
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {

@@ -14,7 +14,7 @@ jest.mock('../../../../../src/utils/status')
 let pluginConfig39
 
 beforeAll(async () => {
-    ;({ pluginConfig: pluginConfig39 } = await resetTestDatabase())
+    ;({ pluginConfig: pluginConfig39 } = await resetTestDatabase(undefined, { withExtendedTestData: true }))
 })
 
 describe('addHistoricalEventsExportCapability()', () => {

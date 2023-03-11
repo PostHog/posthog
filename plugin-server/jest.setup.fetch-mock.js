@@ -12,7 +12,6 @@ beforeEach(() => {
     const responsesToUrls = {
         'https://google.com/results.json?query=fetched': { count: 2, query: 'bla', results: [true, true] },
         'https://mmdbcdn.posthog.net/': readFileSync(join(__dirname, 'tests', 'assets', 'GeoLite2-City-Test.mmdb.br')),
-        'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2': { hello: 'world' },
     }
     const headersToUrls = {
         'https://mmdbcdn.posthog.net/': new Map([

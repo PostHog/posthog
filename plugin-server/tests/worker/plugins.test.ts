@@ -42,7 +42,7 @@ describe('plugins', () => {
             plugin: plugin60,
             pluginConfig: pluginConfig39,
             pluginAttachment: pluginAttachment1,
-        } = await resetTestDatabase())
+        } = await resetTestDatabase(undefined, { withExtendedTestData: true }))
     })
 
     afterAll(async () => {

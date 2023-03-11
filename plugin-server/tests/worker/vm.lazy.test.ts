@@ -16,7 +16,9 @@ let plugin60: Plugin
 let pluginConfig39: PluginConfig
 
 beforeAll(async () => {
-    ;({ plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase())
+    ;({ plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(undefined, {
+        withExtendedTestData: true,
+    }))
 })
 
 describe('LazyPluginVM', () => {

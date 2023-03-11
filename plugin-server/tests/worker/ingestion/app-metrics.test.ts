@@ -37,7 +37,7 @@ describe('AppMetrics()', () => {
         }
 
         jest.spyOn(hub.organizationManager, 'hasAvailableFeature').mockResolvedValue(true)
-        jest.spyOn(hub.kafkaProducer, 'queueMessage').mockReturnValue(Promise.resolve())
+        jest.spyOn(hub.kafkaProducer, 'queueMessage')
     })
 
     afterEach(() => {
@@ -307,10 +307,6 @@ describe('AppMetrics()', () => {
     })
 
     describe('reading writes from clickhouse', () => {
-        beforeEach(() => {
-            jest.mocked(hub.kafkaProducer.queueMessage).mockRestore()
-        })
-
         it('can read its own writes', async () => {
             await Promise.all([
                 appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp),

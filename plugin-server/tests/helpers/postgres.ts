@@ -103,3 +103,7 @@ export const fetchDistinctIds = async (teamId: number, personId: number) => {
         )
         .then((res) => res.rows.map((row) => row.distinct_id as string))
 }
+
+export const disablePlugin = async (pluginConfigId: number) => {
+    await postgres.query('UPDATE posthog_pluginconfig SET enabled = FALSE WHERE id = $1', [pluginConfigId])
+}

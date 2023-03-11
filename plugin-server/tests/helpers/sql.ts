@@ -16,10 +16,20 @@ import { UUIDT } from '../../src/utils/utils'
 import { makePluginObjects } from './plugins'
 
 let postgres: Client
+let pluginConfigIds: number[] = []
 
 beforeAll(async () => {
     postgres = new Client({ connectionString: defaultConfig.DATABASE_URL! })
     await postgres.connect()
+})
+
+beforeEach(() => {
+    pluginConfigIds = []
+})
+
+afterEach(async () => {
+    // Disable any plugins created by the current test
+    await postgres.query('UPDATE posthog_pluginconfig SET enabled = FALSE WHERE id = ANY($1)', [pluginConfigIds])
 })
 
 afterAll(async () => {
@@ -34,7 +44,7 @@ export interface ExtraDatabaseRows {
 
 export async function resetTestDatabase(
     code?: string,
-    { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
+    { withExtendedTestData = false }: { withExtendedTestData?: boolean } = {}
 ) {
     const mocks = makePluginObjects(code)
     const { team, teamId, organizationId, apiToken, teamUuid, userId } = await createUserTeamAndOrganization({})
@@ -293,7 +303,7 @@ export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
 export const createPluginConfig = async (
     pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
 ) => {
-    return await insertRow('posthog_pluginconfig', {
+    const pc = await insertRow('posthog_pluginconfig', {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         enabled: true,
@@ -301,6 +311,8 @@ export const createPluginConfig = async (
         config: {},
         ...pluginConfig,
     })
+    pluginConfigIds.push(pc.id)
+    return pc
 }
 
 export const createOrganization = async () => {
