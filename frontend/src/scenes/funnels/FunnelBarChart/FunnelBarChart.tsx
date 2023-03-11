@@ -7,8 +7,8 @@ import clsx from 'clsx'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useFunnelTooltip } from '../useFunnelTooltip'
-import { StepBarProps, StepBar } from './StepBar'
 import { StepLegend } from './StepLegend'
+import { StepBars } from './StepBars'
 
 function StepBarLabels(): JSX.Element {
     return (
@@ -20,26 +20,6 @@ function StepBarLabels(): JSX.Element {
                         <div className="StepBarLabels__label">{i * 20}%</div>
                     </div>
                 ))}
-        </div>
-    )
-}
-
-function StepBars({ step, stepIndex }: Omit<StepBarProps, 'series'>): JSX.Element {
-    return (
-        <div className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}>
-            <div className="StepBars__grid">
-                {Array(5)
-                    .fill(null)
-                    .map((_, i) => (
-                        <div
-                            key={`gridline-${stepIndex}-${i}`}
-                            className="StepBars__gridline StepBars__gridline--horizontal"
-                        />
-                    ))}
-            </div>
-            {step.nested_breakdown?.map((series) => (
-                <StepBar key={`bar-${stepIndex}-${series.order}`} step={step} stepIndex={stepIndex} series={series} />
-            ))}
         </div>
     )
 }
