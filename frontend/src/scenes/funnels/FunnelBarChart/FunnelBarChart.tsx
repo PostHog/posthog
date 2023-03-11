@@ -7,7 +7,7 @@ import clsx from 'clsx'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useFunnelTooltip } from '../useFunnelTooltip'
-import { StepLegend } from './StepLegend'
+import { StepLegend, StepLegendDataExploration } from './StepLegend'
 import { StepBars } from './StepBars'
 import { StepBarLabels } from './StepBarLabels'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -112,12 +112,21 @@ export function FunnelBarChartComponent({
                         <td />
                         {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
                             <td key={stepIndex}>
-                                <StepLegend
-                                    step={step.nested_breakdown?.length ? step.nested_breakdown[0] : step}
-                                    stepIndex={stepIndex}
-                                    showTime={showTime}
-                                    showPersonsModal={showPersonsModal}
-                                />
+                                {isUsingDataExploration ? (
+                                    <StepLegendDataExploration
+                                        step={step.nested_breakdown?.length ? step.nested_breakdown[0] : step}
+                                        stepIndex={stepIndex}
+                                        showTime={showTime}
+                                        showPersonsModal={showPersonsModal}
+                                    />
+                                ) : (
+                                    <StepLegend
+                                        step={step.nested_breakdown?.length ? step.nested_breakdown[0] : step}
+                                        stepIndex={stepIndex}
+                                        showTime={showTime}
+                                        showPersonsModal={showPersonsModal}
+                                    />
+                                )}
                             </td>
                         ))}
                     </tr>
