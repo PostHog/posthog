@@ -115,6 +115,12 @@ def log_insight_activity(
 
 
 class QuerySchemaParser(JSONParser):
+    """
+    A query schema parser that only parses the query field and validates it against the schema if it is present
+
+    If there is no query field this parser is a no-op
+    """
+
     def parse(self, stream, media_type=None, parser_context=None):
         data = super(QuerySchemaParser, self).parse(stream, media_type, parser_context)
         try:
