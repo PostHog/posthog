@@ -250,7 +250,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     ...values.insight,
                     result: insightData?.result,
                     next: insightData?.next,
-                    filters: queryNodeToFilter(values.querySource),
+                    filters: values.insight.query ? {} : queryNodeToFilter(values.querySource),
                 },
                 {}
             )
