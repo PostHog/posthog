@@ -9,20 +9,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useFunnelTooltip } from '../useFunnelTooltip'
 import { StepLegend } from './StepLegend'
 import { StepBars } from './StepBars'
-
-function StepBarLabels(): JSX.Element {
-    return (
-        <div className="StepBarLabels">
-            {Array(6)
-                .fill(null)
-                .map((_, i) => (
-                    <div key={i} className="StepBarLabels__segment">
-                        <div className="StepBarLabels__label">{i * 20}%</div>
-                    </div>
-                ))}
-        </div>
-    )
-}
+import { StepBarLabels } from './StepBarLabels'
 
 interface FunnelBarChartCSSProperties extends React.CSSProperties {
     '--bar-width': string
