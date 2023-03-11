@@ -13,7 +13,7 @@ export interface InsightLegendProps {
     inCardView?: boolean
 }
 
-export const trendTypeCanShowLegendDenyList = [
+export const displayTypesWithoutLegend = [
     ChartDisplayType.WorldMap,
     ChartDisplayType.ActionsTable,
     ChartDisplayType.BoldNumber,
@@ -21,7 +21,7 @@ export const trendTypeCanShowLegendDenyList = [
 ]
 
 export const shouldShowLegend = (filters: Partial<FilterType>): boolean =>
-    isFilterWithDisplay(filters) && !!filters.display && !trendTypeCanShowLegendDenyList.includes(filters.display)
+    isFilterWithDisplay(filters) && !!filters.display && !displayTypesWithoutLegend.includes(filters.display)
 
 function shouldHighlightThisRow(
     hiddenLegendKeys: Record<string, boolean | undefined>,
