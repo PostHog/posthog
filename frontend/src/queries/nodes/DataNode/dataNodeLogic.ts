@@ -79,6 +79,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
+                    if (Object.keys(props.query).length === 0) {
+                        // no need to try and load a query before properly initialized
+                        return null
+                    }
+
                     actions.abortAnyRunningQuery()
                     cache.abortController = new AbortController()
                     const methodOptions: ApiMethodOptions = {
