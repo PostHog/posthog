@@ -23,6 +23,11 @@ describe('workerTasks.runEventPipeline()', () => {
         piscinaTaskRunner = createTaskRunner(hub)
         process.env = { ...OLD_ENV } // Make a copy
 
+        // These tests depend on the Kafka production code being called, so we
+        // need to remove any mocks that may be added to the
+        // KafkaProducerWrapper.queueMessage method.
+        jest.restoreAllMocks()
+
         // To ensure we are catching and retrying on the correct error, we make
         // sure to mock deep into the KafkaJS internals, otherwise we can get
         // into inplaced confidence that we have covered this critical path.

@@ -912,7 +912,7 @@ test('anonymized ip capture', async () => {
 })
 
 test('merge_dangerously', async () => {
-    await createPerson(hub, team, ['old_distinct_id'])
+    await createPerson(hub, teamId, ['old_distinct_id'])
 
     await processEvent(
         'new_distinct_id',
@@ -920,15 +920,15 @@ test('merge_dangerously', async () => {
         '',
         {
             event: '$merge_dangerously',
-            properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
+            properties: { distinct_id: 'new_distinct_id', token: apiToken, alias: 'old_distinct_id' },
         } as any as PluginEvent,
-        team.id,
+        teamId,
         now,
         new UUIDT().toString()
     )
 
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-    expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
+    expect((await fetchEvents(teamId)).length).toBe(1)
+    expect(await fetchDistinctIdValues((await fetchPostgresPersons(teamId))[0].id)).toEqual([
         'old_distinct_id',
         'new_distinct_id',
     ])

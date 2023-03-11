@@ -6,7 +6,6 @@ import * as scaffold from '@posthog/plugin-scaffold'
 import * as AWS from 'aws-sdk'
 import crypto from 'crypto'
 import * as ethers from 'ethers'
-import * as faker from 'faker'
 import * as genericPool from 'generic-pool'
 import * as jsonwebtoken from 'jsonwebtoken'
 import * as pg from 'pg'
@@ -36,7 +35,6 @@ export const imports = {
     'snowflake-sdk': snowflake,
     crypto: crypto,
     jsonwebtoken: jsonwebtoken,
-    faker: faker,
     pg: pg,
     stream: { PassThrough },
     url: url,

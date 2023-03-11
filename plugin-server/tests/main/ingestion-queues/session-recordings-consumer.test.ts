@@ -49,8 +49,8 @@ describe('session-recordings-consumer', () => {
     })
 
     test('eachBatch throws on recoverable KafkaJS errors', async () => {
-        const organizationId = await createOrganization(db.postgres)
-        const teamId = await createTeam(db.postgres, organizationId)
+        const organizationId = await createOrganization()
+        const teamId = await createTeam(organizationId)
         const error = new KafkaJSError('test', { retriable: true })
         mockProduce.mockRejectedValueOnce(error)
         await expect(
@@ -73,8 +73,8 @@ describe('session-recordings-consumer', () => {
     })
 
     test('eachBatch emits to DLQ and returns on unrecoverable KafkaJS errors', async () => {
-        const organizationId = await createOrganization(db.postgres)
-        const teamId = await createTeam(db.postgres, organizationId)
+        const organizationId = await createOrganization()
+        const teamId = await createTeam(organizationId)
         const error = new KafkaJSError('test', { retriable: false })
         mockProduce.mockRejectedValueOnce(error)
         await eachBachWithDependencies({

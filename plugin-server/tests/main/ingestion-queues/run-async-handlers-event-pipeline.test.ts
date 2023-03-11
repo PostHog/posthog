@@ -29,13 +29,7 @@ import { UUIDT } from '../../../src/utils/utils'
 import { makePiscina } from '../../../src/worker/piscina'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
 import { createTaskRunner } from '../../../src/worker/worker'
-import {
-    createOrganization,
-    createPlugin,
-    createPluginConfig,
-    createTeam,
-    POSTGRES_DELETE_TABLES_QUERY,
-} from '../../helpers/sql'
+import { createOrganization, createPlugin, createPluginConfig, createTeam } from '../../helpers/sql'
 
 describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     // Tests the failure cases for the workerTasks.runAsyncHandlersEventPipeline
@@ -55,7 +49,6 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
         ;[hub, closeHub] = await createHub()
         redis = await hub.redisPool.acquire()
         piscinaTaskRunner = createTaskRunner(hub)
-        await hub.postgres.query(POSTGRES_DELETE_TABLES_QUERY) // Need to clear the DB to avoid unique constraint violations on ids
     })
 
     afterAll(async () => {
@@ -80,8 +73,8 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
         // that the `KafkaJSError` is translated to a generic `DependencyUnavailableError`.
         // This is to allow the specific decision of whether the error is
         // retriable to happen as close to the dependency as possible.
-        const organizationId = await createOrganization(hub.postgres)
-        const plugin = await createPlugin(hub.postgres, {
+        const organizationId = await createOrganization()
+        const plugin = await createPlugin({
             organization_id: organizationId,
             name: 'fails to produce',
             plugin_type: 'source',
@@ -97,8 +90,8 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
             `,
         })
 
-        const teamId = await createTeam(hub.postgres, organizationId)
-        await createPluginConfig(hub.postgres, { team_id: teamId, plugin_id: plugin.id })
+        const teamId = await createTeam(organizationId)
+        await createPluginConfig({ team_id: teamId, plugin_id: plugin.id })
         await setupPlugins(hub)
 
         jest.spyOn(hub.kafkaProducer.producer, 'send').mockImplementationOnce(() => {
@@ -130,8 +123,8 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
         // Note that we assume the retries are happening async as is the
         // currently functionality, i.e. outside of the consumer loop, but we
         // should arguably move this to a separate retry topic.
-        const organizationId = await createOrganization(hub.postgres)
-        const plugin = await createPlugin(hub.postgres, {
+        const organizationId = await createOrganization()
+        const plugin = await createPlugin({
             organization_id: organizationId,
             name: 'runEveryMinute plugin',
             plugin_type: 'source',
@@ -147,8 +140,8 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
             `,
         })
 
-        const teamId = await createTeam(hub.postgres, organizationId)
-        await createPluginConfig(hub.postgres, { team_id: teamId, plugin_id: plugin.id })
+        const teamId = await createTeam(organizationId)
+        await createPluginConfig({ team_id: teamId, plugin_id: plugin.id })
         await setupPlugins(hub)
 
         // This isn't strictly correct in terms of where this is being raised
@@ -189,8 +182,8 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
         // If we receive an arbitrary error, we should just skip the event. We
         // only want to retry on `RetryError` and `DependencyUnavailableError` as these are
         // things under our control.
-        const organizationId = await createOrganization(hub.postgres)
-        const plugin = await createPlugin(hub.postgres, {
+        const organizationId = await createOrganization()
+        const plugin = await createPlugin({
             organization_id: organizationId,
             name: 'runEveryMinute plugin',
             plugin_type: 'source',
@@ -202,8 +195,8 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
             `,
         })
 
-        const teamId = await createTeam(hub.postgres, organizationId)
-        await createPluginConfig(hub.postgres, { team_id: teamId, plugin_id: plugin.id })
+        const teamId = await createTeam(organizationId)
+        await createPluginConfig({ team_id: teamId, plugin_id: plugin.id })
         await setupPlugins(hub)
 
         const event = {

@@ -48,7 +48,7 @@ export async function resetTestDatabase(
 ) {
     const mocks = makePluginObjects(code)
     const { team, teamId, organizationId, apiToken, teamUuid, userId } = await createUserTeamAndOrganization({})
-    if (withExtendedTestData) {
+    if (code || withExtendedTestData) {
         const { id: actionId } = await insertRow('posthog_action', {
             team_id: teamId,
             name: 'Test Action',

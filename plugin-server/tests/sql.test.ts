@@ -1,3 +1,5 @@
+import Redis from 'ioredis'
+
 import { Hub, Plugin, PluginAttachmentDB, PluginConfig, PluginError } from '../src/types'
 import { createHub } from '../src/utils/db/hub'
 import {
@@ -15,6 +17,7 @@ jest.mock('../src/utils/status')
 describe('sql', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
+    let redis: Redis.Redis
     let organizationId: string
     let teamId: number
     let pluginConfig39: PluginConfig
@@ -23,6 +26,7 @@ describe('sql', () => {
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
+        redis = new Redis()
     })
 
     beforeEach(async () => {
@@ -36,6 +40,7 @@ describe('sql', () => {
     })
 
     afterAll(async () => {
+        redis.disconnect()
         await closeHub()
     })
 
@@ -75,14 +80,14 @@ describe('sql', () => {
             updated_at: expect.anything(),
         }
 
-        const rows1 = (await getPluginConfigRows(hub)).filter((x) => x.id === pluginConfig39.id)
+        const rows1 = (await getPluginConfigRows(hub)).filter((pluginConfig) => pluginConfig.id === pluginConfig39.id)
         expect(rows1).toEqual([expectedRow])
 
         await hub.db.postgresQuery("update posthog_team set plugins_opt_in='f' where id = $1", [teamId], 'testTag')
         const pluginError: PluginError = { message: 'error happened', time: 'now' }
         await setError(hub, pluginError, pluginConfig39)
 
-        const rows2 = (await getPluginConfigRows(hub)).filter((x) => x.id === pluginConfig39.id)
+        const rows2 = (await getPluginConfigRows(hub)).filter((pluginConfig) => pluginConfig.id === pluginConfig39.id)
         expect(rows2).toEqual([
             {
                 ...expectedRow,
@@ -145,20 +150,21 @@ describe('sql', () => {
 
     describe('disablePlugin', () => {
         test('disablePlugin disables a plugin', async () => {
-            const redis = await hub.db.redisPool.acquire()
-            const rowsBefore = (await getPluginConfigRows(hub)).filter((x) => x.id === pluginConfig39.id)
+            const rowsBefore = (await getPluginConfigRows(hub)).filter(
+                (pluginConfig) => pluginConfig.id === pluginConfig39.id
+            )
             expect(rowsBefore[0].plugin_id).toEqual(plugin60.id)
             expect(rowsBefore[0].enabled).toEqual(true)
 
             const receivedMessage = redis.subscribe(hub.PLUGINS_RELOAD_PUBSUB_CHANNEL)
-            await disablePlugin(hub, plugin60.id)
+            await disablePlugin(hub, pluginConfig39.id)
 
-            const rowsAfter = (await getPluginConfigRows(hub)).filter((x) => x.id === pluginConfig39.id)
+            const rowsAfter = (await getPluginConfigRows(hub)).filter(
+                (pluginConfig) => pluginConfig.id === pluginConfig39.id
+            )
 
             expect(rowsAfter).toEqual([])
             await expect(receivedMessage).resolves.toEqual(1)
-
-            await hub.db.redisPool.release(redis)
         })
     })
 })

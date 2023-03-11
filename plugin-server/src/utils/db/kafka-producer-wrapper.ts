@@ -74,6 +74,7 @@ export class KafkaProducerWrapper {
     }
 
     queueMessage(kafkaMessage: ProducerRecord): Promise<void> {
+        console.log(kafkaMessage)
         return runInSpan(
             {
                 op: 'kafka.queueMessage',
@@ -136,6 +137,7 @@ export class KafkaProducerWrapper {
                     compression: CompressionTypes.Snappy,
                 })
             } catch (err) {
+                console.error(err)
                 Sentry.captureException(err, {
                     extra: {
                         batchCount: messages.length,

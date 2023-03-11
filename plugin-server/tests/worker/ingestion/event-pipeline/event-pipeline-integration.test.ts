@@ -12,11 +12,12 @@ import { delayUntilEventIngested, fetchEvents } from '../../../helpers/clickhous
 import { fetchPostgresPersons } from '../../../helpers/postgres'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
-jest.mock('../../../../src/utils/status')
+jest.mock('node-fetch')
 
 describe('Event Pipeline integration test', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
+    let organizationId: string
     let teamId: number
     let actionId: number
     let userId: number
@@ -33,7 +34,9 @@ describe('Event Pipeline integration test', () => {
     })
 
     beforeEach(async () => {
-        ;({ teamId, actionId, userId } = await resetTestDatabase())
+        ;({ teamId, actionId, userId, organizationId } = await resetTestDatabase(undefined, {
+            withExtendedTestData: true,
+        }))
 
         jest.spyOn(hub.db, 'fetchPerson')
     })
@@ -43,7 +46,8 @@ describe('Event Pipeline integration test', () => {
     })
 
     it('handles plugins setting properties', async () => {
-        ;({ teamId } = await resetTestDatabase(`
+        ;({ teamId } = await resetTestDatabase(
+            `
             function processEvent (event) {
                 event.properties = {
                     ...event.properties,
@@ -56,7 +60,9 @@ describe('Event Pipeline integration test', () => {
                 }
                 return event
             }
-        `))
+        `,
+            { withExtendedTestData: true }
+        ))
         await setupPlugins(hub)
 
         const event: PluginEvent = {
@@ -112,8 +118,12 @@ describe('Event Pipeline integration test', () => {
 
     it('fires a webhook', async () => {
         await hub.db.postgresQuery(
-            `UPDATE posthog_team SET slack_incoming_webhook = 'https://webhook.example.com/'`,
-            [],
+            `
+                UPDATE posthog_team 
+                SET slack_incoming_webhook = 'https://webhook.example.com/'
+                WHERE id = $1
+            `,
+            [teamId],
             'testTag'
         )
 
@@ -147,7 +157,15 @@ describe('Event Pipeline integration test', () => {
     it('fires a REST hook', async () => {
         const timestamp = new Date().toISOString()
 
-        await hub.db.postgresQuery(`UPDATE posthog_organization SET available_features = '{"zapier"}'`, [], 'testTag')
+        await hub.db.postgresQuery(
+            `
+                UPDATE posthog_organization 
+                SET available_features = '{"zapier"}' 
+                WHERE id = $1
+            `,
+            [organizationId],
+            'testTag'
+        )
         const { id: hookId } = await insertRow('ee_hook', {
             id: v4(),
             team_id: teamId,

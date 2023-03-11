@@ -74,7 +74,7 @@ beforeEach(() => {
     })
 })
 
-afterAll(async () => {
+afterEach(async () => {
     await clickHouseClient.close()
 })
 
