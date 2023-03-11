@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import { funnelLogic } from '../funnelLogic'
 import './FunnelBarChart.scss'
 import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
@@ -13,10 +13,10 @@ import { ValueInspectorButton } from '../ValueInspectorButton'
 import clsx from 'clsx'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { getSeriesColor } from 'lib/colors'
 import { useFunnelTooltip } from '../useFunnelTooltip'
 import { FunnelStepMore } from '../FunnelStepMore'
 import { userLogic } from 'scenes/userLogic'
+import { StepBarProps, StepBar } from './StepBarProps'
 
 function StepBarLabels(): JSX.Element {
     return (
@@ -31,55 +31,6 @@ function StepBarLabels(): JSX.Element {
         </div>
     )
 }
-interface StepBarProps {
-    step: FunnelStepWithConversionMetrics
-    series: FunnelStepWithConversionMetrics
-    stepIndex: number
-}
-interface StepBarCSSProperties extends React.CSSProperties {
-    '--series-color': string
-    '--conversion-rate': string
-}
-
-function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element {
-    const { openPersonsModalForSeries, showTooltip, hideTooltip } = useActions(funnelLogic)
-    const { disableFunnelBreakdownBaseline } = useValues(funnelLogic)
-
-    const ref = useRef<HTMLDivElement | null>(null)
-
-    const seriesOrderForColor = disableFunnelBreakdownBaseline ? (series.order ?? 0) + 1 : series.order ?? 0
-
-    return (
-        <div
-            className="StepBar"
-            /* eslint-disable-next-line react/forbid-dom-props */
-            style={
-                {
-                    '--series-color': getSeriesColor(seriesOrderForColor),
-                    '--conversion-rate': percentage(series.conversionRates.fromBasisStep, 1, true),
-                } as StepBarCSSProperties
-            }
-            ref={ref}
-            onMouseEnter={() => {
-                if (ref.current) {
-                    const rect = ref.current.getBoundingClientRect()
-                    showTooltip([rect.x, rect.y, rect.width], stepIndex, series)
-                }
-            }}
-            onMouseLeave={() => hideTooltip()}
-        >
-            <div
-                className="StepBar__backdrop"
-                onClick={() => openPersonsModalForSeries({ step, series, converted: false })}
-            />
-            <div
-                className="StepBar__fill"
-                onClick={() => openPersonsModalForSeries({ step, series, converted: true })}
-            />
-        </div>
-    )
-}
-
 function StepBars({ step, stepIndex }: Omit<StepBarProps, 'series'>): JSX.Element {
     return (
         <div className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}>
