@@ -106,7 +106,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     })
-                    if (user.is_staff) {
+                    if (user?.is_staff) {
                         tabs.push({
                             label: 'Query',
                             type: InsightType.QUERY,
