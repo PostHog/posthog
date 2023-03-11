@@ -2,7 +2,7 @@ import './InsightLegend.scss'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { ChartDisplayType, FilterType, InsightType } from '~/types'
+import { ChartDisplayType, FilterType } from '~/types'
 import clsx from 'clsx'
 import { isFilterWithDisplay } from 'scenes/insights/sharedUtils'
 import { InsightLegendRow } from './InsightLegendRow'
@@ -13,20 +13,15 @@ export interface InsightLegendProps {
     inCardView?: boolean
 }
 
-const trendTypeCanShowLegendDenyList = [
+export const trendTypeCanShowLegendDenyList = [
     ChartDisplayType.WorldMap,
     ChartDisplayType.ActionsTable,
     ChartDisplayType.BoldNumber,
     ChartDisplayType.ActionsBarValue,
 ]
 
-const insightViewCanShowLegendAllowList = [InsightType.TRENDS, InsightType.STICKINESS]
-
 export const shouldShowLegend = (filters: Partial<FilterType>): boolean =>
-    insightViewCanShowLegendAllowList.includes(filters.insight || InsightType.TRENDS) &&
-    isFilterWithDisplay(filters) &&
-    !!filters.display &&
-    !trendTypeCanShowLegendDenyList.includes(filters.display)
+    isFilterWithDisplay(filters) && !!filters.display && !trendTypeCanShowLegendDenyList.includes(filters.display)
 
 function shouldHighlightThisRow(
     hiddenLegendKeys: Record<string, boolean | undefined>,
