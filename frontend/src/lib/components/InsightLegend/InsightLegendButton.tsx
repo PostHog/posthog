@@ -5,7 +5,7 @@ import { IconLegend } from 'lib/lemon-ui/icons'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { TrendsFilterType } from '~/types'
-import { shouldShowLegend } from './InsightLegend'
+import { shouldShowLegend } from './utils'
 
 export function InsightLegendButtonDataExploration(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
