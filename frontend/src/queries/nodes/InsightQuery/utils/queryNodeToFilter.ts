@@ -11,6 +11,7 @@ import {
     ActionFilter,
     EntityTypes,
     FilterType,
+    FunnelsFilterType,
     InsightType,
     LifecycleFilterType,
     StickinessFilterType,
@@ -74,6 +75,12 @@ export const seriesToActionsAndEvents = (
     return { actions, events, new_entity }
 }
 
+export const hiddenLegendItemsToKeys = (
+    hidden_items: number[] | string[] | undefined
+): Record<string, boolean | undefined> | undefined =>
+    // @ts-expect-error
+    hidden_items?.reduce((k: Record<string, boolean | undefined>, b: string | number) => ({ ...k, [b]: true }), {})
+
 export const insightMap: Record<InsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
@@ -127,10 +134,22 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
 
     if (isTrendsQuery(query)) {
         ;(filters as TrendsFilterType).display = query.trendsFilter?.display
+        ;(filters as TrendsFilterType).hidden_legend_keys = hiddenLegendItemsToKeys(
+            query.trendsFilter?.hidden_legend_indexes
+        )
     }
 
     if (isStickinessQuery(query)) {
         ;(filters as StickinessFilterType).display = query.stickinessFilter?.display
+        ;(filters as StickinessFilterType).hidden_legend_keys = hiddenLegendItemsToKeys(
+            query.stickinessFilter?.hidden_legend_indexes
+        )
+    }
+
+    if (isFunnelsQuery(query)) {
+        ;(filters as FunnelsFilterType).hidden_legend_keys = hiddenLegendItemsToKeys(
+            query.funnelsFilter?.hidden_legend_breakdowns
+        )
     }
 
     if (isLifecycleQuery(query)) {
