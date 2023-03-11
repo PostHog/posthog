@@ -14,7 +14,6 @@ import {
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/action-matcher'
-import { commonUserId } from '../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
@@ -24,13 +23,14 @@ describe('ActionMatcher', () => {
     let closeServer: () => Promise<void>
     let actionMatcher: ActionMatcher
     let teamId: number
+    let userId: number
 
     beforeAll(async () => {
         ;[hub, closeServer] = await createHub()
     })
 
     beforeEach(async () => {
-        ;({ teamId } = await resetTestDatabase(undefined, { withExtendedTestData: false }))
+        ;({ teamId, userId } = await resetTestDatabase(undefined, { withExtendedTestData: false }))
         actionMatcher = hub.actionMatcher
     })
 
@@ -45,7 +45,7 @@ describe('ActionMatcher', () => {
             name: 'Test',
             description: '',
             created_at: new Date().toISOString(),
-            created_by_id: commonUserId,
+            created_by_id: userId,
             deleted: false,
             post_to_slack: true,
             slack_message_format: '',
@@ -727,8 +727,8 @@ describe('ActionMatcher', () => {
             const testCohort = await hub.db.createCohort({
                 name: 'Test',
                 description: 'Test',
-                created_by_id: commonUserId,
-                team_id: 2,
+                created_by_id: userId,
+                team_id: teamId,
             })
 
             const actionDefinition: Action = await createTestAction([

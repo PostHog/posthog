@@ -2,11 +2,6 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 
-export const commonUserId = 1001
-export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'
-export const commonOrganizationId = 'ca30f2ec-e9a4-4001-bf27-3ef194086068'
-export const commonUserUuid = '797757a4-baed-4fa8-b73b-2b6cf0300299'
-
 export const plugin60 = {
     plugin_type: 'custom',
     name: 'test-maxmind-plugin',

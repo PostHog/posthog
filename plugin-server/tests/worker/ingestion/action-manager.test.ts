@@ -7,14 +7,20 @@ describe('ActionManager', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
     let actionManager: ActionManager
-    let TEAM_ID: number, ACTION_ID: number, ACTION_STEP_ID: number
+    let TEAM_ID: number
+    let ACTION_ID: number
+    let ACTION_STEP_ID: number
 
     beforeAll(async () => {
         ;[hub, closeServer] = await createHub()
     })
 
     beforeEach(async () => {
-        ;({ teamId: TEAM_ID, actionId: ACTION_ID, actionStepId: ACTION_STEP_ID } = await resetTestDatabase())
+        ;({
+            teamId: TEAM_ID,
+            actionId: ACTION_ID,
+            actionStepId: ACTION_STEP_ID,
+        } = await resetTestDatabase(undefined, { withExtendedTestData: true }))
         actionManager = new ActionManager(hub.db, { processAsyncHandlers: true })
         await actionManager.prepare()
     })
