@@ -12,6 +12,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { examples, TotalEventsTable } from '~/queries/examples'
+import { userLogic } from 'scenes/userLogic'
 
 export interface Tab {
     label: string
@@ -31,6 +32,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             ['featureFlags'],
             insightDataLogic(props),
             ['query'],
+            userLogic,
+            ['user'],
         ],
         actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuery']],
     })),
@@ -62,8 +65,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.isUsingDataExploration],
-            (isUsingDataExploration) => {
+            (s) => [s.isUsingDataExploration, s.user],
+            (isUsingDataExploration, user) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',
@@ -103,11 +106,13 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     })
-                    tabs.push({
-                        label: 'Query',
-                        type: InsightType.QUERY,
-                        dataAttr: 'insight-query-tab',
-                    })
+                    if (user.is_staff) {
+                        tabs.push({
+                            label: 'Query',
+                            type: InsightType.QUERY,
+                            dataAttr: 'insight-query-tab',
+                        })
+                    }
                 }
 
                 return tabs
