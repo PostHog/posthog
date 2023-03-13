@@ -16,30 +16,29 @@ import {
     funnelResultTrends,
 } from './__mocks__/funnelDataLogicMocks'
 
+let logic: ReturnType<typeof funnelDataLogic.build>
+let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
+
+const insightProps: InsightLogicProps = {
+    dashboardItemId: undefined,
+}
+
+async function initFunnelDataLogic(): Promise<void> {
+    teamLogic.mount()
+    await expectLogic(teamLogic).toFinishAllListeners()
+
+    builtDataNodeLogic = dataNodeLogic({ key: 'InsightViz.new', query: {} as DataNode })
+    builtDataNodeLogic.mount()
+    await expectLogic(dataNodeLogic).toFinishAllListeners()
+
+    logic = funnelDataLogic(insightProps)
+    logic.mount()
+    await expectLogic(logic).toFinishAllListeners()
+}
+
 describe('funnelDataLogic', () => {
-    const insightProps: InsightLogicProps = {
-        dashboardItemId: undefined,
-    }
-    let logic: ReturnType<typeof funnelDataLogic.build>
-    let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
-
-    beforeEach(() => {
-        initKeaTests(false)
-    })
-
-    async function initFunnelDataLogic(): Promise<void> {
-        teamLogic.mount()
-        await expectLogic(teamLogic).toFinishAllListeners()
-
-        builtDataNodeLogic = dataNodeLogic({ key: 'InsightViz.new', query: {} as DataNode })
-        builtDataNodeLogic.mount()
-        await expectLogic(dataNodeLogic).toFinishAllListeners()
-
-        logic = funnelDataLogic(insightProps)
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-    }
     beforeEach(async () => {
+        initKeaTests(false)
         await initFunnelDataLogic()
     })
 
@@ -640,8 +639,16 @@ describe('funnelDataLogic', () => {
                     },
                     result: funnelResultWithBreakdown.result,
                 }
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        hidden_legend_breakdowns: ['Firefox'],
+                    },
+                }
 
                 await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     visibleStepsWithConversionMetrics: [
@@ -668,10 +675,6 @@ describe('funnelDataLogic', () => {
                                     count: 66,
                                 }),
                                 expect.objectContaining({
-                                    breakdown_value: ['Firefox'],
-                                    count: 27,
-                                }),
-                                expect.objectContaining({
                                     breakdown_value: ['Safari'],
                                     count: 6,
                                 }),
@@ -688,8 +691,17 @@ describe('funnelDataLogic', () => {
                     },
                     result: funnelResultWithMultiBreakdown.result,
                 }
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        hidden_legend_breakdowns: ['Chrome::Mac OS X'],
+                    },
+                }
 
                 await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     visibleStepsWithConversionMetrics: [
@@ -710,10 +722,6 @@ describe('funnelDataLogic', () => {
                                 expect.objectContaining({
                                     breakdown_value: 'Baseline',
                                     count: 37,
-                                }),
-                                expect.objectContaining({
-                                    breakdown_value: ['Chrome', 'Mac OS X'],
-                                    count: 26,
                                 }),
                                 expect.objectContaining({
                                     breakdown_value: ['Chrome', 'Linux'],

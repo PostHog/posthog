@@ -92,6 +92,7 @@ export function Circle({
             ) : null}
             <div
                 className="circle-transformer"
+                // eslint-disable-next-line react/forbid-dom-props
                 style={
                     rootNode
                         ? // we are the first circle
@@ -121,6 +122,7 @@ export function Circle({
             >
                 <div
                     className="circle-transform-correcter"
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={
                         rootNode
                             ? {}
@@ -137,6 +139,7 @@ export function Circle({
                 >
                     <div
                         className={`circle-align-fixer`}
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             position: 'absolute',
                             transformOrigin: '50% 50%',
@@ -147,6 +150,7 @@ export function Circle({
                     >
                         <div
                             className={`circle-button${className ? ` ${className}` : ''}`}
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 position: 'absolute',
                                 width: width,
