@@ -26,7 +26,6 @@ import {
     InsightsLifecycleIcon,
     InsightsPathsIcon,
     InsightSQLIcon,
-    InsightsQueryIcon,
     InsightsRetentionIcon,
     InsightsStickinessIcon,
     InsightsTrendsIcon,
@@ -115,7 +114,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.QUERY]: {
         name: 'Query',
         description: 'Build custom insights with our powerful query language',
-        icon: InsightsQueryIcon,
+        icon: InsightSQLIcon,
         inMenu: false, // until data exploration is released
     },
 }
