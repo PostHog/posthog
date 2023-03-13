@@ -490,6 +490,8 @@ export interface QueryContext {
 
     /** used to override the value in the query */
     showOpenEditorButton?: boolean
+
+    showQueryEditor?: boolean
 }
 
 interface QueryContextColumn {

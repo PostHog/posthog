@@ -13,9 +13,6 @@ import { EditorFilters } from './EditorFilters/EditorFilters'
 import clsx from 'clsx'
 import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { isInsightVizNode } from '~/queries/utils'
 
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
@@ -69,7 +66,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         return <InsightSkeleton />
     }
 
-    const showQueryEditorPanel = insightMode === ItemMode.Edit && !!query && !isInsightVizNode(query)
+    const showQueryEditor = insightMode === ItemMode.Edit && isQueryBasedInsight
 
     const insightScene = (
         <div className={'insights-page'}>
@@ -77,20 +74,13 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 
-            {isUsingDataExploration && isQueryBasedInsight ? (
+            {isUsingDataExploration ? (
                 <>
-                    {showQueryEditorPanel ? (
-                        <>
-                            <QueryEditor
-                                query={JSON.stringify(query)}
-                                setQuery={(stringQuery) => setQuery(JSON.parse(stringQuery))}
-                            />
-                            <div className="my-4">
-                                <LemonDivider />
-                            </div>
-                        </>
-                    ) : null}
-                    <Query query={query} setQuery={setQuery} context={{ showOpenEditorButton: false }} />
+                    <Query
+                        query={query}
+                        setQuery={setQuery}
+                        context={{ showOpenEditorButton: false, showQueryEditor }}
+                    />
                 </>
             ) : (
                 <>
