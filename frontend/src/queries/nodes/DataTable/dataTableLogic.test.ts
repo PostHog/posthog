@@ -255,4 +255,68 @@ describe('dataTableLogic', () => {
             canSort: true,
         })
     })
+
+    it('defaults to showing the open editor button', async () => {
+        logic = dataTableLogic({
+            key: testUniqueKey,
+            query: {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'timestamp'],
+                },
+                allowSorting: false,
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toMatchValues({
+            queryWithDefaults: expect.objectContaining({
+                showOpenEditorButton: true,
+            }),
+        })
+    })
+
+    it('query can set whether showing the open editor button', async () => {
+        logic = dataTableLogic({
+            key: testUniqueKey,
+            query: {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'timestamp'],
+                },
+                allowSorting: false,
+                showOpenEditorButton: false,
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toMatchValues({
+            queryWithDefaults: expect.objectContaining({
+                showOpenEditorButton: false,
+            }),
+        })
+    })
+
+    it('context can set whether showing the open editor button', async () => {
+        logic = dataTableLogic({
+            key: testUniqueKey,
+            query: {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'timestamp'],
+                },
+                allowSorting: false,
+            },
+            context: {
+                showOpenEditorButton: false,
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toMatchValues({
+            queryWithDefaults: expect.objectContaining({
+                showOpenEditorButton: false,
+            }),
+        })
+    })
 })
