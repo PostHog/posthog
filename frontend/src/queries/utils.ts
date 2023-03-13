@@ -24,7 +24,6 @@ import {
     TimeToSeeDataQuery,
     TimeToSeeDataSessionsQuery,
     InsightNodeKind,
-    QueryContext,
     TimeToSeeDataWaterfallNode,
     TimeToSeeDataJSONNode,
 } from '~/queries/schema'
@@ -255,8 +254,4 @@ export function isHogQlAggregation(hogQl: string): boolean {
         hogQl.includes('min(') ||
         hogQl.includes('max(')
     )
-}
-
-export function isOnInsightPage(context?: QueryContext): boolean {
-    return context?.placement === 'InsightEdit' || context?.placement === 'InsightView'
 }
