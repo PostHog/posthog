@@ -942,6 +942,12 @@ export const insightLogic = kea<insightLogicType>([
                     } catch (e) {
                         withScope(function (scope) {
                             scope.setTag('logic', 'insightLogic')
+                            // TODO if this tombstone isn't triggered, we can remove this entire tombstone try catch block
+                            // because the breakpoint above is working
+                            scope.setTag(
+                                'tombstone',
+                                'insight timeout message shown - https://posthog.sentry.io/issues/3972299454'
+                            )
                             captureException(e)
                         })
                         console.warn('Error setting insight timeout', e)
