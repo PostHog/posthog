@@ -300,7 +300,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 insightChanged={insightChanged || queryChanged}
                             />
                         )}
-                        {isInsightVizNode(query) ? (
+                        {isUsingDataExploration && isInsightVizNode(query) ? (
                             <LemonButton tooltip="Edit as code" type={'secondary'} onClick={toggleQueryEditorPanel}>
                                 <IconEvent />
                             </LemonButton>
