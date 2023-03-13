@@ -1,4 +1,3 @@
-import React from 'react'
 import clsx from 'clsx'
 import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'

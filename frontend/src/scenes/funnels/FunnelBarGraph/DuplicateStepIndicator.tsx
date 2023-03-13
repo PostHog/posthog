@@ -1,4 +1,3 @@
-import React from 'react'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
