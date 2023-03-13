@@ -6,7 +6,7 @@ import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { BillingV2 } from 'scenes/billing/Billing'
+import { Billing } from 'scenes/billing/Billing'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export function BillingPanel(): JSX.Element {
@@ -55,7 +55,7 @@ export function BillingPanel(): JSX.Element {
             ) : (
                 <div className="text-left flex flex-col space-y-4">
                     <h1 className="ingestion-title">Add payment method</h1>
-                    <BillingV2 />
+                    <Billing />
 
                     <LemonDivider dashed />
 

@@ -27,7 +27,7 @@ import { urls } from 'scenes/urls'
 const DEFAULT_BILLING_LIMIT = 500
 
 export const scene: SceneExport = {
-    component: BillingV2,
+    component: Billing,
     logic: billingLogic,
 }
 
@@ -35,7 +35,7 @@ export function BillingPageHeader(): JSX.Element {
     return <PageHeader title="Billing &amp; usage" />
 }
 
-export function BillingV2(): JSX.Element {
+export function Billing(): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
