@@ -305,6 +305,10 @@ class Constant(Expr):
     value: Any
 
 
+class NumericConstant(Expr):
+    value: int | float
+
+
 class Field(Expr):
     chain: List[str]
 
@@ -325,6 +329,7 @@ class JoinExpr(Expr):
     table_final: Optional[bool] = None
     constraint: Optional[Expr] = None
     next_join: Optional["JoinExpr"] = None
+    sample: Optional["SampleExpr"] = None
 
 
 class SelectQuery(Expr):
@@ -347,6 +352,18 @@ class SelectQuery(Expr):
 class SelectUnionQuery(Expr):
     ref: Optional[SelectUnionQueryRef] = None
     select_queries: List[SelectQuery]
+
+
+class RatioExpr(Expr):
+    left: NumericConstant
+    right: Optional[NumericConstant] = None
+
+
+class SampleExpr(Expr):
+    offset_value: Optional[RatioExpr]
+
+    # k or n
+    sample_value: RatioExpr
 
 
 JoinExpr.update_forward_refs(SelectUnionQuery=SelectUnionQuery)
