@@ -9,9 +9,14 @@ import { urls } from 'scenes/urls'
 export interface InlineEditorButtonProps {
     query: Node
     setQuery?: (query: Node) => void
+    linkToQueryEditor?: boolean
 }
 
-export function InlineEditorButton({ query, setQuery }: InlineEditorButtonProps): JSX.Element {
+export function InlineEditorButton({
+    query,
+    setQuery,
+    linkToQueryEditor = true,
+}: InlineEditorButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
 
     return (
@@ -24,9 +29,13 @@ export function InlineEditorButton({ query, setQuery }: InlineEditorButtonProps)
                 onClose={() => setOpen(false)}
                 width="60vw"
                 title={
-                    <>
-                        <LemonButton to={urls.query(JSON.stringify(query))}>Open in Query Builder</LemonButton>
-                    </>
+                    linkToQueryEditor ? (
+                        <>
+                            <LemonButton to={urls.insightNew(undefined, undefined, JSON.stringify(query))}>
+                                Open in Query Builder
+                            </LemonButton>
+                        </>
+                    ) : undefined
                 }
             >
                 <QueryEditor

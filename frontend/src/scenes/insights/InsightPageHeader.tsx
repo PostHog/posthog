@@ -35,6 +35,7 @@ import { ThunderboltFilled } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { globalInsightLogic } from './globalInsightLogic'
+import { isInsightVizNode } from '~/queries/utils'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -326,7 +327,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 insightChanged={insightChanged || queryChanged}
                             />
                         )}
-                        {isUsingDataExploration && <InlineEditorButton query={query} setQuery={setQuery} />}
+                        {isUsingDataExploration && (
+                            <InlineEditorButton
+                                query={query}
+                                setQuery={setQuery}
+                                linkToQueryEditor={isInsightVizNode(query)}
+                            />
+                        )}
                     </div>
                 }
                 caption={
