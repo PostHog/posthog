@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { Funnel } from 'scenes/funnels/Funnel'
+import { Funnel, FunnelDataExploration } from 'scenes/funnels/Funnel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
@@ -17,7 +17,7 @@ export function FunnelInsightDataExploration(): JSX.Element {
                 'non-empty-state': nonEmptyState,
             })}
         >
-            <Funnel />
+            <FunnelDataExploration />
         </div>
     )
 }

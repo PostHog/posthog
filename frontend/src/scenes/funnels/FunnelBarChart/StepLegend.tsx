@@ -10,14 +10,33 @@ import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } f
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { FunnelStepMore } from '../FunnelStepMore'
 import { userLogic } from 'scenes/userLogic'
+import { Noun } from '~/models/groupsModel'
 
-interface StepLegendProps extends ChartParams {
+type StepLegendProps = {
     step: FunnelStepWithConversionMetrics
     stepIndex: number
     showTime: boolean
-}
-export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
+} & ChartParams
+
+export function StepLegendDataExploration(props: StepLegendProps): JSX.Element {
     const { aggregationTargetLabel } = useValues(funnelLogic)
+    return <StepLegendComponent aggregationTargetLabel={aggregationTargetLabel} {...props} />
+}
+
+export function StepLegend(props: StepLegendProps): JSX.Element {
+    const { aggregationTargetLabel } = useValues(funnelLogic)
+    return <StepLegendComponent aggregationTargetLabel={aggregationTargetLabel} {...props} />
+}
+
+type StepLegendComponentProps = StepLegendProps & { aggregationTargetLabel: Noun }
+
+export function StepLegendComponent({
+    step,
+    stepIndex,
+    showTime,
+    showPersonsModal,
+    aggregationTargetLabel,
+}: StepLegendComponentProps): JSX.Element {
     const { openPersonsModalForStep } = useActions(funnelLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 

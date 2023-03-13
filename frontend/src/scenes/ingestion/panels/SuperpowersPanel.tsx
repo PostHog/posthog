@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { SupportHeroHog } from 'lib/components/hedgehogs'
 import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ingestionLogic } from '../ingestionLogic'
 
 export function SuperpowersPanel(): JSX.Element {
@@ -12,6 +11,7 @@ export function SuperpowersPanel(): JSX.Element {
     const { showBillingStep } = useValues(ingestionLogic)
     const { completeOnboarding } = useActions(ingestionLogic)
     const [sessionRecordingsChecked, setSessionRecordingsChecked] = useState(true)
+    const [autocaptureChecked, setAutocaptureChecked] = useState(true)
 
     return (
         <CardContainer
@@ -21,6 +21,7 @@ export function SuperpowersPanel(): JSX.Element {
                     session_recording_opt_in: sessionRecordingsChecked,
                     capture_console_log_opt_in: sessionRecordingsChecked,
                     capture_performance_opt_in: sessionRecordingsChecked,
+                    autocapture_opt_out: !autocaptureChecked,
                 })
                 if (!showBillingStep) {
                     completeOnboarding()
@@ -62,12 +63,16 @@ export function SuperpowersPanel(): JSX.Element {
                 </p>
             </div>
             <div>
-                <Tooltip title="Autocapture can be disabled by customizing your JS snippet." placement="topRight">
-                    <div className="flex justify-between w-full">
-                        <p className="text-base font-semibold m-0">Autocapture frontend interactions</p>
-                        <LemonSwitch data-attr="opt-in-autocapture-switch" checked={true} disabled={true} />
-                    </div>
-                </Tooltip>
+                <LemonSwitch
+                    data-attr="opt-in-autocapture-switch"
+                    onChange={(checked) => {
+                        setAutocaptureChecked(checked)
+                    }}
+                    label="Autocapture frontend interactions"
+                    fullWidth={true}
+                    labelClassName={'text-base font-semibold'}
+                    checked={autocaptureChecked}
+                />
                 <p className="prompt-text ml-0">
                     If you use our JavaScript or React Native libraries, we'll automagically capture frontend
                     interactions like pageviews, clicks, and more.{' '}
