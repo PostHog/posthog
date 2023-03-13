@@ -1,4 +1,5 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import type { navigation3000LogicType } from './navigationLogicType'
 
@@ -101,6 +102,24 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
     }),
+    subscriptions(({ cache, actions }) => ({
+        isResizeInProgress: (isResizeInProgress) => {
+            if (isResizeInProgress) {
+                cache.onMouseMove = (e: MouseEvent): void => actions.syncSidebarWidthWithMouseMove(e.movementX)
+                cache.onMouseUp = (e: MouseEvent): void => {
+                    if (e.button === 0) {
+                        actions.endResize()
+                    }
+                }
+                document.addEventListener('mousemove', cache.onMouseMove)
+                document.addEventListener('mouseup', cache.onMouseUp)
+                return () => {}
+            } else {
+                document.removeEventListener('mousemove', cache.onMouseMove)
+                document.removeEventListener('mouseup', cache.onMouseUp)
+            }
+        },
+    })),
     events(({ actions, cache }) => ({
         afterMount: () => {
             cache.syncSidebarWidthWithViewport = () => actions.syncSidebarWidthWithViewport()
