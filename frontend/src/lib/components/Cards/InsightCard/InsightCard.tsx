@@ -644,9 +644,9 @@ function InsightCardInternal(
                         }
                     >
                         {exportedAndCached || (isUsingDashboardQueryTiles && sharedAndCached) ? (
-                            <Query query={insight.query} readOnly={true} cachedResults={insight.result} />
+                            <Query query={insight.query} cachedResults={insight.result} />
                         ) : isUsingDashboardQueryTiles && canMakeQueryAPICalls ? (
-                            <Query query={insight.query} readOnly={true} />
+                            <Query query={insight.query} />
                         ) : (
                             <>
                                 <QueriesUnsupportedHere />
