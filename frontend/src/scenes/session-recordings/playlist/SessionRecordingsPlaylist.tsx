@@ -85,8 +85,8 @@ export function RecordingsLists({
                 listKey="other"
                 embedded
                 title={'Recordings in playlist'}
-                onRecordingClick={() => alert('TODO')}
-                onPropertyClick={() => alert('TODO')}
+                onRecordingClick={() => console.log('TODO')}
+                onPropertyClick={() => console.log('TODO')}
                 recordings={sessionRecordings.slice(0, PLAYLIST_PREVIEW_RECORDINGS_LIMIT)}
                 loading={sessionRecordingsResponseLoading}
                 loadingSkeletonCount={PLAYLIST_PREVIEW_RECORDINGS_LIMIT}

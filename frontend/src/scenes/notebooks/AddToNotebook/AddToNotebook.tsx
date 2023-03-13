@@ -1,8 +1,8 @@
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconJournalPlus } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
 
 export type AddToNotebookProps = {
     node: NodeType
@@ -16,7 +16,7 @@ export function AddToNotebook({
     children,
     ...buttonProps
 }: AddToNotebookProps): JSX.Element {
-    const { addNodeToNotebook } = useActions(notebookLogic)
+    const { addNodeToNotebook } = useActions(notebookSidebarLogic)
 
     return (
         <LemonButton

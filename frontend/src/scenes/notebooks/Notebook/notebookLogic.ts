@@ -1,8 +1,7 @@
-import { actions, connect, defaults, kea, key, listeners, path, reducers } from 'kea'
+import { actions, defaults, kea, key, listeners, path, props, reducers } from 'kea'
 import { NodeType } from 'scenes/notebooks/Nodes/types'
 import { Editor } from '@tiptap/core'
 import type { notebookLogicType } from './notebookLogicType'
-import { notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
 
 const START_CONTENT = `
 <h2>Introducing Notebook!</h2>
@@ -16,21 +15,21 @@ const START_CONTENT = `
 <ph-recording-playlist filters="{}"/>
 `
 
+export type NotebookLogicProps = {
+    id: string
+}
+
 export const notebookLogic = kea<notebookLogicType>([
-    path(['scenes', 'notebooks', 'Notebook', 'notebookLogic']),
-    key(() => 'global'),
-    connect(() => ({
-        actions: [notebookSidebarLogic, ['setFullScreen']],
-    })),
+    props({} as NotebookLogicProps),
+    path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
+    key(({ id }) => id),
     actions({
         setEditorRef: (editor: Editor) => ({ editor }),
         addNodeToNotebook: (type: NodeType, props: Record<string, any>) => ({ type, props }),
-        setIsEditable: (isEditable: boolean) => ({ isEditable }),
         syncContent: (content: string) => ({ content }),
     }),
     defaults({
         editor: null as Editor | null,
-        isEditable: true,
     }),
     reducers({
         content: [
@@ -44,19 +43,8 @@ export const notebookLogic = kea<notebookLogicType>([
         editor: {
             setEditorRef: (_, { editor }) => editor,
         },
-        isEditable: {
-            setIsEditable: (_, { isEditable }) => isEditable,
-        },
     }),
     listeners(({ values }) => ({
-        setEditorRef: ({ editor }) => {
-            editor?.setEditable(values.isEditable)
-        },
-
-        setIsEditable: ({ isEditable }) => {
-            values.editor?.setEditable(isEditable)
-        },
-
         addNodeToNotebook: ({ type, props }) => {
             if (!values.editor) {
                 return
@@ -70,10 +58,6 @@ export const notebookLogic = kea<notebookLogicType>([
                     attrs: props,
                 })
                 .run()
-
-            // Make notebook fullscreen
-            // Disabled for now as this feels weird
-            // actions.setFullScreen(true)
         },
     })),
 ])

@@ -1,5 +1,5 @@
 import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useState } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 
@@ -13,17 +13,8 @@ export interface NodeWrapperProps extends NodeViewProps {
 
 export function NodeWrapper({ title, className, children, preview, selected, edit }: NodeWrapperProps): JSX.Element {
     const [isEdit, setIsEdit] = useState<boolean>(false)
-    const [isPreview, setIsPreview] = useState<boolean>(true)
 
-    const kids = typeof children === 'function' ? children(isEdit, isPreview) : children
-
-    const previewNode = preview ?? kids // default to children if no preview
-
-    useEffect(() => {
-        if (isEdit) {
-            setIsPreview(false)
-        }
-    }, [isEdit])
+    const content = selected ? children : preview ?? children
 
     return (
         <NodeViewWrapper as="div" className={clsx(className, 'flex flex-col gap-1 overflow-hidden')}>
@@ -43,16 +34,6 @@ export function NodeWrapper({ title, className, children, preview, selected, edi
                             {isEdit ? 'Done' : 'Edit'}
                         </span>
                     )}
-                    {!!preview && (
-                        <span
-                            className="cursor-pointer"
-                            onClick={() => {
-                                setIsPreview(!isPreview)
-                            }}
-                        >
-                            {isPreview ? 'Full' : 'Preview'}
-                        </span>
-                    )}
                 </div>
             </div>
             <div className="flex flex-row gap-4">
@@ -70,7 +51,7 @@ export function NodeWrapper({ title, className, children, preview, selected, edi
                         'border-primary': selected,
                     })}
                 >
-                    {isPreview ? previewNode : kids}
+                    {content}
                 </div>
             </div>
         </NodeViewWrapper>
