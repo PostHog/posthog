@@ -10,12 +10,15 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from pydantic import BaseModel
 from rest_framework import viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ParseError, ValidationError
+from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
+from posthog import schema
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team, User
@@ -40,9 +43,33 @@ def parse_as_date_or(date_string: str | None, default: datetime) -> datetime:
     return timestamp or default
 
 
+class QuerySchemaParser(JSONParser):
+    """
+    A query schema parser that ensures a valid query is present in the request
+    """
+
+    @staticmethod
+    def validate_query(data) -> Dict:
+        try:
+            schema.Model.parse_obj(data)
+            # currently we have to return data not the parsed Model
+            # because pydantic doesn't know to discriminate on 'kind'
+            # if we can get this correctly typed we can return the parsed model
+            return data
+        except Exception as error:
+            raise ParseError(detail=str(error))
+
+    def parse(self, stream, media_type=None, parser_context=None):
+        data = super(QuerySchemaParser, self).parse(stream, media_type, parser_context)
+        QuerySchemaParser.validate_query(data.get("query"))
+        return data
+
+
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+
+    parser_classes = (QuerySchemaParser,)
 
     @extend_schema(
         parameters=[
@@ -51,10 +78,17 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 OpenApiTypes.STR,
                 description="Query node JSON string",
             ),
+            OpenApiParameter(
+                "client_query_id",
+                OpenApiTypes.STR,
+                description="Client provided query ID. Can be used to cancel queries.",
+            ),
         ]
     )
     def list(self, request: Request, **kw) -> HttpResponse:
-        query_json = self._query_json_from_request(request)
+        self._tag_client_query_id(request.GET.get("client_query_id"))
+        query_json = QuerySchemaParser.validate_query(self._query_json_from_request(request))
+
         is_hogql_enabled = _is_hogql_enabled(
             user=cast(User, self.request.user),
             organization_id=self.organization_id,
@@ -64,7 +98,9 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
 
     def post(self, request, *args, **kwargs):
-        query_json = request.data
+        request_json = request.data
+        query_json = request_json.get("query")
+        self._tag_client_query_id(request_json.get("client_query_id"))
         is_hogql_enabled = _is_hogql_enabled(
             user=cast(User, self.request.user),
             organization_id=self.organization_id,
@@ -72,6 +108,10 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         )
         # allow lists as well as dicts in response with safe=False
         return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
+
+    def _tag_client_query_id(self, query_id: str | None):
+        if query_id is not None:
+            tag_queries(client_query_id=query_id)
 
     def _query_json_from_request(self, request):
         if request.method == "POST":
@@ -85,6 +125,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         if query_source is None:
             raise ValidationError("Please provide a query in the request body or as a query parameter.")
 
+        # TODO with improved pydantic validation we don't need the validation here
         try:
 
             def parsing_error(ex):
@@ -106,55 +147,54 @@ def _response_to_dict(response: BaseModel) -> Dict:
 
 
 def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
-    try:
-        query_kind = query_json.get("kind")
-        if query_kind == "EventsQuery":
-            events_query = EventsQuery.parse_obj(query_json)
-            response = run_events_query(query=events_query, team=team)
-            return _response_to_dict(response)
-        elif query_kind == "HogQLQuery":
-            if not is_hogql_enabled:
-                raise ValidationError("HogQL is not enabled for this organization")
-            hogql_query = HogQLQuery.parse_obj(query_json)
-            response = execute_hogql_query(query=hogql_query.query, team=team)
-            return _response_to_dict(response)
-        elif query_kind == "RecentPerformancePageViewNode":
-            try:
-                # noinspection PyUnresolvedReferences
-                from ee.api.performance_events import load_performance_events_recent_pageviews
-            except ImportError:
-                raise ValidationError("Performance events are not enabled for this instance")
+    # query_json has been parsed by QuerySchemaParser
+    # it _should_ be impossible to end up in here with a "bad" query
+    query_kind = query_json.get("kind")
+    if query_kind == "EventsQuery":
+        events_query = EventsQuery.parse_obj(query_json)
+        response = run_events_query(query=events_query, team=team)
+        return _response_to_dict(response)
+    elif query_kind == "HogQLQuery":
+        if not is_hogql_enabled:
+            raise ValidationError("HogQL is not enabled for this organization")
+        hogql_query = HogQLQuery.parse_obj(query_json)
+        response = execute_hogql_query(query=hogql_query.query, team=team)
+        return _response_to_dict(response)
+    elif query_kind == "RecentPerformancePageViewNode":
+        try:
+            # noinspection PyUnresolvedReferences
+            from ee.api.performance_events import load_performance_events_recent_pageviews
+        except ImportError:
+            raise ValidationError("Performance events are not enabled for this instance")
 
-            recent_performance_query = RecentPerformancePageViewNode.parse_obj(query_json)
-            results = load_performance_events_recent_pageviews(
-                team_id=team.pk,
-                date_from=parse_as_date_or(recent_performance_query.dateRange.date_from, now() - timedelta(hours=1)),
-                date_to=parse_as_date_or(recent_performance_query.dateRange.date_to, now()),
-            )
+        recent_performance_query = RecentPerformancePageViewNode.parse_obj(query_json)
+        results = load_performance_events_recent_pageviews(
+            team_id=team.pk,
+            date_from=parse_as_date_or(recent_performance_query.dateRange.date_from, now() - timedelta(hours=1)),
+            date_to=parse_as_date_or(recent_performance_query.dateRange.date_to, now()),
+        )
 
-            return results
-        elif query_kind == "TimeToSeeDataSessionsQuery":
-            sessions_query_serializer = SessionsQuerySerializer(data=query_json)
-            sessions_query_serializer.is_valid(raise_exception=True)
-            return {"results": get_sessions(sessions_query_serializer).data}
-        elif query_kind == "TimeToSeeDataQuery":
-            serializer = SessionEventsQuerySerializer(
-                data={
-                    "team_id": team.pk,
-                    "session_start": query_json["sessionStart"],
-                    "session_end": query_json["sessionEnd"],
-                    "session_id": query_json["sessionId"],
-                }
-            )
-            serializer.is_valid(raise_exception=True)
-            return get_session_events(serializer) or {}
-        else:
-            if query_json.get("source"):
-                return process_query(team, query_json["source"], is_hogql_enabled)
-            else:
-                raise ValidationError(f"Unsupported query kind: {query_kind}")
-    except Exception as e:
-        raise ValidationError(str(e))
+        return results
+    elif query_kind == "TimeToSeeDataSessionsQuery":
+        sessions_query_serializer = SessionsQuerySerializer(data=query_json)
+        sessions_query_serializer.is_valid(raise_exception=True)
+        return {"results": get_sessions(sessions_query_serializer).data}
+    elif query_kind == "TimeToSeeDataQuery":
+        serializer = SessionEventsQuerySerializer(
+            data={
+                "team_id": team.pk,
+                "session_start": query_json["sessionStart"],
+                "session_end": query_json["sessionEnd"],
+                "session_id": query_json["sessionId"],
+            }
+        )
+        serializer.is_valid(raise_exception=True)
+        return get_session_events(serializer) or {}
+    else:
+        if query_json.get("source"):
+            return process_query(team, query_json["source"], is_hogql_enabled)
+
+        raise ValidationError(f"Unsupported query kind: {query_kind}")
 
 
 def _is_hogql_enabled(user: User, organization_id: str, organization_created_at: datetime) -> bool:
