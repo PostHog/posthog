@@ -16,7 +16,7 @@ import { AlertMessage } from '../AlertMessage'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import clsx from 'clsx'
 
-const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted']
+const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted', '3000']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
 export default {

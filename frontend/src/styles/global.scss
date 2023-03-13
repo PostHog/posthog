@@ -588,6 +588,15 @@ input::-ms-clear {
 
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
+    &.posthog-3000 {
+        --default: var(--text-3000);
+        --muted: var(--muted-3000);
+        --border: var(--border-3000);
+        --light: var(--bg-3000);
+        --bg-mid: var(--bg-3000);
+        background: var(--bg-3000);
+    }
+
     h1,
     h2,
     h3,

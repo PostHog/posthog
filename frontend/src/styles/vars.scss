@@ -105,6 +105,13 @@ $colors: (
     'border-dark': rgba(0, 0, 0, 0.24),
     'border-active': rgba(0, 0, 0, 0.36),
     'transparent': transparent,
+
+    // PostHog 3000
+    'text-3000': #111,
+    'muted-3000': rgba(#111, 0.5),
+    'accent-3000': #e5e7e0,
+    'bg-3000': #eeefe9,
+    'border-3000': #d0d1c9,
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
@@ -254,7 +261,7 @@ $_lifecycle_dormant: #f86234;
     // Update and override from react-toastify
     // which attaches these variables to :root
     // which means they aren't available in the toolbar
-    --toastify-color-light: #fff;
+    --toastify-color-light: var(--bg-light);
     --toastify-color-info: var(--primary);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);

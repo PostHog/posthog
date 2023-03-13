@@ -25,7 +25,7 @@
     transition: opacity 100ms ease, transform 100ms ease;
     transform-origin: top;
     box-shadow: var(--shadow-elevation);
-    background: #fff;
+    background: var(--bg-light);
     padding: 0.5rem;
     border-radius: var(--radius);
     border: 1px solid var(--border);
