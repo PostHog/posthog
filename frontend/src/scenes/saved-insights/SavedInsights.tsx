@@ -56,6 +56,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
+import { examples } from '~/queries/examples'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -256,6 +257,17 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
 }
 
+const insightTypeURL: Record<InsightType, string> = {
+    TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
+    STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
+    LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
+    FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
+    RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
+    PATHS: urls.insightNew({ insight: InsightType.PATHS }),
+    QUERY: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
+    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
+}
+
 export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
     let insightType = insight?.filters?.insight || InsightType.TRENDS
     if (!!insight.query && !isInsightVizNode(insight.query)) {
@@ -289,7 +301,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                                             <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
                                         )
                                     }
-                                    to={urls.insightNew({ insight: listedInsightType as InsightType })}
+                                    to={insightTypeURL[listedInsightType as InsightType]}
                                     data-attr={dataAttr}
                                     data-attr-insight-type={listedInsightType}
                                     onClick={() => {
