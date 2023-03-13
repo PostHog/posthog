@@ -12,7 +12,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { examples, TotalEventsTable } from '~/queries/examples'
-import { userLogic } from 'scenes/userLogic'
 
 export interface Tab {
     label: string
@@ -32,8 +31,6 @@ export const insightNavLogic = kea<insightNavLogicType>([
             ['featureFlags'],
             insightDataLogic(props),
             ['query'],
-            userLogic,
-            ['user'],
         ],
         actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuery']],
     })),
