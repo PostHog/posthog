@@ -45,6 +45,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
         ],
+        allowQueryTab: [
+            (s) => [s.featureFlags, s.isUsingDataExploration],
+            (featureFlags, isUsingDataExploration) =>
+                isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB],
+        ],
         activeView: [
             (s) => [s.filters, s.query, s.isUsingDataExploration],
             (filters, query, isUsingDataExploration) => {
@@ -65,8 +70,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.isUsingDataExploration, s.user],
-            (isUsingDataExploration, user) => {
+            (s) => [s.isUsingDataExploration, s.allowQueryTab],
+            (isUsingDataExploration, allowQueryTab) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',
@@ -106,7 +111,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     })
-                    if (user?.is_staff) {
+                    if (allowQueryTab) {
                         tabs.push({
                             label: 'Query',
                             type: InsightType.QUERY,
