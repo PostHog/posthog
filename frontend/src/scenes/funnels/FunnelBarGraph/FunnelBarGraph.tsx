@@ -4,7 +4,7 @@ import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } f
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Popover } from 'antd'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { IconTrendingFlatDown, IconInfinity, IconTrendingFlat, IconInfo } from 'lib/lemon-ui/icons'
+import { IconTrendingFlatDown, IconInfinity, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { funnelLogic } from '../funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
@@ -13,7 +13,6 @@ import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_Ins
 import { FunnelLayout } from 'lib/constants'
 import { getBreakdownMaxIndex, getReferenceStep, getSeriesPositionName } from '../funnelUtils'
 import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -21,6 +20,7 @@ import { getSeriesColor } from 'lib/colors'
 import { FunnelStepMore } from '../FunnelStepMore'
 import { Noun } from '~/models/groupsModel'
 import { ValueInspectorButton } from '../ValueInspectorButton'
+import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 
 interface BarProps {
     percentage: number
@@ -39,25 +39,6 @@ interface BarProps {
 }
 
 type LabelPosition = 'inside' | 'outside'
-
-function DuplicateStepIndicator(): JSX.Element {
-    return (
-        <Tooltip
-            title={
-                <>
-                    <b>This is a repeated event in a sequence</b>
-                    <p>
-                        When an event is repeated across funnel steps, it is interpreted as a sequence. For example, a
-                        three-step funnel consisting of pageview events is interpretted as first pageview, followed by
-                        second pageview, followed by a third pageview.
-                    </p>
-                </>
-            }
-        >
-            <IconInfo style={{ marginLeft: '0.375rem', fontSize: '1.25rem', color: 'var(--muted-alt)' }} />
-        </Tooltip>
-    )
-}
 
 function Bar({
     percentage: conversionPercentage,
