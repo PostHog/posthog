@@ -271,7 +271,7 @@ export interface DataTableNode extends Node {
     /** Can the user click on column headers to sort the table? (default: true) */
     allowSorting?: boolean
 
-    /** Show a button to open the current query as a new insight */
+    /** Show a button to open the current query as a new insight. (default: true) */
     showOpenEditorButton?: boolean
 }
 
