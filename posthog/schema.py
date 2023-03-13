@@ -261,6 +261,7 @@ class InsightType(str, Enum):
     RETENTION = "RETENTION"
     PATHS = "PATHS"
     QUERY = "QUERY"
+    SQL = "SQL"
 
 
 class IntervalType(str, Enum):

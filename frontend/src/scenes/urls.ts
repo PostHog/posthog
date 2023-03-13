@@ -43,8 +43,11 @@ export const urls = {
     propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
     events: (): string => '/events',
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
-    insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null): string =>
-        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, filters ? { filters } : {}).url,
+    insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
+        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
+            ...(filters ? { filters } : {}),
+            ...(query ? { q: query } : {}),
+        }).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,

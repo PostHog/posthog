@@ -10,11 +10,13 @@ import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogi
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { isInsightVizNode } from '~/queries/utils'
-import { TotalEventsTable } from '~/queries/examples'
+import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
+import { examples, TotalEventsTable } from '~/queries/examples'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { userLogic } from 'scenes/userLogic'
 
 export interface Tab {
-    label: string
+    label: string | JSX.Element
     type: InsightType
     dataAttr: string
 }
@@ -31,6 +33,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             ['featureFlags'],
             insightDataLogic(props),
             ['query'],
+            userLogic,
+            ['user'],
         ],
         actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuery']],
     })),
@@ -42,6 +46,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
         ],
+        allowQueryTab: [
+            (s) => [s.featureFlags, s.isUsingDataExploration],
+            (featureFlags, isUsingDataExploration) =>
+                isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB],
+        ],
         activeView: [
             (s) => [s.filters, s.query, s.isUsingDataExploration],
             (filters, query, isUsingDataExploration) => {
@@ -49,6 +58,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     if (isInsightVizNode(query)) {
                         return insightMap[query.source.kind] || InsightType.TRENDS
                     } else if (!!query) {
+                        if (isHogQLQuery(query) || (isDataTableNode(query) && isHogQLQuery(query.source))) {
+                            return InsightType.SQL
+                        }
                         return InsightType.QUERY
                     } else {
                         return InsightType.TRENDS
@@ -59,8 +71,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.isUsingDataExploration],
-            (isUsingDataExploration) => {
+            (s) => [s.isUsingDataExploration, s.allowQueryTab, s.user],
+            (isUsingDataExploration, allowQueryTab, user) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',
@@ -96,10 +108,25 @@ export const insightNavLogic = kea<insightNavLogicType>([
 
                 if (isUsingDataExploration) {
                     tabs.push({
-                        label: 'Query',
-                        type: InsightType.QUERY,
-                        dataAttr: 'insight-query-tab',
+                        label: (
+                            <>
+                                SQL{' '}
+                                <LemonTag type="warning" className="uppercase ml-2">
+                                    Beta
+                                </LemonTag>
+                            </>
+                        ),
+                        type: InsightType.SQL,
+                        dataAttr: 'insight-sql-tab',
                     })
+                    // don't show query tab to everyone with the data exploration flags on
+                    if (allowQueryTab && user?.is_staff) {
+                        tabs.push({
+                            label: 'Query',
+                            type: InsightType.QUERY,
+                            dataAttr: 'insight-query-tab',
+                        })
+                    }
                 }
 
                 return tabs
@@ -123,6 +150,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     actions.setQuery(queryFromKind(NodeKind.LifecycleQuery))
                 } else if (view === InsightType.QUERY) {
                     actions.setQuery(TotalEventsTable)
+                } else if (view === InsightType.SQL) {
+                    actions.setQuery(examples.HogQLTable)
                 }
             } else {
                 actions.setFilters(

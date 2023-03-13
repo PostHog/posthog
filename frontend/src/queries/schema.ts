@@ -223,6 +223,7 @@ export interface PersonsNode extends DataNode {
 // Data table node
 
 export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
+
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
@@ -485,8 +486,6 @@ export interface BreakdownFilter {
 export interface QueryContext {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
-
-    readonly?: boolean
 }
 
 interface QueryContextColumn {
