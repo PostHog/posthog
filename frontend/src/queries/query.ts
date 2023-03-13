@@ -112,18 +112,9 @@ export async function query<N extends DataNode = DataNode>(
     queryId?: string
 ): Promise<N['response']> {
     if (isEventsQuery(queryNode)) {
-        if (!queryNode.before && !queryNode.after) {
-            const earlyResults = await api.query(
-                { ...queryNode, after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString() },
-                methodOptions
-            )
-            if (earlyResults.results.length > 0) {
-                return earlyResults
-            }
-        }
-        return await api.query({ after: now().subtract(1, 'year').toISOString(), ...queryNode }, methodOptions)
+        return await api.query(queryNode, methodOptions, queryId)
     } else if (isHogQLQuery(queryNode)) {
-        return api.query(queryNode, methodOptions)
+        return api.query(queryNode, methodOptions, queryId)
     } else if (isPersonsNode(queryNode)) {
         return await api.get(getPersonsEndpoint(queryNode), methodOptions)
     } else if (isInsightQueryNode(queryNode)) {
