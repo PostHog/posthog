@@ -36,7 +36,7 @@
     max-height: 90%;
     margin: 1rem auto;
     border-radius: var(--radius);
-    background-color: #fff;
+    background-color: var(--bg-light);
     border: 1px solid var(--border);
     box-shadow: var(--shadow-elevation);
     transition: opacity var(--modal-transition-time) ease-out, transform var(--modal-transition-time) ease-out;

@@ -388,7 +388,7 @@ def ingestion_lag():
         pass
 
 
-KNOWN_CELERY_TASK_IDENTIFIERS = {"pluginJob"}
+KNOWN_CELERY_TASK_IDENTIFIERS = {"pluginJob", "runEveryHour", "runEveryMinute", "runEveryDay"}
 
 
 @app.task(ignore_result=True)
