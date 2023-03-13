@@ -82,13 +82,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 saveAction: async (updatedAction: ActionEditType, breakpoint) => {
                     let action = { ...updatedAction }
 
-                    action.steps = action.steps
-                        ? action.steps.filter((step) => {
-                              // Will discard any match groups that were added but for which a type of event selection has not been made
-                              return step.event
-                          })
-                        : []
-
                     try {
                         if (action.id) {
                             action = await api.actions.update(action.id, action, props.temporaryToken)
