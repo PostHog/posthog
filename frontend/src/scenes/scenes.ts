@@ -212,9 +212,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         instanceLevel: true,
         name: 'Instance status & settings',
     },
-    [Scene.Licenses]: {
-        instanceLevel: true,
-    },
     [Scene.AsyncMigrations]: {
         instanceLevel: true,
     },
@@ -338,7 +335,6 @@ export const routes: Record<string, Scene> = {
     [urls.billingSubscribed()]: Scene.BillingSubscribed,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
-    [urls.instanceLicenses()]: Scene.Licenses,
     [urls.instanceStatus()]: Scene.SystemStatus,
     [urls.instanceSettings()]: Scene.SystemStatus,
     [urls.instanceStaffUsers()]: Scene.SystemStatus,

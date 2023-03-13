@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { BillingV2 } from '../Billing'
+import { BillingV2 } from './Billing'
 import { useStorybookMocks, mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import billingJson from '~/mocks/fixtures/_billing_v2.json'
