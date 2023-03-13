@@ -223,6 +223,7 @@ export interface PersonsNode extends DataNode {
 // Data table node
 
 export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
+
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
