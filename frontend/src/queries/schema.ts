@@ -469,9 +469,6 @@ export interface BreakdownFilter {
 export interface QueryContext {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
-
-    /** Some behaviour changes depending on where the query is being shown */
-    placement?: 'InsightEdit' | 'InsightView'
 }
 
 interface QueryContextColumn {
