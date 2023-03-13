@@ -6,11 +6,12 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { PoolClient } from 'pg'
 
-import { Person, PropertyUpdateOperation } from '../../types'
+import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
+import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { NoRowsUpdatedError, UUIDT } from '../../utils/utils'
+import { castTimestampOrNow, NoRowsUpdatedError, UUIDT } from '../../utils/utils'
 import { LazyPersonContainer } from './lazy-person-container'
 import { PersonManager } from './person-manager'
 import { captureIngestionWarning } from './utils'
@@ -45,6 +46,7 @@ export class PersonState {
     eventProperties: Properties
     timestamp: DateTime
     newUuid: string
+    maxMergeAttempts: number
 
     personContainer: LazyPersonContainer
 
@@ -52,6 +54,7 @@ export class PersonState {
     private statsd: StatsD | undefined
     private personManager: PersonManager
     private updateIsIdentified: boolean
+    private poEEmbraceJoin: boolean
 
     constructor(
         event: PluginEvent,
@@ -62,7 +65,9 @@ export class PersonState {
         statsd: StatsD | undefined,
         personManager: PersonManager,
         personContainer: LazyPersonContainer,
-        uuid: UUIDT | undefined = undefined
+        poEEmbraceJoin: boolean,
+        uuid: UUIDT | undefined = undefined,
+        maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {
         this.event = event
         this.distinctId = distinctId
@@ -70,6 +75,7 @@ export class PersonState {
         this.eventProperties = event.properties!
         this.timestamp = timestamp
         this.newUuid = (uuid || new UUIDT()).toString()
+        this.maxMergeAttempts = maxMergeAttempts
 
         this.db = db
         this.statsd = statsd
@@ -82,6 +88,9 @@ export class PersonState {
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
         this.updateIsIdentified = false
+
+        // For persons on events embrace the join gradual roll-out, remove after fully rolled out
+        this.poEEmbraceJoin = poEEmbraceJoin
     }
 
     async update(): Promise<LazyPersonContainer> {
@@ -393,7 +402,7 @@ export class PersonState {
             // In the rare case of the person changing VERY often however, it may happen even a few times,
             // in which case we'll bail and rethrow the error.
             totalMergeAttempts++
-            if (totalMergeAttempts >= MAX_FAILED_PERSON_MERGE_ATTEMPTS) {
+            if (totalMergeAttempts >= this.maxMergeAttempts) {
                 throw error // Very much not OK, failed repeatedly so rethrowing the error
             }
             await this.mergeWithoutValidation(
@@ -463,11 +472,18 @@ export class PersonState {
         let properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
         properties = this.applyEventPropertyUpdates(properties)
 
-        // Keep the oldest created_at (i.e. the first time we've seen this person)
+        if (this.poEEmbraceJoin) {
+            // Optimize merging persons to keep using the person id that has longer history,
+            // which means we'll have less events to update during the squash later
+            if (otherPerson.created_at < mergeInto.created_at) {
+                ;[mergeInto, otherPerson] = [otherPerson, mergeInto]
+            }
+        }
+
         const [kafkaMessages, mergedPerson] = await this.handleMergeTransaction(
             mergeInto,
             otherPerson,
-            olderCreatedAt,
+            olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
             properties
         )
         await this.db.kafkaProducer.queueMessages(kafkaMessages)
@@ -507,8 +523,158 @@ export class PersonState {
 
             const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
 
-            return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
+            let personOverrideMessages: ProducerRecord[] = []
+            if (this.poEEmbraceJoin) {
+                personOverrideMessages = [await this.addPersonOverride(otherPerson, mergeInto, client)]
+            }
+
+            return [
+                [...personOverrideMessages, ...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages],
+                person,
+            ]
         })
+    }
+
+    private async addPersonOverride(
+        oldPerson: Person,
+        overridePerson: Person,
+        client?: PoolClient
+    ): Promise<ProducerRecord> {
+        const mergedAt = DateTime.now()
+        const oldestEvent = overridePerson.created_at
+        /**
+            We'll need to do 4 updates:
+
+         1. Add the persons involved to the helper table (2 of them)
+         2. Add an override from oldPerson to override person
+         3. Update any entries that have oldPerson as the override person to now also point to the new override person. Note that we don't update `oldest_event`, because it's a heuristic (used to optimise squashing) tied to the old_person and nothing changed about the old_person who's events need to get squashed.
+         */
+        const oldPersonId = await this.addPersonOverrideMapping(oldPerson, client)
+        const overridePersonId = await this.addPersonOverrideMapping(overridePerson, client)
+
+        await this.db.postgresQuery(
+            SQL`
+                INSERT INTO posthog_personoverride (
+                    team_id,
+                    old_person_id,
+                    override_person_id,
+                    oldest_event,
+                    version
+                ) VALUES (
+                    ${this.teamId},
+                    ${oldPersonId},
+                    ${overridePersonId},
+                    ${oldestEvent},
+                    0
+                )
+            `,
+            undefined,
+            'personOverride',
+            client
+        )
+
+        // The follow-up JOIN is required as ClickHouse requires UUIDs, so we need to fetch the UUIDs
+        // of the IDs we updated from the mapping table.
+        const { rows: transitiveUpdates } = await this.db.postgresQuery(
+            SQL`
+                WITH updated_ids AS (
+                    UPDATE
+                        posthog_personoverride
+                    SET
+                        override_person_id = ${overridePersonId}, version = COALESCE(version, 0)::numeric + 1
+                    WHERE
+                        team_id = ${this.teamId} AND override_person_id = ${oldPersonId}
+                    RETURNING
+                        old_person_id,
+                        version,
+                        oldest_event
+                )
+                SELECT
+                    helper.uuid as old_person_id,
+                    updated_ids.version,
+                    updated_ids.oldest_event
+                FROM
+                    updated_ids
+                JOIN
+                    posthog_personoverridemapping helper
+                ON
+                    helper.id = updated_ids.old_person_id;
+            `,
+            undefined,
+            'transitivePersonOverrides',
+            client
+        )
+
+        status.debug('🔁', 'person_overrides_updated', { transitiveUpdates })
+
+        const personOverrideMessages: ProducerRecord = {
+            topic: KAFKA_PERSON_OVERRIDE,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        team_id: oldPerson.team_id,
+                        merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
+                        override_person_id: overridePerson.uuid,
+                        old_person_id: oldPerson.uuid,
+                        oldest_event: castTimestampOrNow(oldestEvent, TimestampFormat.ClickHouse),
+                        version: 0,
+                    }),
+                },
+                ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
+                    value: JSON.stringify({
+                        team_id: oldPerson.team_id,
+                        merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
+                        override_person_id: overridePerson.uuid,
+                        old_person_id: old_person_id,
+                        oldest_event: castTimestampOrNow(oldest_event, TimestampFormat.ClickHouse),
+                        version: version,
+                    }),
+                })),
+            ],
+        }
+
+        return personOverrideMessages
+    }
+
+    private async addPersonOverrideMapping(person: Person, client?: PoolClient): Promise<number> {
+        /**
+            Update the helper table that serves as a mapping between a serial ID and a Person UUID.
+
+            This mapping is used to enable an exclusion constraint in the personoverrides table, which
+            requires int[], while avoiding any constraints on "hotter" tables, like person.
+         **/
+
+        // ON CONFLICT nothing is returned, so we get the id in the second SELECT statement below.
+        // Fear not, the constraints on personoverride will handle any inconsistencies.
+        // This mapping table is really nothing more than a mapping to support exclusion constraints
+        // as we map int ids to UUIDs (the latter not supported in exclusion contraints).
+        const {
+            rows: [{ id }],
+        } = await this.db.postgresQuery(
+            `WITH insert_id AS (
+                    INSERT INTO posthog_personoverridemapping(
+                        team_id,
+                        uuid
+                    )
+                    VALUES (
+                        ${this.teamId},
+                        '${person.uuid}'
+                    )
+                    ON CONFLICT("team_id", "uuid") DO NOTHING
+                    RETURNING id
+                )
+                SELECT * FROM insert_id
+                UNION ALL
+                SELECT id
+                FROM posthog_personoverridemapping
+                WHERE uuid = '${person.uuid}'
+            `,
+            undefined,
+            'personOverrideMapping',
+            client
+        )
+
+        return id
     }
 
     private async handleTablesDependingOnPersonID(
@@ -541,4 +707,14 @@ export function ageInMonthsLowCardinality(timestamp: DateTime): number {
     // for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB: https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
     const ageLowCardinality = Math.min(ageInMonths, 50)
     return ageLowCardinality
+}
+
+function SQL(sqlParts: TemplateStringsArray, ...args: any[]): { text: string; values: any[] } {
+    // Generates a node-pq compatible query object given a tagged
+    // template literal. The intention is to remove the need to match up
+    // the positional arguments with the $1, $2, etc. placeholders in
+    // the query string.
+    const text = sqlParts.reduce((acc, part, i) => acc + '$' + i + part)
+    const values = args
+    return { text, values }
 }

@@ -19,7 +19,7 @@ import {
 import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { InsightLegendButton } from 'lib/components/InsightLegend/InsightLegendButton'
+import { InsightLegendButtonDataExploration } from 'lib/components/InsightLegend/InsightLegendButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
@@ -219,7 +219,7 @@ export function InsightContainer({
                         <div>
                             {isFunnels ? <FunnelCanvasLabel /> : null}
                             {isPaths ? <PathCanvasLabel /> : null}
-                            <InsightLegendButton />
+                            <InsightLegendButtonDataExploration />
                         </div>
                     </div>
                     {!!BlockingEmptyState ? (
