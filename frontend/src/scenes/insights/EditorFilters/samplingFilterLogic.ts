@@ -10,6 +10,7 @@ import { InsightLogicProps } from '~/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
+import { subscriptions } from 'kea-subscriptions'
 
 export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
 
@@ -49,9 +50,6 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                     samplingPercentage === oldSamplingPercentage ? null : samplingPercentage,
                 setGlobalInsightFilters: (_, { globalInsightFilters }) => {
                     return globalInsightFilters.sampling_factor ? globalInsightFilters.sampling_factor * 100 : null
-                },
-                setInsightFilters: (_, { filters }) => {
-                    return filters.sampling_factor ? filters.sampling_factor * 100 : null
                 },
             },
         ],
@@ -98,6 +96,14 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 actions.setPathsFilters(newFilters)
             } else {
                 actions.setInsightFilters(newFilters)
+            }
+        },
+    })),
+    subscriptions(({ values, actions }) => ({
+        filters: (filter) => {
+            const newSamplingPercentage = filter.sampling_factor ? filter.sampling_factor * 100 : null
+            if (newSamplingPercentage !== values.samplingPercentage) {
+                actions.setSamplingPercentage(newSamplingPercentage)
             }
         },
     })),
