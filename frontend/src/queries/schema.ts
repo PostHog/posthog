@@ -241,7 +241,6 @@ export interface DataTableNode extends Node {
     hiddenColumns?: HogQLExpression[]
     /** Show with most visual options enabled. Used in scenes. */
     full?: boolean
-
     /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
     /** Include a free text search field (PersonsNode only) */
