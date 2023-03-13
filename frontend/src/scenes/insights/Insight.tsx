@@ -15,7 +15,7 @@ import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { isInsightVizNode } from '~/queries/utils'
+import { containsHogQLQuery } from '~/queries/utils'
 
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
@@ -39,7 +39,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     const { reportInsightViewedForRecentInsights, abortAnyRunningQuery, loadResults } = useActions(logic)
 
     // insightDataLogic
-    const { query } = useValues(insightDataLogic(insightProps))
+    const { query, isQueryBasedInsight } = useValues(insightDataLogic(insightProps))
     const { setQuery } = useActions(insightDataLogic(insightProps))
 
     // other logics
@@ -69,7 +69,8 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         return <InsightSkeleton />
     }
 
-    const showQueryEditorPanel = insightMode === ItemMode.Edit && !!query && !isInsightVizNode(query)
+    // TODO the query editor visibility will be determined by the Query component after #14709
+    const showQueryEditorPanel = insightMode === ItemMode.Edit && isQueryBasedInsight && !containsHogQLQuery(query)
 
     const insightScene = (
         <div className={'insights-page'}>
@@ -90,7 +91,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                             </div>
                         </>
                     ) : null}
-                    <Query query={query} setQuery={setQuery} />
+                    <Query query={query} setQuery={insightMode === ItemMode.Edit ? setQuery : undefined} />
                 </>
             ) : (
                 <>

@@ -1453,6 +1453,7 @@ export enum InsightType {
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
     QUERY = 'QUERY',
+    SQL = 'SQL',
 }
 
 export enum PathType {
@@ -2081,7 +2082,7 @@ export enum DashboardMode { // Default mode is null
 }
 
 // Hotkeys for local (component) actions
-export type HotKeys =
+export type HotKey =
     | 'a'
     | 'b'
     | 'c'
@@ -2114,6 +2115,8 @@ export type HotKeys =
     | 'arrowright'
     | 'arrowdown'
     | 'arrowup'
+
+export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export interface EventDefinition {
     id: string
