@@ -1889,18 +1889,11 @@
                 "funnel_window_interval_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
-                "hidden_legend_keys": {
-                    "additionalProperties": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "not": {}
-                            }
-                        ]
+                "hidden_legend_series": {
+                    "items": {
+                        "type": "string"
                     },
-                    "type": "object"
+                    "type": "array"
                 },
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout"
@@ -2688,18 +2681,11 @@
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
-                "hidden_legend_keys": {
-                    "additionalProperties": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "not": {}
-                            }
-                        ]
+                "hidden_legend_indexes": {
+                    "items": {
+                        "type": "number"
                     },
-                    "type": "object"
+                    "type": "array"
                 },
                 "show_legend": {
                     "type": "boolean"
@@ -2833,18 +2819,11 @@
                     "$ref": "#/definitions/ChartDisplayType"
                 },
                 "formula": {},
-                "hidden_legend_keys": {
-                    "additionalProperties": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "not": {}
-                            }
-                        ]
+                "hidden_legend_indexes": {
+                    "items": {
+                        "type": "number"
                     },
-                    "type": "object"
+                    "type": "array"
                 },
                 "show_legend": {
                     "type": "boolean"
