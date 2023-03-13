@@ -204,6 +204,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
             if (overrideFilter && query == null) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
+            } else if (query) {
+                actions.setQuery(query)
             }
         },
         loadInsightSuccess: ({ insight }) => {
@@ -257,7 +259,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     ...values.insight,
                     result: insightData?.result,
                     next: insightData?.next,
-                    filters: queryNodeToFilter(values.querySource),
+                    filters: values.insight.query ? {} : queryNodeToFilter(values.querySource),
                 },
                 {}
             )
