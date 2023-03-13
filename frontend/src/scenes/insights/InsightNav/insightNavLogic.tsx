@@ -13,6 +13,7 @@ import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter
 import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { examples, TotalEventsTable } from '~/queries/examples'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { userLogic } from 'scenes/userLogic'
 
 export interface Tab {
     label: string | JSX.Element
@@ -32,6 +33,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             ['featureFlags'],
             insightDataLogic(props),
             ['query'],
+            userLogic,
+            ['user'],
         ],
         actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuery']],
     })),
@@ -68,8 +71,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.isUsingDataExploration, s.allowQueryTab],
-            (isUsingDataExploration, allowQueryTab) => {
+            (s) => [s.isUsingDataExploration, s.allowQueryTab, s.user],
+            (isUsingDataExploration, allowQueryTab, user) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',
@@ -116,7 +119,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     })
-                    if (allowQueryTab) {
+                    // don't show query tab to everyone with the data exploration flags on
+                    if (allowQueryTab && user?.is_staff) {
                         tabs.push({
                             label: 'Query',
                             type: InsightType.QUERY,
