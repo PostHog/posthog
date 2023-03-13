@@ -1,16 +1,16 @@
 import { ReactNode, useState } from 'react'
-import { NodeViewWrapper } from '@tiptap/react'
+import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
 import clsx from 'clsx'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 
-export interface NodeWrapperProps {
+export interface NodeWrapperProps extends NodeViewProps {
     title: string
     className: string
     children: ReactNode
     preview?: ReactNode // Minified preview mode to show in small screen situations and unexpanded modes. If not defined, children are mounted and rendered.
 }
 
-export function NodeWrapper({ title, className, children, preview }: NodeWrapperProps): JSX.Element {
+export function NodeWrapper({ title, className, children, preview, selected }: NodeWrapperProps): JSX.Element {
     const [isEdit, setIsEdit] = useState<boolean>(false)
     const [isPreview, setIsPreview] = useState<boolean>(true)
 
@@ -44,7 +44,11 @@ export function NodeWrapper({ title, className, children, preview }: NodeWrapper
                     )}
                 </div>
             </div>
-            <div className={clsx('border bg-white rounded-lg mb-2 overflow-y-auto flex-1')}>
+            <div
+                className={clsx('border bg-white rounded-lg mb-2 overflow-y-auto flex-1', {
+                    'border-primary': selected,
+                })}
+            >
                 {isPreview ? previewNode : children}
             </div>
         </NodeViewWrapper>

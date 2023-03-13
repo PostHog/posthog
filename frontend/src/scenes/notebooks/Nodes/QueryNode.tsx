@@ -31,7 +31,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     }, [query])
 
     return (
-        <NodeWrapper className={NodeType.Query} title="Query">
+        <NodeWrapper className={NodeType.Query} title="Query" {...props}>
             <div className="max-h-60 overflow-y-auto">
                 <Query query={query} setQuery={(t) => setQuery(t)} />
             </div>
