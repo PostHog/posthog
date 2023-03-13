@@ -29,7 +29,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
+import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { isEventsQuery, isHogQlAggregation, isHogQLQuery, isPersonsNode, taxonomicFilterToHogQl } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
@@ -363,7 +363,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             <div className="flex-1" />
                             {firstRowRight}
                             {inlineEditorButtonOnRow === 1 && context?.readonly !== true ? (
-                                <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                                <OpenEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
                     )}
@@ -374,7 +374,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             <div className="flex-1" />
                             {secondRowRight}
                             {inlineEditorButtonOnRow === 2 && context?.readonly !== true ? (
-                                <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                                <OpenEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
                     )}
@@ -383,7 +383,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                     )}
                     {inlineEditorButtonOnRow === 0 && context?.readonly !== true ? (
                         <div className="absolute right-0 z-10 p-1">
-                            <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                            <OpenEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                         </div>
                     ) : null}
                     <LemonTable

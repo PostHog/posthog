@@ -11,7 +11,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { deleteWithUndo } from 'lib/utils'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
-import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
+import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -328,7 +328,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         )}
                         {isUsingDataExploration && (
-                            <InlineEditorButton
+                            <OpenEditorButton
                                 query={query}
                                 setQuery={setQuery}
                                 linkToQueryEditor={isInsightVizNode(query)}
