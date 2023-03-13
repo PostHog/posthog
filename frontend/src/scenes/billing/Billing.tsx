@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { billingV2Logic } from './billingV2Logic'
+import { billingLogic } from './billingLogic'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -28,7 +28,7 @@ const DEFAULT_BILLING_LIMIT = 500
 
 export const scene: SceneExport = {
     component: BillingV2,
-    logic: billingV2Logic,
+    logic: billingLogic,
 }
 
 export function BillingPageHeader(): JSX.Element {
@@ -36,8 +36,8 @@ export function BillingPageHeader(): JSX.Element {
 }
 
 export function BillingV2(): JSX.Element {
-    const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingV2Logic)
-    const { reportBillingV2Shown } = useActions(billingV2Logic)
+    const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
+    const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const cloudOrDev = preflight?.cloud || preflight?.is_debug
 
@@ -193,7 +193,7 @@ export function BillingV2(): JSX.Element {
                     ) : showLicenseDirectInput ? (
                         <>
                             <Form
-                                logic={billingV2Logic}
+                                logic={billingLogic}
                                 formKey="activateLicense"
                                 enableFormOnSubmit
                                 className="space-y-4"
@@ -246,8 +246,8 @@ export function BillingV2(): JSX.Element {
 }
 
 const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { billing, billingLoading } = useValues(billingV2Logic)
-    const { updateBillingLimits } = useActions(billingV2Logic)
+    const { billing, billingLoading } = useValues(billingLogic)
+    const { updateBillingLimits } = useActions(billingLogic)
     const [tierAmountType, setTierAmountType] = useState<'individual' | 'total'>('individual')
 
     // The actual stored billing limit

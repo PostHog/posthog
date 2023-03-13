@@ -13,7 +13,7 @@ import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
-import type { billingV2LogicType } from './billingV2LogicType'
+import type { billingLogicType } from './billingLogicType'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -43,7 +43,7 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
     return data as BillingV2Type
 }
 
-export const billingV2Logic = kea<billingV2LogicType>([
+export const billingLogic = kea<billingLogicType>([
     path(['scenes', 'billing', 'v2', 'billingLogic']),
     actions({
         setShowLicenseDirectInput: (show: boolean) => ({ show }),

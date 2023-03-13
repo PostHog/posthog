@@ -75,7 +75,7 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
-import { billingV2Logic } from 'scenes/billing/billingV2Logic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -664,7 +664,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
         useActions(featureFlagLogic)
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { upgradeLink } = useValues(billingV2Logic)
+    const { upgradeLink } = useValues(billingLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (

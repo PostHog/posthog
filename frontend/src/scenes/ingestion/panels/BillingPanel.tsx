@@ -5,14 +5,14 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { billingV2Logic } from 'scenes/billing/billingV2Logic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { BillingV2 } from 'scenes/billing/Billing'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export function BillingPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogic)
     const { reportIngestionContinueWithoutBilling } = useActions(eventUsageLogic)
-    const { billing: billingV2, billingVersion } = useValues(billingV2Logic)
+    const { billing: billingV2, billingVersion } = useValues(billingLogic)
 
     if (!billingVersion || billingVersion !== 'v2') {
         return (
