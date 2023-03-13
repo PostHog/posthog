@@ -281,6 +281,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/projects/\\d+/persons/?$",
                 "^/api/organizations/@current/plugins/?$",
                 "^api/projects/@current/feature_flags/my_flags/?$",
+                "^/?api/projects/\\d+/query/?$",
             ]
         ),
     )
