@@ -12,9 +12,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { examples, TotalEventsTable } from '~/queries/examples'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 export interface Tab {
-    label: string
+    label: string | JSX.Element
     type: InsightType
     dataAttr: string
 }
@@ -104,7 +105,14 @@ export const insightNavLogic = kea<insightNavLogicType>([
 
                 if (isUsingDataExploration) {
                     tabs.push({
-                        label: 'SQL',
+                        label: (
+                            <>
+                                SQL{' '}
+                                <LemonTag type="warning" className="uppercase ml-2">
+                                    Beta
+                                </LemonTag>
+                            </>
+                        ),
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     })
