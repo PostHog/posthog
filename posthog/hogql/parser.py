@@ -185,7 +185,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitJoinExprTable(self, ctx: HogQLParser.JoinExprTableContext):
         if ctx.sampleClause():
-            raise NotImplementedError(f"Unsupported: SAMPLE (JoinExprTable.sampleClause)")
+            print('###########', self.visit(ctx.tableExpr()))
+            return self.visit(ctx.sampleClause())
         table = self.visit(ctx.tableExpr())
         table_final = True if ctx.FINAL() else None
         if isinstance(table, ast.JoinExpr):
@@ -255,6 +256,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return column_expr_list[0]
 
     def visitSampleClause(self, ctx: HogQLParser.SampleClauseContext):
+        print(ctx.SAMPLE(), ctx.OFFSET(), ctx.ratioExpr()[0])
         raise NotImplementedError(f"Unsupported node: SampleClause")
 
     def visitLimitExpr(self, ctx: HogQLParser.LimitExprContext):

@@ -723,3 +723,9 @@ class TestParser(BaseTest):
                 ]
             ),
         )
+
+    def test_sample(self):
+        self.assertEqual(
+            parse_select("select 1 from events sample 1"),
+            1
+        )
