@@ -1,7 +1,7 @@
 import MonacoEditor from '@monaco-editor/react'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { AnyResponseType, DataNode as DataNodeType, DataTableNode, Node } from '~/queries/schema'
+import { AnyResponseType, DataNode as DataNodeType, DataTableNode } from '~/queries/schema'
 import { useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -26,7 +26,7 @@ export function DataNode(props: DataNodeProps): JSX.Element {
     return (
         <div className="relative">
             <div className="absolute right-0 z-10 p-1 mr-3">
-                <OpenEditorButton query={props.query} setQuery={props.setQuery as (node: Node) => void} />
+                <OpenEditorButton query={props.query} />
             </div>
             {responseLoading ? (
                 <div className="text-2xl">
