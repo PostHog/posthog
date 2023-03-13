@@ -98,7 +98,7 @@ def filter_event(
             conditions.append(f"{value_expr} LIKE %({prop_name})s")
             params.update({prop_name: f"%{step.url}%"})
 
-    if step.event is not None and step.event != "":
+    if step.event:
         params.update({f"{prepend}_{index}": step.event})
         conditions.append(f"event = %({prepend}_{index})s")
 
