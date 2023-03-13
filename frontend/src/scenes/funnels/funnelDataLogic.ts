@@ -98,7 +98,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (insightData: FunnelAPIResponse | null): FunnelResultType => {
                 // TODO: after hooking up data manager, check that we have a funnels result here
                 if (insightData?.result) {
-                    if (isBreakdownFunnelResults(insightData.result) && insightData.result[0][0].breakdowns) {
+                    if (isBreakdownFunnelResults(insightData.result) && insightData.result?.[0]?.[0]?.breakdowns) {
                         // in order to stop the UI having to check breakdowns and breakdown
                         // this collapses breakdowns onto the breakdown property
                         return insightData.result.map((series) =>
