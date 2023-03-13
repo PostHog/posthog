@@ -1,5 +1,5 @@
 import { actions, kea, reducers, path, listeners } from 'kea'
-import { NodeType } from '../Nodes/types'
+import { NotebookNodeType } from '../Nodes/types'
 import { notebookLogic } from './notebookLogic'
 
 import type { notebookSidebarLogicType } from './notebookSidebarLogicType'
@@ -9,12 +9,13 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     actions({
         setNotebookSideBarShown: (shown: boolean) => ({ shown }),
         setFullScreen: (full: boolean) => ({ full }),
-        addNodeToNotebook: (type: NodeType, properties: Record<string, any>) => ({ type, properties }),
+        addNodeToNotebook: (type: NotebookNodeType, properties: Record<string, any>) => ({ type, properties }),
         createNotebook: (id: string) => ({ id }),
         deleteNotebook: (id: string) => ({ id }),
         renameNotebook: (id: string, name: string) => ({ id, name }),
         selectNotebook: (id: string) => ({ id }),
     }),
+
     reducers(() => ({
         notebooks: [
             ['scratchpad', 'RFC: Notebooks', 'Feature Flag overview', 'HoqQL examples'] as string[],

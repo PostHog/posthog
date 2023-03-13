@@ -7,6 +7,7 @@ import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import { IconFullScreen, IconChevronRight, IconJournal, IconLock, IconLockOpen, IconPlus } from 'lib/lemon-ui/icons'
 import { CSSTransition } from 'react-transition-group'
 import { useState } from 'react'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 export function NotebookSideBar(): JSX.Element {
     const { notebookSideBarShown, fullScreen, notebooks, selectedNotebook } = useValues(notebookSidebarLogic)
@@ -14,6 +15,17 @@ export function NotebookSideBar(): JSX.Element {
 
     const [isEditable, setIsEditable] = useState(true)
     const [showCode, setShowCode] = useState(false)
+
+    useKeyboardHotkeys(
+        {
+            escape: {
+                action: function () {
+                    setFullScreen(false)
+                },
+            },
+        },
+        []
+    )
 
     return (
         <div

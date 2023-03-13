@@ -1,7 +1,8 @@
 import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
 import { ReactNode, useState } from 'react'
 import clsx from 'clsx'
-import { IconDragHandle } from 'lib/lemon-ui/icons'
+import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
+import { Link } from '@posthog/lemon-ui'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
@@ -9,9 +10,18 @@ export interface NodeWrapperProps extends NodeViewProps {
     children: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     preview?: ReactNode // Minified preview mode to show in small screen situations and unexpanded modes. If not defined, children are mounted and rendered.
     edit?: ReactNode // TODO: This will be replaced with a separate query sidebar outside of the context of a notebook
+    href?: string
 }
 
-export function NodeWrapper({ title, className, children, preview, selected, edit }: NodeWrapperProps): JSX.Element {
+export function NodeWrapper({
+    title,
+    className,
+    children,
+    preview,
+    selected,
+    edit,
+    href,
+}: NodeWrapperProps): JSX.Element {
     const [isEdit, setIsEdit] = useState<boolean>(false)
 
     const content = selected ? children : preview ?? children
@@ -34,13 +44,19 @@ export function NodeWrapper({ title, className, children, preview, selected, edi
                             {isEdit ? 'Done' : 'Edit'}
                         </span>
                     )}
+
+                    {href && (
+                        <Link to={href}>
+                            <IconLink /> Link
+                        </Link>
+                    )}
                 </div>
             </div>
             <div className="flex flex-row gap-4">
                 {!!edit && isEdit && (
                     <div
                         className={clsx('relative border bg-white rounded-lg mb-2 overflow-y-auto flex-1 max-w-60', {
-                            'border-primary': selected,
+                            'border-primary border-2': selected,
                         })}
                     >
                         {edit}
@@ -48,7 +64,7 @@ export function NodeWrapper({ title, className, children, preview, selected, edi
                 )}
                 <div
                     className={clsx('relative border bg-white rounded-lg mb-2 overflow-y-auto flex-1', {
-                        'border-primary': selected,
+                        'border-primary border-2': selected,
                     })}
                 >
                     {content}

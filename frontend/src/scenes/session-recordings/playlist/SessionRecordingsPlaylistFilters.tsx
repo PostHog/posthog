@@ -2,7 +2,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { eventUsageLogic, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -127,7 +127,7 @@ export function SessionRecordingsPlaylistFilters({
                         <AddToNotebook
                             type="secondary"
                             icon={null}
-                            node={NodeType.RecordingPlaylist}
+                            node={NotebookNodeType.RecordingPlaylist}
                             properties={{ filters: {} }}
                             data-attr="add-playlist-to-notebook-button"
                         >

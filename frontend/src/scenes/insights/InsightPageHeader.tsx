@@ -36,7 +36,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { globalInsightLogic } from './globalInsightLogic'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -311,7 +311,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                         {insightMode !== ItemMode.Edit && insight.short_id && featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
                             <AddToNotebook
-                                node={NodeType.Insight}
+                                node={NotebookNodeType.Insight}
                                 properties={{ shortId: insight.short_id }}
                                 type="secondary"
                                 size="medium"

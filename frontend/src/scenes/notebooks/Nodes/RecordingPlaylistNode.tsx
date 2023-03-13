@@ -1,7 +1,7 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
+import { markPasteRule, mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import {
     RecordingsLists,
     SessionRecordingsPlaylist,
@@ -20,7 +20,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeWrapper
             {...props}
-            className={NodeType.RecordingPlaylist}
+            className={NotebookNodeType.RecordingPlaylist}
             title="Playlist"
             edit={<SessionRecordingsPlaylistFilters {...recordingPlaylistLogicProps} />}
             preview={<RecordingsLists {...recordingPlaylistLogicProps} />}
@@ -34,7 +34,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 }
 
 export const RecordingPlaylistNode = Node.create({
-    name: NodeType.RecordingPlaylist,
+    name: NotebookNodeType.RecordingPlaylist,
     group: 'block',
     atom: true,
     draggable: true,
@@ -50,13 +50,13 @@ export const RecordingPlaylistNode = Node.create({
     parseHTML() {
         return [
             {
-                tag: NodeType.RecordingPlaylist,
+                tag: NotebookNodeType.RecordingPlaylist,
             },
         ]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return [NodeType.RecordingPlaylist, mergeAttributes(HTMLAttributes)]
+        return [NotebookNodeType.RecordingPlaylist, mergeAttributes(HTMLAttributes)]
     },
 
     addNodeView() {

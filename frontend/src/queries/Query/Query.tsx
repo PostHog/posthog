@@ -16,7 +16,7 @@ import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -77,12 +77,15 @@ export function Query(props: QueryProps): JSX.Element {
     }
 
     if (component) {
+        const queryWithoutFull: any = { ...query }
+        queryWithoutFull.full = false
+
         return (
             <ErrorBoundary>
                 <div className="relative">
                     <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS}>
                         <span className="absolute top-0 right-0 -mr-9">
-                            <AddToNotebook node={NodeType.Query} properties={{ query }} />
+                            <AddToNotebook node={NotebookNodeType.Query} properties={{ query: queryWithoutFull }} />
                         </span>
                     </FlaggedFeature>
 

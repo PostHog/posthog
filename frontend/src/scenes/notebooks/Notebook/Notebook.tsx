@@ -12,6 +12,7 @@ import { RecordingPlaylistNode } from 'scenes/notebooks/Nodes/RecordingPlaylistN
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import MonacoEditor from '@monaco-editor/react'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { FeatureFlagNode } from '../Nodes/FeatureFlagNode'
 
 export type NotebookProps = {
     id: string
@@ -25,7 +26,7 @@ export function Notebook({ id, sourceMode, editable = false }: NotebookProps): J
     const { setEditorRef, syncContent } = useActions(logic)
 
     const editor = useEditor({
-        extensions: [StarterKit, InsightNode, QueryNode, RecordingNode, RecordingPlaylistNode],
+        extensions: [StarterKit, InsightNode, QueryNode, RecordingNode, RecordingPlaylistNode, FeatureFlagNode],
         content,
         editorProps: {
             attributes: {

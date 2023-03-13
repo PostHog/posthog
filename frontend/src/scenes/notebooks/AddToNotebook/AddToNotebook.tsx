@@ -1,11 +1,11 @@
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconJournalPlus } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
-import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
 
 export type AddToNotebookProps = {
-    node: NodeType
+    node: NotebookNodeType
     properties: Record<string, any>
 } & LemonButtonProps
 
@@ -20,7 +20,10 @@ export function AddToNotebook({
 
     return (
         <LemonButton
-            onClick={() => {
+            data-attr="add-to-notebook"
+            onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
                 addNodeToNotebook(node, properties)
             }}
             size="small"

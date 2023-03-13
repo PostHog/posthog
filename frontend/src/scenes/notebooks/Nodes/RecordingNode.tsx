@@ -2,7 +2,7 @@ import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { PlayerMeta } from 'scenes/session-recordings/player/PlayerMeta'
 
 const Component = (props: NodeViewProps): JSX.Element => {
@@ -15,7 +15,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeWrapper
             {...props}
-            className={NodeType.Recording}
+            className={NotebookNodeType.Recording}
             title="Recording"
             preview={<PlayerMeta {...recordingLogicProps} />}
         >
@@ -28,7 +28,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 }
 
 export const RecordingNode = Node.create({
-    name: NodeType.Recording,
+    name: NotebookNodeType.Recording,
     group: 'block',
     atom: true,
     draggable: true,
@@ -44,13 +44,13 @@ export const RecordingNode = Node.create({
     parseHTML() {
         return [
             {
-                tag: NodeType.Recording,
+                tag: NotebookNodeType.Recording,
             },
         ]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return [NodeType.Recording, mergeAttributes(HTMLAttributes)]
+        return [NotebookNodeType.Recording, mergeAttributes(HTMLAttributes)]
     },
 
     addNodeView() {

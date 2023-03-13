@@ -9,7 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 export function PlayerMetaLinks(props: SessionRecordingPlayerProps): JSX.Element {
     const { sessionRecordingId } = props
@@ -49,7 +49,7 @@ export function PlayerMetaLinks(props: SessionRecordingPlayerProps): JSX.Element
             <PlaylistPopover {...props} />
 
             {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                <AddToNotebook node={NodeType.Recording} properties={{ ...props }} />
+                <AddToNotebook node={NotebookNodeType.Recording} properties={{ ...props }} />
             )}
 
             {props.playerKey !== 'modal' && (

@@ -5,14 +5,14 @@ import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ItemMode } from '~/types'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const logic = insightLogic({ dashboardItemId: props.node.attrs.shortId })
     const { insightProps } = useValues(logic)
 
     return (
-        <NodeWrapper className={NodeType.Insight} title="Insight" {...props}>
+        <NodeWrapper className={NotebookNodeType.Insight} title="Insight" {...props}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer
@@ -29,7 +29,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 }
 
 export const InsightNode = Node.create({
-    name: NodeType.Insight,
+    name: NotebookNodeType.Insight,
     group: 'block',
     atom: true,
     draggable: true,
@@ -43,13 +43,13 @@ export const InsightNode = Node.create({
     parseHTML() {
         return [
             {
-                tag: NodeType.Insight,
+                tag: NotebookNodeType.Insight,
             },
         ]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return [NodeType.Insight, mergeAttributes(HTMLAttributes)]
+        return [NotebookNodeType.Insight, mergeAttributes(HTMLAttributes)]
     },
 
     addNodeView() {

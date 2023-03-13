@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { BindLogic } from 'kea'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -31,7 +33,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     }, [query])
 
     return (
-        <NodeWrapper className={NodeType.Query} title="Query" {...props}>
+        <NodeWrapper className={NotebookNodeType.Query} title="Query" {...props}>
             <div className="max-h-120 overflow-y-auto">
                 <Query query={query} setQuery={(t) => setQuery(t as any)} />
             </div>
@@ -40,7 +42,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 }
 
 export const QueryNode = Node.create({
-    name: NodeType.Query,
+    name: NotebookNodeType.Query,
     group: 'block',
     atom: true,
     draggable: true,
@@ -56,13 +58,13 @@ export const QueryNode = Node.create({
     parseHTML() {
         return [
             {
-                tag: NodeType.Query,
+                tag: NotebookNodeType.Query,
             },
         ]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return [NodeType.Query, mergeAttributes(HTMLAttributes)]
+        return [NotebookNodeType.Query, mergeAttributes(HTMLAttributes)]
     },
 
     addNodeView() {
