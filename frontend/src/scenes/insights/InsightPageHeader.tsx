@@ -11,7 +11,6 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { deleteWithUndo } from 'lib/utils'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
-import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -35,7 +34,6 @@ import { ThunderboltFilled } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { globalInsightLogic } from './globalInsightLogic'
-import { isInsightVizNode } from '~/queries/utils'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -63,7 +61,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // insightDataLogic
     const { query, queryChanged } = useValues(insightDataLogic(insightProps))
-    const { setQuery, saveInsight: saveQueryBasedInsight } = useActions(insightDataLogic(insightProps))
+    const { saveInsight: saveQueryBasedInsight } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -325,13 +323,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged || queryChanged}
-                            />
-                        )}
-                        {isUsingDataExploration && (
-                            <OpenEditorButton
-                                query={query}
-                                setQuery={setQuery}
-                                linkToQueryEditor={isInsightVizNode(query)}
                             />
                         )}
                     </div>
