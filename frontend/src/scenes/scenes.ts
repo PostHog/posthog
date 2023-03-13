@@ -227,10 +227,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         hideProjectNotice: true,
         organizationBased: true,
     },
-    [Scene.BillingSubscribed]: {
-        plain: true,
-        allowUnauthenticated: true,
-    },
     [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
     },
@@ -332,7 +328,6 @@ export const routes: Record<string, Scene> = {
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
-    [urls.billingSubscribed()]: Scene.BillingSubscribed,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
     [urls.instanceStatus()]: Scene.SystemStatus,

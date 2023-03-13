@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -22,7 +22,6 @@ import { navigationLogic } from '../navigationLogic'
 import { OrganizationBasicType } from '../../../types'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
-import { licenseLogic, isLicenseExpired } from '../../../scenes/instance/Licenses/licenseLogic'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import {
     AccessLevelIndicator,
@@ -243,7 +242,6 @@ export function SitePopoverOverlay(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { closeSitePopover } = useActions(navigationLogic)
-    useMountedLogic(licenseLogic)
 
     return (
         <>
@@ -296,10 +294,6 @@ export function SitePopover(): JSX.Element {
     const { user } = useValues(userLogic)
     const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
-    const { relevantLicense } = useValues(licenseLogic)
-    useMountedLogic(licenseLogic)
-
-    const expired = relevantLicense && isLicenseExpired(relevantLicense)
 
     return (
         <Popover
@@ -309,12 +303,9 @@ export function SitePopover(): JSX.Element {
             overlay={<SitePopoverOverlay />}
         >
             <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
-                <div
-                    className="SitePopover__profile-picture"
-                    title={!systemStatus ? 'Potential system issue' : expired ? 'License expired' : undefined}
-                >
+                <div className="SitePopover__profile-picture" title="Potential system issue">
                     <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
-                    {(!systemStatus || expired) && <IconExclamation className="SitePopover__danger" />}
+                    {!systemStatus && <IconExclamation className="SitePopover__danger" />}
                 </div>
                 <IconArrowDropDown />
             </div>
