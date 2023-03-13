@@ -1,8 +1,8 @@
-import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Button, ButtonProps, Popover } from 'antd'
+import { Popover } from 'antd'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { IconTrendingFlatDown, IconInfinity, IconTrendingFlat, IconInfo } from 'lib/lemon-ui/icons'
 import { funnelLogic } from './funnelLogic'
@@ -20,6 +20,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { getSeriesColor } from 'lib/colors'
 import { FunnelStepMore } from './FunnelStepMore'
 import { Noun } from '~/models/groupsModel'
+import { ValueInspectorButton } from './ValueInspectorButton'
 
 interface BarProps {
     percentage: number
@@ -157,46 +158,6 @@ function Bar({
             </div>
         </Popover>
     )
-}
-
-interface ValueInspectorButtonProps {
-    icon?: JSX.Element
-    onClick: (e?: React.MouseEvent) => void
-    children: React.ReactNode
-    disabled?: boolean
-    style?: React.CSSProperties
-    title?: string | undefined
-    innerRef?: React.MutableRefObject<HTMLElement | null>
-}
-
-export function ValueInspectorButton({
-    icon,
-    onClick,
-    children,
-    disabled = false,
-    style,
-    title,
-    innerRef: refProp,
-}: ValueInspectorButtonProps): JSX.Element {
-    const props = {
-        type: 'link' as const,
-        icon,
-        onClick,
-        className: 'funnel-inspect-button',
-        disabled,
-        style,
-        title,
-        children: <span className="funnel-inspect-label">{children}</span>,
-    }
-    if (refProp) {
-        const InnerComponent: ForwardRefRenderFunction<HTMLElement | null, ButtonProps> = (_, ref) => (
-            <Button ref={ref} {...props} />
-        )
-        const RefComponent = React.forwardRef(InnerComponent)
-        return <RefComponent ref={refProp} />
-    } else {
-        return <Button {...props} />
-    }
 }
 
 interface AverageTimeInspectorProps {
