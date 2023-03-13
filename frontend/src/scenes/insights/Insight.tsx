@@ -36,7 +36,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     const { reportInsightViewedForRecentInsights, abortAnyRunningQuery, loadResults } = useActions(logic)
 
     // insightDataLogic
-    const { query, isQueryBasedInsight } = useValues(insightDataLogic(insightProps))
+    const { query, isQueryBasedInsight, showQueryEditor } = useValues(insightDataLogic(insightProps))
     const { setQuery } = useActions(insightDataLogic(insightProps))
 
     // other logics
@@ -66,8 +66,6 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         return <InsightSkeleton />
     }
 
-    const showQueryEditor = insightMode === ItemMode.Edit && isQueryBasedInsight
-
     const insightScene = (
         <div className={'insights-page'}>
             <InsightPageHeader insightLogicProps={insightProps} />
@@ -79,7 +77,10 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                     <Query
                         query={query}
                         setQuery={setQuery}
-                        context={{ showOpenEditorButton: false, showQueryEditor }}
+                        context={{
+                            showOpenEditorButton: false,
+                            showQueryEditor: insightMode === ItemMode.Edit && (isQueryBasedInsight || showQueryEditor),
+                        }}
                     />
                 </>
             ) : (

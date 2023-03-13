@@ -1,6 +1,6 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { summariseInsight } from 'scenes/insights/utils'
-import { IconLock } from 'lib/lemon-ui/icons'
+import { IconEvent, IconLock } from 'lib/lemon-ui/icons'
 import { AvailableFeature, ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode } from '~/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -34,6 +34,7 @@ import { ThunderboltFilled } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { globalInsightLogic } from './globalInsightLogic'
+import { isInsightVizNode } from '~/queries/utils'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -61,7 +62,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // insightDataLogic
     const { query, queryChanged } = useValues(insightDataLogic(insightProps))
-    const { saveInsight: saveQueryBasedInsight } = useActions(insightDataLogic(insightProps))
+    const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -325,6 +326,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 insightChanged={insightChanged || queryChanged}
                             />
                         )}
+                        {isInsightVizNode(query) ? (
+                            <LemonButton tooltip="Edit as code" type={'secondary'} onClick={toggleQueryEditorPanel}>
+                                <IconEvent />
+                            </LemonButton>
+                        ) : null}
                     </div>
                 }
                 caption={

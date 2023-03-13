@@ -90,6 +90,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        toggleQueryEditorPanel: true,
     }),
 
     reducers(({ props }) => ({
@@ -97,6 +98,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             defaultQuery(props),
             {
                 setQuery: (_, { query }) => query,
+            },
+        ],
+        showQueryEditor: [
+            false,
+            {
+                toggleQueryEditorPanel: (state) => !state,
             },
         ],
     })),
