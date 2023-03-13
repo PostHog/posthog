@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
-import { billingV2Logic } from 'scenes/billing/v2/billingV2Logic'
+import { billingV2Logic } from 'scenes/billing/billingV2Logic'
 import { urls } from 'scenes/urls'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 

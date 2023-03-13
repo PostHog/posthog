@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { windowValues } from 'kea-window-values'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { BillingType, TeamType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -185,8 +184,6 @@ export const ingestionLogic = kea<ingestionLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            billingLogic,
-            ['billing'],
             teamLogic,
             ['currentTeam'],
             preflightLogic,

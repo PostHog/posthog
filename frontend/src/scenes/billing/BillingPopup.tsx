@@ -1,5 +1,5 @@
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { BillingV2 } from './Billing'
+import { BillingV2 } from '../Billing'
 
 export type BillingPopupProps = {
     title?: string

@@ -5,7 +5,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { AvailableFeature, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
-import { billingV2Logic } from './billingV2Logic'
+import { billingV2Logic } from '../billingV2Logic'
 import './PlanTable.scss'
 
 export function PlanIcon({
