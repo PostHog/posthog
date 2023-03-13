@@ -242,19 +242,48 @@ export function CodeInstructions({
     const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
     const [payloadOption, setPayloadOption] = useState(PAYLOAD_OPTIONS[0])
+    const [localEvalOption, setLocalEvalOption] = useState(LOCAL_EVALUATION_OPTIONS[0])
+    const [bootstrapOption, setBootstrapOption] = useState(BOOTSTRAPPING_OPTIONS[0])
     const [showPayloadCode, setShowPayloadCode] = useState(Object.keys(featureFlag?.filters.payloads || {}).length > 0)
+    const [showLocalEvalCode, setShowLocalEvalCode] = useState(false)
+    const [showBootstrapCode, setShowBootstrapCode] = useState(false)
 
     const selectOption = (selectedValue: string): void => {
         const option = options.find((option) => option.value === selectedValue)
-        const payloadOption = PAYLOAD_OPTIONS.find((payloadOption) => payloadOption.value === selectedValue)
 
         if (option) {
             setSelectedOption(option)
         }
-        if (payloadOption) {
-            setPayloadOption(payloadOption)
-        } else {
-            setShowPayloadCode(false)
+
+        if (showPayloadCode) {
+            const payloadOption = PAYLOAD_OPTIONS.find((payloadOption) => payloadOption.value === selectedValue)
+            if (payloadOption) {
+                setPayloadOption(payloadOption)
+            } else {
+                setShowPayloadCode(false)
+            }
+        }
+
+        if (showLocalEvalCode) {
+            const localEvalOption = LOCAL_EVALUATION_OPTIONS.find(
+                (localEvalOption) => localEvalOption.value === selectedValue
+            )
+            if (localEvalOption) {
+                setLocalEvalOption(localEvalOption)
+            } else {
+                setShowLocalEvalCode(false)
+            }
+        }
+
+        if (showBootstrapCode) {
+            const bootstrapOption = BOOTSTRAPPING_OPTIONS.find(
+                (bootstrapOption) => bootstrapOption.value === selectedValue
+            )
+            if (bootstrapOption) {
+                setBootstrapOption(bootstrapOption)
+            } else {
+                setShowBootstrapCode(false)
+            }
         }
     }
     useEffect(() => {
@@ -299,44 +328,85 @@ export function CodeInstructions({
                             }}
                             value={selectedOption.value}
                         />
-                        {PAYLOAD_OPTIONS.map((payloadOption) => payloadOption.value).includes(selectedOption.value) && (
+                        <div className="flex items-center gap-1">
+                            <LemonCheckbox
+                                label="Show payload option"
+                                onChange={() => setShowPayloadCode(!showPayloadCode)}
+                                disabled={
+                                    !PAYLOAD_OPTIONS.map((payloadOption) => payloadOption.value).includes(
+                                        selectedOption.value
+                                    )
+                                }
+                            />
+                            <Tooltip
+                                title={
+                                    <>
+                                        {`Feature flag payloads is only available in these libraries: ${PAYLOAD_OPTIONS.map(
+                                            (payloadOption) => payloadOption.value
+                                        )}`}
+                                    </>
+                                }
+                            >
+                                <IconInfo className="text-xl text-muted-alt shrink-0" />
+                            </Tooltip>
+                        </div>
+                        <>
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
-                                    label="Show payload option"
-                                    onChange={() => setShowPayloadCode(!showPayloadCode)}
-                                />
-                                <Tooltip
-                                    title={
-                                        <>
-                                            {`Feature flag payloads is only available in these libraries: ${PAYLOAD_OPTIONS.map(
-                                                (payloadOption) => payloadOption.value
-                                            )}`}
-                                        </>
+                                    label="Show bootstrap option"
+                                    checked={showBootstrapCode}
+                                    onChange={() => setShowBootstrapCode(!showBootstrapCode)}
+                                    disabled={
+                                        !BOOTSTRAPPING_OPTIONS.map((bo) => bo.value).includes(selectedOption.value) ||
+                                        !!featureFlag?.ensure_experience_continuity
                                     }
-                                >
+                                />
+                                <Tooltip title={'Bootstrapping is only available in JavaScript and ReactNative.'}>
                                     <IconInfo className="text-xl text-muted-alt shrink-0" />
                                 </Tooltip>
                             </div>
-                        )}
-                        {!featureFlag?.ensure_experience_continuity && (
-                            <>
-                                {selectedOption.type === LibraryType.Server && (
-                                    <LemonCheckbox label="Show local evaluation option" onChange={() => {}} />
-                                )}
-                                {selectedOption.type === LibraryType.Client && (
-                                    <LemonCheckbox label="Show bootstrap option" onChange={() => {}} />
-                                )}
-                            </>
-                        )}
+                            <div className="flex items-center gap-1">
+                                <LemonCheckbox
+                                    label="Show local evaluation option"
+                                    checked={showLocalEvalCode}
+                                    onChange={() => setShowLocalEvalCode(!showLocalEvalCode)}
+                                    disabled={
+                                        selectedOption.type !== LibraryType.Server ||
+                                        !!featureFlag?.ensure_experience_continuity
+                                    }
+                                />
+                                <Tooltip title={'Local evaluation is only available in server side libraries.'}>
+                                    <IconInfo className="text-xl text-muted-alt shrink-0" />
+                                </Tooltip>
+                            </div>
+                        </>
                     </div>
                     <div className="mt mb">
                         <selectedOption.Snippet
                             data-attr="feature-flag-instructions-snippet"
                             flagKey={featureFlagKey}
                         />
-                        {showPayloadCode && <payloadOption.Snippet flagKey={featureFlagKey} />}
+                        {showPayloadCode && (
+                            <>
+                                <h3>Payloads</h3>
+                                <payloadOption.Snippet flagKey={featureFlagKey} />
+                            </>
+                        )}
+                        {showLocalEvalCode && (
+                            <>
+                                <h3>Local evaluation</h3>
+                                <localEvalOption.Snippet flagKey={featureFlagKey} />
+                            </>
+                        )}
+                        {showBootstrapCode && (
+                            <>
+                                <h3>Bootstrapping</h3>
+                                <bootstrapOption.Snippet flagKey={featureFlagKey} />
+                            </>
+                        )}
                         <FeatureFlagInstructionsFooter documentationLink={selectedOption.documentationLink} />
                     </div>
+                    <div />
                 </div>
             ) : (
                 <Card size="small">
