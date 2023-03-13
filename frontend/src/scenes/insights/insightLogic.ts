@@ -811,7 +811,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
     }),
-    listeners(({ actions, selectors, values, cache }) => ({
+    listeners(({ actions, selectors, values, cache, props }) => ({
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
         },
@@ -915,13 +915,18 @@ export const insightLogic = kea<insightLogicType>([
             actions.markInsightErrored(null)
             values.timeout && clearTimeout(values.timeout || undefined)
             const view = values.filters.insight
+            const capturedProps = props
             actions.setTimeout(
                 window.setTimeout(() => {
                     try {
-                        if (values && view == values.filters.insight) {
-                            actions.markInsightTimedOut(queryId)
+                        const mountedLogic = insightLogic.findMounted(capturedProps)
+                        if (!mountedLogic) {
+                            return
+                        }
+                        if (mountedLogic.values && view == mountedLogic.values.filters.insight) {
+                            mountedLogic.actions.markInsightTimedOut(queryId)
                             const tags = {
-                                insight: values.filters.insight,
+                                insight: mountedLogic.values.filters.insight,
                                 scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
                             }
                             posthog.capture('insight timeout message shown', tags)
