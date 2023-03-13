@@ -322,7 +322,7 @@ def pg_row_count():
         row_count_gauge = Gauge(
             "posthog_celery_pg_table_row_count",
             "Number of rows per Postgres table.",
-            labelnames=["table"],
+            labelnames=["table_name"],
             registry=registry,
         )
         with connection.cursor() as cursor:
@@ -333,7 +333,7 @@ def pg_row_count():
                 try:
                     cursor.execute(query)
                     row = cursor.fetchone()
-                    row_count_gauge.labels(table=table).set(row[0])
+                    row_count_gauge.labels(table_name=table).set(row[0])
                 except:
                     pass
 
@@ -486,7 +486,7 @@ def clickhouse_row_count():
         row_count_gauge = Gauge(
             "posthog_celery_clickhouse_table_row_count",
             "Number of rows per ClickHouse table.",
-            labelnames=["table"],
+            labelnames=["table_name"],
             registry=registry,
         )
         for table in CLICKHOUSE_TABLES:
@@ -494,7 +494,7 @@ def clickhouse_row_count():
                 QUERY = """select count(1) freq from {table};"""
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
-                row_count_gauge.labels(table=table).set(rows)
+                row_count_gauge.labels(table_name=table).set(rows)
                 statsd.gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
             except:
                 pass
