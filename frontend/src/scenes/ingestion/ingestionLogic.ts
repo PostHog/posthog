@@ -550,6 +550,9 @@ export const ingestionLogic = kea<ingestionLogicType>([
                     !!values.currentTeam?.capture_performance_opt_in
                 )
             }
+            if (!!values.currentTeam?.autocapture_opt_out) {
+                eventUsageLogic.actions.reportIngestionAutocaptureToggled(!!values.currentTeam?.autocapture_opt_out)
+            }
         },
         openThirdPartyPluginModal: ({ plugin }) => {
             pluginsLogic.actions.editPlugin(plugin.id)
