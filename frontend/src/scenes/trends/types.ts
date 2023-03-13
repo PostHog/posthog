@@ -1,11 +1,13 @@
 import { ActionFilter, ActorType, FilterType, GraphDataset, TrendResult } from '~/types'
 
+// TODO: This does not match the actual API response
 export interface TrendResponse {
     result: TrendResult[]
     filters: FilterType
     next?: string
 }
 
+// TODO: Move to ~/types
 export interface IndexedTrendResult extends TrendResult {
     /**
      * The index after applying visualization-specific sorting (e.g. for pie
