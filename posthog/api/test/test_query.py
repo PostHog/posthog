@@ -48,7 +48,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-10 12:14:00"):
             query = EventsQuery(select=["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"])
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
                 {
@@ -65,7 +65,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
             query.select = ["*", "event"]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(response["columns"], ["*", "event"])
             self.assertIn("Tuple(", response["types"][0])
             self.assertEqual(response["types"][1], "String")
@@ -74,7 +74,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertIsInstance(response["results"][0][1], str)
 
             query.select = ["count()", "event"]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
                 {
@@ -88,7 +88,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             query.select = ["count()", "event"]
             query.where = ["event == 'sign up' or like(properties.key, '%val2')"]
             query.orderBy = ["count() DESC", "event"]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
                 {
@@ -123,19 +123,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 select=["event", "distinct_id", "properties.key", "'a%sd'", "concat(event, ' ', properties.key)"]
             )
 
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
 
             query.properties = [HogQLPropertyFilter(type="hogql", key="'a%sd' == 'foo'")]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 0)
 
             query.properties = [HogQLPropertyFilter(type="hogql", key="'a%sd' == 'a%sd'")]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
 
             query.properties = [HogQLPropertyFilter(type="hogql", key="properties.key == 'test_val2'")]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
 
     @also_test_with_materialized_columns(event_properties=["key", "path"])
@@ -163,19 +163,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             query = EventsQuery(
                 select=["event", "distinct_id", "properties.key", "'a%sd'", "concat(event, ' ', properties.key)"]
             )
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
 
             query.properties = [
                 EventPropertyFilter(type="event", key="key", value="test_val3", operator=PropertyOperator.exact)
             ]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 1)
 
             query.properties = [
                 EventPropertyFilter(type="event", key="path", value="/", operator=PropertyOperator.icontains)
             ]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 1)
 
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
@@ -206,7 +206,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     )
                 ],
             )
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
 
     def test_json_undefined_constant_error(self):
@@ -261,11 +261,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-10 12:14:00"):
             query = EventsQuery(select=["properties.key", "count()"])
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 3)
 
             query.where = ["count() > 1"]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 1)
 
     @snapshot_clickhouse_queries
@@ -290,7 +290,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-10 12:14:00"):
             query = EventsQuery(select=["event", "person", "person"])
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
             self.assertEqual(response["results"][0][1], {"distinct_id": "4"})
             self.assertEqual(response["results"][1][1], {"distinct_id": "3"})
@@ -328,7 +328,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-10 12:14:00"):
             query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
-            api_response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             query.response = HogQLQueryResponse.parse_obj(api_response)
 
             self.assertEqual(query.response.results and len(query.response.results), 4)
@@ -349,7 +349,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert api_response.status_code == 400
 
     def test_invalid_query_kind(self):
-        api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"kind": "Tomato Soup"})
+        api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
         assert api_response.status_code == 400
         assert api_response.json()["code"] == "parse_error"
         assert "validation errors for Model" in api_response.json()["detail"]
@@ -358,7 +358,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_valid_recent_performance_pageviews(self):
         api_response = self.client.post(
             f"/api/projects/{self.team.id}/query/",
-            {"kind": "RecentPerformancePageViewNode", "dateRange": {"date_from": None, "date_to": None}},
+            {"query": {"kind": "RecentPerformancePageViewNode", "dateRange": {"date_from": None, "date_to": None}}},
         )
         assert api_response.status_code == 200
 

@@ -1,7 +1,7 @@
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
-import { ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem, ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { activityLogLogic, describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { featureFlagsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
@@ -110,6 +110,27 @@ describe('the activity log logic', () => {
             expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
                 JSON.stringify(humanize(featureFlagsActivityResponseJson, describerFor))
             )
+        })
+    })
+
+    describe('incident regression test for #inc-2023-03-09-us-cloud-ui-unavailable-when-users-have-a-notification', () => {
+        it('backend sends unexpected field and describer should not explode', () => {
+            expect(() => {
+                humanize(
+                    [
+                        {
+                            // a very unexpected activity log item received in production
+                            type: 'insight',
+                            after: true,
+                            field: 'saved',
+                            action: 'changed',
+                            before: false,
+                        } as unknown as ActivityLogItem,
+                    ],
+                    describerFor,
+                    true
+                )
+            }).not.toThrow()
         })
     })
 })
