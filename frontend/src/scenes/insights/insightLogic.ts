@@ -191,7 +191,7 @@ export const insightLogic = kea<insightLogicType>([
             {
                 loadInsight: async ({ shortId }) => {
                     const load_query_insight_query_params = !!values.featureFlags[
-                        FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS
+                        FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB
                     ]
                         ? '&include_query_insights=true'
                         : ''
@@ -782,7 +782,7 @@ export const insightLogic = kea<insightLogicType>([
         isUsingDashboardQueryTiles: [
             (s) => [s.featureFlags, s.isUsingDataExploration],
             (featureFlags: FeatureFlagsSet, isUsingDataExploration: boolean): boolean => {
-                return isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS]
+                return isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
             },
         ],
         insightRefreshButtonDisabledReason: [
