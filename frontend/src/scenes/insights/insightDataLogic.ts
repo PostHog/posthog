@@ -195,10 +195,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
             if (isInsightVizNode(query)) {
                 const querySource = (query as InsightVizNode).source
-                // if (isLifecycleQuery(querySource)) {
                 const filters = queryNodeToFilter(querySource)
                 actions.setFilters(filters)
-                // }
             }
         },
         setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
