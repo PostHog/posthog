@@ -17,7 +17,7 @@ import { combineUrl } from 'kea-router'
 import { FunnelsQuery } from '~/queries/schema'
 import { FunnelLayout } from 'lib/constants'
 
-/* Chosen via heuristics by eyeballing some values
+/** Chosen via heuristics by eyeballing some values
  * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
  * which gives a ballpark of 1 highlighting every 10 breakdown values
  */
@@ -139,7 +139,7 @@ export function isBreakdownFunnelResults(results: FunnelResultType): results is 
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
 }
 
-// breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids)
+/** Breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids). */
 export function isValidBreakdownParameter(
     breakdown: BreakdownKeyType | undefined,
     breakdowns: Breakdown[] | undefined
@@ -151,6 +151,7 @@ export function isValidBreakdownParameter(
     )
 }
 
+/** String identifier for breakdowns used when determining visibility. */
 export function getVisibilityKey(breakdownValue?: BreakdownKeyType): string {
     const breakdownValues = getBreakdownStepValues(
         { breakdown: breakdownValue, breakdown_value: breakdownValue },
@@ -484,4 +485,32 @@ export function flattenedStepsByBreakdown(
         }
     }
     return flattenedStepsByBreakdown
+}
+
+/**
+ * Transform pre-#12113 funnel series keys to the current more reliable format.
+ *
+ * Old: `${step.type}/${step.action_id}/${step.order}/${breakdownValues.join('_')}`
+ * New: `breakdownValues.join('::')`
+ *
+ * If you squint you'll notice this doesn't actually handle the .join() part, but that's fine,
+ * because that's only relevant for funnels with multiple breakdowns, and that hasn't been
+ * released to users at the point of the format change.
+ */
+export const transformLegacyHiddenLegendKeys = (
+    hidden_legend_keys: Record<string, boolean | undefined>
+): Record<string, boolean | undefined> => {
+    const hiddenLegendKeys: Record<string, boolean | undefined> = {}
+    for (const [key, value] of Object.entries(hidden_legend_keys)) {
+        const oldFormatMatch = key.match(/\w+\/.+\/\d+\/(.+)/)
+        if (oldFormatMatch) {
+            // Don't override values for series if already set from a previously-seen old-format key
+            if (!(oldFormatMatch[1] in hiddenLegendKeys)) {
+                hiddenLegendKeys[oldFormatMatch[1]] = value
+            }
+        } else {
+            hiddenLegendKeys[key] = value
+        }
+    }
+    return hiddenLegendKeys
 }

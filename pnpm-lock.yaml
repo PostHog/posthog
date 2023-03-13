@@ -140,7 +140,7 @@ specifiers:
   pngjs: ^6.0.0
   postcss: ^8.4.14
   postcss-loader: ^4.3.0
-  posthog-js: 1.50.7
+  posthog-js: 1.50.8
   posthog-js-lite: 2.0.0-alpha5
   prettier: ^2.3.1
   prop-types: ^15.7.2
@@ -178,7 +178,7 @@ specifiers:
   style-loader: ^2.0.0
   sucrase: ^3.29.0
   timekeeper: ^2.2.0
-  ts-json-schema-generator: ^1.1.2
+  ts-json-schema-generator: ^1.2.0
   ts-node: ^10.9.1
   typescript: ^4.6.4
   use-debounce: ^9.0.3
@@ -238,7 +238,7 @@ dependencies:
   kea-window-values: 3.0.0_kea@3.1.0
   md5: 2.3.0
   monaco-editor: 0.23.0
-  posthog-js: 1.50.7
+  posthog-js: 1.50.8
   posthog-js-lite: 2.0.0-alpha5
   prettier: 2.7.1
   prop-types: 15.8.1
@@ -375,7 +375,7 @@ devDependencies:
   style-loader: 2.0.0_webpack@4.46.0
   sucrase: 3.29.0
   timekeeper: 2.2.0
-  ts-json-schema-generator: 1.1.2
+  ts-json-schema-generator: 1.2.0
   ts-node: 10.9.1_cbe7ovvae6zqfnmtgctpgpys54
   typescript: 4.8.4
   webpack: 4.46.0_webpack-cli@4.10.0
@@ -14677,8 +14677,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js/1.50.7:
-    resolution: {integrity: sha512-EpqBkpTv2Bb0ydJUTvYAyIeVsx9OJxdyzv14DFUcdabXk7T4Nr62I48+UAFgg4oNZOCAJauMuuhn+XYqYrvFgQ==}
+  /posthog-js/1.50.8:
+    resolution: {integrity: sha512-R/J4POAsAVop9nI6xSqhfxgQgptsvLhEoNVc+9UiTg7I4EOSgH7WSuODFm5q0AtJhGH9yrQaogDjR6Nv3ppCog==}
     dependencies:
       fflate: 0.4.8
       rrweb-snapshot: 1.1.14
@@ -17725,8 +17725,8 @@ packages:
     resolution: {integrity: sha512-Y/arvbn+rrz3JCKl9C4kVNfTfSm2/mEp5FSz5EsZSANGPSlQrpRI5M4PKF+mJnE52jOO90PnPSc3Ur3bTQw0gA==}
     dev: true
 
-  /ts-json-schema-generator/1.1.2:
-    resolution: {integrity: sha512-XMnxvndJFJEYv3NBmW7Po5bGajKdK2qH8Q078eDy60srK9+nEvbT9nLCRKd2IV/RQ7a+oc5FNylvZWveqh7jeQ==}
+  /ts-json-schema-generator/1.2.0:
+    resolution: {integrity: sha512-tUMeO3ZvA12d3HHh7T/AK8W5hmUhDRNtqWRHSMN3ZRbUFt+UmV0oX8k1RK4SA+a+BKNHpmW2v06MS49e8Fi3Yg==}
     engines: {node: '>=10.0.0'}
     hasBin: true
     dependencies:
@@ -17736,7 +17736,7 @@ packages:
       json5: 2.2.1
       normalize-path: 3.0.0
       safe-stable-stringify: 2.4.1
-      typescript: 4.8.4
+      typescript: 4.9.5
     dev: true
 
   /ts-node/10.9.1_cbe7ovvae6zqfnmtgctpgpys54:
@@ -17895,6 +17895,12 @@ packages:
 
   /typescript/4.8.4:
     resolution: {integrity: sha512-QCh+85mCy+h0IGff8r5XWzOVSbBO+KfeYrMQh7NJ58QujwcE22u+NUSmUxqF+un70P9GXKxa2HCNiTTMJknyjQ==}
+    engines: {node: '>=4.2.0'}
+    hasBin: true
+    dev: true
+
+  /typescript/4.9.5:
+    resolution: {integrity: sha512-1FXk9E2Hm+QzZQ7z+McJiHL4NW1F2EzMu9Nq9i3zAaGqibafqYwCVU6WyWAuyQRRzOlxou8xZSyXLEN8oKj24g==}
     engines: {node: '>=4.2.0'}
     hasBin: true
     dev: true

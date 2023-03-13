@@ -362,3 +362,24 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
     cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
     static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
     return [*cohort_ids, *static_cohort_ids]
+
+
+def get_dependent_cohorts(cohort: Cohort) -> List[Cohort]:
+    cohorts = []
+    seen_cohort_ids = set()
+    seen_cohort_ids.add(cohort.id)
+
+    queue = [prop.value for prop in cohort.properties.flat if prop.type == "cohort"]
+
+    while queue:
+        cohort_id = queue.pop()
+        try:
+            cohort = Cohort.objects.get(pk=cohort_id)
+            if cohort.id not in seen_cohort_ids:
+                cohorts.append(cohort)
+                seen_cohort_ids.add(cohort.id)
+                queue += [prop.value for prop in cohort.properties.flat if prop.type == "cohort"]
+        except Cohort.DoesNotExist:
+            continue
+
+    return cohorts

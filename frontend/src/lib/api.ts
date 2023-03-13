@@ -457,12 +457,12 @@ class ApiRequest {
         return await api.getResponse(this.assembleFullUrl(), options)
     }
 
-    public async update(options?: { data: any }): Promise<any> {
-        return await api.update(this.assembleFullUrl(), options?.data)
+    public async update(options?: ApiMethodOptions & { data: any }): Promise<any> {
+        return await api.update(this.assembleFullUrl(), options?.data, options)
     }
 
-    public async create(options?: { data: any }): Promise<any> {
-        return await api.create(this.assembleFullUrl(), options?.data)
+    public async create(options?: ApiMethodOptions & { data: any }): Promise<any> {
+        return await api.create(this.assembleFullUrl(), options?.data, options)
     }
 
     public async delete(): Promise<any> {
@@ -1203,7 +1203,8 @@ const api = {
     },
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
-        options?: ApiMethodOptions
+        options?: ApiMethodOptions,
+        queryId?: string
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -1211,7 +1212,7 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        return await new ApiRequest().query().create({ ...options, data: query })
+        return await new ApiRequest().query().create({ ...options, data: { query, client_query_id: queryId } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

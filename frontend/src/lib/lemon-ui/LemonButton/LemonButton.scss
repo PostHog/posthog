@@ -149,7 +149,7 @@
         }
     }
 
-    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt', 'orange', 'default-dark') {
+    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt', 'default-dark') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 
@@ -209,6 +209,23 @@
                     border-color: var(--#{$status}-dark, var(--status));
                 }
             }
+        }
+    }
+
+    // PostHog 3000
+    &.LemonButton--status-3000 {
+        color: var(--default);
+
+        &:not(.LemonButton--disabled):hover,
+        &.LemonButton--active {
+            background: var(--border);
+            .LemonIcon {
+                color: var(--default);
+            }
+        }
+
+        .LemonIcon {
+            color: var(--muted);
         }
     }
 }

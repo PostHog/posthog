@@ -494,9 +494,10 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setState: () => getUrl(values),
         updateCurrentTeamSuccess: (val) => {
             if (
-                router.values.location.pathname.includes(
+                (router.values.location.pathname.includes(
                     values.showBillingStep ? '/ingestion/billing' : '/ingestion/superpowers'
-                ) &&
+                ) ||
+                    router.values.location.pathname.includes('/ingestion/invites-sent')) &&
                 val.payload?.completed_snippet_onboarding
             ) {
                 return combineUrl(urls.events(), { onboarding_completed: true }).url

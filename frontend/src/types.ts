@@ -1749,6 +1749,14 @@ export interface ActionFilter extends EntityFilter {
     properties?: AnyPropertyFilter[]
     type: EntityType
 }
+export interface TrendAPIResponse<ResultType = TrendResult[]> {
+    type: 'Trends'
+    is_cached: boolean
+    last_refresh: string | null
+    result: ResultType
+    timezone: string
+    next: string | null
+}
 
 export interface TrendResult {
     action: ActionFilter
@@ -1806,7 +1814,7 @@ export interface FunnelsTimeConversionBins {
 
 export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
 
-export interface FunnelResult<ResultType = FunnelResultType> {
+export interface FunnelAPIResponse<ResultType = FunnelResultType> {
     is_cached: boolean
     last_refresh: string | null
     result: ResultType

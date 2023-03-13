@@ -1280,7 +1280,7 @@ export function IconEvent(props: LemonIconProps): JSX.Element {
     )
 }
 
-/** Material Design light bulb icon. */
+/** Material Design Lightbulb icon. */
 export function IconLightBulb(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
