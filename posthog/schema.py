@@ -858,7 +858,7 @@ class DataTableNode(BaseModel):
     showExport: Optional[bool] = Field(None, description="Show the export button")
     showHogQLEditor: Optional[bool] = Field(None, description="Include a HogQL query editor above HogQL tables")
     showOpenEditorButton: Optional[bool] = Field(
-        None, description="Show a button to open the current query as a new insight"
+        None, description="Show a button to open the current query as a new insight. (default: true)"
     )
     showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(None, description="Show a reload button")

@@ -1319,7 +1319,7 @@
                     "type": "boolean"
                 },
                 "showOpenEditorButton": {
-                    "description": "Show a button to open the current query as a new insight",
+                    "description": "Show a button to open the current query as a new insight. (default: true)",
                     "type": "boolean"
                 },
                 "showPropertyFilter": {
