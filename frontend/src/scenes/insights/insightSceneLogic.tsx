@@ -147,7 +147,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
 
             // Redirect to a simple URL if we had filters in the URL
-            if (filters) {
+            if (filters || q) {
                 router.actions.replace(
                     insightId === 'new'
                         ? urls.insightNew(undefined, dashboard)

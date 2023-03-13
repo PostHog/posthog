@@ -5,7 +5,6 @@ import {
     EventsNode,
     EventsQuery,
     HogQLQuery,
-    Node,
     PersonsNode,
     QueryContext,
 } from '~/queries/schema'
@@ -82,7 +81,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         highlightedRows,
     } = useValues(builtDataNodeLogic)
 
-    const dataTableLogicProps: DataTableLogicProps = { query, key }
+    const dataTableLogicProps: DataTableLogicProps = { query, key, context }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
@@ -101,6 +100,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         showSavedQueries,
         showEventsBufferWarning,
         expandable,
+        showOpenEditorButton,
     } = queryWithDefaults
 
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
@@ -362,8 +362,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             {firstRowLeft}
                             <div className="flex-1" />
                             {firstRowRight}
-                            {inlineEditorButtonOnRow === 1 && context?.readonly !== true ? (
-                                <OpenEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                            {showOpenEditorButton && inlineEditorButtonOnRow === 1 && context?.readonly !== true ? (
+                                <OpenEditorButton query={query} />
                             ) : null}
                         </div>
                     )}
@@ -373,17 +373,17 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             {secondRowLeft}
                             <div className="flex-1" />
                             {secondRowRight}
-                            {inlineEditorButtonOnRow === 2 && context?.readonly !== true ? (
-                                <OpenEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                            {showOpenEditorButton && inlineEditorButtonOnRow === 2 && context?.readonly !== true ? (
+                                <OpenEditorButton query={query} />
                             ) : null}
                         </div>
                     )}
                     {showEventsBufferWarning && isEventsQuery(query.source) && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
-                    {inlineEditorButtonOnRow === 0 && context?.readonly !== true ? (
+                    {showOpenEditorButton && inlineEditorButtonOnRow === 0 && context?.readonly !== true ? (
                         <div className="absolute right-0 z-10 p-1">
-                            <OpenEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                            <OpenEditorButton query={query} />
                         </div>
                     ) : null}
                     <LemonTable
