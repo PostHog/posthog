@@ -5,7 +5,7 @@ import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_Ins
 import { getSeriesPositionName } from '../funnelUtils'
 import { getSeriesColor } from 'lib/colors'
 import { Noun } from '~/models/groupsModel'
-import { MetricRow } from './FunnelBarGraph'
+import { MetricRow } from './MetricRow'
 
 interface BarProps {
     percentage: number

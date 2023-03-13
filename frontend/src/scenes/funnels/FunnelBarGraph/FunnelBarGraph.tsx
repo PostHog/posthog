@@ -19,17 +19,6 @@ import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 import { Bar } from './Bar'
 import { AverageTimeInspector } from './AverageTimeInspector'
 
-export function MetricRow({ title, value }: { title: string; value: string | number }): JSX.Element {
-    return (
-        <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>
-            <div>{title}</div>
-            <div>
-                <strong style={{ paddingLeft: 6 }}>{value}</strong>
-            </div>
-        </div>
-    )
-}
-
 export function FunnelBarGraph(props: ChartParams): JSX.Element {
     const {
         filters,
