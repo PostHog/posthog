@@ -1,145 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
+import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Popover } from 'antd'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { IconTrendingFlatDown, IconInfinity, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { funnelLogic } from '../funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
-import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
 import { FunnelLayout } from 'lib/constants'
-import { getBreakdownMaxIndex, getReferenceStep, getSeriesPositionName } from '../funnelUtils'
+import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
 import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { getSeriesColor } from 'lib/colors'
 import { FunnelStepMore } from '../FunnelStepMore'
 import { Noun } from '~/models/groupsModel'
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { DuplicateStepIndicator } from './DuplicateStepIndicator'
-
-interface BarProps {
-    percentage: number
-    name?: string
-    onBarClick?: () => void
-    disabled?: boolean
-    isBreakdown?: boolean
-    breakdownIndex?: number
-    breakdownMaxIndex?: number
-    breakdownSumPercentage?: number
-    popoverTitle?: string | JSX.Element | null
-    popoverMetrics?: { title: string; value: number | string; visible?: boolean }[]
-    aggregationTargetLabel: Noun
-    /** Bar wrapper width in px. */
-    wrapperWidth: number
-}
-
-type LabelPosition = 'inside' | 'outside'
-
-function Bar({
-    percentage: conversionPercentage,
-    name,
-    onBarClick,
-    disabled,
-    isBreakdown = false,
-    breakdownIndex,
-    breakdownMaxIndex,
-    breakdownSumPercentage,
-    popoverTitle = null,
-    popoverMetrics = [],
-    aggregationTargetLabel,
-    wrapperWidth,
-}: BarProps): JSX.Element {
-    const barRef = useRef<HTMLDivElement | null>(null)
-    const labelRef = useRef<HTMLDivElement | null>(null)
-    const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
-    const [labelVisible, setLabelVisible] = useState(true)
-    const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
-    const cursorType = !disabled ? 'pointer' : ''
-    const hasBreakdownSum = isBreakdown && typeof breakdownSumPercentage === 'number'
-    const shouldShowLabel = !isBreakdown || (hasBreakdownSum && labelVisible)
-
-    function decideLabelPosition(): void {
-        if (hasBreakdownSum) {
-            // Label is always outside for breakdowns, but don't show if it doesn't fit in the wrapper
-            setLabelPosition('outside')
-            const barWidth = barRef.current?.clientWidth ?? null
-            const barOffset = barRef.current?.offsetLeft ?? null
-            const labelWidth = labelRef.current?.clientWidth ?? null
-            if (barWidth !== null && barOffset !== null && wrapperWidth !== null && labelWidth !== null) {
-                if (wrapperWidth - (barWidth + barOffset) < labelWidth + LABEL_POSITION_OFFSET * 2) {
-                    setLabelVisible(false)
-                } else {
-                    setLabelVisible(true)
-                }
-            }
-            return
-        }
-        // Place label inside or outside bar, based on whether it fits
-        const barWidth = barRef.current?.clientWidth ?? null
-        const labelWidth = labelRef.current?.clientWidth ?? null
-        if (barWidth !== null && labelWidth !== null) {
-            if (labelWidth + LABEL_POSITION_OFFSET * 2 > barWidth) {
-                setLabelPosition('outside')
-                return
-            }
-        }
-        setLabelPosition('inside')
-    }
-
-    useEffect(() => {
-        decideLabelPosition()
-    }, [wrapperWidth])
-
-    return (
-        <Popover
-            trigger="hover"
-            placement="right"
-            content={
-                <LEGACY_InsightTooltip altTitle={popoverTitle}>
-                    {popoverMetrics.map(({ title, value, visible }, index) =>
-                        visible !== false ? <MetricRow key={index} title={title} value={value} /> : null
-                    )}
-                </LEGACY_InsightTooltip>
-            }
-        >
-            <div
-                ref={barRef}
-                className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
-                style={{
-                    flex: `${conversionPercentage} 1 0`,
-                    cursor: cursorType,
-                    backgroundColor: getSeriesColor(breakdownIndex ?? 0),
-                }}
-                onClick={() => {
-                    if (!disabled && onBarClick) {
-                        onBarClick()
-                    }
-                }}
-            >
-                {shouldShowLabel && (
-                    <div
-                        ref={labelRef}
-                        className={`funnel-bar-percentage ${labelPosition}`}
-                        title={
-                            name ? `${capitalizeFirstLetter(aggregationTargetLabel.plural)} who did ${name}` : undefined
-                        }
-                        role="progressbar"
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={(breakdownSumPercentage ?? conversionPercentage) * 100}
-                    >
-                        {percentage(breakdownSumPercentage ?? conversionPercentage, 1, true)}
-                    </div>
-                )}
-            </div>
-        </Popover>
-    )
-}
+import { Bar } from './Bar'
 
 interface AverageTimeInspectorProps {
     onClick: (e?: React.MouseEvent) => void
