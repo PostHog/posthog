@@ -192,6 +192,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if isinstance(table, ast.JoinExpr):
             # visitTableExprAlias returns a JoinExpr to pass the alias
             table.table_final = table_final
+            table.sample = sample
             return table
         return ast.JoinExpr(table=table, table_final=table_final, sample=sample)
 
@@ -636,8 +637,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitNumberLiteral(self, ctx: HogQLParser.NumberLiteralContext):
         text = ctx.getText()
         if "." in text:
-            return ast.NumericConstant(value=float(text))
-        return ast.NumericConstant(value=int(text))
+            return ast.Constant(value=float(text))
+        return ast.Constant(value=int(text))
 
     def visitLiteral(self, ctx: HogQLParser.LiteralContext):
         if ctx.NULL_SQL():

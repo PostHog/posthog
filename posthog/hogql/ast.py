@@ -305,10 +305,6 @@ class Constant(Expr):
     value: Any
 
 
-class NumericConstant(Expr):
-    value: int | float
-
-
 class Field(Expr):
     chain: List[str]
 
@@ -355,8 +351,8 @@ class SelectUnionQuery(Expr):
 
 
 class RatioExpr(Expr):
-    left: NumericConstant
-    right: Optional[NumericConstant] = None
+    left: Constant
+    right: Optional[Constant] = None
 
 
 class SampleExpr(Expr):

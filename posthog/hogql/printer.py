@@ -160,6 +160,7 @@ class _Printer(Visitor):
         extra_where: Optional[ast.Expr] = None
 
         join_strings = []
+
         if node.join_type is not None:
             join_strings.append(node.join_type)
 
@@ -170,6 +171,7 @@ class _Printer(Visitor):
             if not isinstance(table_ref, ast.TableRef):
                 raise ValueError(f"Table alias {node.ref.name} does not resolve to a table!")
             join_strings.append(self._print_identifier(table_ref.table.clickhouse_table()))
+
             if node.alias is not None:
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
@@ -179,6 +181,11 @@ class _Printer(Visitor):
 
         elif isinstance(node.ref, ast.TableRef):
             join_strings.append(self._print_identifier(node.ref.table.clickhouse_table()))
+
+            if node.sample is not None:
+                sample_clause = self.visit_sample_expr(node.sample)
+                if sample_clause is not None:
+                    join_strings.append(sample_clause)
 
             if self.dialect == "clickhouse":
                 # TODO: do this in a separate pass before printing, along with person joins and other transforms
@@ -453,6 +460,18 @@ class _Printer(Visitor):
             property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
 
         return property_sql
+
+    def visit_sample_expr(self, ref: ast.SampleExpr):
+        sample_value = self.visit_ratio_expr(ref.sample_value)
+        offset_clause = ""
+        if ref.offset_value:
+            offset_value = self.visit_ratio_expr(ref.offset_value)
+            offset_clause = f" OFFSET {offset_value}"
+
+        return f"SAMPLE {sample_value}{offset_clause}"
+
+    def visit_ratio_expr(self, ref: ast.RatioExpr):
+        return ref.left.value if ref.right is None else f"{ref.left.value}/{ref.right.value}"
 
     def visit_select_query_alias_ref(self, ref: ast.SelectQueryAliasRef):
         return self._print_identifier(ref.name)
