@@ -166,7 +166,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                         showOpenEditorButton:
-                            context.showOpenEditorButton !== undefined
+                            context?.showOpenEditorButton !== undefined
                                 ? context.showOpenEditorButton
                                 : query.showOpenEditorButton ?? true,
                     }),
