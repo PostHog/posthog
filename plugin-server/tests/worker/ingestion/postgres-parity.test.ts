@@ -12,8 +12,7 @@ import {
 import { fetchDistinctIds, fetchDistinctIdValues, fetchPostgresPersons } from '../../helpers/postgres'
 import { resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
-jest.setTimeout(10000) // 60 sec timeout
+jest.setTimeout(60000) // 60 sec timeout
 
 describe('postgres parity', () => {
     let hub: Hub

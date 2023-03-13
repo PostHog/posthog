@@ -6,7 +6,7 @@
     "main": "dist/index.js",
     "packageManager": "pnpm@7.14.2",
     "scripts": {
-        "test": "jest --runInBand --forceExit",
+        "test": "jest --config ./jest.config.js",
         "functional_tests": "jest --config ./jest.config.functional.js",
         "start": "pnpm start:dist",
         "start:dist": "BASE_DIR=.. node dist/index.js",

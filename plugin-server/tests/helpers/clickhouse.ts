@@ -39,6 +39,7 @@ beforeAll(() => {
         username: defaultConfig.CLICKHOUSE_USER,
         password: defaultConfig.CLICKHOUSE_PASSWORD || undefined,
         database: defaultConfig.CLICKHOUSE_DATABASE,
+        max_open_connections: 1, // Be frugal with connections. Tests within a process will run sequentially anyway.
         clickhouse_settings: {
             // To ensure compability with existing test expectations, do not
             // quote 64-bit integers.
@@ -74,7 +75,7 @@ beforeEach(() => {
     })
 })
 
-afterEach(async () => {
+afterAll(async () => {
     await clickHouseClient.close()
 })
 

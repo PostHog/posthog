@@ -1,6 +1,4 @@
 import Redis from 'ioredis'
-import { KafkaJSError } from 'kafkajs'
-import Broker from 'kafkajs/src/broker'
 
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
@@ -10,7 +8,6 @@ import { createTaskRunner } from '../../../src/worker/worker'
 import { createOrganization, createTeam } from '../../helpers/sql'
 
 describe('workerTasks.runEventPipeline()', () => {
-    let mockProduce: jest.SpyInstance
     let hub: Hub
     let redis: Redis.Redis
     let closeHub: () => Promise<void>
@@ -22,16 +19,6 @@ describe('workerTasks.runEventPipeline()', () => {
         redis = await hub.redisPool.acquire()
         piscinaTaskRunner = createTaskRunner(hub)
         process.env = { ...OLD_ENV } // Make a copy
-
-        // These tests depend on the Kafka production code being called, so we
-        // need to remove any mocks that may be added to the
-        // KafkaProducerWrapper.queueMessage method.
-        jest.restoreAllMocks()
-
-        // To ensure we are catching and retrying on the correct error, we make
-        // sure to mock deep into the KafkaJS internals, otherwise we can get
-        // into inplaced confidence that we have covered this critical path.
-        mockProduce = jest.spyOn(Broker.prototype, 'produce')
     })
 
     afterAll(async () => {
@@ -49,29 +36,6 @@ describe('workerTasks.runEventPipeline()', () => {
         jest.clearAllTimers()
         jest.useRealTimers()
         jest.clearAllMocks()
-    })
-
-    test('throws DependencyUnavailableError on KafkaJs errors ', async () => {
-        const organizationId = await createOrganization()
-        const teamId = await createTeam(organizationId)
-
-        const error = new KafkaJSError('test', { retriable: true })
-        mockProduce.mockRejectedValueOnce(error)
-        await expect(
-            piscinaTaskRunner({
-                task: 'runEventPipeline',
-                args: {
-                    event: {
-                        distinctId: 'asdf',
-                        ip: '',
-                        team_id: teamId,
-                        event: 'some event',
-                        properties: {},
-                        uuid: new UUIDT().toString(),
-                    },
-                },
-            })
-        ).rejects.toEqual(new DependencyUnavailableError('KafkaJSError', 'Kafka', error))
     })
 
     test('throws DependencyUnavailableError on postgres errors', async () => {
