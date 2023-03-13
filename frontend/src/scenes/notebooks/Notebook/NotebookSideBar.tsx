@@ -64,7 +64,7 @@ export function NotebookSideBar(): JSX.Element {
                                     <span className="font-semibold">Notebooks</span>
                                 </LemonButtonWithDropdown>
                                 <span>/</span>
-                                <span className="font-semibold">{selectedNotebook}</span>
+                                <span className="font-semibold px-2">{selectedNotebook}</span>
                             </span>
                             <span className="flex gap-2">
                                 <LemonButton

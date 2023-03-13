@@ -17,12 +17,10 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     }),
     reducers(() => ({
         notebooks: [
-            ['scratchpad'] as string[],
-            { persist: true },
+            ['scratchpad', 'RFC: Notebooks', 'Feature Flag overview', 'HoqQL examples'] as string[],
             {
                 createNotebook: (state, { id }) => [...state, id],
                 deleteNotebook: (state, { id }) => state.filter((notebook) => notebook !== id),
-                renameNotebook: (state, { id, name }) => state.map((notebook) => (notebook === id ? name : notebook)),
             },
         ],
         selectedNotebook: [
