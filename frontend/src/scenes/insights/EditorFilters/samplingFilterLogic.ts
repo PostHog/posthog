@@ -4,7 +4,7 @@ import { featureFlagLogic } from './../../../lib/logic/featureFlagLogic'
 import { FilterType, InsightType } from './../../../types'
 import { insightLogic } from './../insightLogic'
 import { kea, path, connect, actions, reducers, props, selectors, listeners } from 'kea'
-import { captureException, withScope } from '@sentry/react'
+
 import type { samplingFilterLogicType } from './samplingFilterLogicType'
 import { InsightLogicProps } from '~/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -17,27 +17,6 @@ export interface SamplingFilterLogicProps {
     insightProps: InsightLogicProps
     insightType?: InsightType
     setFilters?: (filters: Partial<FilterType>) => void
-}
-
-function defaultSamplingFor(props: SamplingFilterLogicProps): number | null {
-    const mountedLogic = samplingFilterLogic.findMounted(props)
-    if (!mountedLogic) {
-        return null
-    }
-
-    try {
-        if (mountedLogic.values.filters.sampling_factor) {
-            return mountedLogic.values.filters.sampling_factor * 100
-        } else {
-            return null
-        }
-    } catch (e) {
-        withScope(function (scope) {
-            scope.setTag('logic', 'samplingFilterLogic')
-            captureException(e)
-        })
-        return null
-    }
 }
 
 export const samplingFilterLogic = kea<samplingFilterLogicType>([
@@ -61,15 +40,18 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     actions(() => ({
         setSamplingPercentage: (samplingPercentage: number | null) => ({ samplingPercentage }),
     })),
-    reducers(({ props }) => ({
+    reducers(() => ({
         samplingPercentage: [
-            defaultSamplingFor(props),
+            null as number | null,
             {
                 // clicking on the active button untoggles it and disables sampling
                 setSamplingPercentage: (oldSamplingPercentage, { samplingPercentage }) =>
                     samplingPercentage === oldSamplingPercentage ? null : samplingPercentage,
                 setGlobalInsightFilters: (_, { globalInsightFilters }) => {
                     return globalInsightFilters.sampling_factor ? globalInsightFilters.sampling_factor * 100 : null
+                },
+                setInsightFilters: (_, { filters }) => {
+                    return filters.sampling_factor ? filters.sampling_factor * 100 : null
                 },
             },
         ],
