@@ -55,6 +55,8 @@
 // Sidebar
 
 .Sidebar3000 {
+    --sidebar-slider-padding: 0.25rem;
+    --sidebar-horizontal-padding: 0.5rem;
     transition: 200ms ease transform;
     position: relative;
     // This border is just for sizing, the visible border is on the content and slider
@@ -99,14 +101,13 @@
 }
 
 .Sidebar3000__slider {
-    --siderbar-slider-padding: 0.25rem;
     position: absolute;
     top: 0;
     bottom: 0;
     right: calc(
-        -1 * var(--siderbar-slider-padding) - min(1px, var(--sidebar-width))
+        -1 * var(--sidebar-slider-padding) - min(1px, var(--sidebar-width))
     ); // Center around the original sidebar border
-    width: calc(2 * var(--siderbar-slider-padding) + 1px); // The interactive area is enlarged for easier interaction
+    width: calc(2 * var(--sidebar-slider-padding) + 1px); // The interactive area is enlarged for easier interaction
     cursor: col-resize;
     user-select: none; // Fixes inadvertent selection of scene text when resizing
     z-index: var(
@@ -118,7 +119,7 @@
         position: absolute;
         top: 0;
         bottom: 0;
-        left: var(--siderbar-slider-padding);
+        left: var(--sidebar-slider-padding);
         width: 1px;
     }
     &::before {
@@ -145,7 +146,7 @@
 
 .Sidebar3000__header {
     height: 2rem;
-    padding: 0 0.75rem;
+    padding: 0 var(--sidebar-horizontal-padding);
     border-bottom-width: 1px;
 }
 
@@ -153,6 +154,8 @@
 
 .Accordion {
     --accordion-row-height: 1.75rem;
+    --accordion-arrow-size: 1rem;
+    --accordion-inset: 1.25rem;
 }
 
 .Accordion[aria-disabled='true'] {
@@ -173,7 +176,7 @@
     align-items: center;
     background: var(--accent-3000);
     height: var(--accordion-row-height);
-    padding: 0 0.75rem;
+    padding: 0 var(--sidebar-horizontal-padding);
     border-bottom-width: 1px;
     cursor: pointer;
     user-select: none;
@@ -182,14 +185,14 @@
     }
     .LemonIcon {
         transition: 200ms ease transform;
-        font-size: 1rem;
+        font-size: var(--accordion-arrow-size);
         flex-shrink: 0;
         .Accordion--expanded & {
             transform: rotate(90deg);
         }
     }
     h5 {
-        margin-left: 0.25rem;
+        margin-left: calc(var(--accordion-inset) - var(--accordion-arrow-size));
     }
 }
 
@@ -199,7 +202,7 @@
 
 .Accordion_meta {
     opacity: 0.5;
-    padding: 0 1.75rem;
+    padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--accordion-inset) + var(--sidebar-horizontal-padding));
     line-height: var(--accordion-row-height);
     user-select: none;
 }
@@ -207,7 +210,7 @@
 .Accordion_list {
     li {
         transition: 200ms ease background;
-        padding: 0 1.75rem;
+        padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--accordion-inset) + var(--sidebar-horizontal-padding));
         line-height: var(--accordion-row-height);
         font-weight: 500;
         text-overflow: ellipsis;
