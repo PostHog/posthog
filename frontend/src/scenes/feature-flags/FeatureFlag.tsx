@@ -302,8 +302,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <FeatureFlagReleaseConditions />
                         {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
                             <>
-                                <LemonDivider />
-                                <FeatureFlagCodeExample featureFlag={featureFlag} />
                                 <Field name="ensure_experience_continuity">
                                     {({ value, onChange }) => (
                                         <div className="border rounded p-4">
@@ -329,6 +327,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </div>
                                     )}
                                 </Field>
+
+                                <LemonDivider />
+                                <FeatureFlagCodeExample featureFlag={featureFlag} />
                             </>
                         )}
                         <LemonDivider />
