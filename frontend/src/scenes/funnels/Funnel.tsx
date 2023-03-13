@@ -6,7 +6,7 @@ import { funnelLogic } from './funnelLogic'
 import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { FunnelLayout } from 'lib/constants'
-import { FunnelBarChart } from './FunnelBarChart/FunnelBarChart'
+import { FunnelBarChart, FunnelBarChartDataExploration } from './FunnelBarChart/FunnelBarChart'
 import { FunnelBarGraph } from './FunnelBarGraph'
 import { funnelDataLogic } from './funnelDataLogic'
 
@@ -26,7 +26,7 @@ export function FunnelDataExploration(props: ChartParams): JSX.Element {
     return (
         <BindLogic logic={funnelLogic} props={insightProps}>
             {(layout || FunnelLayout.vertical) === FunnelLayout.vertical ? (
-                <FunnelBarChart {...props} />
+                <FunnelBarChartDataExploration {...props} />
             ) : (
                 <FunnelBarGraph {...props} />
             )}
