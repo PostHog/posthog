@@ -132,7 +132,7 @@ def create_minmax_index(table: TablesWithMaterializedColumns, column_names: List
         ADD INDEX {index_name} ({expression})
         TYPE minmax GRANULARITY 1
         """,
-        settings={"alter_sync": 1},
+        settings={"alter_sync": 2},
     )
 
     return index_name
