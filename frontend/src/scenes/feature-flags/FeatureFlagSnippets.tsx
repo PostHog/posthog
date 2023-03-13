@@ -163,6 +163,8 @@ export function APISnippet(): JSX.Element {
     )
 }
 
+// export function JSMultivariateSnippet()
+
 export function PythonLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <>

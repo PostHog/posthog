@@ -290,7 +290,10 @@ export function CodeInstructions({
         if (selectedLanguage) {
             selectOption(selectedLanguage)
         }
-    }, [selectedLanguage])
+        if (Object.keys(featureFlag?.filters.payloads || {}).length > 0) {
+            setShowPayloadCode(true)
+        }
+    }, [selectedLanguage, featureFlag])
 
     return (
         <>
@@ -332,6 +335,7 @@ export function CodeInstructions({
                             <LemonCheckbox
                                 label="Show payload option"
                                 onChange={() => setShowPayloadCode(!showPayloadCode)}
+                                checked={showPayloadCode}
                                 disabled={
                                     !PAYLOAD_OPTIONS.map((payloadOption) => payloadOption.value).includes(
                                         selectedOption.value
