@@ -50,6 +50,14 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     }),
     listeners(({ values, actions }) => ({
+        setEditorRef: ({ editor }) => {
+            editor?.setEditable(values.isEditable)
+        },
+
+        setIsEditable: ({ isEditable }) => {
+            values.editor?.setEditable(isEditable)
+        },
+
         addNodeToNotebook: ({ type, props }) => {
             if (!values.editor) {
                 return

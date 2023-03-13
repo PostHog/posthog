@@ -1,20 +1,29 @@
-import { ReactNode, useState } from 'react'
 import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
+import { ReactNode, useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
     className: string
-    children: ReactNode
+    children: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     preview?: ReactNode // Minified preview mode to show in small screen situations and unexpanded modes. If not defined, children are mounted and rendered.
+    edit?: ReactNode // TODO: This will be replaced with a separate query sidebar outside of the context of a notebook
 }
 
-export function NodeWrapper({ title, className, children, preview, selected }: NodeWrapperProps): JSX.Element {
+export function NodeWrapper({ title, className, children, preview, selected, edit }: NodeWrapperProps): JSX.Element {
     const [isEdit, setIsEdit] = useState<boolean>(false)
     const [isPreview, setIsPreview] = useState<boolean>(true)
 
-    const previewNode = preview ?? children // default to children if no preview
+    const kids = typeof children === 'function' ? children(isEdit, isPreview) : children
+
+    const previewNode = preview ?? kids // default to children if no preview
+
+    useEffect(() => {
+        if (isEdit) {
+            setIsPreview(false)
+        }
+    }, [isEdit])
 
     return (
         <NodeViewWrapper as="div" className={clsx(className, 'flex flex-col gap-1 overflow-hidden')}>
@@ -24,14 +33,16 @@ export function NodeWrapper({ title, className, children, preview, selected }: N
                     <span>{title}</span>
                 </div>
                 <div className="shrink-0 flex gap-4">
-                    <span
-                        className="cursor-pointer"
-                        onClick={() => {
-                            setIsEdit(!isEdit)
-                        }}
-                    >
-                        {isEdit ? 'Done' : 'Edit'}
-                    </span>
+                    {!!edit && (
+                        <span
+                            className="cursor-pointer"
+                            onClick={() => {
+                                setIsEdit(!isEdit)
+                            }}
+                        >
+                            {isEdit ? 'Done' : 'Edit'}
+                        </span>
+                    )}
                     {!!preview && (
                         <span
                             className="cursor-pointer"
@@ -44,12 +55,23 @@ export function NodeWrapper({ title, className, children, preview, selected }: N
                     )}
                 </div>
             </div>
-            <div
-                className={clsx('border bg-white rounded-lg mb-2 overflow-y-auto flex-1', {
-                    'border-primary': selected,
-                })}
-            >
-                {isPreview ? previewNode : children}
+            <div className="flex flex-row gap-4">
+                {!!edit && isEdit && (
+                    <div
+                        className={clsx('relative border bg-white rounded-lg mb-2 overflow-y-auto flex-1 max-w-60', {
+                            'border-primary': selected,
+                        })}
+                    >
+                        {edit}
+                    </div>
+                )}
+                <div
+                    className={clsx('relative border bg-white rounded-lg mb-2 overflow-y-auto flex-1', {
+                        'border-primary': selected,
+                    })}
+                >
+                    {isPreview ? previewNode : kids}
+                </div>
             </div>
         </NodeViewWrapper>
     )

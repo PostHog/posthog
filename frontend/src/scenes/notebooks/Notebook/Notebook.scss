@@ -1,13 +1,13 @@
 .Notebook {
     padding: 1rem;
 
-    h1,
-    h2,
-    h3,
-    h4,
-    h5,
-    p {
+    > :not(.react-renderer) {
         max-width: 1000px;
+        margin: 0 auto;
+    }
+
+    .react-renderer {
+        max-width: 1200px;
         margin: 0 auto;
     }
 
