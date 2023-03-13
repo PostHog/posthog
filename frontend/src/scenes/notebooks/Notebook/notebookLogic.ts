@@ -1,5 +1,4 @@
 import { actions, connect, defaults, kea, key, listeners, path, reducers } from 'kea'
-import { loaders } from 'kea-loaders'
 import { NodeType } from 'scenes/notebooks/Nodes/types'
 import { Editor } from '@tiptap/core'
 import type { notebookLogicType } from './notebookLogicType'
@@ -73,7 +72,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 .run()
 
             // Make notebook fullscreen
-            actions.setFullScreen(true)
+            // Disabled for now as this feels weird
+            // actions.setFullScreen(true)
         },
     })),
 ])

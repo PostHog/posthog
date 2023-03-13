@@ -123,6 +123,11 @@ export function Notebook({ controls, breadcrumbs }: NotebookProps): JSX.Element 
                             value={editor?.getHTML() ?? ''}
                             height={height}
                             loading={<Spinner />}
+                            onChange={(value) => {
+                                if (value) {
+                                    editor?.chain().setContent(value).run()
+                                }
+                            }}
                         />
                     )}
                 </AutoSizer>
