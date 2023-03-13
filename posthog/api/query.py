@@ -150,6 +150,9 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
     query_kind = query_json.get("kind")
+
+    tag_queries(query=query_json)
+
     if query_kind == "EventsQuery":
         events_query = EventsQuery.parse_obj(query_json)
         response = run_events_query(query=events_query, team=team)
