@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, resetContext, selectors } from 'kea'
 import { promptLogic } from 'lib/logic/promptLogic'
 import { getEventNamesForAction, objectsEqual, sum, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -64,6 +64,11 @@ import { dayjs, now } from 'lib/dayjs'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
 import { globalInsightLogic } from './globalInsightLogic'
+import { localStoragePlugin } from 'kea-localstorage'
+
+resetContext({
+    plugins: [localStoragePlugin],
+})
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -1165,9 +1170,6 @@ export const insightLogic = kea<insightLogicType>([
                 insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 eventUsageLogic.actions.reportInsightsTabReset()
             }
-        },
-        acknowledgeRefreshButtonChanged: () => {
-            localStorage.setItem('acknowledged_refresh_button_changed', 'true')
         },
     })),
     events(({ props, values, actions }) => ({
