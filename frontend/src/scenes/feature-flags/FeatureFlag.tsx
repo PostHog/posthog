@@ -62,7 +62,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagRecordings } from './FeatureFlagRecordingsCard'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
@@ -76,6 +75,7 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { billingV2Logic } from 'scenes/billing/billingV2Logic'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -664,7 +664,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
         useActions(featureFlagLogic)
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { upgradeLink } = useValues(billingLogic)
+    const { upgradeLink } = useValues(billingV2Logic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (

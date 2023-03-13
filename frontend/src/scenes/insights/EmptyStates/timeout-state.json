@@ -356,7 +356,7 @@
             }
         },
         "billing": {
-            "billingLogic": {
+            "billingV2Logic": {
                 "billing": null,
                 "billingLoading": false,
                 "plans": [],

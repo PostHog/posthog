@@ -92,6 +92,13 @@ export const billingV2Logic = kea<billingV2LogicType>([
         ],
     })),
     selectors({
+        upgradeLink: [
+            (s) => [s.preflight],
+            (preflight): string =>
+                preflight?.cloud
+                    ? '/organization/billing'
+                    : 'https://license.posthog.com?utm_medium=in-product&utm_campaign=in-product-upgrade',
+        ],
         billingVersion: [
             (s) => [s.billing, s.billingLoading],
             (billing, billingLoading): BillingVersion | undefined =>

@@ -4,7 +4,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import './PayGatePage.scss'
 import { AvailableFeature } from '~/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingV2Logic } from 'scenes/billing/billingV2Logic'
 
 interface PayGatePageInterface {
     header: string | JSX.Element
@@ -23,7 +23,7 @@ export function PayGatePage({
     featureKey,
     featureName,
 }: PayGatePageInterface): JSX.Element {
-    const { upgradeLink } = useValues(billingLogic)
+    const { upgradeLink } = useValues(billingV2Logic)
     featureName = featureName || identifierToHuman(featureKey, 'title')
 
     return (

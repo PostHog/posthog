@@ -2115,13 +2115,6 @@ export type HotKeys =
     | 'arrowdown'
     | 'arrowup'
 
-export interface LicenseType {
-    id: number
-    plan: LicensePlan
-    valid_until: string
-    created_at: string
-}
-
 export interface EventDefinition {
     id: string
     name: string
