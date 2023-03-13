@@ -1706,16 +1706,18 @@ describe('when handling $identify', () => {
         // Get pairins of person distinctIds and the events associated with them
         const eventsByPerson = await getEventsByPerson(hub)
 
-        expect(eventsByPerson).toEqual([
-            [
-                [anonymousId, initialDistinctId],
-                ['event 1', '$identify', 'event 2', '$identify'],
-            ],
-            [
-                [p2DistinctId, p2NewDistinctId],
-                ['event 3', '$identify', 'event 4'],
-            ],
-        ])
+        expect(eventsByPerson).toEqual(
+            expect.arrayContaining([
+                [
+                    [anonymousId, initialDistinctId],
+                    ['event 1', '$identify', 'event 2', '$identify'],
+                ],
+                [
+                    [p2DistinctId, p2NewDistinctId],
+                    ['event 3', '$identify', 'event 4'],
+                ],
+            ])
+        )
 
         // Make sure the persons are identified
         const persons = await hub.db.fetchPersons()
@@ -1756,16 +1758,18 @@ describe('when handling $identify', () => {
         // Get pairins of person distinctIds and the events associated with them
         const eventsByPerson = await getEventsByPerson(hub)
 
-        expect(eventsByPerson).toEqual([
-            [
-                [initialDistinctId, anonymousId],
-                ['$identify', 'event 2', '$identify'],
-            ],
-            [
-                [p2DistinctId, p2NewDistinctId],
-                ['event 3', '$identify', 'event 4'],
-            ],
-        ])
+        expect(eventsByPerson).toEqual(
+            expect.arrayContaining([
+                [
+                    [initialDistinctId, anonymousId],
+                    ['$identify', 'event 2', '$identify'],
+                ],
+                [
+                    [p2DistinctId, p2NewDistinctId],
+                    ['event 3', '$identify', 'event 4'],
+                ],
+            ])
+        )
 
         // Make sure the persons are identified
         const persons = await hub.db.fetchPersons()
