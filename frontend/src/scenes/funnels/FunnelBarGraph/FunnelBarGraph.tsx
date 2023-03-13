@@ -1,11 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React from 'react'
 import clsx from 'clsx'
 import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { IconTrendingFlatDown, IconInfinity, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { funnelLogic } from '../funnelLogic'
-import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
 import { FunnelLayout } from 'lib/constants'
@@ -15,71 +14,10 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { FunnelStepMore } from '../FunnelStepMore'
-import { Noun } from '~/models/groupsModel'
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 import { Bar } from './Bar'
-
-interface AverageTimeInspectorProps {
-    onClick: (e?: React.MouseEvent) => void
-    disabled?: boolean
-    averageTime: number
-    aggregationTargetLabel: Noun
-}
-
-function AverageTimeInspector({
-    onClick,
-    disabled,
-    averageTime,
-    aggregationTargetLabel,
-}: AverageTimeInspectorProps): JSX.Element {
-    // Inspector button which automatically shows/hides the info text.
-    const wrapperRef = useRef<HTMLDivElement | null>(null)
-    const infoTextRef = useRef<HTMLDivElement | null>(null)
-    const buttonRef = useRef<HTMLDivElement | null>(null)
-    const [infoTextVisible, setInfoTextVisible] = useState(true)
-
-    function decideTextVisible(): void {
-        // Show/hide label position based on whether both items fit horizontally
-        const wrapperWidth = wrapperRef.current?.clientWidth ?? null
-        const infoTextWidth = infoTextRef.current?.offsetWidth ?? null
-        const buttonWidth = buttonRef.current?.offsetWidth ?? null
-
-        if (wrapperWidth !== null && infoTextWidth !== null && buttonWidth !== null) {
-            if (infoTextWidth + buttonWidth <= wrapperWidth) {
-                setInfoTextVisible(true)
-                return
-            }
-        }
-        setInfoTextVisible(false)
-    }
-
-    useEffect(() => {
-        decideTextVisible()
-    }, [])
-
-    useResizeObserver({
-        onResize: useThrottledCallback(decideTextVisible, 200),
-        ref: wrapperRef,
-    })
-
-    return (
-        <div ref={wrapperRef}>
-            <span ref={infoTextRef} className={clsx('inline-block text-muted-alt', !infoTextVisible && 'invisible')}>
-                Average time:{' '}
-            </span>
-            <ValueInspectorButton
-                innerRef={buttonRef}
-                style={{ paddingLeft: 0, paddingRight: 0 }}
-                onClick={onClick}
-                disabled={disabled}
-                title={`Average of time elapsed for each ${aggregationTargetLabel.singular} between completing this step and starting the next one.`}
-            >
-                {humanFriendlyDuration(averageTime, 2)}
-            </ValueInspectorButton>
-        </div>
-    )
-}
+import { AverageTimeInspector } from './AverageTimeInspector'
 
 export function MetricRow({ title, value }: { title: string; value: string | number }): JSX.Element {
     return (
