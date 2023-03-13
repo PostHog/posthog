@@ -13,12 +13,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     actions({
         hideSidebar: true,
         showSidebar: true,
+        toggleSidebar: true,
         setSidebarWidth: (width: number) => ({ width }),
         setSidebarOverslide: (overslide: number) => ({ overslide }),
         syncSidebarWidthWithMouseMove: (delta: number) => ({ delta }),
         syncSidebarWidthWithViewport: true,
         beginResize: true,
         endResize: true,
+        acknowledgeSidebarHotkeyHint: true,
     }),
     reducers({
         isSidebarShown: [
@@ -29,6 +31,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             {
                 hideSidebar: () => false,
                 showSidebar: () => true,
+                toggleSidebar: (isSidebarShown) => !isSidebarShown,
             },
         ],
         sidebarWidth: [
@@ -51,6 +54,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             {
                 beginResize: () => true,
                 endResize: () => false,
+            },
+        ],
+        isSidebarHotkeyHintAcknowledged: [
+            false,
+            {
+                persist: true,
+            },
+            {
+                acknowledgeSidebarHotkeyHint: () => true,
             },
         ],
     }),
@@ -87,6 +99,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         endResize: () => {
             actions.setSidebarOverslide(values.isSidebarShown ? 0 : -MINIMUM_SIDEBAR_WIDTH_PX)
         },
+        toggleSidebar: () => {
+            actions.endResize()
+        },
     })),
     selectors({
         sidebarOverslideDirection: [
@@ -122,11 +137,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     })),
     events(({ actions, cache }) => ({
         afterMount: () => {
-            cache.syncSidebarWidthWithViewport = () => actions.syncSidebarWidthWithViewport()
-            window.addEventListener('resize', cache.syncSidebarWidthWithViewport)
+            cache.onResize = () => actions.syncSidebarWidthWithViewport()
+            cache.onKeyDown = (e: KeyboardEvent) => {
+                if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
+                    actions.toggleSidebar()
+                }
+            }
+            window.addEventListener('resize', cache.onResize)
+            window.addEventListener('keydown', cache.onKeyDown)
         },
         beforeUnmount: () => {
-            window.removeEventListener('resize', cache.syncSidebarWidthWithViewport)
+            window.removeEventListener('resize', cache.onResize)
+            window.removeEventListener('resize', cache.onKeyDown)
         },
     })),
 ])

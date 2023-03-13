@@ -2081,7 +2081,7 @@ export enum DashboardMode { // Default mode is null
 }
 
 // Hotkeys for local (component) actions
-export type HotKeys =
+export type HotKey =
     | 'a'
     | 'b'
     | 'c'
@@ -2114,6 +2114,8 @@ export type HotKeys =
     | 'arrowright'
     | 'arrowdown'
     | 'arrowup'
+
+export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export interface LicenseType {
     id: number
