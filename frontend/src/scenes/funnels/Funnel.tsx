@@ -7,7 +7,7 @@ import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { FunnelLayout } from 'lib/constants'
 import { FunnelBarChart, FunnelBarChartDataExploration } from './FunnelBarChart/FunnelBarChart'
-import { FunnelBarGraph } from './FunnelBarGraph'
+import { FunnelBarGraph } from './FunnelBarGraph/FunnelBarGraph'
 import { funnelDataLogic } from './funnelDataLogic'
 
 export function FunnelDataExploration(props: ChartParams): JSX.Element {
