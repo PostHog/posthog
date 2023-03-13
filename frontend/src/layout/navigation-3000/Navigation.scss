@@ -57,13 +57,19 @@
 .Sidebar3000 {
     --sidebar-slider-padding: 0.25rem;
     --sidebar-horizontal-padding: 0.5rem;
-    transition: 200ms ease transform;
+    --sidebar-row-height: 2rem;
+    transition: 100ms ease flex-basis;
     position: relative;
     // This border is just for sizing, the visible border is on the content and slider
     // Hidden when the sidebar is closed
     border-right: min(1px, var(--sidebar-width)) solid transparent;
     flex: 0 0 var(--sidebar-width);
     box-sizing: content-box;
+
+    &.Sidebar3000--resizing {
+        transition: none; // Increase responsiveness when resizing
+        will-change: flex-basis;
+    }
 
     h4,
     h5 {
@@ -83,6 +89,7 @@
 }
 
 .Sidebar3000__content {
+    transition: 100ms ease width;
     position: fixed;
     top: 0;
     left: calc(3rem + 1px);
@@ -98,6 +105,30 @@
     box-sizing: content-box;
     white-space: nowrap;
     overflow: hidden;
+
+    .Sidebar3000--resizing & {
+        transition: none; // Increase responsiveness when resizing
+        will-change: width;
+    }
+}
+
+.Sidebar3000__main {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    overflow-x: hidden;
+    flex-grow: 1;
+}
+
+.Sidebar3000__hint {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--sidebar-row-height);
+    padding: 0 var(--sidebar-horizontal-padding);
+    border-top-width: 1px;
+    font-weight: 500;
+    user-select: none;
 }
 
 .Sidebar3000__slider {
@@ -139,13 +170,13 @@
     .Sidebar3000--resizing &::after {
         transform: scaleX(3);
     }
-    .Sidebar3000--hidden & {
+    .Sidebar3000[aria-hidden='true'] & {
         cursor: e-resize;
     }
 }
 
 .Sidebar3000__header {
-    height: 2rem;
+    height: var(--sidebar-row-height);
     padding: 0 var(--sidebar-horizontal-padding);
     border-bottom-width: 1px;
 }
