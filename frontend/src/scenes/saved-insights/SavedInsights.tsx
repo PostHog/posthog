@@ -281,6 +281,15 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    let menuEntries = Object.entries(INSIGHT_TYPES_METADATA)
+    if (!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]) {
+        menuEntries = menuEntries.filter(
+            ([insightType]) => insightType !== InsightType.QUERY && insightType !== InsightType.SQL
+        )
+    }
+
     return (
         <LemonButtonWithSideAction
             type="primary"
@@ -290,7 +299,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
-                    overlay: Object.entries(INSIGHT_TYPES_METADATA).map(
+                    overlay: menuEntries.map(
                         ([listedInsightType, listedInsightTypeMetadata]) =>
                             listedInsightTypeMetadata.inMenu && (
                                 <LemonButton
