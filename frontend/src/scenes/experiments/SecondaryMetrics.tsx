@@ -115,7 +115,7 @@ export function SecondaryMetrics({
             <LemonModal
                 isOpen={isModalOpen}
                 onClose={closeModal}
-                width={650}
+                width={1000}
                 title={existingModalSecondaryMetric ? 'Edit secondary metric' : 'New secondary metric'}
                 footer={
                     <>
