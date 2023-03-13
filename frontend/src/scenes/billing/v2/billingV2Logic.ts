@@ -13,8 +13,6 @@ import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { urls } from 'scenes/urls'
 import type { billingV2LogicType } from './billingV2LogicType'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -32,6 +30,7 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
         data.billing_period = {
             current_period_start: dayjs(data.billing_period.current_period_start),
             current_period_end: dayjs(data.billing_period.current_period_end),
+            interval: data.billing_period.interval,
         }
 
         data.products?.forEach((x) => {
@@ -50,7 +49,6 @@ export const billingV2Logic = kea<billingV2LogicType>([
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingV2Shown: true,
-        lockIfNecessary: true,
         registerInstrumentationProps: true,
     }),
     connect({
@@ -159,25 +157,6 @@ export const billingV2Logic = kea<billingV2LogicType>([
                 }
             },
         ],
-        isUserLocked: [
-            (s) => [s.billing, s.preflight, s.billingVersion, s.featureFlags],
-            (billing, preflight, billingVersion, featureFlags): boolean => {
-                if (!billing || !preflight?.cloud) {
-                    return false
-                }
-                // lock cloud users without a subscription out if they are above the usage limit on any product
-                return Boolean(
-                    ((billingVersion === 'v2' &&
-                        !billing.has_active_subscription &&
-                        !billing.free_trial_until &&
-                        billing.products?.find((x) => {
-                            return x.percentage_usage > ALLOCATION_THRESHOLD_BLOCK
-                        })) ||
-                        billing.deactivated) &&
-                        featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
-                )
-            },
-        ],
     }),
     forms(({ actions }) => ({
         activateLicense: {
@@ -224,17 +203,8 @@ export const billingV2Logic = kea<billingV2LogicType>([
                 // if the activation is successful, we reload the user to get the updated billing info on the organization
                 actions.loadUser()
                 router.actions.replace('/organization/billing')
-            } else {
-                actions.lockIfNecessary()
             }
             actions.registerInstrumentationProps()
-        },
-
-        lockIfNecessary: () => {
-            if (values.isUserLocked && router.values.location.pathname !== '/organization/billing/locked') {
-                posthog.capture('billing locked screen shown')
-                router.actions.replace(urls.billingLocked())
-            }
         },
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
@@ -286,9 +256,6 @@ export const billingV2Logic = kea<billingV2LogicType>([
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
             }
-        },
-        '*': () => {
-            actions.lockIfNecessary()
         },
     })),
 ])

@@ -14,6 +14,7 @@
       <env name="PRINT_SQL" value="1" />
       <env name="PYTHONUNBUFFERED" value="1" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
+      <env name="CAPTURE_TIME_TO_SEE_DATA" value="0" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
     <option name="SDK_NAME" value="Python 3.10 (posthog)" />

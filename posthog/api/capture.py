@@ -70,7 +70,7 @@ PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
 TOKEN_SHAPE_INVALID_COUNTER = Counter(
     "capture_token_shape_invalid_total",
     "Events dropped due to an invalid token shape, per reason.",
-    labelnames=["stage", "reason"],
+    labelnames=["reason"],
 )
 
 
@@ -574,7 +574,7 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
                 # Return early if we have logged this key already.
                 return True
 
-            PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER.labels(partition_key=candidate_partition_key).inc()
+            PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER.labels(partition_key=candidate_partition_key.split(":")[0]).inc()
             statsd.incr("partition_key_capacity_exceeded", tags={"partition_key": candidate_partition_key})
             logger.warning(
                 "Partition key %s overridden as bucket capacity of %s tokens exceeded",

@@ -1,5 +1,14 @@
 import './DataTable.scss'
-import { DataTableNode, EventsNode, EventsQuery, HogQLQuery, Node, PersonsNode, QueryContext } from '~/queries/schema'
+import {
+    AnyResponseType,
+    DataTableNode,
+    EventsNode,
+    EventsQuery,
+    HogQLQuery,
+    Node,
+    PersonsNode,
+    QueryContext,
+} from '~/queries/schema'
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -41,6 +50,9 @@ interface DataTableProps {
     setQuery?: (query: DataTableNode) => void
     /** Custom table columns */
     context?: QueryContext
+    /* Cached Results are provided when shared or exported,
+    the data node logic becomes read only implicitly */
+    cachedResults?: AnyResponseType
 }
 
 const groupTypes = [
@@ -52,16 +64,17 @@ const groupTypes = [
 
 let uniqueNode = 0
 
-export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Element {
+export function DataTable({ query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const [key] = useState(() => `DataTable.${uniqueNode++}`)
 
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
+    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key, cachedResults: cachedResults }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
     const {
         response,
         responseLoading,
         responseError,
+        queryCancelled,
         canLoadNextData,
         canLoadNewData,
         nextDataLoading,
@@ -115,7 +128,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             },
             sorter: undefined, // using custom sorting code
             more:
-                showActions && isEventsQuery(query.source) ? (
+                !context?.readonly && showActions && isEventsQuery(query.source) ? (
                     <>
                         <div className="px-2 py-1">
                             <div className="font-mono font-bold">{extractExpressionComment(key)}</div>
@@ -349,7 +362,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             {firstRowLeft}
                             <div className="flex-1" />
                             {firstRowRight}
-                            {inlineEditorButtonOnRow === 1 ? (
+                            {inlineEditorButtonOnRow === 1 && context?.readonly !== true ? (
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
@@ -360,7 +373,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             {secondRowLeft}
                             <div className="flex-1" />
                             {secondRowRight}
-                            {inlineEditorButtonOnRow === 2 ? (
+                            {inlineEditorButtonOnRow === 2 && context?.readonly !== true ? (
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
@@ -368,7 +381,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                     {showEventsBufferWarning && isEventsQuery(query.source) && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
-                    {inlineEditorButtonOnRow === 0 ? (
+                    {inlineEditorButtonOnRow === 0 && context?.readonly !== true ? (
                         <div className="absolute right-0 z-10 p-1">
                             <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                         </div>
@@ -406,11 +419,15 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         useURLForSorting={false}
                         emptyState={
                             responseError ? (
-                                isHogQLQuery(query.source) ? (
+                                isHogQLQuery(query.source) || isEventsQuery(query.source) ? (
                                     <InsightErrorState
                                         excludeDetail
                                         title={
-                                            response && 'error' in response ? (response as any).error : responseError
+                                            queryCancelled
+                                                ? 'The query was cancelled'
+                                                : response && 'error' in response
+                                                ? (response as any).error
+                                                : responseError
                                         }
                                     />
                                 ) : (

@@ -10,6 +10,7 @@ from sentry_sdk.api import capture_exception
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
@@ -39,6 +40,7 @@ class FeatureFlag(models.Model):
     performed_rollback: models.BooleanField = models.BooleanField(null=True, blank=True)
 
     ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    usage_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.CASCADE, null=True, blank=True)
 
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
@@ -201,17 +203,24 @@ class FeatureFlag(models.Model):
 
         return parsed_conditions
 
-    @property
+    @cached_property
     def cohort_ids(self) -> List[int]:
-        cohort_ids = []
+        from posthog.models.cohort.util import get_dependent_cohorts
+
+        cohort_ids = set()
         for condition in self.conditions:
             props = condition.get("properties", [])
             for prop in props:
                 if prop.get("type") == "cohort":
                     cohort_id = prop.get("value")
-                    if cohort_id:
-                        cohort_ids.append(cohort_id)
-        return cohort_ids
+                    try:
+                        cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+                        cohort_ids.add(cohort.pk)
+                        cohort_ids.update([dependent_cohort.pk for dependent_cohort in get_dependent_cohorts(cohort)])
+                    except Cohort.DoesNotExist:
+                        continue
+
+        return list(cohort_ids)
 
     def __str__(self):
         return f"{self.key} ({self.pk})"

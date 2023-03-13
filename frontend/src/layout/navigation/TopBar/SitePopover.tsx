@@ -271,13 +271,12 @@ function SignOutButton(): JSX.Element {
     )
 }
 
-export function SitePopover(): JSX.Element {
+export function SitePopoverOverlay(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { billingVersion } = useValues(billingLogic)
-    const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
-    const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
+    const { closeSitePopover } = useActions(navigationLogic)
     const { relevantLicense } = useValues(licenseLogic)
     useMountedLogic(licenseLogic)
 
@@ -285,58 +284,68 @@ export function SitePopover(): JSX.Element {
     const billingV2 = billingVersion === 'v2'
 
     return (
+        <>
+            <SitePopoverSection title="Signed in as">
+                <AccountInfo />
+            </SitePopoverSection>
+            <SitePopoverSection title="Current organization">
+                {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
+                {billingV2 || preflight?.cloud ? (
+                    <LemonButton
+                        onClick={closeSitePopover}
+                        to={urls.organizationBilling()}
+                        icon={<IconBill />}
+                        fullWidth
+                        data-attr="top-menu-item-billing"
+                    >
+                        Billing
+                    </LemonButton>
+                ) : null}
+                <InviteMembersButton />
+            </SitePopoverSection>
+            {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
+                <SitePopoverSection title="Other organizations">
+                    {otherOrganizations.map((otherOrganization, i) => (
+                        <OtherOrganizationButton
+                            key={otherOrganization.id}
+                            organization={otherOrganization}
+                            index={i + 2}
+                        />
+                    ))}
+                    {preflight?.can_create_org && <NewOrganizationButton />}
+                </SitePopoverSection>
+            )}
+            {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
+                <SitePopoverSection title="PostHog instance">
+                    {!preflight?.cloud && !billingV2 ? <License license={relevantLicense} expired={expired} /> : null}
+                    <SystemStatus />
+                    {!preflight?.cloud && <Version />}
+                    <AsyncMigrations />
+                    <InstanceSettings />
+                </SitePopoverSection>
+            )}
+            <SitePopoverSection>
+                <SignOutButton />
+            </SitePopoverSection>
+        </>
+    )
+}
+
+export function SitePopover(): JSX.Element {
+    const { user } = useValues(userLogic)
+    const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
+    const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
+    const { relevantLicense } = useValues(licenseLogic)
+    useMountedLogic(licenseLogic)
+
+    const expired = relevantLicense && isLicenseExpired(relevantLicense)
+
+    return (
         <Popover
             visible={isSitePopoverOpen}
             className="SitePopover"
             onClickOutside={closeSitePopover}
-            overlay={
-                <>
-                    <SitePopoverSection title="Signed in as">
-                        <AccountInfo />
-                    </SitePopoverSection>
-                    <SitePopoverSection title="Current organization">
-                        {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
-                        {billingV2 || preflight?.cloud ? (
-                            <LemonButton
-                                onClick={closeSitePopover}
-                                to={urls.organizationBilling()}
-                                icon={<IconBill />}
-                                fullWidth
-                                data-attr="top-menu-item-billing"
-                            >
-                                Billing
-                            </LemonButton>
-                        ) : null}
-                        <InviteMembersButton />
-                    </SitePopoverSection>
-                    {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
-                        <SitePopoverSection title="Other organizations">
-                            {otherOrganizations.map((otherOrganization, i) => (
-                                <OtherOrganizationButton
-                                    key={otherOrganization.id}
-                                    organization={otherOrganization}
-                                    index={i + 2}
-                                />
-                            ))}
-                            {preflight?.can_create_org && <NewOrganizationButton />}
-                        </SitePopoverSection>
-                    )}
-                    {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
-                        <SitePopoverSection title="PostHog instance">
-                            {!preflight?.cloud && !billingV2 ? (
-                                <License license={relevantLicense} expired={expired} />
-                            ) : null}
-                            <SystemStatus />
-                            {!preflight?.cloud && <Version />}
-                            <AsyncMigrations />
-                            <InstanceSettings />
-                        </SitePopoverSection>
-                    )}
-                    <SitePopoverSection>
-                        <SignOutButton />
-                    </SitePopoverSection>
-                </>
-            }
+            overlay={<SitePopoverOverlay />}
         >
             <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
                 <div

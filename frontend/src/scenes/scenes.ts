@@ -234,10 +234,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         plain: true,
         allowUnauthenticated: true,
     },
-    [Scene.BillingLocked]: {
-        plain: true,
-        allowUnauthenticated: true,
-    },
     [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
     },
@@ -246,6 +242,11 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.VerifyEmail]: {
         allowUnauthenticated: true,
+        plain: true,
+    },
+    [Scene.Feedback]: {
+        projectBased: true,
+        name: 'Feedback',
     },
 }
 
@@ -335,7 +336,6 @@ export const routes: Record<string, Scene> = {
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.billingSubscribed()]: Scene.BillingSubscribed,
-    [urls.billingLocked()]: Scene.BillingLocked,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
     [urls.instanceLicenses()]: Scene.Licenses,
@@ -366,4 +366,6 @@ export const routes: Record<string, Scene> = {
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
     [urls.query()]: Scene.Query,
+    [urls.feedback()]: Scene.Feedback,
+    [urls.feedback() + '/*']: Scene.Feedback,
 }

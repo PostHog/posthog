@@ -7,11 +7,36 @@ import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/views/Histogram'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import './FunnelHistogram.scss'
+import { HistogramGraphDatum } from '~/types'
+import { funnelDataLogic } from './funnelDataLogic'
+
+export function FunnelHistogramDataExploration(): JSX.Element | null {
+    const { insightProps, isInDashboardContext } = useValues(insightLogic)
+    const { histogramGraphData } = useValues(funnelDataLogic(insightProps))
+
+    return (
+        <FunnelHistogramComponent isInDashboardContext={isInDashboardContext} histogramGraphData={histogramGraphData} />
+    )
+}
 
 export function FunnelHistogram(): JSX.Element | null {
     const { insightProps, isInDashboardContext } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { histogramGraphData } = useValues(logic)
+    const { histogramGraphData } = useValues(funnelLogic(insightProps))
+
+    return (
+        <FunnelHistogramComponent isInDashboardContext={isInDashboardContext} histogramGraphData={histogramGraphData} />
+    )
+}
+
+type FunnelHistogramComponentProps = {
+    isInDashboardContext: boolean
+    histogramGraphData: HistogramGraphDatum[] | null
+}
+
+export function FunnelHistogramComponent({
+    isInDashboardContext,
+    histogramGraphData,
+}: FunnelHistogramComponentProps): JSX.Element | null {
     const ref = useRef(null)
     const [width, height] = useSize(ref)
 

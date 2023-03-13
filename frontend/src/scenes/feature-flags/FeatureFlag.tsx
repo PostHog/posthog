@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs, Skeleton, Card } from 'antd'
+import { Row, Col, Radio, InputNumber, Popconfirm, Select, Tabs, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -18,6 +18,8 @@ import {
     IconPlusMini,
     IconSubArrowRight,
     IconErrorOutline,
+    IconUnfoldLess,
+    IconUnfoldMore,
 } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -29,10 +31,12 @@ import { userLogic } from 'scenes/userLogic'
 import {
     AnyPropertyFilter,
     AvailableFeature,
+    DashboardPlacement,
     EventsTableRowItem,
     PropertyFilterType,
     PropertyOperator,
     Resource,
+    FeatureFlagType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -68,6 +72,10 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { tagsModel } from '~/models/tagsModel'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
+import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -104,6 +112,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
     const [activeTab, setActiveTab] = useState(FeatureFlagsTabs.OVERVIEW)
+    const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 
@@ -159,7 +168,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
-                        <Divider />
+                        <LemonDivider />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                             <AlertMessage type="warning">
                                 This feature flag is linked to an experiment. It's recommended to only make changes to
@@ -241,6 +250,60 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         }}
                                     </Field>
                                 )}
+                                {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
+                                    <Field name="ensure_experience_continuity">
+                                        {({ value, onChange }) => (
+                                            <div className="border rounded p-4">
+                                                <LemonCheckbox
+                                                    id="continuity-checkbox"
+                                                    label="Persist flag across authentication steps"
+                                                    onChange={() => onChange(!value)}
+                                                    fullWidth
+                                                    checked={value}
+                                                />
+                                                <div className="text-muted text-sm pl-7">
+                                                    If your feature flag is applied prior to an identify or
+                                                    authentication event, use this to ensure that feature flags are not
+                                                    reset after a person is identified. This ensures the experience for
+                                                    the anonymous person is carried forward to the authenticated person.{' '}
+                                                    <Link
+                                                        to="https://posthog.com/manual/feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                        target="_blank"
+                                                    >
+                                                        Learn more <IconOpenInNew />
+                                                    </Link>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </Field>
+                                )}
+                                <Field name="active">
+                                    {({ value, onChange }) => (
+                                        <div className="border rounded p-4">
+                                            <LemonCheckbox
+                                                id="flag-enabled-checkbox"
+                                                label="Enable feature flag"
+                                                onChange={() => onChange(!value)}
+                                                checked={value}
+                                            />
+                                        </div>
+                                    )}
+                                </Field>
+                            </Col>
+                            {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
+                                <Col span={12}>
+                                    <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
+                                </Col>
+                            )}
+                        </Row>
+                        <LemonDivider />
+                        <FeatureFlagRollout />
+                        <LemonDivider />
+                        <FeatureFlagReleaseConditions />
+                        {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
+                            <>
+                                <LemonDivider />
+                                <FeatureFlagCodeExample featureFlag={featureFlag} />
                                 <Field name="ensure_experience_continuity">
                                     {({ value, onChange }) => (
                                         <div className="border rounded p-4">
@@ -266,48 +329,55 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </div>
                                     )}
                                 </Field>
-                                <Field name="active">
-                                    {({ value, onChange }) => (
-                                        <div className="border rounded p-4">
-                                            <LemonCheckbox
-                                                id="flag-enabled-checkbox"
-                                                label="Enable feature flag"
-                                                onChange={() => onChange(!value)}
-                                                checked={value}
-                                            />
-                                        </div>
-                                    )}
-                                </Field>
-                            </Col>
-                            <Col span={12}>
-                                <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                            </Col>
-                        </Row>
-                        <Divider />
-                        <FeatureFlagRollout />
-                        <Divider />
-                        <FeatureFlagReleaseConditions />
-                        <Divider />
-                        {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
-                        {isNewFeatureFlag && featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
-                            <Card title="Permissions" className="mb-4">
-                                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                    <ResourcePermission
-                                        resourceType={Resource.FEATURE_FLAGS}
-                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                        rolesToAdd={rolesToAdd}
-                                        addableRoles={addableRoles}
-                                        addableRolesLoading={unfilteredAddableRolesLoading}
-                                        onAdd={() => addAssociatedRoles()}
-                                        roles={derivedRoles}
-                                        deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
-                                        canEdit={featureFlag.can_edit}
-                                    />
-                                </PayGateMini>
-                            </Card>
+                            </>
                         )}
-
-                        <LemonDivider className="mt-8" />
+                        <LemonDivider />
+                        {isNewFeatureFlag && (
+                            <>
+                                <div>
+                                    <LemonButton
+                                        fullWidth
+                                        status="default-dark"
+                                        onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
+                                        sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                    >
+                                        <div>
+                                            <h3 className="l4">Advanced settings</h3>
+                                            <div className="text-muted mb-4 font-medium">
+                                                Define who can modify this flag.
+                                            </div>
+                                        </div>
+                                    </LemonButton>
+                                </div>
+                                {advancedSettingsExpanded && (
+                                    <>
+                                        {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                            <FeatureFlagAutoRollback />
+                                        )}
+                                        {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                                            <Card title="Permissions" className="mb-4">
+                                                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                                    <ResourcePermission
+                                                        resourceType={Resource.FEATURE_FLAGS}
+                                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                        rolesToAdd={rolesToAdd}
+                                                        addableRoles={addableRoles}
+                                                        addableRolesLoading={unfilteredAddableRolesLoading}
+                                                        onAdd={() => addAssociatedRoles()}
+                                                        roles={derivedRoles}
+                                                        deleteAssociatedRole={(id) =>
+                                                            deleteAssociatedRole({ roleId: id })
+                                                        }
+                                                        canEdit={featureFlag.can_edit}
+                                                    />
+                                                </PayGateMini>
+                                            </Card>
+                                        )}
+                                    </>
+                                )}
+                                <LemonDivider />
+                            </>
+                        )}
                         <div className="flex items-center gap-2 justify-end">
                             <LemonButton
                                 data-attr="cancel-feature-flag"
@@ -471,7 +541,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             }
                                             key="usage"
                                         >
-                                            <UsageTab id={id} featureFlagKey={featureFlag.key} />
+                                            <UsageTab id={id} featureFlag={featureFlag} />
                                         </Tabs.TabPane>
                                     )}
                                     {featureFlag.id && (
@@ -506,7 +576,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     )
 }
 
-function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
+function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
+    const { key: featureFlagKey, usage_dashboard: dashboardId } = featureFlag
+    const { generateUsageDashboard } = useActions(featureFlagLogic)
+    const { featureFlagLoading } = useValues(featureFlagLogic)
+    const { receivedErrorsFromAPI } = useValues(
+        dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
+    )
+    const connectedDashboardExists = dashboardId && !receivedErrorsFromAPI
     const propertyFilter: AnyPropertyFilter[] = [
         {
             key: '$feature_flag',
@@ -514,18 +591,27 @@ function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): J
             value: featureFlagKey,
             operator: PropertyOperator.Exact,
         },
-        {
-            key: '$feature_flag_response',
-            type: PropertyFilterType.Event,
-            value: 'is_set',
-            operator: PropertyOperator.IsSet,
-        },
     ]
 
     // TODO: reintegrate HogQL Editor
     return (
         <div>
-            <div className="mb-4">
+            {connectedDashboardExists ? (
+                <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+            ) : (
+                <div>
+                    <b>Dashboard</b>
+                    <div className="text-muted mb-2">{`There is currently no connected dashboard to this feature flag. If there was previously a connected dashboard, it may have been deleted.`}</div>
+                    {featureFlagLoading ? (
+                        <EmptyDashboardComponent loading={true} canEdit={false} />
+                    ) : (
+                        <LemonButton type={'primary'} onClick={() => generateUsageDashboard()}>
+                            Generate Usage Dashboard
+                        </LemonButton>
+                    )}
+                </div>
+            )}
+            <div className="mt-4 mb-4">
                 <b>Log</b>
                 <div className="text-muted">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
             </div>
@@ -804,10 +890,11 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     </Field>
                                 </Group>
                             </Col>
-
-                            <Col span={12}>
-                                <FeatureFlagPayloadInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                            </Col>
+                            {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
+                                <Col span={12}>
+                                    <FeatureFlagPayloadInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
+                                </Col>
+                            )}
                         </Row>
                     )}
                 </div>
@@ -1295,10 +1382,12 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                             {readOnly ? (
                                 <LemonTag
                                     type={
-                                        group.properties?.length == 0
+                                        featureFlag.filters.groups.length == 1
                                             ? group.rollout_percentage == null || group.rollout_percentage == 100
                                                 ? 'highlight'
-                                                : 'default'
+                                                : group.rollout_percentage == 0
+                                                ? 'caution'
+                                                : 'none'
                                             : 'none'
                                     }
                                 >

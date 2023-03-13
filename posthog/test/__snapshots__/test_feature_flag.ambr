@@ -12,6 +12,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -57,7 +58,8 @@
          "posthog_featureflag"."active",
          "posthog_featureflag"."rollback_conditions",
          "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity"
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -78,7 +80,8 @@
          "posthog_featureflag"."active",
          "posthog_featureflag"."rollback_conditions",
          "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity"
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -99,7 +102,8 @@
          "posthog_featureflag"."active",
          "posthog_featureflag"."rollback_conditions",
          "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity"
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
