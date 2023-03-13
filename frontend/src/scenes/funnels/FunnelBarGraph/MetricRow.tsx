@@ -1,5 +1,3 @@
-import React from 'react'
-
 export function MetricRow({ title, value }: { title: string; value: string | number }): JSX.Element {
     return (
         <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>

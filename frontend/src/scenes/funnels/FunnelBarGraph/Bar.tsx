@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { capitalizeFirstLetter, percentage } from 'lib/utils'
 import { Popover } from 'antd'
 import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
