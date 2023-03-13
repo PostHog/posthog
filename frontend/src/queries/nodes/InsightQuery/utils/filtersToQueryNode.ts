@@ -177,7 +177,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             funnel_step: filters.funnel_step,
             entrance_period_start: filters.entrance_period_start,
             drop_off: filters.drop_off,
-            hidden_legend_series: cleanHiddenLegendSeries(filters.hidden_legend_keys),
+            hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
         })
     }
 

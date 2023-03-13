@@ -388,7 +388,7 @@ describe('filtersToQueryNode', () => {
                     funnel_step: 1,
                     entrance_period_start: 'abc',
                     drop_off: true,
-                    hidden_legend_series: ['Chrome', 'Safari'],
+                    hidden_legend_breakdowns: ['Chrome', 'Safari'],
                 },
             }
             expect(result).toEqual(query)

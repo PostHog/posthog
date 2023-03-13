@@ -312,9 +312,9 @@ export interface TrendsQuery extends InsightsQueryBase {
 }
 
 // using everything except what it inherits from FilterType
-// replace hidden_legend_keys with hidden_legend_series
+// replace hidden_legend_keys with hidden_legend_breakdowns
 export type FunnelsFilter = Omit<
-    FunnelsFilterType & { hidden_legend_series?: string[] },
+    FunnelsFilterType & { hidden_legend_breakdowns?: string[] },
     keyof FilterType | 'hidden_legend_keys'
 >
 export interface FunnelsQuery extends InsightsQueryBase {
