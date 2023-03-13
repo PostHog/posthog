@@ -1311,7 +1311,7 @@ class TestFeatureFlag(APIBaseTest):
                             "values": [
                                 {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
                                 {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
-                                {"key": "id", "value": cohort_valid_for_ff.pk, "type": "cohort"},
+                                {"key": "id", "value": cohort_valid_for_ff.pk, "type": "cohort", "negation": True},
                             ],
                         }
                     ],
@@ -1400,7 +1400,7 @@ class TestFeatureFlag(APIBaseTest):
                             "values": [
                                 {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
                                 {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
-                                {"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk},
+                                {"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk, "negation": True},
                             ],
                         }
                     ],
