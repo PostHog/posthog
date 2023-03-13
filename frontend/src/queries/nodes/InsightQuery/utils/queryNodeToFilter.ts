@@ -7,16 +7,7 @@ import {
     NewEntityNode,
     NodeKind,
 } from '~/queries/schema'
-import {
-    ActionFilter,
-    EntityTypes,
-    FilterType,
-    FunnelsFilterType,
-    InsightType,
-    LifecycleFilterType,
-    StickinessFilterType,
-    TrendsFilterType,
-} from '~/types'
+import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 import {
     isActionsNode,
     isEventsNode,
@@ -28,6 +19,7 @@ import {
     isTrendsQuery,
 } from '~/queries/utils'
 import { objectClean } from 'lib/utils'
+import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 
@@ -132,29 +124,23 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         filters.interval = query.interval
     }
 
-    if (isTrendsQuery(query)) {
-        ;(filters as TrendsFilterType).display = query.trendsFilter?.display
-        ;(filters as TrendsFilterType).hidden_legend_keys = hiddenLegendItemsToKeys(
-            query.trendsFilter?.hidden_legend_indexes
-        )
+    if (isTrendsQuery(query) && isTrendsFilter(filters)) {
+        filters.display = query.trendsFilter?.display
+        filters.hidden_legend_keys = hiddenLegendItemsToKeys(query.trendsFilter?.hidden_legend_indexes)
     }
 
-    if (isStickinessQuery(query)) {
-        ;(filters as StickinessFilterType).display = query.stickinessFilter?.display
-        ;(filters as StickinessFilterType).hidden_legend_keys = hiddenLegendItemsToKeys(
-            query.stickinessFilter?.hidden_legend_indexes
-        )
+    if (isStickinessQuery(query) && isStickinessFilter(filters)) {
+        filters.display = query.stickinessFilter?.display
+        filters.hidden_legend_keys = hiddenLegendItemsToKeys(query.stickinessFilter?.hidden_legend_indexes)
     }
 
-    if (isFunnelsQuery(query)) {
-        ;(filters as FunnelsFilterType).hidden_legend_keys = hiddenLegendItemsToKeys(
-            query.funnelsFilter?.hidden_legend_breakdowns
-        )
+    if (isFunnelsQuery(query) && isFunnelsFilter(filters)) {
+        filters.hidden_legend_keys = hiddenLegendItemsToKeys(query.funnelsFilter?.hidden_legend_breakdowns)
     }
 
-    if (isLifecycleQuery(query)) {
-        ;(filters as LifecycleFilterType).toggledLifecycles = query.lifecycleFilter?.toggledLifecycles
-        ;(filters as LifecycleFilterType).shown_as = query.lifecycleFilter?.shown_as
+    if (isLifecycleQuery(query) && isLifecycleFilter(filters)) {
+        filters.toggledLifecycles = query.lifecycleFilter?.toggledLifecycles
+        filters.shown_as = query.lifecycleFilter?.shown_as
     }
 
     // get node specific filter properties e.g. trendsFilter, funnelsFilter, ...

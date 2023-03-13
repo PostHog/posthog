@@ -9,11 +9,11 @@ import { FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/t
 import { ActionsNode, DataNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
 import {
     funnelResult,
-    funnelResultWithBreakdown,
-    funnelResultWithMultiBreakdown,
     funnelResultTimeToConvert,
     funnelResultTimeToConvertWithoutConversions,
     funnelResultTrends,
+    funnelResultWithBreakdown,
+    funnelResultWithMultiBreakdown,
 } from './__mocks__/funnelDataLogicMocks'
 
 let logic: ReturnType<typeof funnelDataLogic.build>
@@ -200,6 +200,18 @@ describe('funnelDataLogic', () => {
                             }),
                         ]),
                     ]),
+                })
+            })
+
+            it('with breakdown and no results', async () => {
+                const insight: Partial<InsightModel> = {
+                    result: [],
+                }
+
+                await expectLogic(logic, () => {
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    results: expect.arrayContaining([]),
                 })
             })
 

@@ -67,6 +67,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         excluded_event_property_names: ['$plugins_deferred', '$geoip_time_zone'],
         excluded_person_property_names: ['$browser_version'],
     },
+    autocapture_opt_out: true,
     session_recording_opt_in: true,
     capture_console_log_opt_in: true,
     session_recording_version: 'v1',

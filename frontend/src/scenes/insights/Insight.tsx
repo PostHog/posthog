@@ -13,6 +13,7 @@ import { EditorFilters } from './EditorFilters/EditorFilters'
 import clsx from 'clsx'
 import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
+import { containsHogQLQuery } from '~/queries/utils'
 
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
@@ -76,10 +77,12 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                 <>
                     <Query
                         query={query}
-                        setQuery={setQuery}
+                        setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
                         context={{
                             showOpenEditorButton: false,
-                            showQueryEditor: insightMode === ItemMode.Edit && (isQueryBasedInsight || showQueryEditor),
+                            showQueryEditor:
+                                insightMode === ItemMode.Edit &&
+                                ((isQueryBasedInsight && !containsHogQLQuery(query)) || showQueryEditor),
                         }}
                     />
                 </>

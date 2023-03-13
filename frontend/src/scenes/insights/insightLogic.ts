@@ -14,7 +14,6 @@ import {
     ItemMode,
     SetInsightOptions,
     TrendsFilterType,
-    UserType,
 } from '~/types'
 import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
 import { router } from 'kea-router'
@@ -181,7 +180,6 @@ export const insightLogic = kea<insightLogicType>([
         toggleVisibility: (index: number) => ({ index }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
         abortAnyRunningQuery: true,
-        acknowledgeRefreshButtonChanged: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         insight: [
@@ -193,7 +191,7 @@ export const insightLogic = kea<insightLogicType>([
             {
                 loadInsight: async ({ shortId }) => {
                     const load_query_insight_query_params = !!values.featureFlags[
-                        FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS
+                        FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB
                     ]
                         ? '&include_query_insights=true'
                         : ''
@@ -599,13 +597,6 @@ export const insightLogic = kea<insightLogicType>([
                 saveInsightFailure: () => false,
             },
         ],
-        acknowledgedRefreshButtonChanged: [
-            false,
-            { persist: true, storageKey: 'acknowledgedRefreshButtonChanged' },
-            {
-                acknowledgeRefreshButtonChanged: () => true,
-            },
-        ],
     })),
     selectors({
         /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
@@ -791,13 +782,7 @@ export const insightLogic = kea<insightLogicType>([
         isUsingDashboardQueryTiles: [
             (s) => [s.featureFlags, s.isUsingDataExploration],
             (featureFlags: FeatureFlagsSet, isUsingDataExploration: boolean): boolean => {
-                return isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS]
-            },
-        ],
-        displayRefreshButtonChangedNotice: [
-            (s) => [s.acknowledgedRefreshButtonChanged, s.user],
-            (acknowledgedRefreshButtonChanged: boolean, user: UserType): boolean => {
-                return dayjs(user.date_joined).isBefore('2023-02-13') && !acknowledgedRefreshButtonChanged
+                return isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
             },
         ],
         insightRefreshButtonDisabledReason: [
@@ -1136,9 +1121,6 @@ export const insightLogic = kea<insightLogicType>([
                 insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 eventUsageLogic.actions.reportInsightsTabReset()
             }
-        },
-        acknowledgeRefreshButtonChanged: () => {
-            localStorage.setItem('acknowledged_refresh_button_changed', 'true')
         },
     })),
     events(({ props, values, actions }) => ({

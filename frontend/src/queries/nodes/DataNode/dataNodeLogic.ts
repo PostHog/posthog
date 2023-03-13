@@ -25,7 +25,6 @@ import api, { ApiMethodOptions } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { UserType } from '~/types'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -263,13 +262,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNextData: () => null,
             },
         ],
-        acknowledgedRefreshButtonChanged: [
-            false,
-            { persist: true, storageKey: 'acknowledgedRefreshButtonChanged' },
-            {
-                acknowledgeRefreshButtonChanged: () => true,
-            },
-        ],
     })),
     selectors({
         isShowingCachedResults: [
@@ -397,12 +389,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }
 
                 return disabledReason
-            },
-        ],
-        displayRefreshButtonChangedNotice: [
-            (s) => [s.acknowledgedRefreshButtonChanged, s.user],
-            (acknowledgedRefreshButtonChanged: boolean, user: UserType): boolean => {
-                return dayjs(user.date_joined).isBefore('2023-02-13') && !acknowledgedRefreshButtonChanged
             },
         ],
     }),

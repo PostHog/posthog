@@ -293,6 +293,7 @@ export interface TeamType extends TeamBasicType {
     app_urls: string[]
     recording_domains: string[]
     slack_incoming_webhook: string
+    autocapture_opt_out: boolean
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
@@ -1452,6 +1453,7 @@ export enum InsightType {
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
     QUERY = 'QUERY',
+    SQL = 'SQL',
 }
 
 export enum PathType {
@@ -2080,7 +2082,7 @@ export enum DashboardMode { // Default mode is null
 }
 
 // Hotkeys for local (component) actions
-export type HotKeys =
+export type HotKey =
     | 'a'
     | 'b'
     | 'c'
@@ -2113,6 +2115,8 @@ export type HotKeys =
     | 'arrowright'
     | 'arrowdown'
     | 'arrowup'
+
+export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export interface LicenseType {
     id: number
