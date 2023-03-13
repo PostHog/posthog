@@ -44,13 +44,6 @@ ul {
     border-color: var(--border);
 }
 
-// FIXME: Quick hack to make theme transition smooth (almost) everywhere
-*,
-*::before,
-*::after {
-    transition: background-color 200ms ease, border-color 200ms ease;
-}
-
 .page-title-row {
     display: flex;
     flex-wrap: wrap;
