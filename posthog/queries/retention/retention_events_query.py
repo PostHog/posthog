@@ -38,7 +38,7 @@ class RetentionEventsQuery(EventQuery):
             team=team,
             override_aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
             using_person_on_events=using_person_on_events,
-            using_person_on_events_v2=True,
+            using_person_on_events_v2= using_person_on_events_v2,
         )
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
