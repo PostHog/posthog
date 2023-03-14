@@ -167,6 +167,25 @@ class TestDashboardTemplates(APIBaseTest):
         )
         assert update_response.status_code == status.HTTP_403_FORBIDDEN, update_response
 
+    def test_non_staff_cannot_edit_dashboard_template(self) -> None:
+        default_template = DashboardTemplate.objects.all()[0]
+        assert default_template.scope == "everyone"
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{default_template.id}",
+            {"template_name": "Test name"},
+        )
+        assert update_response.status_code == status.HTTP_200_OK, update_response
+
+        self.user.is_staff = False
+        self.user.save()
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{default_template.id}",
+            {"template_name": "Test name"},
+        )
+        assert update_response.status_code == status.HTTP_403_FORBIDDEN, update_response
+
     def test_non_staff_can_get_public_dashboard_templates(self) -> None:
         assert DashboardTemplate.objects.count() == 1  # Default template
         assert self.team.pk is not None
@@ -291,7 +310,7 @@ class TestDashboardTemplates(APIBaseTest):
             "properties": {
                 "id": {"description": "The id of the dashboard template", "type": "string"},
                 "template_name": {"description": "The name of the dashboard template", "type": "string"},
-                "team_id": {"description": "The team this dashboard template belongs to", "type": "number"},
+                "team_id": {"description": "The team this dashboard template belongs to", "type": ["number", "null"]},
                 "created_at": {"description": "When the dashboard template was created", "type": "string"},
                 "image_url": {"description": "The image of the dashboard template", "type": ["string", "null"]},
                 "dashboard_description": {"description": "The description of the dashboard template", "type": "string"},
