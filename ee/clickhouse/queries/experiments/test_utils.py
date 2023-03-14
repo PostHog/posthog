@@ -22,10 +22,11 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "events": [{"id": "user signed up", "type": "events", "order": 0}],
                 "insight": INSIGHT_FUNNELS,
-            }
+            },
         )
 
         self.assertTrue(requires_flag_warning(filter, self.team))
@@ -44,10 +45,11 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "events": [{"id": "user signed up", "type": "events", "order": 0}],
                 "insight": INSIGHT_FUNNELS,
-            }
+            },
         )
 
         self.assertFalse(requires_flag_warning(filter, self.team))
@@ -59,13 +61,14 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
         ActionStep.objects.create(action=action_credit_card, event="$autocapture", tag_name="button", text="Pay $10")
 
         filter = Filter(
+            team=self.team,
             data={
                 "events": [{"id": "user signed up", "type": "events", "order": 0}],
                 "actions": [
                     {"id": action_credit_card.pk, "type": "actions", "order": 1},
                 ],
                 "insight": INSIGHT_FUNNELS,
-            }
+            },
         )
 
         journeys_for(
@@ -91,13 +94,14 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
         ActionStep.objects.create(action=action_credit_card, event="paid", properties=[{"$os": "Windows"}])
 
         filter = Filter(
+            team=self.team,
             data={
                 "events": [{"id": "user signed up", "type": "events", "order": 0}],
                 "actions": [
                     {"id": action_credit_card.pk, "type": "actions", "order": 1},
                 ],
                 "insight": INSIGHT_FUNNELS,
-            }
+            },
         )
 
         journeys_for(

@@ -51,7 +51,7 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         # To ensure `volume_30_day` and `query_usage_30_day` are returned non
         # None, we need to call this task to have them calculated.
-        calculate_event_property_usage_for_team(cls.demo_team.pk)
+        calculate_event_property_usage_for_team(cls.demo_team)
 
     def test_list_event_definitions(self):
         response = self.client.get("/api/projects/@current/event_definitions/")

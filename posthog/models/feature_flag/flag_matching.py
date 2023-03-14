@@ -16,6 +16,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
+from posthog.models.team import Team
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q
 
@@ -124,7 +125,7 @@ class FeatureFlagMatcher:
             key=lambda condition_tuple: 0 if condition_tuple[1].get("variant") else 1,
         )
         for index, condition in sorted_flag_conditions:
-            is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, index)
+            is_match, evaluation_reason = self.is_condition_match(feature_flag, feature_flag.team, condition, index)
             if is_match:
                 variant_override = condition.get("variant")
                 if variant_override in [variant["key"] for variant in feature_flag.variants]:
@@ -199,11 +200,11 @@ class FeatureFlagMatcher:
             return None
 
     def is_condition_match(
-        self, feature_flag: FeatureFlag, condition: Dict, condition_index: int
+        self, feature_flag: FeatureFlag, team: Team, condition: Dict, condition_index: int
     ) -> Tuple[bool, FeatureFlagMatchReason]:
         rollout_percentage = condition.get("rollout_percentage")
         if len(condition.get("properties", [])) > 0:
-            properties = Filter(data=condition).property_groups.flat
+            properties = Filter(data=condition, team=team).property_groups.flat
             if self.can_compute_locally(properties, feature_flag.aggregation_group_type_index):
                 # :TRICKY: If overrides are enough to determine if a condition is a match,
                 # we can skip checking the query.
@@ -245,6 +246,7 @@ class FeatureFlagMatcher:
 
     @cached_property
     def query_conditions(self) -> Dict[str, bool]:
+        team = self.feature_flags[0].team
         with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
             team_id = self.feature_flags[0].team_id
             person_query: QuerySet = Person.objects.filter(
@@ -278,7 +280,7 @@ class FeatureFlagMatcher:
                                 self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index], {}
                             )
                         expr = properties_to_Q(
-                            Filter(data=condition).property_groups.flat,
+                            Filter(data=condition, team=team).property_groups.flat,
                             override_property_values=target_properties,
                         )
 

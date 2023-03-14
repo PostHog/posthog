@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from rest_framework import request
 from rest_framework.exceptions import ValidationError
@@ -49,6 +49,9 @@ from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 
 class Filter(
@@ -105,6 +108,7 @@ class Filter(
 
     def __init__(
         self,
+        team: "Team",
         data: Optional[Dict[str, Any]] = None,
         request: Optional[request.Request] = None,
         **kwargs,
@@ -125,9 +129,8 @@ class Filter(
             raise ValueError("You need to define either a data dict or a request")
 
         self._data = data
+        self.team = team
         self.kwargs = kwargs
-        if "team" in kwargs:
-            self.team = kwargs["team"]
-            if not self.is_simplified:
-                simplified_filter = self.simplify(kwargs["team"])
-                self._data = simplified_filter._data
+        if not self.is_simplified:
+            simplified_filter = self.simplify(self.team)
+            self._data = simplified_filter._data

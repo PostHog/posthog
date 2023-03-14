@@ -10,11 +10,12 @@ class TestQueryDateRange(APIBaseTest):
 
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
+                team=self.team,
                 data={
                     "date_from": "-48h",
                     "interval": "day",
                     "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
+                },
             )
 
             query_date_range = QueryDateRange(filter=filter, team=self.team, should_round=False)
@@ -34,11 +35,12 @@ class TestQueryDateRange(APIBaseTest):
 
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
+                team=self.team,
                 data={
                     "date_from": "-48h",
                     "interval": "hour",
                     "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
+                },
             )
 
             query_date_range = QueryDateRange(filter=filter, team=self.team, should_round=False)
@@ -58,12 +60,13 @@ class TestQueryDateRange(APIBaseTest):
 
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
+                team=self.team,
                 data={
                     "date_from": "2021-08-23 05:00:00",
                     "date_to": "2021-08-26 07:00:00",
                     "interval": "hour",
                     "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
+                },
             )
 
             query_date_range = QueryDateRange(filter=filter, team=self.team, should_round=False)
@@ -83,11 +86,12 @@ class TestQueryDateRange(APIBaseTest):
 
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
+                team=self.team,
                 data={
                     "date_from": "-7d",
                     "interval": "week",
                     "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
+                },
             )
 
             query_date_range = QueryDateRange(filter=filter, team=self.team)
@@ -107,11 +111,12 @@ class TestQueryDateRange(APIBaseTest):
 
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
+                team=self.team,
                 data={
                     "date_from": "-48h",
                     "interval": "day",
                     "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
+                },
             )
 
             query_date_range = QueryDateRange(filter=filter, team=self.team)
@@ -122,11 +127,12 @@ class TestQueryDateRange(APIBaseTest):
 
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
+                team=self.team,
                 data={
                     "date_from": "-48h",
                     "interval": "hour",
                     "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
+                },
             )
 
             query_date_range = QueryDateRange(filter=filter, team=self.team)
@@ -138,11 +144,12 @@ class TestQueryDateRange(APIBaseTest):
     def test_interval_annotation(self):
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
+                team=self.team,
                 data={
                     "date_from": "-48h",
                     "interval": "day",
                     "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
+                },
             )
 
         query_date_range = QueryDateRange(filter=filter, team=self.team)
@@ -151,11 +158,12 @@ class TestQueryDateRange(APIBaseTest):
 
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
+                team=self.team,
                 data={
                     "date_from": "-48h",
                     "interval": "week",
                     "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
+                },
             )
 
         query_date_range = QueryDateRange(filter=filter, team=self.team)
@@ -164,10 +172,11 @@ class TestQueryDateRange(APIBaseTest):
 
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
+                team=self.team,
                 data={
                     "date_from": "-48h",
                     "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
+                },
             )
 
         query_date_range = QueryDateRange(filter=filter, team=self.team)
@@ -176,11 +185,12 @@ class TestQueryDateRange(APIBaseTest):
 
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
+                team=self.team,
                 data={
                     "date_from": "-48h",
                     "interval": "bad",
                     "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
+                },
             )
         # filter handling will throw not the class
         with self.assertRaises(ValueError) as _:

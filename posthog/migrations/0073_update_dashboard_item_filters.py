@@ -11,7 +11,7 @@ def forwards_func(apps, schema_editor):
     for item in items:
         if item.filters == {}:
             continue
-        item.filters = Filter(data=item.filters).to_dict()
+        item.filters = Filter(data=item.filters, team=item.team).to_dict()
         item.save()
 
 

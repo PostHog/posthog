@@ -89,12 +89,13 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
     def _run(self, extra: Dict = {}, events_extra: Dict = {}):
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "events": [{"id": "watched movie", "name": "watched movie", "type": "events", **events_extra}],
                     "date_from": "2020-01-02T00:00:00Z",
                     "date_to": "2020-01-12T00:00:00Z",
                     **extra,
-                }
+                },
             ),
             self.team,
         )
@@ -242,6 +243,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "events": [{"id": "watched tv", "name": "watched tv", "type": "events"}],
                     "date_from": "2020-01-02T00:00:00Z",
@@ -249,7 +251,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                     "breakdown": "episode_length",
                     "breakdown_type": "event",
                     "breakdown_histogram_bin_count": 5,
-                }
+                },
             ),
             self.team,
         )
@@ -279,6 +281,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
 
         response = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "events": [{"id": "watched tv", "name": "watched tv", "type": "events"}],
                     "date_from": "2020-01-02T00:00:00Z",
@@ -286,7 +289,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                     "breakdown": "episode_length",
                     "breakdown_type": "event",
                     "breakdown_histogram_bin_count": 1,
-                }
+                },
             ),
             self.team,
         )

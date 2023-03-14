@@ -56,13 +56,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         }
 
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            filters=Filter(team=self.team, data=filter_dict).to_dict(),
             team=self.team,
             created_by=self.user,
         )
 
         # create without user
-        Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+        Insight.objects.create(filters=Filter(team=self.team, data=filter_dict).to_dict(), team=self.team)
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"user": "true"}).json()
 
@@ -182,7 +182,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         }
 
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            filters=Filter(team=self.team, data=filter_dict).to_dict(),
             saved=True,
             team=self.team,
             created_by=self.user,
@@ -190,13 +190,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         # create without saved
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            filters=Filter(team=self.team, data=filter_dict).to_dict(),
             team=self.team,
             created_by=self.user,
         )
 
         # create without user
-        Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+        Insight.objects.create(filters=Filter(team=self.team, data=filter_dict).to_dict(), team=self.team)
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/",
@@ -214,7 +214,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         }
 
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            filters=Filter(team=self.team, data=filter_dict).to_dict(),
             favorited=True,
             team=self.team,
             created_by=self.user,
@@ -222,13 +222,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         # create without favorited
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            filters=Filter(team=self.team, data=filter_dict).to_dict(),
             team=self.team,
             created_by=self.user,
         )
 
         # create without user
-        Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+        Insight.objects.create(filters=Filter(team=self.team, data=filter_dict).to_dict(), team=self.team)
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?favorited=true&user=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -262,7 +262,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         filter_dict = {"events": [{"id": "$pageview"}]}
 
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            filters=Filter(team=self.team, data=filter_dict).to_dict(),
             team=self.team,
             short_id="12345678",
         )
@@ -270,7 +270,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         # Red herring: Should be ignored because it's not on the current team (even though the user has access)
         new_team = Team.objects.create(organization=self.organization)
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            filters=Filter(team=self.team, data=filter_dict).to_dict(),
             team=new_team,
             short_id="12345678",
         )
@@ -290,11 +290,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         filter_dict = {"events": [{"id": "$pageview"}]}
 
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            filters=Filter(team=self.team, data=filter_dict).to_dict(),
             team=self.team,
             short_id="12345678",
         )
-        Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True)
+        Insight.objects.create(filters=Filter(team=self.team, data=filter_dict).to_dict(), team=self.team, saved=True)
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?basic=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1791,7 +1791,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         filter_dict = {"events": [{"id": "$pageview"}]}
 
         insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            filters=Filter(team=self.team, data=filter_dict).to_dict(),
             team=self.team,
             short_id="12345678",
         )
@@ -1812,7 +1812,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_update_insight_viewed(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
         insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            filters=Filter(team=self.team, data=filter_dict).to_dict(),
             team=self.team,
             short_id="12345678",
         )
@@ -1835,7 +1835,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         other_team = Team.objects.create(organization=self.organization, name="other team")
         filter_dict = {"events": [{"id": "$pageview"}]}
         insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            filters=Filter(team=self.team, data=filter_dict).to_dict(),
             team=other_team,
             short_id="12345678",
         )
@@ -1928,17 +1928,17 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         filter_dict3 = {"events": [{"id": "$pageview"}], "breakdown": "email"}
 
         insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            filters=Filter(team=self.team, data=filter_dict).to_dict(),
             team=self.team,
             short_id="11223344",
         )
         insight2 = Insight.objects.create(
-            filters=Filter(data=filter_dict2).to_dict(),
+            filters=Filter(data=filter_dict2, team=self.team).to_dict(),
             team=self.team,
             short_id="44332211",
         )
         Insight.objects.create(
-            filters=Filter(data=filter_dict3).to_dict(),
+            filters=Filter(data=filter_dict3, team=self.team).to_dict(),
             team=self.team,
             short_id="00992281",
         )

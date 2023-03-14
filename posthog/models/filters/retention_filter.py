@@ -50,7 +50,7 @@ class RetentionFilter(
     def __init__(self, team: "Team", data: Dict[str, Any] = {}, request: Optional[Request] = None, **kwargs) -> None:
         data["insight"] = INSIGHT_RETENTION
         self.team = team
-        super().__init__(data, request, **kwargs)
+        super().__init__(team, data, request, **kwargs)
 
     @cached_property
     def breakdown_values(self) -> Optional[Tuple[Union[str, int], ...]]:

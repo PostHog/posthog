@@ -91,7 +91,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        filter = SessionRecordingsFilter(request=request)
+        filter = SessionRecordingsFilter(team=self.team, request=request)
         return Response(list_recordings(filter, request, self.team))
 
     # Returns meta data about the recording
@@ -135,7 +135,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):
         # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
-        filter = Filter(request=request)
+        filter = Filter(team=self.team, request=request)
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
         offset = filter.offset if filter.offset else 0
 
@@ -186,7 +186,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     # Returns properties given a list of session recording ids
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs):
-        filter = SessionRecordingsFilter(request=request)
+        filter = SessionRecordingsFilter(team=self.team, request=request)
         session_ids = [
             recording_id for recording_id in json.loads(self.request.GET.get("session_ids", "[]")) if recording_id
         ]

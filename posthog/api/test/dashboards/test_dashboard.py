@@ -159,7 +159,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_return_cached_results_bleh(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
         filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
-        filter = Filter(data=filter_dict)
+        filter = Filter(data=filter_dict, team=self.team)
 
         item = Insight.objects.create(filters=filter_dict, team=self.team)
         DashboardTile.objects.create(dashboard=dashboard, insight=item)
@@ -276,7 +276,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             insight = Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), team=self.team, last_refresh=now()
+                filters=Filter(data=filter_dict, team=self.team).to_dict(),
+                team=self.team,
+                last_refresh=now(),
+                team=self.team,
             )
             DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
@@ -293,7 +296,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             item_default: Insight = Insight.objects.create(
                 filters=Filter(
-                    data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
+                    data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]},
+                    team=self.team,
                 ).to_dict(),
                 team=self.team,
                 order=0,
@@ -308,7 +312,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                         "interval": "day",
                         "pagination": {},
                         "session": "avg",
-                    }
+                    },
+                    team=self.team,
                 ).to_dict(),
                 team=self.team,
                 order=1,

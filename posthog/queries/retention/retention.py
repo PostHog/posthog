@@ -76,7 +76,7 @@ class Retention:
                 "breakdown_values": breakdown_values,
                 "people_url": (
                     "/api/person/retention/?"
-                    f"{urlencode(RetentionFilter(**{**filter._data, 'display': 'ActionsTable', 'breakdown_values': breakdown_values, 'team': filter.team}).to_params())}"
+                    f"{urlencode(RetentionFilter(team=filter.team, data={**filter._data, 'display': 'ActionsTable', 'breakdown_values': breakdown_values}).to_params())}"
                 ),
             }
             for breakdown_values in set(cohort_key.breakdown_values for cohort_key in resultset.keys())
@@ -96,7 +96,8 @@ class Retention:
 
         def construct_url(first_day):
             params = RetentionFilter(
-                **{**filter._data, "display": "ActionsTable", "breakdown_values": [first_day], "team": filter.team},
+                team=filter.team,
+                data={**filter._data, "display": "ActionsTable", "breakdown_values": [first_day]},
             ).to_params()
             return "/api/person/retention/?" f"{urlencode(params)}"
 

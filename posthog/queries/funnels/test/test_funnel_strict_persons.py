@@ -57,7 +57,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(35, len(serialized_results))
 
@@ -76,7 +76,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(10, len(serialized_results))
 
@@ -95,7 +95,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(25, len(serialized_results))
 
@@ -114,7 +114,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(0, len(serialized_results))
 
@@ -176,7 +176,8 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step three", "order": 2},
                 ],
                 "include_recordings": "true",
-            }
+            },
+            team=self.team,
         )
         _, results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
@@ -197,7 +198,8 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step three", "order": 2},
                 ],
                 "include_recordings": "true",
-            }
+            },
+            team=self.team,
         )
         _, results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
@@ -232,7 +234,8 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step three", "order": 2},
                 ],
                 "include_recordings": "true",
-            }
+            },
+            team=self.team,
         )
         _, results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)

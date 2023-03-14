@@ -46,7 +46,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
         self.assertEqual(
             response["results"][0]["person"],
@@ -61,7 +61,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
         _create_event(event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
-        expected_queries = 9  # Django session, PostHog user, PostHog team, PostHog org membership, person and distinct id, 3x PoE check
+        expected_queries = 10  # Django session, PostHog user, PostHog team, PostHog org membership, person and distinct id, 3x PoE check, database
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
@@ -75,7 +75,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        expected_queries = 12  # Django session, PostHog user, PostHog team, PostHog org membership,
+        expected_queries = 13  # Django session, PostHog user, PostHog team, PostHog org membership, team,
         # look up if rate limit is enabled (cached after first lookup), 2x non-cached instance setting (MATERIALIZED_COLUMNS_ENABLED), person and distinct id
 
         with self.assertNumQueries(expected_queries):

@@ -190,7 +190,7 @@ def format_cohort_subquery(
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int] = None, offset: Optional[int] = None):
     from posthog.models.property.util import parse_prop_grouped_clauses
 
-    filter = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]})
+    filter = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}, team=team)
     filter_query, filter_params = parse_prop_grouped_clauses(
         team_id=team.pk,
         property_group=filter.property_groups,

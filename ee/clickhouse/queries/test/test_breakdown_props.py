@@ -46,6 +46,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
         with freeze_time("2020-01-04T13:01:01Z"):
             filter = Filter(
+                team=self.team,
                 data={
                     "insight": "FUNNELS",
                     "properties": [],
@@ -60,7 +61,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                     "breakdown_limit": 5,
                     "date_from": "-14d",
                     "funnel_window_days": 14,
-                }
+                },
             )
             res = get_breakdown_prop_values(
                 filter, Entity({"id": "$pageview", "type": "events"}), "count(*)", self.team
@@ -102,6 +103,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2020-01-04T13:01:01Z"):
                 filter = Filter(
+                    team=self.team,
                     data={
                         "insight": "FUNNELS",
                         "properties": [],
@@ -116,7 +118,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "breakdown_limit": 5,
                         "date_from": "-14d",
                         "funnel_window_days": 14,
-                    }
+                    },
                 )
                 res = get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team)
                 self.assertEqual(res, ["test"])
@@ -160,6 +162,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2020-01-04T13:01:01Z"):
                 filter = Filter(
+                    team=self.team,
                     data={
                         "insight": "FUNNELS",
                         "properties": {
@@ -180,7 +183,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "breakdown_limit": 5,
                         "date_from": "-14d",
                         "funnel_window_days": 14,
-                    }
+                    },
                 )
                 res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team))
                 self.assertEqual(res, ["test", "test2"])
@@ -212,6 +215,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             )
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
@@ -224,12 +228,12 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                     {"key": "out", "value": "", "type": "group", "group_type_index": 0, "operator": "is_not_set"}
                 ],
             },
-            team=self.team,
         )
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, ["finance", "technology"])
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_from": "2020-01-01T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
@@ -244,7 +248,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         {"key": "out", "value": "", "type": "group", "group_type_index": 0, "operator": "is_not_set"}
                     ],
                 },
-            }
+            },
         )
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, ["finance", "technology"])
@@ -286,13 +290,14 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_from": "2020-01-02T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
                 "breakdown": "$session_duration",
                 "breakdown_type": "session",
                 "events": [{"id": "$pageview", "type": "events", "order": 0}],
-            }
+            },
         )
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, [70, 20])
@@ -380,6 +385,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_from": "2020-01-02T00:00:00Z",
                 "date_to": "2020-01-12T00:00:00Z",
@@ -394,7 +400,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "math_property": "$session_duration",
                     }
                 ],
-            }
+            },
         )
         aggregate_operation, _, _ = process_math(filter.entities[0], self.team)
 

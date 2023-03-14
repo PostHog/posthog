@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from rest_framework.request import Request
 
@@ -38,6 +38,9 @@ from posthog.models.filters.mixins.paths import (
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 
+if TYPE_CHECKING:
+    from posthog.models import Team
+
 
 class PathFilter(
     StartPointMixin,
@@ -74,9 +77,11 @@ class PathFilter(
     BaseFilter,
     SampleMixin,
 ):
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
+    def __init__(
+        self, team: "Team", data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs
+    ) -> None:
         if data:
             data["insight"] = INSIGHT_PATHS
         else:
             data = {"insight": INSIGHT_PATHS}
-        super().__init__(data, request, **kwargs)
+        super().__init__(team, data, request, **kwargs)

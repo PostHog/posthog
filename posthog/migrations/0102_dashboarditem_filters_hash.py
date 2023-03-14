@@ -14,7 +14,7 @@ def generate_cache_key(stringified: str) -> str:
 def forward(apps, schema_editor):
     DashboardItem = apps.get_model("posthog", "DashboardItem")
     for item in DashboardItem.objects.filter(filters__isnull=False, dashboard__isnull=False).exclude(filters={}):
-        filter = Filter(data=item.filters)
+        filter = Filter(data=item.filters, team=item.team)
         item.filters_hash = generate_cache_key(f"{filter.toJSON()}_{item.team_id}")
         item.save()
 

@@ -55,7 +55,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         with self.assertRaises(ValueError):
             ClickhouseFunnelUnorderedActors(filter, self.team).run()
 
@@ -78,7 +78,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, serialized_results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
         self.assertEqual(35, len(serialized_results))
 
@@ -97,7 +97,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, serialized_results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
         self.assertEqual(5, len(serialized_results))
 
@@ -116,7 +116,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, serialized_results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
         self.assertEqual(20, len(serialized_results))
 
@@ -135,7 +135,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, serialized_results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
         self.assertEqual(10, len(serialized_results))
 
@@ -163,6 +163,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         create_session_recording_events(self.team.pk, timezone.now() + timedelta(days=1), "user_1", "s1")
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2021-01-01",
@@ -176,7 +177,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step three", "order": 2},
                 ],
                 "include_recordings": "true",  # <- The important line
-            }
+            },
         )
         _, results, _ = ClickhouseFunnelUnorderedActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)

@@ -51,12 +51,11 @@ class StickinessFilter(
     get_earliest_timestamp: Optional[Callable]
     team: Team
 
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
-        super().__init__(data, request, **kwargs)
-        team: Optional[Team] = kwargs.get("team", None)
-        if not team:
-            raise ValidationError("Team must be provided to stickiness filter")
+    def __init__(
+        self, team: "Team", data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs
+    ) -> None:
         self.team = team
+        super().__init__(team, data, request, **kwargs)
         self.get_earliest_timestamp = kwargs.get("get_earliest_timestamp", None)
 
     def trunc_func(self, field_name: str) -> Union[TruncHour, TruncDay, TruncWeek, TruncMonth]:

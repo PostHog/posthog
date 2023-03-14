@@ -66,7 +66,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
+        filter = Filter(team=self.team, data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
         )

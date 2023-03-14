@@ -129,8 +129,8 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if isinstance(request_filters, dict) and "properties" in request_filters:
             if self.context["request"].method == "PATCH":
-                parsed_filter = Filter(data=request_filters)
                 instance = cast(Cohort, self.instance)
+                parsed_filter = Filter(data=request_filters, team=instance.team)
                 cohort_id = instance.pk
                 flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
                     team_id=self.context["team_id"], active=True, deleted=False

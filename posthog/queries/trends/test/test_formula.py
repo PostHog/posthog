@@ -96,6 +96,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         with freeze_time(run_at or "2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "events": [
                             {"id": "session start", "math": "sum", "math_property": "session duration"},
@@ -103,7 +104,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                         ],
                         "formula": "A + B",
                         **extra,
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -169,13 +170,14 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "events": [
                             {"id": "session start", "math": "unique_session"},
                             {"id": "session start", "math": "dau"},
                         ],
                         "formula": "A / B",
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -230,6 +232,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-04T13:01:01Z"):
             response = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "insight": "TRENDS",
                         "display": "ActionsLineGraph",
@@ -240,7 +243,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                             {"id": "session start", "name": "session start", "type": "events", "order": 0},
                             {"id": "session error", "name": "session error", "type": "events", "order": 1},
                         ],
-                    }
+                    },
                 ),
                 self.team,
             )

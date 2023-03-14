@@ -1,7 +1,6 @@
-import unittest
-
 from posthog.models.filters import Filter
 from posthog.queries.property_optimizer import PropertyOptimizer
+from posthog.test.base import BaseTest
 
 PROPERTIES_OF_ALL_TYPES = [
     {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
@@ -11,15 +10,14 @@ PROPERTIES_OF_ALL_TYPES = [
     {"key": "group_prop", "value": ["value"], "operator": "exact", "type": "group", "group_type_index": 2},
 ]
 
-BASE_FILTER = Filter({"events": [{"id": "$pageview", "type": "events", "order": 0}]})
-FILTER_WITH_GROUPS = BASE_FILTER.shallow_clone({"properties": {"type": "AND", "values": PROPERTIES_OF_ALL_TYPES}})
-TEAM_ID = 3
 
+class TestPersonPropertySelector(BaseTest):
+    def setUp(self) -> None:
+        self.base_filter = Filter(data={"events": [{"id": "$pageview", "type": "events", "order": 0}]}, team=self.team)
 
-class TestPersonPropertySelector(unittest.TestCase):
     def test_basic_selector(self):
 
-        filter = BASE_FILTER.shallow_clone(
+        filter = self.base_filter.shallow_clone(
             {
                 "properties": {
                     "type": "OR",
@@ -34,7 +32,7 @@ class TestPersonPropertySelector(unittest.TestCase):
 
     def test_multilevel_selector(self):
 
-        filter = BASE_FILTER.shallow_clone(
+        filter = self.base_filter.shallow_clone(
             {
                 "properties": {
                     "type": "AND",
@@ -62,7 +60,7 @@ class TestPersonPropertySelector(unittest.TestCase):
 
     def test_multilevel_selector_with_valid_OR_persons(self):
 
-        filter = BASE_FILTER.shallow_clone(
+        filter = self.base_filter.shallow_clone(
             {
                 "properties": {
                     "type": "OR",
@@ -89,12 +87,18 @@ class TestPersonPropertySelector(unittest.TestCase):
         self.assertTrue(PropertyOptimizer.using_only_person_properties(filter.property_groups))
 
 
-class TestPersonPushdown(unittest.TestCase):
+class TestPersonPushdown(BaseTest):
 
     maxDiff = None
 
+    def setUp(self) -> None:
+        self.base_filter = Filter(data={"events": [{"id": "$pageview", "type": "events", "order": 0}]}, team=self.team)
+        self.filter_with_groups = self.base_filter.shallow_clone(
+            {"properties": {"type": "AND", "values": PROPERTIES_OF_ALL_TYPES}}
+        )
+
     def test_basic_pushdowns(self):
-        property_groups = PropertyOptimizer().parse_property_groups(FILTER_WITH_GROUPS.property_groups)
+        property_groups = PropertyOptimizer().parse_property_groups(self.filter_with_groups.property_groups)
         inner = property_groups.inner
         outer = property_groups.outer
 
@@ -125,7 +129,7 @@ class TestPersonPushdown(unittest.TestCase):
         )
 
     def test_person_properties_mixed_with_event_properties(self):
-        filter = BASE_FILTER.shallow_clone(
+        filter = self.base_filter.shallow_clone(
             {
                 "properties": {
                     "type": "AND",
@@ -188,7 +192,7 @@ class TestPersonPushdown(unittest.TestCase):
         )
 
     def test_person_properties_with_or_not_mixed_with_event_properties(self):
-        filter = BASE_FILTER.shallow_clone(
+        filter = self.base_filter.shallow_clone(
             {
                 "properties": {
                     "type": "AND",
@@ -254,7 +258,7 @@ class TestPersonPushdown(unittest.TestCase):
         )
 
     def test_person_properties_mixed_with_event_properties_with_misdirection_using_nested_groups(self):
-        filter = BASE_FILTER.shallow_clone(
+        filter = self.base_filter.shallow_clone(
             {
                 "properties": {
                     "type": "AND",

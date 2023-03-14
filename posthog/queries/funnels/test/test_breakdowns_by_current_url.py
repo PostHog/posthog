@@ -107,7 +107,8 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                     "date_to": "2020-01-12T00:00:00Z",
                     "breakdown_limit": 100,  # never have other
                     **extra,
-                }
+                },
+                team=self.team,
             ),
             self.team,
         ).run()

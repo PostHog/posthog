@@ -40,7 +40,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             {"name": "$pageview", "volume_30_day": 2, "query_usage_30_day": 1},
             {"name": "watched_movie", "volume_30_day": 1, "query_usage_30_day": None},
         ]
-        calculate_event_property_usage_for_team(self.team.pk)
+        calculate_event_property_usage_for_team(self.team)
 
         self.assertEqual(EventDefinition.objects.filter(team=self.team).count(), len(expected_event_definitions))
         for item in expected_event_definitions:
@@ -78,7 +78,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             {"name": "app_rating", "query_usage_30_day": None, "is_numerical": True},
             {"name": "$browser", "query_usage_30_day": 1, "is_numerical": False},
         ]
-        calculate_event_property_usage_for_team(team.pk)
+        calculate_event_property_usage_for_team(team)
 
         self.assertEqual(PropertyDefinition.objects.filter(team=team).count(), len(expected_property_definitions))
         for item in expected_property_definitions:
@@ -189,13 +189,13 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events()
 
         with freeze_time("2020-10-04"):  # less than 30 days later
-            calculate_event_property_usage_for_team(self.team.pk)
+            calculate_event_property_usage_for_team(self.team)
             self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
             self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
             self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
 
         with freeze_time("2020-10-06"):  # less than 30 days later
-            calculate_event_property_usage_for_team(self.team.pk)
+            calculate_event_property_usage_for_team(self.team)
             self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").query_usage_30_day)
             self.assertEqual(1, EventDefinition.objects.get(team=self.team, name="$pageview").volume_30_day)
             self.assertEqual(1, PropertyDefinition.objects.get(team=self.team, name="$current_url").query_usage_30_day)
@@ -347,7 +347,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events()
 
             with capture_db_queries() as capture_query_context:
-                calculate_event_property_usage_for_team(self.team.pk)
+                calculate_event_property_usage_for_team(self.team)
 
         self.assertEqual(5, len(capture_query_context.captured_queries))
 
@@ -438,7 +438,7 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             filters={"events": [{"id": "element_discovered"}], "properties": [{"key": "atomic_number", "value": "2"}]},
         )
 
-        calculate_event_property_usage_for_team(self.team.pk, complete_inference=True)
+        calculate_event_property_usage_for_team(self.team, complete_inference=True)
 
         event_definitions = EventDefinition.objects.order_by("name").all()
         property_definitions = PropertyDefinition.objects.order_by("name").all()

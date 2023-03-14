@@ -56,12 +56,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         event = {"id": "pageview", "name": "pageview", "type": "events", "order": 0}
         filter = Filter(
+            team=self.team,
             data={
                 "date_from": "2021-01-21T00:00:00Z",
                 "date_to": "2021-01-21T23:59:59Z",
                 "events": [event],
                 "include_recordings": "true",
-            }
+            },
         )
         entity = Entity(event)
 
@@ -93,7 +94,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         event = {"id": "pageview", "name": "pageview", "type": "events", "order": 0}
         filter = Filter(
-            data={"date_from": "2021-01-21T00:00:00Z", "date_to": "2021-01-21T23:59:59Z", "events": [event]}
+            team=self.team,
+            data={"date_from": "2021-01-21T00:00:00Z", "date_to": "2021-01-21T23:59:59Z", "events": [event]},
         )
         entity = Entity(event)
         _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
@@ -129,12 +131,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(
+            team=self.team,
             data={
                 "date_from": "2021-01-21T00:00:00Z",
                 "date_to": "2021-01-21T23:59:59Z",
                 "events": [event],
                 "include_recordings": "true",
-            }
+            },
         )
         entity = Entity(event)
 

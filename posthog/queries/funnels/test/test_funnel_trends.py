@@ -63,6 +63,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         journeys_for({"user a": [{"event": "Step one", "timestamp": datetime(2021, 6, 6, 21)}]}, self.team)
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -75,7 +76,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
 
         funnel_trends = ClickhouseFunnelTrends(filter, self.team)
@@ -89,6 +90,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         journeys_for({"user a": [{"event": "step one", "timestamp": datetime(2021, 6, 7, 19)}]}, self.team)
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -101,7 +103,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         funnel_trends = ClickhouseFunnelTrends(filter, self.team)
         results = funnel_trends._exec_query()
@@ -181,6 +183,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
     # minute, hour, day, week, month
     def test_hour_interval(self):
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -192,7 +195,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         with freeze_time("2021-05-06T23:40:59Z"):
             results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
@@ -200,6 +203,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_day_interval(self):
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -212,7 +216,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
 
         journeys_for(
@@ -236,6 +240,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_week_interval(self):
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -248,7 +253,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
 
         journeys_for(
@@ -270,6 +275,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_month_interval(self):
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -282,7 +288,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         journeys_for(
             {
@@ -350,6 +356,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_all_date_range(self):
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -361,7 +368,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
 
         journeys_for(
@@ -387,6 +394,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_sample_data()
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -399,7 +407,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
 
@@ -442,6 +450,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_sample_data()
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -454,7 +463,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
 
@@ -508,6 +517,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -520,7 +530,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
 
@@ -561,6 +571,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -573,7 +584,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
 
@@ -597,6 +608,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -609,7 +621,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
 
@@ -645,6 +657,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -657,7 +670,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
 
@@ -731,6 +744,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -744,7 +758,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
 
@@ -788,6 +802,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -801,7 +816,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
 
@@ -842,6 +857,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -855,7 +871,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
 
@@ -932,6 +948,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -945,7 +962,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
 
@@ -994,6 +1011,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -1008,7 +1026,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "breakdown_type": "event",
                 "breakdown": "$browser",
-            }
+            },
         )
         funnel_trends = ClickhouseFunnelTrends(filter, self.team)
         result = funnel_trends.run()
@@ -1049,6 +1067,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -1063,7 +1082,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "breakdown_type": "person",
                 "breakdown": "$browser",
-            }
+            },
         )
         funnel_trends = ClickhouseFunnelTrends(filter, self.team)
         result = funnel_trends.run()
@@ -1110,6 +1129,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
         )
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -1124,7 +1144,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "breakdown_type": "cohort",
                 "breakdown": [cohort.pk],
-            }
+            },
         )
         funnel_trends = ClickhouseFunnelTrends(filter, self.team)
 
@@ -1157,6 +1177,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -1169,7 +1190,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
 
@@ -1210,6 +1231,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -1222,7 +1244,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
         with freeze_time("2021-05-06T23:40:59Z"):
             results = ClickhouseFunnelTrends(filter, self.team)._exec_query()

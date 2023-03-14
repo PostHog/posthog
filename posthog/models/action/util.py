@@ -53,7 +53,7 @@ def format_action_filter(
 
             prop_query, prop_params = parse_prop_grouped_clauses(
                 team_id=team_id,
-                property_group=Filter(data={"properties": step.properties}).property_groups,
+                property_group=Filter(data={"properties": step.properties}, team=action.team).property_groups,
                 prepend=f"action_props_{action.pk}_{step.pk}",
                 table_name=table_name,
                 person_properties_mode=person_properties_mode,
@@ -140,7 +140,7 @@ def get_action_tables_and_properties(action: Action) -> TCounter[PropertyIdentif
         if action_step.url:
             result[("$current_url", "event", None)] += 1
         result += extract_tables_and_properties(
-            Filter(data={"properties": action_step.properties or []}).property_groups.flat
+            Filter(data={"properties": action_step.properties or []}, team=action.team).property_groups.flat
         )
 
     return result

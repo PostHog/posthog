@@ -80,7 +80,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             if properties is not None:
                 filters.update({"properties": properties})
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             return Funnel(filter=filter, team=self.team)
 
         def _basic_funnel(self, properties=None, filters=None):
@@ -105,7 +105,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 filters.update({"properties": properties})
 
             filters["insight"] = INSIGHT_FUNNELS
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             return Funnel(filter=filter, team=self.team)
 
         def test_funnel_default(self):
@@ -250,7 +250,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
 
         def test_funnel_no_events(self):
-            funnel = Funnel(filter=Filter(data={"some": "prop"}), team=self.team)
+            funnel = Funnel(filter=Filter(data={"some": "prop"}, team=self.team), team=self.team)
             self.assertEqual(funnel.run(), [])
 
         def test_funnel_skipped_step(self):
@@ -402,12 +402,13 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = Funnel(
                 filter=Filter(
+                    team=self.team,
                     data={
                         "events": [{"id": "event1", "order": 0}],
                         "actions": [{"id": action1.pk, "order": 1}, {"id": action2.pk, "order": 2}],
                         "insight": INSIGHT_FUNNELS,
                         "funnel_window_days": 14,
-                    }
+                    },
                 ),
                 team=self.team,
             ).run()
@@ -446,6 +447,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = Funnel(
                 filter=Filter(
+                    team=self.team,
                     data={
                         "events": [
                             {
@@ -458,7 +460,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         ],
                         "insight": INSIGHT_FUNNELS,
                         "funnel_window_days": 14,
-                    }
+                    },
                 ),
                 team=self.team,
             ).run()
@@ -482,11 +484,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = Funnel(
                 filter=Filter(
+                    team=self.team,
                     data={
                         "actions": [{"id": action.pk, "type": "actions", "order": 0}],
                         "insight": INSIGHT_FUNNELS,
                         "funnel_window_days": 14,
-                    }
+                    },
                 ),
                 team=self.team,
             ).run()
@@ -504,7 +507,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_to": "2020-01-14",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -532,7 +535,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "funnel_window_days": 14,
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -569,7 +572,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "funnel_window_days": 14,
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -618,7 +621,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "funnel_window_interval_unit": "day",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
             result = funnel.run()
 
@@ -644,7 +647,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "funnel_window_interval_unit": "week",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
             result2 = funnel.run()
 
@@ -661,7 +664,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "funnel_window_interval_unit": "hour",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
             result3 = funnel.run()
 
@@ -681,7 +684,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     {"id": "x 1 name with numbers 2", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}
                 ],
             }
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event 1
@@ -787,7 +790,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             _create_event(team=self.team, event="x", distinct_id="person3", timestamp="2021-05-01 05:30:00")
             _create_event(team=self.team, event="pageview2", distinct_id="person3", timestamp="2021-05-01 06:00:00")
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             result = funnel.run()
@@ -868,7 +871,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "insight": INSIGHT_FUNNELS,
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             people = journeys_for(
@@ -966,7 +969,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "funnel_window_days": 14,
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1077,7 +1080,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "insight": INSIGHT_FUNNELS,
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1127,7 +1130,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_to": "2020-01-07",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             with freeze_time("2020-01-03"):
@@ -1179,7 +1182,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "insight": INSIGHT_FUNNELS,
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1235,7 +1238,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "insight": INSIGHT_FUNNELS,
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1454,7 +1457,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "funnel_window_days": 14,
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1572,7 +1575,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 ],
             }
 
-            filter = Filter(data={**data})
+            filter = Filter(data={**data}, team=self.team)
             results = Funnel(filter, self.team).run()
 
             self.assertEqual(results[0]["count"], 25)
@@ -1616,7 +1619,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 ],
             }
 
-            filter = Filter(data={**data})
+            filter = Filter(data={**data}, team=self.team)
             results = Funnel(filter, self.team).run()
 
             self.assertEqual(results[0]["count"], 25)
@@ -1637,7 +1640,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_to": "2021-05-14 00:00:00",
                 "exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 1}],
             }
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
 
             filter = filter.shallow_clone(
@@ -1667,7 +1670,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_to": "2021-05-14 00:00:00",
                 "exclusions": [{"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}],
             }
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event 1
@@ -1733,7 +1736,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     {"id": sign_up_action.id, "type": "actions", "funnel_from_step": 0, "funnel_to_step": 1}
                 ],
             }
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event 1
@@ -1793,7 +1796,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_to": "2020-01-14",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1889,7 +1892,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
             _create_event(team=self.team, event="pageview2", distinct_id="person4", timestamp="2021-05-01 06:00:00")
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             result = funnel.run()
@@ -1989,7 +1992,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     "insight": INSIGHT_FUNNELS,
                 }
 
-                filter = Filter(data=filters)
+                filter = Filter(data=filters, team=self.team)
                 result = Funnel(filter, self.team).run()
 
                 self.assertEqual(len(result), 2)
@@ -2013,7 +2016,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
 
             try:
-                ClickhouseFunnel(Filter(data=filter_with_breakdown), self.team).run()
+                ClickhouseFunnel(Filter(data=filter_with_breakdown, team=self.team), self.team).run()
             except KeyError as ke:
                 assert False, f"Should not have raised a key error: {ke}"
 
@@ -2052,7 +2055,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_to": "2020-01-14",
             }
 
-            result = ClickhouseFunnel(Filter(data=filters), self.team).run()
+            result = ClickhouseFunnel(Filter(data=filters, team=self.team), self.team).run()
 
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 1)
@@ -2099,7 +2102,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             cohort.calculate_people_ch(pending_version=0)
 
             with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-                result = ClickhouseFunnel(Filter(data=filters), self.team).run()
+                result = ClickhouseFunnel(Filter(data=filters, team=self.team), self.team).run()
                 self.assertEqual(result[0]["name"], "user signed up")
                 self.assertEqual(result[0]["count"], 1)
 
@@ -2139,7 +2142,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_to": "2020-01-14",
             }
 
-            result = ClickhouseFunnel(Filter(data=filters), self.team).run()
+            result = ClickhouseFunnel(Filter(data=filters, team=self.team), self.team).run()
 
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 1)
@@ -2185,7 +2188,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 },
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             people = {}
@@ -2304,7 +2307,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "date_to": "2020-01-14",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             funnel = Funnel(filter, self.team)
 
             # event

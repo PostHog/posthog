@@ -50,7 +50,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
             "breakdown": "$browser",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnelStrict(filter, self.team)
 
         people = journeys_for(
@@ -164,6 +164,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
     def test_basic_strict_funnel(self):
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "events": [
@@ -171,7 +172,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
                     {"id": "$pageview", "order": 1},
                     {"id": "insight viewed", "order": 2},
                 ],
-            }
+            },
         )
 
         funnel = ClickhouseFunnelStrict(filter, self.team)
@@ -288,7 +289,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
             "insight": INSIGHT_FUNNELS,
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnelStrict(filter, self.team)
 
         person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -394,6 +395,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
     def test_basic_strict_funnel_conversion_times(self):
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "events": [
@@ -403,7 +405,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-07 23:59:59",
-            }
+            },
         )
 
         funnel = ClickhouseFunnelStrict(filter, self.team)

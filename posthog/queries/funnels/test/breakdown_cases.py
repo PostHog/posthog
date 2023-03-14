@@ -71,7 +71,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown": ["$browser", "$browser_version"],
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             journey = {
@@ -182,7 +182,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown": "$browser",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             journey = {
@@ -283,7 +283,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown": ["$browser"],
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             journey = {
@@ -386,7 +386,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_limit": 1,
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             events_by_person = {
@@ -486,7 +486,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown": ["$browser"],
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             events_by_person = {
@@ -573,7 +573,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown": ["$browser"],
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$browser": "Chrome"})
@@ -650,7 +650,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_limit": 5,
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             events_by_person = {}
@@ -696,7 +696,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown": ["some_breakdown_val"],
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             events_by_person = {}
@@ -750,7 +750,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown": ["some_breakdown_val"],
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             events_by_person = {}
@@ -810,7 +810,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_value": "0",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -865,7 +865,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_type": "all_events",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             people = journeys_for(
@@ -950,7 +950,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_value": 0,
                 # first touch means same user can't be in 'all' and the other cohort both
             }
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             result = funnel.run()
@@ -974,7 +974,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_type": "cohort",
                 "breakdown": cohort.pk,
             }
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             result = funnel.run()
@@ -1042,7 +1042,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_type": "event",
             }
 
-            result = Funnel(Filter(data=filters), self.team).run()
+            result = Funnel(Filter(team=self.team, data=filters), self.team).run()
 
             self._assert_funnel_breakdown_result_is_correct(
                 result[0],
@@ -1112,7 +1112,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_type": "event",
             }
 
-            result = Funnel(Filter(data=filters), self.team).run()
+            result = Funnel(Filter(team=self.team, data=filters), self.team).run()
 
             self._assert_funnel_breakdown_result_is_correct(
                 result[0],
@@ -1147,7 +1147,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_type": "first_touch",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1267,7 +1267,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_type": "last_touch",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1392,7 +1392,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_value": "0",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1492,7 +1492,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_value": "1",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1582,7 +1582,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_type": "first_touch",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1720,7 +1720,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_type": "first_touch",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1848,7 +1848,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_value": "1",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1922,7 +1922,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_value": "1",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -1997,7 +1997,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_type": "first_touch",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -2061,7 +2061,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_type": "first_touch",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event
@@ -2125,7 +2125,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "breakdown_attribution_value": "1",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event

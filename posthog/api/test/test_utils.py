@@ -114,7 +114,8 @@ class TestUtils(BaseTest):
     def test_get_target_entity(self):
         request = lambda url: cast(Any, RequestFactory().get(url))
         filter = Filter(
-            data={"entity_id": "$pageview", "entity_type": "events", "events": [{"id": "$pageview", "type": "events"}]}
+            data={"entity_id": "$pageview", "entity_type": "events", "events": [{"id": "$pageview", "type": "events"}]},
+            team=self.team,
         )
         entity = get_target_entity(filter)
 
@@ -131,7 +132,8 @@ class TestUtils(BaseTest):
                     {"id": "$pageview", "type": "events", "math": "unique_group"},
                     {"id": "$pageview", "type": "events"},
                 ],
-            }
+            },
+            team=self.team,
         )
         entity = get_target_entity(filter)
 

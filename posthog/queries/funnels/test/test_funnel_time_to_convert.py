@@ -36,6 +36,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         # Converted from 0 to 1 in 82_800 s
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "interval": "day",
@@ -49,7 +50,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
 
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
@@ -89,6 +90,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         # Converted from 0 to 1 in 82_800 s
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "interval": "day",
@@ -102,7 +104,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step one", "order": 1},
                     {"id": "step one", "order": 2},
                 ],
-            }
+            },
         )
 
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
@@ -140,6 +142,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         # Converted from 0 to 1 in 82_800 s
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "interval": "day",
@@ -154,7 +157,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
 
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
@@ -196,6 +199,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "interval": "day",
@@ -207,7 +211,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
 
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
@@ -226,7 +230,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
 
         # Let's verify that behavior with steps unspecified is the same as when first and last steps specified
         funnel_trends_steps_specified = ClickhouseFunnelTimeToConvert(
-            Filter(data={**filter._data, "funnel_from_step": 0, "funnel_to_step": 2}), self.team
+            Filter(team=self.team, data={**filter._data, "funnel_from_step": 0, "funnel_to_step": 2}), self.team
         )
         results_steps_specified = funnel_trends_steps_specified.run()
 
@@ -252,6 +256,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         # Converted from 0 to 1 in 82_800 s
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -267,7 +272,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
 
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
@@ -314,6 +319,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="step two", distinct_id="user d", team=self.team, timestamp="2021-06-12 09:00:00")
 
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
@@ -329,7 +335,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "order": 1},
                     {"id": "step three", "order": 2},
                 ],
-            }
+            },
         )
 
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)

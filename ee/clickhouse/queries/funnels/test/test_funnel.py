@@ -102,7 +102,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, APIBaseTest):
             "aggregation_group_type_index": 0,
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnel(filter, self.team)
         result = funnel.run()
 

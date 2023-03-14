@@ -12,7 +12,7 @@ def fix_team_event_names(apps, schema_editor):
             from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
             team.save()
-            calculate_event_property_usage_for_team(team.pk)
+            calculate_event_property_usage_for_team(team)
 
 
 def backwards(apps, schema_editor):

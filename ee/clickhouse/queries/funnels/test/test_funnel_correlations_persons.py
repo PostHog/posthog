@@ -43,7 +43,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             "funnel_correlation_type": "events",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(team=self.team, data=filters)
 
         success_target_persons = []
         failure_target_persons = []
@@ -226,6 +226,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(
+            team=self.team,
             data={
                 "events": [
                     {"id": "user signed up", "type": "events", "order": 0},
@@ -237,7 +238,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_type": "events",
                 "funnel_correlation_person_entity": {"id": "positively_related", "type": "events"},
                 "funnel_correlation_person_converted": "TrUe",
-            }
+            },
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
@@ -276,6 +277,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
         # Success filter
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2021-01-01",
@@ -285,7 +287,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
                 "funnel_correlation_person_entity": {"id": "insight loaded", "type": "events"},
                 "funnel_correlation_person_converted": "True",
-            }
+            },
         )
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
@@ -308,6 +310,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
         # Drop off filter
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2021-01-01",
@@ -321,7 +324,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
                 "funnel_correlation_person_entity": {"id": "insight loaded", "type": "events"},
                 "funnel_correlation_person_converted": "False",
-            }
+            },
         )
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
@@ -367,6 +370,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
         # Success filter
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2021-01-01",
@@ -378,7 +382,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                     {"key": "foo", "value": "bar", "operator": "exact", "type": "person"}
                 ],
                 "funnel_correlation_person_converted": "True",
-            }
+            },
         )
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
@@ -461,6 +465,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
         # Success filter
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2021-01-01",
@@ -473,7 +478,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                     {"key": "foo", "value": "bar", "operator": "exact", "type": "person"}
                 ],
                 "funnel_correlation_person_converted": "True",
-            }
+            },
         )
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
@@ -497,6 +502,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
         # Drop off filter
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2021-01-01",
@@ -509,7 +515,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                     {"key": "foo", "value": "bar", "operator": "exact", "type": "person"}
                 ],
                 "funnel_correlation_person_converted": "False",
-            }
+            },
         )
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 

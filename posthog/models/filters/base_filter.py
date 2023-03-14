@@ -1,6 +1,6 @@
 import inspect
 import json
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from rest_framework import request
 
@@ -9,10 +9,14 @@ from posthog.models.filters.mixins.hogql import HogQLParamMixin
 from posthog.models.utils import sane_repr
 from posthog.utils import encode_get_request_params
 
+if TYPE_CHECKING:
+    from posthog.models import Team
+
 
 class BaseFilter(BaseParamMixin, HogQLParamMixin):
     def __init__(
         self,
+        team: "Team",
         data: Optional[Dict[str, Any]] = None,
         request: Optional[request.Request] = None,
         **kwargs,
@@ -22,9 +26,8 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
         elif not data:
             raise ValueError("You need to define either a data dict or a request")
         self._data = data
+        self.team = team
         self.kwargs = kwargs
-        if kwargs.get("team"):
-            self.team = kwargs["team"]
 
         if "team" in kwargs and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
             simplified_filter = self.simplify(kwargs["team"])  # type: ignore
@@ -48,7 +51,8 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
     def shallow_clone(self, overrides: Dict[str, Any]):
         "Clone the filter's data while sharing the HogQL context"
         return type(self)(
-            data={**self._data, **overrides}, team=self.team, **{**self.kwargs, "hogql_context": self.hogql_context}
+            data={**self._data, **overrides, **self.kwargs, "hogql_context": self.hogql_context},
+            team=self.team,
         )
 
     def query_tags(self) -> Dict[str, Any]:

@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 class TestPathFilter(BaseTest):
     def test_to_dict(self):
         filter = PathFilter(
+            team=self.team,
             data={
                 "date_from": "-14d",
                 "exclude_events": [],
@@ -15,7 +16,7 @@ class TestPathFilter(BaseTest):
                 "start_point": "https://www.random.com/pricing/",
                 "step_limit": 3,
                 "sampling_factor": 0.1,
-            }
+            },
         )
 
         assert filter.to_dict() == {

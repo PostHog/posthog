@@ -47,10 +47,10 @@ class CountFromZero:
 def calculate_event_property_usage() -> None:
     teams_to_exclude = recently_calculated_teams(now_in_seconds_since_epoch=time.time())
 
-    for team_id in Team.objects.values_list("id", flat=True):
-        if team_id not in teams_to_exclude:
-            calculate_event_property_usage_for_team(team_id=team_id)
-            get_client().zadd(name=CALCULATED_PROPERTIES_FOR_TEAMS_KEY, mapping={str(team_id): time.time()})
+    for team in Team.objects.all().iterator(chunk_size=1000):
+        if team.pk not in teams_to_exclude:
+            calculate_event_property_usage_for_team(team=team)
+            get_client().zadd(name=CALCULATED_PROPERTIES_FOR_TEAMS_KEY, mapping={str(team.pk): time.time()})
 
 
 def recently_calculated_teams(now_in_seconds_since_epoch: float) -> Set[int]:
@@ -73,7 +73,7 @@ def recently_calculated_teams(now_in_seconds_since_epoch: float) -> Set[int]:
 
 
 @timed("calculate_event_property_usage_for_team")
-def calculate_event_property_usage_for_team(team_id: int, *, complete_inference: bool = False) -> None:
+def calculate_event_property_usage_for_team(team: Team, *, complete_inference: bool = False) -> None:
     """Calculate Data Management stats for a specific team.
 
     The complete_inference flag enables much more extensive inference of event/actor taxonomy based on ClickHouse data.
@@ -88,22 +88,22 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
         altered_properties: Set[str] = set()
 
         event_definitions: Dict[str, EventDefinition] = {
-            known_event.name: known_event for known_event in EventDefinition.objects.filter(team_id=team_id)
+            known_event.name: known_event for known_event in EventDefinition.objects.filter(team_id=team.pk)
         }
 
         property_definitions: Dict[str, PropertyDefinition] = {
             known_property.name: known_property
-            for known_property in PropertyDefinition.objects.filter(team_id=team_id, type=PropertyDefinition.Type.EVENT)
+            for known_property in PropertyDefinition.objects.filter(team_id=team.pk, type=PropertyDefinition.Type.EVENT)
         }
 
         since = timezone.now() - timezone.timedelta(days=30)
 
         if complete_inference:
             # Infer (event, property) pairs
-            event_properties = _get_event_properties(team_id, since)
+            event_properties = _get_event_properties(team.pk, since)
             EventProperty.objects.bulk_create(
                 [
-                    EventProperty(team_id=team_id, event=event, property=property_key)
+                    EventProperty(team_id=team.pk, event=event, property=property_key)
                     for event, property_key in event_properties
                 ],
                 ignore_conflicts=True,
@@ -111,14 +111,14 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
 
             for event, _ in event_properties:
                 if event not in event_definitions:
-                    event_definitions[event] = EventDefinition.objects.create(team_id=team_id, name=event)
+                    event_definitions[event] = EventDefinition.objects.create(team_id=team.pk, name=event)
 
             # Infer property types
-            property_types = _get_property_types(team_id, since)
+            property_types = _get_property_types(team.pk, since)
             for property_key, property_type in property_types.items():
                 if property_key not in property_definitions:
                     property_definitions[property_key] = PropertyDefinition.objects.create(
-                        team_id=team_id, name=property_key
+                        team_id=team.pk, name=property_key
                     )
                 if property_definitions[property_key].property_type is not None:
                     continue  # Don't override property type if it's already set
@@ -127,13 +127,13 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
                 property_definitions[property_key].is_numerical = property_type == PropertyType.Numeric
                 altered_properties.add(property_key)
 
-        insight_series_events, counted_properties = _get_insight_query_usage(team_id, since)
+        insight_series_events, counted_properties = _get_insight_query_usage(team, since)
 
         for series_event in insight_series_events:
             if series_event not in event_definitions:
                 logger.info(
                     "calculate_event_property_usage_for_team.insight_uses_event_with_no_definition",
-                    team=team_id,
+                    team=team.pk,
                     event_id=series_event,
                 )
                 continue
@@ -147,7 +147,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
             if property_name not in property_definitions:
                 logger.info(
                     "calculate_event_property_usage_for_team.insight_uses_property_with_no_definition",
-                    team=team_id,
+                    team=team.pk,
                     property=property_name,
                 )
                 continue
@@ -156,12 +156,12 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
                 property_definition, count_for_property
             )
 
-        events_volume = _get_events_volume(team_id, since)
+        events_volume = _get_events_volume(team.pk, since)
         for event, (volume, last_seen_at) in events_volume.items():
             if event not in event_definitions:
                 logger.info(
                     "calculate_event_property_usage_for_team.event_volume_found_for_event_with_no_definition",
-                    team_id=team_id,
+                    team_id=team.pk,
                     event_name=event,
                 )
                 continue
@@ -173,7 +173,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
         statsd.gauge(
             "calculate_event_property_usage_for_team.events_to_update",
             value=len(altered_events),
-            tags={"team": team_id},
+            tags={"team": team.pk},
         )
         EventDefinition.objects.bulk_update(
             [
@@ -189,7 +189,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
         statsd.gauge(
             "calculate_event_property_usage_for_team.event_properties_to_update",
             value=len(altered_properties),
-            tags={"team": team_id},
+            tags={"team": team.pk},
         )
         PropertyDefinition.objects.bulk_update(
             [
@@ -201,10 +201,10 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
             batch_size=1000,
         )
 
-        statsd.incr("calculate_event_property_usage_for_team_success", tags={"team": team_id})
+        statsd.incr("calculate_event_property_usage_for_team_success", tags={"team": team.pk})
     except Exception as exc:
-        logger.error("calculate_event_property_usage_for_team.failed", team=team_id, exc=exc, exc_info=True)
-        statsd.incr("calculate_event_property_usage_for_team_failure", tags={"team": team_id})
+        logger.error("calculate_event_property_usage_for_team.failed", team=team.pk, exc=exc, exc_info=True)
+        statsd.incr("calculate_event_property_usage_for_team_failure", tags={"team": team.pk})
         raise exc
 
 
@@ -262,13 +262,13 @@ def _get_event_properties(team_id: int, since: timezone.datetime) -> List[Tuple[
     return sync_execute(GET_EVENT_PROPERTIES, {"team_id": team_id, "timestamp": since})
 
 
-def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], TCounter[PropertyIdentifier]]:
+def _get_insight_query_usage(team: Team, since: datetime) -> Tuple[List[str], TCounter[PropertyIdentifier]]:
     event_usage: List[str] = []
     counted_properties: TCounter[PropertyIdentifier] = Counter()
 
     insight_filters = [
-        (id, Filter(data=filters) if filters else None)
-        for (id, filters) in Insight.objects.filter(team__id=team_id, created_at__gt=since)
+        (id, Filter(data=filters, team=team) if filters else None)
+        for (id, filters) in Insight.objects.filter(team__id=team.pk, created_at__gt=since)
         .values_list("id", "filters")
         .all()
     ]
@@ -276,14 +276,14 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
     statsd.gauge(
         "calculate_event_property_usage_for_team.insight_filters_to_process",
         value=len(insight_filters),
-        tags={"team": team_id},
+        tags={"team": team.pk},
     )
 
     for id, item_filters in insight_filters:
         if item_filters is None:
             logger.info(
                 "calculate_event_property_usage_for_team.insight_has_no_filters",
-                team=team_id,
+                team=team.pk,
                 insight_id=id,
             )
             continue
@@ -295,17 +295,17 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
             action = item_filter_action.get_action()
             event_usage.extend(action.get_step_events())
 
-        counted_properties.update(FOSSColumnOptimizer(item_filters, team_id).used_properties_with_type("event"))
+        counted_properties.update(FOSSColumnOptimizer(item_filters, team.pk).used_properties_with_type("event"))
 
     statsd.gauge(
         "calculate_event_property_usage_for_team.counted_events_for_team_insights",
         value=len(event_usage),
-        tags={"team": team_id},
+        tags={"team": team.pk},
     )
     statsd.gauge(
         "calculate_event_property_usage_for_team.counted_properties_for_team_insights",
         value=sum(counted_properties.values()),
-        tags={"team": team_id},
+        tags={"team": team.pk},
     )
 
     return event_usage, counted_properties

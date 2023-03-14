@@ -116,7 +116,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(35, len(results))
 
@@ -135,7 +135,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(5, len(results))
 
@@ -154,7 +154,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(20, len(results))
 
@@ -173,7 +173,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(10, len(results))
 
@@ -200,11 +200,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        filter = Filter(data=data)
+        filter = Filter(data=data, team=self.team)
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(100, len(results))
 
-        filter_offset = Filter(data={**data, "offset": 100})
+        filter_offset = Filter(team=self.team, data={**data, "offset": 100})
         _, results, _ = ClickhouseFunnelActors(filter_offset, self.team).get_actors()
         self.assertEqual(10, len(results))
 
@@ -222,7 +222,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        base_filter = Filter(data=data)
+        base_filter = Filter(data=data, team=self.team)
 
         parameters = [
             #  funnel_step,  custom_steps, expected_results
@@ -257,7 +257,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 {"id": "step three", "order": 2},
             ],
         }
-        base_filter = Filter(data=data)
+        base_filter = Filter(data=data, team=self.team)
 
         parameters = [
             # custom_steps, expected_results
@@ -290,7 +290,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        _, results, _ = ClickhouseFunnelActors(Filter(data=data), self.team).get_actors()
+        _, results, _ = ClickhouseFunnelActors(Filter(data=data, team=self.team), self.team).get_actors()
 
         self.assertEqual(len(results), 5)
 
@@ -298,6 +298,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def test_first_step_breakdowns(self):
         person1, person2 = self._create_browser_breakdown_events()
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
@@ -308,7 +309,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
                 "breakdown_type": "event",
                 "breakdown": "$browser",
-            }
+            },
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
 
@@ -329,6 +330,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def test_first_step_breakdowns_with_multi_property_breakdown(self):
         person1, person2 = self._create_browser_breakdown_events()
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
@@ -339,7 +341,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
                 "breakdown_type": "event",
                 "breakdown": ["$browser", "$browser_version"],
-            }
+            },
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
 
@@ -360,6 +362,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def test_first_step_breakdown_person(self):
         person1, person2 = self._create_browser_breakdown_events()
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
@@ -370,7 +373,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
                 "breakdown_type": "person",
                 "breakdown": "$country",
-            }
+            },
         )
 
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
@@ -419,7 +422,10 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             "breakdown_type": "cohort",
             "breakdown": [cohort.pk],
         }
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], person.uuid)
 
@@ -447,6 +453,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         # First event, but no recording
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2021-01-01",
@@ -460,7 +467,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step three", "order": 2},
                 ],
                 "include_recordings": "true",
-            }
+            },
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
@@ -468,6 +475,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         # Second event, with recording
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2021-01-01",
@@ -481,7 +489,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step three", "order": 2},
                 ],
                 "include_recordings": "true",
-            }
+            },
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
@@ -503,6 +511,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         # Third event dropoff, with recording
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2021-01-01",
@@ -516,7 +525,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step three", "order": 2},
                 ],
                 "include_recordings": "true",
-            }
+            },
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)

@@ -63,12 +63,13 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         result = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-12T00:00:00Z",
                     "date_to": "2020-01-19T00:00:00Z",
                     "events": [{"id": "$pageview", "type": "events", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
-                }
+                },
             ),
             self.team,
         )
@@ -124,12 +125,13 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         result = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-12T00:00:00Z",
                     "date_to": "2020-01-19T00:00:00Z",
                     "events": [{"id": "$pageview", "type": "events", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
-                }
+                },
             ),
             self.team,
         )
@@ -205,13 +207,14 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         result = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-12T00:00:00Z",
                     "date_to": "2020-01-19T00:00:00Z",
                     "events": [{"id": "$pageview", "type": "events", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
                     "properties": [{"key": "$number", "value": 1}],
-                }
+                },
             ),
             self.team,
         )
@@ -229,6 +232,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
         #  entities filtering
         result = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-12T00:00:00Z",
                     "date_to": "2020-01-19T00:00:00Z",
@@ -241,7 +245,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                     "shown_as": TRENDS_LIFECYCLE,
-                }
+                },
             ),
             self.team,
         )
@@ -317,6 +321,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         result = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-12T00:00:00Z",
                     "date_to": "2020-01-19T00:00:00Z",
@@ -329,7 +334,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                     "shown_as": TRENDS_LIFECYCLE,
-                }
+                },
             ),
             self.team,
         )
@@ -358,12 +363,13 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         result = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-12T00:00:00Z",
                     "date_to": "2020-01-19T00:00:00Z",
                     "events": [{"id": "$pageview", "type": "events", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
-                }
+                },
             ),
             self.team,
         )
@@ -494,12 +500,13 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         result = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-12T00:00:00Z",
                     "date_to": "2020-01-19T00:00:00Z",
                     "actions": [{"id": pageview_action.pk, "type": "actions", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
-                }
+                },
             ),
             self.team,
         )
@@ -537,11 +544,12 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-17T13:01:01Z"):
             result = Trends().run(
                 Filter(
+                    team=self.team,
                     data={
                         "date_from": "all",
                         "events": [{"id": "$pageview", "type": "events", "order": 0}],
                         "shown_as": TRENDS_LIFECYCLE,
-                    }
+                    },
                 ),
                 self.team,
             )
@@ -579,13 +587,14 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         result = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-02-05T00:00:00Z",
                     "date_to": "2020-03-09T00:00:00Z",
                     "events": [{"id": "$pageview", "type": "events", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
                     "interval": "week",
-                }
+                },
             ),
             self.team,
         )
@@ -626,13 +635,14 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         result = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-02-01T00:00:00Z",
                     "date_to": "2020-09-01T00:00:00Z",
                     "events": [{"id": "$pageview", "type": "events", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
                     "interval": "month",
-                }
+                },
             ),
             self.team,
         )
@@ -730,12 +740,13 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         result = Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-12T00:00:00Z",
                     "date_to": "2020-01-19T00:00:00Z",
                     "events": [{"id": "$pageview", "type": "events", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
-                }
+                },
             ),
             self.team,
         )
@@ -799,13 +810,14 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         Trends().run(
             Filter(
+                team=self.team,
                 data={
                     "date_from": "2020-01-12T00:00:00Z",
                     "date_to": "2020-01-19T00:00:00Z",
                     "events": [{"id": "$pageview", "type": "events", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
                     "sampling_factor": 0.1,
-                }
+                },
             ),
             self.team,
         )

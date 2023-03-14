@@ -52,7 +52,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
             "breakdown_attribution_type": "all_events",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnelUnordered(filter, self.team)
 
         # event
@@ -164,7 +164,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
             "funnel_order_type": "unordered",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnelUnordered(filter, self.team)
 
         # event
@@ -211,7 +211,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
             "funnel_order_type": "unordered",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnelUnordered(filter, self.team)
 
         # event
@@ -290,7 +290,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
             "funnel_order_type": "unordered",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnelUnordered(filter, self.team)
 
         # event
@@ -390,7 +390,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
             "funnel_order_type": "unordered",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnelUnordered(filter, self.team)
 
         # event
@@ -495,7 +495,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
             "funnel_order_type": "unordered",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnelUnordered(filter, self.team)
 
         # event
@@ -555,6 +555,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
     def test_basic_unordered_funnel(self):
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "events": [
@@ -562,7 +563,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
                     {"id": "$pageview", "order": 1},
                     {"id": "insight viewed", "order": 2},
                 ],
-            }
+            },
         )
 
         funnel = ClickhouseFunnelUnordered(filter, self.team)
@@ -668,6 +669,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
     def test_big_multi_step_unordered_funnel(self):
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "events": [
@@ -676,7 +678,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
                     {"id": "insight viewed", "order": 2},
                     {"id": "crying", "order": 3},
                 ],
-            }
+            },
         )
 
         person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -775,6 +777,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
     def test_basic_unordered_funnel_conversion_times(self):
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "events": [
@@ -785,7 +788,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-07 23:59:59",
                 "funnel_window_days": "1",
-            }
+            },
         )
 
         funnel = ClickhouseFunnelUnordered(filter, self.team)
@@ -877,12 +880,13 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
     def test_single_event_unordered_funnel(self):
         filter = Filter(
+            team=self.team,
             data={
                 "insight": INSIGHT_FUNNELS,
                 "events": [{"id": "user signed up", "order": 0}],
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-07 23:59:59",
-            }
+            },
         )
 
         funnel = ClickhouseFunnelUnordered(filter, self.team)
@@ -919,7 +923,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             "funnel_window_days": 14,
             "exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 1}],
         }
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         self.assertRaises(ValidationError, lambda: ClickhouseFunnelUnordered(filter, self.team).run())
 
         # partial windows not allowed for unordered
@@ -940,7 +944,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             "date_to": "2021-05-14 00:00:00",
             "exclusions": [{"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}],
         }
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnelUnordered(filter, self.team)
 
         # event 1
@@ -1034,7 +1038,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         _create_event(team=self.team, event="x", distinct_id="person5", timestamp="2021-05-01 05:30:00")
         _create_event(team=self.team, event="pageview2", distinct_id="person5", timestamp="2021-05-01 06:00:00")
 
-        filter = Filter(data=filters)
+        filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnelUnordered(filter, self.team)
 
         result = funnel.run()

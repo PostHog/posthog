@@ -23,7 +23,7 @@ from posthog.session_recordings.test.test_factory import create_chunked_snapshot
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
-def create_recording_filter(session_recording_id, limit=None, offset=None) -> Filter:
+def create_recording_filter(session_recording_id, team: Team, limit=None, offset=None) -> Filter:
     params = {}
     if limit:
         params["limit"] = limit
@@ -35,7 +35,7 @@ def create_recording_filter(session_recording_id, limit=None, offset=None) -> Fi
     req = Request(
         build_req, f"/api/event/session_recording?session_recording_id={session_recording_id}{urlencode(params)}"  # type: ignore
     )
-    return Filter(request=req, data=params)
+    return Filter(request=req, data=params, team=team)
 
 
 class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
@@ -69,7 +69,10 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 team_id=self.team.id,
             )
 
-            filter = create_recording_filter("1")
+            filter = create_recording_filter(
+                "1",
+                self.team,
+            )
             recording: DecompressedRecordingData = SessionRecordingEvents(
                 team=self.team, session_recording_id="1"
             ).get_snapshots(filter.limit, filter.offset)
@@ -106,7 +109,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 data={"source": 0},
             )
 
-            filter = create_recording_filter("1")
+            filter = create_recording_filter("1", self.team)
             recording: DecompressedRecordingData = SessionRecordingEvents(
                 team=self.team, session_recording_id="1"
             ).get_snapshots(filter.limit, filter.offset)
@@ -117,7 +120,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_get_snapshots_with_no_such_session(self):
-        filter = create_recording_filter("xxx")
+        filter = create_recording_filter("xxx", self.team)
         recording: DecompressedRecordingData = SessionRecordingEvents(
             team=self.team, session_recording_id="xxx"
         ).get_snapshots(filter.limit, filter.offset)
@@ -137,7 +140,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                     team_id=self.team.id,
                 )
 
-            filter = create_recording_filter(chunked_session_id)
+            filter = create_recording_filter(chunked_session_id, self.team)
             recording: DecompressedRecordingData = SessionRecordingEvents(
                 team=self.team, session_recording_id=chunked_session_id
             ).get_snapshots(chunk_limit, filter.offset)
@@ -159,7 +162,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                     team_id=self.team.id,
                 )
 
-            filter = create_recording_filter(chunked_session_id, chunk_limit, chunk_offset)
+            filter = create_recording_filter(chunked_session_id, self.team, chunk_limit, chunk_offset)
             recording: DecompressedRecordingData = SessionRecordingEvents(
                 team=self.team, session_recording_id=chunked_session_id
             ).get_snapshots(chunk_limit, filter.offset)
@@ -430,6 +433,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
 
             filter = create_recording_filter(
                 "1",
+                self.team,
             )
             recording: DecompressedRecordingData = SessionRecordingEvents(
                 team=self.team, session_recording_id="1", recording_start_time=now()

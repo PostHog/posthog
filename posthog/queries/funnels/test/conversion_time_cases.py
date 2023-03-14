@@ -27,7 +27,7 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 "insight": INSIGHT_FUNNELS,
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             people = journeys_for(
@@ -68,7 +68,7 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 "funnel_window_days": 7,
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             journeys_for(
@@ -114,7 +114,7 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 "date_to": "2020-01-14",
             }
 
-            filter = Filter(data=filters)
+            filter = Filter(team=self.team, data=filters)
             funnel = Funnel(filter, self.team)
 
             # event

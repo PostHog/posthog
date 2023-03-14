@@ -73,7 +73,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "funnel_correlation_type": "events",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
 
         for i in range(10):
@@ -210,7 +213,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "funnel_correlation_type": "events",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
         result = correlation._run()[0]
 
@@ -320,7 +326,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "aggregation_group_type_index": 0,
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         result = FunnelCorrelation(filter, self.team)._run()[0]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
@@ -397,7 +406,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "funnel_correlation_names": ["$browser"],
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
 
         for i in range(10):
@@ -580,7 +592,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "aggregation_group_type_index": 0,
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
         result = correlation._run()[0]
 
@@ -742,7 +757,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            filter = Filter(data=filters)
+            filter = Filter(
+                data=filters,
+                team=self.team,
+            )
             correlation = FunnelCorrelation(filter, self.team)
             result = correlation._run()[0]
 
@@ -821,7 +839,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "date_to": "2020-01-14",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
 
         for i in range(2):
@@ -891,7 +912,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             # "funnel_correlation_names": ["$browser"], missing value
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
 
         _create_person(distinct_ids=[f"user_1"], team_id=self.team.pk, properties={"$browser": "Positive"})
@@ -924,7 +948,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "funnel_correlation_names": ["$browser", "$nice"],
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
 
         #  5 successful people with both properties
@@ -1086,7 +1113,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "funnel_correlation_type": "events",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
 
         for i in range(10):
@@ -1154,7 +1184,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "funnel_correlation_type": "events",
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
 
         _create_person(distinct_ids=["user_successful"], team_id=self.team.pk)
@@ -1212,7 +1245,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "funnel_correlation_event_names": ["positively_related", "negatively_related"],
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
 
         for i in range(10):
@@ -1366,7 +1402,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "funnel_correlation_event_names": ["positively_related", "negatively_related"],
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
         result = correlation._run()[0]
 
@@ -1417,7 +1456,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "funnel_correlation_event_exclude_property_names": ["signup_source"],
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
 
         # Need more than 2 events to get a correlation
@@ -1477,7 +1519,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "funnel_correlation_event_names": ["$autocapture"],
         }
 
-        filter = Filter(data=filters)
+        filter = Filter(
+            data=filters,
+            team=self.team,
+        )
         correlation = FunnelCorrelation(filter, self.team)
 
         # Need a minimum of 3 hits to get a correlation result

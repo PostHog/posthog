@@ -233,7 +233,7 @@ class Team(UUIDClassicModel):
         from posthog.client import sync_execute
         from posthog.queries.person_query import PersonQuery
 
-        filter = Filter(data={"full": "true"})
+        filter = Filter(data={"full": "true"}, team=self)
         person_query, person_query_params = PersonQuery(filter, self.id).get_query()
 
         return sync_execute(

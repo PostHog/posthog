@@ -21,7 +21,7 @@ def forwards_func(apps, schema_editor):
             continue
         if item.filters.get("funnel_id"):
             item.funnel_id = item.filters["funnel_id"]
-        item.filters = Filter(data=item.filters).to_dict()
+        item.filters = Filter(team=item.team, data=item.filters).to_dict()
         item.save()
 
 
