@@ -23,7 +23,7 @@ import { isStepsEmpty } from 'scenes/funnels/funnelUtils'
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
 export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
-    const { querySource } = useValues(funnelDataLogic(insightProps))
+    const { querySource, series } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
     // TODO: Replicate command logic
     // useMountedLogic(funnelCommandLogic)
@@ -37,8 +37,8 @@ export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFi
         <FunnelsQueryStepsComponent
             actionFilters={actionFilters}
             setActionFilters={setActionFilters}
-            filterSteps={(querySource as FunnelsQuery).series || []}
-            showSeriesIndicator={((querySource as FunnelsQuery).series || []).length > 0}
+            filterSteps={series || []}
+            showSeriesIndicator={(series || []).length > 0}
             isDataExploration
             insightProps={insightProps}
         />

@@ -11,7 +11,7 @@ import { InsightFilter } from '~/queries/schema'
 import { FunnelsFilterType, FunnelTimeConversionMetrics, FunnelVizType } from '~/types'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
+import { FunnelStepsPicker, FunnelStepsPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { Noun } from '~/models/groupsModel'
 
@@ -26,6 +26,7 @@ export function FunnelCanvasLabelDataExploration(): JSX.Element | null {
             aggregationTargetLabel={aggregationTargetLabel}
             funnelsFilter={funnelsFilter}
             updateInsightFilter={updateInsightFilter}
+            isUsingDataExploration
         />
     )
 }
@@ -52,6 +53,7 @@ type FunnelCanvasLabelComponentProps = {
     conversionMetrics: FunnelTimeConversionMetrics
     funnelsFilter?: FunnelsFilterType | null
     updateInsightFilter: (insightFilter: InsightFilter) => void
+    isUsingDataExploration?: boolean
 }
 
 function FunnelCanvasLabelComponent({
@@ -59,7 +61,9 @@ function FunnelCanvasLabelComponent({
     conversionMetrics,
     funnelsFilter,
     updateInsightFilter,
+    isUsingDataExploration,
 }: FunnelCanvasLabelComponentProps): JSX.Element | null {
+    const StepsPicker = isUsingDataExploration ? FunnelStepsPickerDataExploration : FunnelStepsPicker
     const labels = [
         ...(funnelsFilter?.funnel_viz_type === FunnelVizType.Steps
             ? [
@@ -87,7 +91,7 @@ function FunnelCanvasLabelComponent({
                           </Tooltip>
                           <span>Average time to convert</span>
                       </span>
-                      {funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
+                      {funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert && <StepsPicker />}
                       <span className="text-muted-alt mr-1">:</span>
                       <Button
                           type="link"
@@ -103,7 +107,7 @@ function FunnelCanvasLabelComponent({
             ? [
                   <>
                       <span className="text-muted-alt">Conversion rate</span>
-                      <FunnelStepsPicker />
+                      <StepsPicker />
                   </>,
               ]
             : []),
