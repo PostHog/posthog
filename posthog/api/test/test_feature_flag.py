@@ -2671,14 +2671,14 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(4):
             # one query to get group type mappings, another to get group properties
             # 2 to set statement timeout
-            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
+            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", groups={"organization": "org:1"})
             self.assertTrue(all_flags["group-flag"])
             self.assertTrue(all_flags["default-flag"])
             self.assertFalse(errors)
 
         # now db is down
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
-            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
+            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", groups={"organization": "org:1"})
 
             self.assertTrue("group-flag" not in all_flags)
             # can't be true unless we cache group type mappings as well
@@ -2760,7 +2760,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(2):
             # 1 query to get person properties
             # 1 to set statement timeout
-            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
 
             self.assertTrue(all_flags["property-flag"])
             self.assertTrue(all_flags["default-flag"])
@@ -2768,7 +2768,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         # now db is down
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
-            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
@@ -2839,7 +2839,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(2):
             # 1 query to get person properties
             # 1 query to set statement timeout
-            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
 
             self.assertTrue(all_flags["property-flag"])
             self.assertTrue(all_flags["default-flag"])
@@ -2849,7 +2849,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
             "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS", 500
         ):
-            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
@@ -2926,7 +2926,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(4):
             # one query to get group type mappings, another to get group properties
             # 2 queries to set statement timeout
-            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
+            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", groups={"organization": "org:1"})
             self.assertTrue(all_flags["group-flag"])
             self.assertTrue(all_flags["default-flag"])
             self.assertFalse(errors)
@@ -2935,7 +2935,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
             "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS", 500
         ):
-            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
+            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", groups={"organization": "org:1"})
 
             self.assertTrue("group-flag" not in all_flags)
             # can't be true unless we cache group type mappings as well
@@ -3016,7 +3016,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         serialized_data.save()
 
         with snapshot_postgres_queries_context(self), self.assertNumQueries(9):
-            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
+            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="random")
 
             self.assertTrue(all_flags["property-flag"])
             self.assertTrue(all_flags["default-flag"])
@@ -3026,7 +3026,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
             "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS", 500
         ):
-            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
+            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="random")
 
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
