@@ -1,11 +1,9 @@
-import { kea, path, actions, connect, reducers, afterMount, selectors, listeners } from 'kea'
+import { kea, path, actions, connect, afterMount, selectors, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { BillingProductV2Type, BillingV2Type, BillingVersion } from '~/types'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { urlToAction } from 'kea-router'
-import { forms } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '@posthog/lemon-ui'
 import { projectUsage } from './billing-utils'
@@ -46,7 +44,6 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
 export const billingLogic = kea<billingLogicType>([
     path(['scenes', 'billing', 'v2', 'billingLogic']),
     actions({
-        setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingV2Shown: true,
         registerInstrumentationProps: true,
@@ -54,14 +51,6 @@ export const billingLogic = kea<billingLogicType>([
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
         actions: [userLogic, ['loadUser']],
-    }),
-    reducers({
-        showLicenseDirectInput: [
-            false,
-            {
-                setShowLicenseDirectInput: (_, { show }) => show,
-            },
-        ],
     }),
     loaders(() => ({
         billing: [
@@ -92,13 +81,7 @@ export const billingLogic = kea<billingLogicType>([
         ],
     })),
     selectors({
-        upgradeLink: [
-            (s) => [s.preflight],
-            (preflight): string =>
-                preflight?.cloud
-                    ? '/organization/billing'
-                    : 'https://license.posthog.com?utm_medium=in-product&utm_campaign=in-product-upgrade',
-        ],
+        upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
         billingVersion: [
             (s) => [s.billing, s.billingLoading],
             (billing, billingLoading): BillingVersion | undefined =>
@@ -165,34 +148,6 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
-    forms(({ actions }) => ({
-        activateLicense: {
-            defaults: { license: '' } as { license: string },
-            errors: ({ license }) => ({
-                license: !license ? 'Please enter your license key' : undefined,
-            }),
-            submit: async ({ license }, breakpoint) => {
-                breakpoint(500)
-                try {
-                    await api.update('api/billing-v2/license', {
-                        license,
-                    })
-
-                    // Reset the URL so we don't trigger the license submission again
-                    router.actions.replace('/organization/billing?success=true')
-                    setTimeout(() => {
-                        window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
-                    }, 100)
-                } catch (e: any) {
-                    actions.setActivateLicenseManualErrors({
-                        license: e.detail || 'License could not be activated. Please contact support.',
-                    })
-                    throw e
-                }
-            },
-        },
-    })),
-
     listeners(({ actions, values }) => ({
         reportBillingV2Shown: () => {
             posthog.capture('billing v2 shown')
@@ -243,9 +198,6 @@ export const billingLogic = kea<billingLogicType>([
                     payload['billing_period_start'] = values.billing.billing_period.current_period_start
                     payload['billing_period_end'] = values.billing.billing_period.current_period_end
                 }
-                if (values.billing.license) {
-                    payload['license_plan'] = values.billing.license.plan
-                }
                 posthog.register(payload)
             }
         },
@@ -254,15 +206,4 @@ export const billingLogic = kea<billingLogicType>([
     afterMount(({ actions }) => {
         actions.loadBilling()
     }),
-
-    urlToAction(({ actions }) => ({
-        // IMPORTANT: This needs to be above the "*" so it takes precedence
-        '/organization/billing': (_params, _search, hash) => {
-            if (hash.license) {
-                actions.setShowLicenseDirectInput(true)
-                actions.setActivateLicenseValues({ license: hash.license })
-                actions.submitActivateLicense()
-            }
-        },
-    })),
 ])
