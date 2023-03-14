@@ -13,6 +13,7 @@ from django.db.models.signals import post_delete, post_save
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.hogql.database import Database, create_hogql_database
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -221,6 +222,10 @@ class Team(UUIDClassicModel):
     def strict_caching_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
+
+    @cached_property
+    def database(self) -> Database:
+        return create_hogql_database(self)
 
     @cached_property
     def persons_seen_so_far(self) -> int:

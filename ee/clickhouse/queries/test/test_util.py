@@ -4,7 +4,6 @@ import pytz
 from freezegun.api import freeze_time
 
 from posthog.client import sync_execute
-from posthog.hogql.database import create_hogql_database
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -38,6 +37,6 @@ def test_parse_breakdown_cohort_query(db, team):
     action = Action.objects.create(team=team, name="$pageview")
     ActionStep.objects.create(action=action, event="$pageview")
     cohort1 = Cohort.objects.create(team=team, groups=[{"action_id": action.pk, "days": 3}], name="cohort1")
-    queries, params = _parse_breakdown_cohorts([cohort1], HogQLContext(database=create_hogql_database(team)))
+    queries, params = _parse_breakdown_cohorts([cohort1], HogQLContext(database=team.database))
     assert len(queries) == 1
     sync_execute(queries[0], params)

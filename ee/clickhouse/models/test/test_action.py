@@ -2,7 +2,6 @@ import dataclasses
 from typing import List
 
 from posthog.client import sync_execute
-from posthog.hogql.database import create_hogql_database
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
 from posthog.models.action.util import filter_event, format_action_filter
@@ -18,7 +17,7 @@ class MockEvent:
 
 
 def _get_events_for_action(action: Action) -> List[MockEvent]:
-    hogql_context = HogQLContext(database=create_hogql_database(action.team))
+    hogql_context = HogQLContext(database=action.team.database)
     formatted_query, params = format_action_filter(
         team_id=action.team_id, action=action, prepend="", hogql_context=hogql_context
     )

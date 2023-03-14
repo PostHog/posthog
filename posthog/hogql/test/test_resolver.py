@@ -1,5 +1,4 @@
 from posthog.hogql import ast
-from posthog.hogql.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import ResolverException, resolve_refs
 from posthog.test.base import BaseTest
@@ -7,7 +6,7 @@ from posthog.test.base import BaseTest
 
 class TestResolver(BaseTest):
     def setUp(self):
-        self.database = create_hogql_database(self.team)
+        self.database = self.team.datbase
 
     def test_resolve_events_table(self):
         expr = parse_select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")

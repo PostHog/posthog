@@ -1,5 +1,4 @@
 from posthog.hogql import ast
-from posthog.hogql.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import ResolverException, resolve_refs
 from posthog.hogql.transforms import expand_asterisks
@@ -8,7 +7,7 @@ from posthog.test.base import BaseTest
 
 class TestAsteriskExpander(BaseTest):
     def setUp(self):
-        self.database = create_hogql_database(self.team)
+        self.database = self.team.database
 
     def test_asterisk_expander_table(self):
         node = parse_select("select * from events")

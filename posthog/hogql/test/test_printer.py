@@ -1,7 +1,6 @@
 from typing import Literal, Optional
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import create_hogql_database
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -10,7 +9,7 @@ from posthog.test.base import BaseTest
 
 class TestPrinter(BaseTest):
     def setUp(self):
-        self.database = create_hogql_database(self.team)
+        self.database = self.team.database
 
     # Helper to always translate HogQL with a blank context
     def _expr(

@@ -7,7 +7,6 @@ from django.utils.timezone import now
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import create_hogql_database
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.event.events_query import QUERY_DEFAULT_LIMIT
@@ -66,7 +65,7 @@ def query_events_list(
 ) -> List:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
-    hogql_context = HogQLContext(within_non_hogql_query=True, database=create_hogql_database(team))
+    hogql_context = HogQLContext(within_non_hogql_query=True, database=team.database)
 
     limit += 1
     limit_sql = "LIMIT %(limit)s"
