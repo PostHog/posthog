@@ -47,7 +47,9 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
 
     def shallow_clone(self, overrides: Dict[str, Any]):
         "Clone the filter's data while sharing the HogQL context"
-        return type(self)(data={**self._data, **overrides}, **{**self.kwargs, "hogql_context": self.hogql_context})
+        return type(self)(
+            data={**self._data, **overrides}, team=self.team, **{**self.kwargs, "hogql_context": self.hogql_context}
+        )
 
     def query_tags(self) -> Dict[str, Any]:
         ret = {}

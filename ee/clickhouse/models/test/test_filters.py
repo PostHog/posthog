@@ -290,7 +290,7 @@ class TestFilters(PGTestFilters):
         )
 
     def test_simplify_when_aggregating_by_group(self):
-        filter = RetentionFilter(data={"aggregation_group_type_index": 0})
+        filter = RetentionFilter(data={"aggregation_group_type_index": 0}, team=self.team)
 
         self.assertEqual(
             filter.simplify(self.team).properties_to_dict(),

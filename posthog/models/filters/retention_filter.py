@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 from rest_framework.request import Request
 
@@ -21,6 +21,9 @@ from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.retention import EntitiesDerivedMixin, RetentionDateDerivedMixin, RetentionTypeMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 RETENTION_DEFAULT_INTERVALS = 11
 
@@ -44,8 +47,9 @@ class RetentionFilter(
     SampleMixin,
     BaseFilter,
 ):
-    def __init__(self, data: Dict[str, Any] = {}, request: Optional[Request] = None, **kwargs) -> None:
+    def __init__(self, team: "Team", data: Dict[str, Any] = {}, request: Optional[Request] = None, **kwargs) -> None:
         data["insight"] = INSIGHT_RETENTION
+        self.team = team
         super().__init__(data, request, **kwargs)
 
     @cached_property

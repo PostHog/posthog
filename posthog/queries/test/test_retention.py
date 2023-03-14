@@ -81,7 +81,7 @@ def retention_test_factory(retention):
                 ],
             )
 
-            result = retention().run(RetentionFilter(data={"dummy": "dummy"}), self.team)
+            result = retention().run(RetentionFilter(data={"dummy": "dummy"}, team=self.team), self.team)
             self.assertEqual(
                 pluck(result, "values", "count"),
                 [
@@ -120,7 +120,7 @@ def retention_test_factory(retention):
             )
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = retention().run(RetentionFilter(data={"date_to": _date(10, hour=6)}), self.team)
+            result = retention().run(RetentionFilter(data={"date_to": _date(10, hour=6)}, team=self.team), self.team)
             self.assertEqual(len(result), 11)
             self.assertEqual(
                 pluck(result, "label"),
@@ -167,7 +167,7 @@ def retention_test_factory(retention):
                 ],
             )
 
-            filter = RetentionFilter(data={"date_to": _date(0, month=5, hour=0), "period": "Month"})
+            filter = RetentionFilter(data={"date_to": _date(0, month=5, hour=0), "period": "Month"}, team=self.team)
 
             result = retention().run(filter, self.team, total_intervals=11)
 
@@ -245,7 +245,9 @@ def retention_test_factory(retention):
             )
 
             result = retention().run(
-                RetentionFilter(data={"date_to": _date(10, month=1, hour=0), "period": "Week", "total_intervals": 7}),
+                RetentionFilter(
+                    data={"date_to": _date(10, month=1, hour=0), "period": "Week", "total_intervals": 7}, team=self.team
+                ),
                 self.team,
             )
 
@@ -293,7 +295,7 @@ def retention_test_factory(retention):
                 ],
             )
 
-            filter = RetentionFilter(data={"date_to": _date(0, hour=16), "period": "Hour"})
+            filter = RetentionFilter(data={"date_to": _date(0, hour=16), "period": "Hour"}, team=self.team)
 
             result = retention().run(filter, self.team, total_intervals=11)
 
@@ -372,7 +374,9 @@ def retention_test_factory(retention):
             )
 
             result = retention().run(
-                RetentionFilter(data={"date_to": _date(14, month=1, hour=0), "period": "Week", "total_intervals": 7}),
+                RetentionFilter(
+                    data={"date_to": _date(14, month=1, hour=0), "period": "Week", "total_intervals": 7}, team=self.team
+                ),
                 self.team,
             )
 
@@ -420,7 +424,7 @@ def retention_test_factory(retention):
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result, _ = retention().actors_in_period(
-                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 0}), self.team
+                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 0}, team=self.team), self.team
             )
             self.assertEqual(len(result), 1)
             self.assertTrue(result[0]["person"]["id"] == person1.uuid, person1.uuid)
@@ -438,7 +442,8 @@ def retention_test_factory(retention):
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
                         "selected_interval": 0,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -454,7 +459,8 @@ def retention_test_factory(retention):
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
                         "selected_interval": 0,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -511,7 +517,7 @@ def retention_test_factory(retention):
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result, _ = retention().actors_in_period(
-                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 2}), self.team
+                RetentionFilter(data={"date_to": _date(10, hour=6), "selected_interval": 2}, team=self.team), self.team
             )
 
             # should be descending order on number of appearances
@@ -533,7 +539,8 @@ def retention_test_factory(retention):
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
                         "selected_interval": 0,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -577,7 +584,8 @@ def retention_test_factory(retention):
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
                         "total_intervals": 7,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -619,7 +627,8 @@ def retention_test_factory(retention):
                         "target_entity": start_entity,
                         "returning_entity": {"id": some_event, "type": TREND_FILTER_TYPE_EVENTS},
                         "total_intervals": 7,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -645,7 +654,8 @@ def retention_test_factory(retention):
                         "target_entity": target_entity,
                         "returning_entity": {"id": "$pageview", "type": "events"},
                         "total_intervals": 7,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -681,7 +691,8 @@ def retention_test_factory(retention):
 
             result = retention().run(
                 RetentionFilter(
-                    data={"properties": [{"key": "$some_property", "value": "value"}], "date_to": _date(10, hour=0)}
+                    data={"properties": [{"key": "$some_property", "value": "value"}], "date_to": _date(10, hour=0)},
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -737,7 +748,8 @@ def retention_test_factory(retention):
                         "properties": [{"key": "email", "value": "person1@test.com", "type": "person"}],
                         "date_to": _date(6, hour=0),
                         "total_intervals": 7,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -787,7 +799,8 @@ def retention_test_factory(retention):
                         "returning_entity": {"id": "$pageview", "type": "events"},
                         "date_to": _date(6, hour=0),
                         "total_intervals": 7,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -828,7 +841,8 @@ def retention_test_factory(retention):
                         "target_entity": start_entity,
                         "actions": [{"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS}],
                         "total_intervals": 7,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -966,7 +980,9 @@ def retention_test_factory(retention):
 
             with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"):
                 # even if set to hour 6 it should default to beginning of day and include all pageviews above
-                result = retention().run(RetentionFilter(data={"date_to": _date(10, hour=6)}), self.team)
+                result = retention().run(
+                    RetentionFilter(data={"date_to": _date(10, hour=6)}, team=self.team), self.team
+                )
                 self.assertEqual(len(result), 11)
                 self.assertEqual(
                     pluck(result, "label"),
@@ -1008,7 +1024,8 @@ def retention_test_factory(retention):
                         data={
                             "date_to": _date(10, hour=6),
                             "properties": [{"key": "test", "value": "ok", "type": "person"}],
-                        }
+                        },
+                        team=self.team,
                     ),
                     self.team,
                 )
@@ -1117,7 +1134,7 @@ def retention_test_factory(retention):
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result = retention().run(
-                RetentionFilter(data={"date_to": _date(10, hour=6), "sampling_factor": 1}), self.team
+                RetentionFilter(data={"date_to": _date(10, hour=6), "sampling_factor": 1}, team=self.team), self.team
             )
             self.assertEqual(len(result), 11)
             self.assertEqual(
