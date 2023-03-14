@@ -1,10 +1,8 @@
 import { defineConfig } from 'cypress'
-import webpackPreprocessor from '@cypress/webpack-preprocessor'
 import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
 import fs from 'fs'
 import path from 'path'
-import { createEntry } from './webpack.config'
 
 const downloadDirectory = path.join(__dirname, '..', 'downloads')
 
@@ -34,13 +32,6 @@ export default defineConfig({
         // We've imported your old cypress plugins here.
         // You may want to clean this up later by importing these.
         setupNodeEvents(on, config) {
-            const options = {
-                webpackOptions: createEntry('cypress'),
-                watchOptions: {},
-            }
-
-            // @ts-expect-error -- ignore errors in options type
-            on('file:preprocessor', webpackPreprocessor(options))
             try {
                 // eslint-disable-next-line @typescript-eslint/no-var-requires
                 require('cypress-terminal-report/src/installLogsPrinter')(on)

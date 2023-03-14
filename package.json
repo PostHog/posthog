@@ -157,7 +157,6 @@
         "@babel/preset-react": "^7.17.10",
         "@babel/preset-typescript": "^7.16.7",
         "@babel/runtime": "^7.17.9",
-        "@cypress/webpack-preprocessor": "^5.17.0",
         "@hot-loader/react-dom": "^16.14.0",
         "@playwright/test": "1.29.2",
         "@sentry/types": "7.22.0",

@@ -12,7 +12,6 @@ specifiers:
   '@babel/preset-react': ^7.17.10
   '@babel/preset-typescript': ^7.16.7
   '@babel/runtime': ^7.17.9
-  '@cypress/webpack-preprocessor': ^5.17.0
   '@floating-ui/react': ^0.16.0
   '@hot-loader/react-dom': ^16.14.0
   '@lottiefiles/react-lottie-player': ^3.4.7
@@ -290,7 +289,6 @@ devDependencies:
   '@babel/preset-react': 7.18.6_@babel+core@7.20.2
   '@babel/preset-typescript': 7.18.6_@babel+core@7.20.2
   '@babel/runtime': 7.20.1
-  '@cypress/webpack-preprocessor': 5.17.0_5j4ke4o34lz3j3743ikwv5ryvm
   '@hot-loader/react-dom': 16.14.0_react@16.14.0
   '@playwright/test': 1.29.2
   '@sentry/types': 7.22.0
@@ -1933,25 +1931,6 @@ packages:
       tough-cookie: 2.5.0
       tunnel-agent: 0.6.0
       uuid: 8.3.2
-    dev: true
-
-  /@cypress/webpack-preprocessor/5.17.0_5j4ke4o34lz3j3743ikwv5ryvm:
-    resolution: {integrity: sha512-HyFqHkrOrIIYOt4G+r3VK0kVYTcev1tEcqBI/0DJ4AzEuEgW/TB+cX56txy4Cgn60XXdJoul2utclZwUqOsPZA==}
-    peerDependencies:
-      '@babel/core': ^7.0.1
-      '@babel/preset-env': ^7.0.0
-      babel-loader: ^8.0.2 || ^9
-      webpack: ^4 || ^5
-    dependencies:
-      '@babel/core': 7.20.2
-      '@babel/preset-env': 7.20.2_@babel+core@7.20.2
-      babel-loader: 8.3.0_tktscwi5cl3qcx6vcfwkvrwn6i
-      bluebird: 3.7.1
-      debug: 4.3.4
-      lodash: 4.17.21
-      webpack: 4.46.0_webpack-cli@4.10.0
-    transitivePeerDependencies:
-      - supports-color
     dev: true
 
   /@cypress/xvfb/1.2.4_supports-color@8.1.1:
@@ -6259,10 +6238,6 @@ packages:
 
   /blob-util/2.0.2:
     resolution: {integrity: sha512-T7JQa+zsXXEa6/8ZhHcQEW1UFfVM49Ts65uBkFL6fz2QmrElqmbajIDJvuA0tEhRe5eIjpV9ZF+0RfZR9voJFQ==}
-    dev: true
-
-  /bluebird/3.7.1:
-    resolution: {integrity: sha512-DdmyoGCleJnkbp3nkbxTLJ18rjDsE4yCggEwKNXkeV123sPNfOCYeDoeuOY+F2FrSjO1YXcTU+dsy96KMy+gcg==}
     dev: true
 
   /bluebird/3.7.2:
