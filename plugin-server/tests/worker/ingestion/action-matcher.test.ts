@@ -97,8 +97,6 @@ describe('ActionMatcher', () => {
             id: 2,
             team_id: 2,
             properties: {},
-            properties_last_updated_at: {},
-            properties_last_operation: {},
             is_user_id: 0,
             is_identified: true,
             uuid: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4C8',
@@ -744,8 +742,6 @@ describe('ActionMatcher', () => {
 
             const cohortPerson = await hub.db.createPerson(
                 DateTime.local(),
-                {},
-                {},
                 {},
                 actionDefinition.team_id,
                 null,

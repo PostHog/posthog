@@ -28,8 +28,6 @@ const person: Person = {
     is_user_id: 0,
     is_identified: true,
     uuid: new UUIDT().toString(),
-    properties_last_updated_at: {},
-    properties_last_operation: {},
     created_at: DateTime.now(),
     version: 0,
 }
@@ -44,9 +42,7 @@ describe('prepareEventStep()', () => {
         ;[hub, closeHub] = await createHub()
 
         // :KLUDGE: We test below whether kafka messages are produced, so make sure the person exists beforehand.
-        await hub.db.createPerson(person.created_at, {}, {}, {}, pluginEvent.team_id, null, false, person.uuid, [
-            'my_id',
-        ])
+        await hub.db.createPerson(person.created_at, {}, pluginEvent.team_id, null, false, person.uuid, ['my_id'])
         hub.db.kafkaProducer!.queueMessage = jest.fn()
 
         runner = {

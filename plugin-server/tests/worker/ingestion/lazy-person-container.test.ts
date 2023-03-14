@@ -37,7 +37,7 @@ describe('LazyPersonContainer()', () => {
     })
 
     it('.get loads person lazily and once', async () => {
-        const person = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['my-id'])
+        const person = await hub.db.createPerson(timestamp, {}, 2, null, false, uuid.toString(), ['my-id'])
 
         const persons = await Promise.all([personContainer.get(), personContainer.get(), personContainer.get()])
 
@@ -47,7 +47,7 @@ describe('LazyPersonContainer()', () => {
     })
 
     it('does not load anything if .with followed by .get', async () => {
-        const person = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['my-id'])
+        const person = await hub.db.createPerson(timestamp, {}, 2, null, false, uuid.toString(), ['my-id'])
         personContainer = personContainer.with(person)
 
         const persons = await Promise.all([personContainer.get(), personContainer.get(), personContainer.get()])
