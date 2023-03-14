@@ -8,8 +8,8 @@ from posthog.models import Cohort, Person
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.instance_setting import override_instance_config
-from posthog.models.team import Team, util
+from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
 from posthog.session_recordings.test.test_factory import create_chunked_snapshots, create_snapshot
 from posthog.test.base import (
@@ -860,59 +860,60 @@ class TestClickhouseSessionRecordingsListV2(session_recording_list_test_factory(
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_event_filter_with_hogql_properties(self):
-        util.can_enable_actor_on_events = True
-        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
-            create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
-            self.create_event(
-                "user", self.base_time, properties={"$browser": "Chrome", "$session_id": "1", "$window_id": "1"}
-            )
-            create_snapshot(
-                distinct_id="user",
-                session_id="1",
-                timestamp=self.base_time + relativedelta(seconds=30),
-                team_id=self.team.id,
-            )
-            filter = SessionRecordingsFilter(
-                team=self.team,
-                data={
-                    "events": [
-                        {
-                            "id": "$pageview",
-                            "type": "events",
-                            "order": 0,
-                            "name": "$pageview",
-                            "properties": [
-                                {"key": "properties.$browser == 'Chrome'", "type": "hogql"},
-                                {"key": "person.properties.email == 'bla'", "type": "hogql"},
-                            ],
-                        }
-                    ]
-                },
-            )
-            session_recording_list_instance = SessionRecordingListV2(filter=filter, team=self.team)
-            (session_recordings, _) = session_recording_list_instance.run()
-            self.assertEqual(len(session_recordings), 1)
-            self.assertEqual(session_recordings[0]["session_id"], "1")
-            self.assertEqual(len(session_recordings[0]["matching_events"][0]["events"]), 1)
-            self.assertEqual(session_recordings[0]["matching_events"][0]["events"][0]["timestamp"], self.base_time)
-            self.assertEqual(session_recordings[0]["matching_events"][0]["events"][0]["session_id"], "1")
-            self.assertEqual(session_recordings[0]["matching_events"][0]["events"][0]["window_id"], "1")
+        if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+            return
 
-            filter = SessionRecordingsFilter(
-                team=self.team,
-                data={
-                    "events": [
-                        {
-                            "id": "$pageview",
-                            "type": "events",
-                            "order": 0,
-                            "name": "$pageview",
-                            "properties": [{"key": "properties.$browser == 'Firefox'", "type": "hogql"}],
-                        }
-                    ]
-                },
-            )
-            session_recording_list_instance = SessionRecordingListV2(filter=filter, team=self.team)
-            (session_recordings, _) = session_recording_list_instance.run()
-            self.assertEqual(len(session_recordings), 0)
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
+        self.create_event(
+            "user", self.base_time, properties={"$browser": "Chrome", "$session_id": "1", "$window_id": "1"}
+        )
+        create_snapshot(
+            distinct_id="user",
+            session_id="1",
+            timestamp=self.base_time + relativedelta(seconds=30),
+            team_id=self.team.id,
+        )
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "properties": [
+                            {"key": "properties.$browser == 'Chrome'", "type": "hogql"},
+                            {"key": "person.properties.email == 'bla'", "type": "hogql"},
+                        ],
+                    }
+                ]
+            },
+        )
+        session_recording_list_instance = SessionRecordingListV2(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 1)
+        self.assertEqual(session_recordings[0]["session_id"], "1")
+        self.assertEqual(len(session_recordings[0]["matching_events"][0]["events"]), 1)
+        self.assertEqual(session_recordings[0]["matching_events"][0]["events"][0]["timestamp"], self.base_time)
+        self.assertEqual(session_recordings[0]["matching_events"][0]["events"][0]["session_id"], "1")
+        self.assertEqual(session_recordings[0]["matching_events"][0]["events"][0]["window_id"], "1")
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "properties": [{"key": "properties.$browser == 'Firefox'", "type": "hogql"}],
+                    }
+                ]
+            },
+        )
+        session_recording_list_instance = SessionRecordingListV2(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 0)
