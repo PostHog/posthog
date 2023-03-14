@@ -1,6 +1,7 @@
 .LemonButton {
     position: relative;
-    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
+    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
+        transform 100ms ease;
     display: flex;
     flex-direction: row;
     flex-shrink: 0;
@@ -59,7 +60,7 @@
         gap: 0.25rem;
 
         &.LemonButton--no-content {
-            padding: 0.125rem;
+            padding: 0.125rem !important; // Override hasIcon and hasSideIcon
             min-height: 1rem;
         }
 
@@ -85,9 +86,15 @@
 
     &.LemonButton--hasIcon {
         padding-left: 0.5rem;
+        &.LemonButton--small {
+            padding-left: 0.375rem;
+        }
     }
     &.LemonButton--hasSideIcon {
         padding-right: 0.5rem;
+        &.LemonButton--small {
+            padding-right: 0.375rem;
+        }
     }
     &.LemonButton--noPadding {
         min-height: 0;
@@ -137,8 +144,7 @@
             border: 1px solid var(--border);
 
             &:not(.LemonButton--disabled):hover,
-            &.LemonButton--active,
-            &:not(.LemonButton--disabled):active {
+            &.LemonButton--active {
                 background: var(--primary-highlight);
                 border-color: var(--primary);
             }
@@ -199,8 +205,7 @@
                 border: 1px solid var(--border);
 
                 &:not(.LemonButton--disabled):hover,
-                &.LemonButton--active,
-                &:not(.LemonButton--disabled):active {
+                &.LemonButton--active {
                     background: var(--#{$status}-highlight, var(--primary-highlight));
                     border-color: var(--#{$status});
                 }
@@ -214,18 +219,54 @@
 
     // PostHog 3000
     &.LemonButton--status-3000 {
-        color: var(--default);
+        color: var(--muted);
+        font-size: 0.8125rem;
+
+        .LemonButton__icon {
+            color: var(--muted);
+        }
 
         &:not(.LemonButton--disabled):hover,
         &.LemonButton--active {
+            color: var(--default);
             background: var(--border);
-            .LemonIcon {
+            .LemonButton__icon {
                 color: var(--default);
             }
         }
 
-        .LemonIcon {
-            color: var(--muted);
+        &:not(.LemonButton--disabled):active {
+            transform: scale(0.9375); // 30/32 (1px less on both sides, assuming a 32px tall button)
+        }
+
+        &.LemonButton--primary {
+            color: var(--bg-light);
+            background: var(--primary-3000);
+            .LemonButton__icon {
+                color: var(--bg-light);
+            }
+
+            &:not(.LemonButton--disabled):hover,
+            &.LemonButton--active {
+                color: var(--bg-light);
+                background: var(--default);
+                .LemonButton__icon {
+                    color: var(--bg-light);
+                }
+            }
+        }
+
+        &.LemonButton--secondary {
+            color: var(--default);
+            background: var(--secondary-3000);
+            .LemonButton__icon {
+                color: var(--default);
+            }
+
+            &:not(.LemonButton--disabled):hover,
+            &.LemonButton--active {
+                background: var(--accent-3000);
+            }
         }
     }
 }
