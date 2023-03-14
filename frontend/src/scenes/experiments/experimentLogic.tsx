@@ -525,7 +525,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
                         )
-                        return { ...response, fakeInsightId: Math.random().toString(36).substring(2, 15) }
+                        return { ...response.result, fakeInsightId: Math.random().toString(36).substring(2, 15) }
                     } catch (error: any) {
                         actions.setExperimentResultCalculationError(error.detail)
                         return null

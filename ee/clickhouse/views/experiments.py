@@ -24,6 +24,52 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
 )
 
+from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.clickhouse.query_tagging import tag_queries
+from statshog.defaults.django import statsd
+from django.utils.timezone import now
+from posthog.caching.insight_cache import update_cached_state
+
+EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes
+
+
+def _calculate_experiment_results(self, experiment: Experiment):
+    filter = Filter(experiment.filters)
+
+    cache_key = generate_cache_key(f"experiment_{filter.toJSON()}_{experiment.team.pk}")
+
+    tag_queries(cache_key=cache_key)
+
+    cached_result_package = get_safe_cache(cache_key)
+
+    if cached_result_package and cached_result_package.get("result"):
+        cached_result_package["is_cached"] = True
+        statsd.incr(
+            "posthog_cached_function_cache_hit", tags={"route": "/projects/:id/experiments/:experiment_id/results"}
+        )
+        return cached_result_package
+
+    statsd.incr(
+        "posthog_cached_function_cache_miss", tags={"route": "/projects/:id/experiments/:experiment_id/results"}
+    )
+
+    experiment_class: Union[Type[ClickhouseTrendExperimentResult], Type[ClickhouseFunnelExperimentResult]] = (
+        ClickhouseTrendExperimentResult if filter.insight == INSIGHT_TRENDS else ClickhouseFunnelExperimentResult
+    )
+
+    result = experiment_class(
+        filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date
+    ).get_results()
+
+    timestamp = now()
+    fresh_result_package = {"result": result, "last_refresh": now(), "is_cached": False}
+
+    update_cached_state(
+        experiment.team.pk, cache_key, timestamp, fresh_result_package, ttl=EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL
+    )
+
+    return fresh_result_package
+
 
 class ExperimentSerializer(serializers.ModelSerializer):
 
@@ -212,14 +258,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         if not experiment.filters:
             raise ValidationError("Experiment has no target metric")
 
-        filter = Filter(experiment.filters)
-        experiment_class: Union[Type[ClickhouseTrendExperimentResult], Type[ClickhouseFunnelExperimentResult]] = (
-            ClickhouseTrendExperimentResult if filter.insight == INSIGHT_TRENDS else ClickhouseFunnelExperimentResult
-        )
-
-        result = experiment_class(
-            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date
-        ).get_results()
+        result = _calculate_experiment_results(experiment)
 
         return Response(result)
 

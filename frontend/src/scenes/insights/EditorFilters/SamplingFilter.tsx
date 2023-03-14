@@ -6,6 +6,7 @@ import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic, SamplingFilterLogi
 interface SamplingFilterProps extends Omit<EditorFilterProps, 'insight' | 'value'> {
     infoTooltipContent?: string
     setFilters?: SamplingFilterLogicProps['setFilters']
+    initialSamplingPercentage?: number | null
 }
 
 const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
@@ -16,8 +17,9 @@ export function SamplingFilter({
     insightProps,
     infoTooltipContent,
     setFilters,
+    initialSamplingPercentage
 }: SamplingFilterProps): JSX.Element {
-    const logic = samplingFilterLogic({ insightType: filters.insight, insightProps, setFilters })
+    const logic = samplingFilterLogic({ insightType: filters.insight, insightProps, setFilters, initialSamplingPercentage })
 
     const { setSamplingPercentage } = useActions(logic)
 
