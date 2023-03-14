@@ -3,163 +3,19 @@ import { useEffect, useState } from 'react'
 import { Card, Row } from 'antd'
 import { IconFlag, IconInfo, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import {
-    UTM_TAGS,
-    APISnippet,
-    JSSnippet,
-    PythonSnippet,
-    NodeJSSnippet,
-    PHPSnippet,
-    RubySnippet,
-    GolangSnippet,
-    NodeLocalEvaluationSnippet,
-    PHPLocalEvaluationSnippet,
-    RubyLocalEvaluationSnippet,
-    PythonLocalEvaluationSnippet,
-    JSBootstrappingSnippet,
-    ReactNativeSnippet,
-    iOSSnippet,
-    AndroidSnippet,
-} from 'scenes/feature-flags/FeatureFlagSnippets'
-
 import './FeatureFlagInstructions.scss'
-import {
-    JSPayloadSnippet,
-    NodeJSPayloadSnippet,
-    PythonPayloadSnippet,
-    RubyPayloadSnippet,
-} from 'scenes/feature-flags/FeatureFlagPayloadSnippets'
 import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 import { FeatureFlagType } from '~/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-
-const DOC_BASE_URL = 'https://posthog.com/docs/'
-const FF_ANCHOR = '#feature-flags'
-const LOCAL_EVAL_ANCHOR = '#local-evaluation'
-const BOOTSTRAPPING_ANCHOR = '#bootstrapping-flags'
-
-interface InstructionOption {
-    value: string
-    documentationLink: string
-    Snippet: ({ flagKey }: { flagKey: string }) => JSX.Element
-    type: LibraryType
-}
-
-enum LibraryType {
-    Client = 'Client',
-    Server = 'Server',
-}
-
-export const OPTIONS: InstructionOption[] = [
-    {
-        value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: JSSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'Android',
-        documentationLink: `${DOC_BASE_URL}integrate/client/android${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: AndroidSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'iOS',
-        documentationLink: `${DOC_BASE_URL}integrate/client/ios${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: iOSSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'ReactNative',
-        documentationLink: `${DOC_BASE_URL}integrate/client/react-native${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: ReactNativeSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'Node.js',
-        documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: NodeJSSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Python',
-        documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: PythonSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Ruby',
-        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: RubySnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'API',
-        documentationLink: `${DOC_BASE_URL}api/post-only-endpoints#example-request--response-decide-v2`,
-        Snippet: APISnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'PHP',
-        documentationLink: `${DOC_BASE_URL}integrations/php-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: PHPSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Golang',
-        documentationLink: `${DOC_BASE_URL}integrations/go-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: GolangSnippet,
-        type: LibraryType.Server,
-    },
-]
-
-const LOCAL_EVALUATION_OPTIONS: InstructionOption[] = [
-    {
-        value: 'Node.js',
-        documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
-        Snippet: NodeLocalEvaluationSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'PHP',
-        documentationLink: `${DOC_BASE_URL}integrations/php-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
-        Snippet: PHPLocalEvaluationSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Ruby',
-        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
-        Snippet: RubyLocalEvaluationSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Golang',
-        documentationLink: `${DOC_BASE_URL}integrations/go-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
-        Snippet: GolangSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Python',
-        documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
-        Snippet: PythonLocalEvaluationSnippet,
-        type: LibraryType.Server,
-    },
-]
-
-const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
-    {
-        value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${BOOTSTRAPPING_ANCHOR}`,
-        Snippet: JSBootstrappingSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'ReactNative',
-        documentationLink: `${DOC_BASE_URL}integrate/client/react-native${UTM_TAGS}${BOOTSTRAPPING_ANCHOR}`,
-        Snippet: JSBootstrappingSnippet,
-        type: LibraryType.Client,
-    },
-]
+import {
+    BOOTSTRAPPING_OPTIONS,
+    InstructionOption,
+    LibraryType,
+    LOCAL_EVALUATION_OPTIONS,
+    MULTIVARIATE_OPTIONS,
+    OPTIONS,
+    PAYLOAD_OPTIONS,
+} from './FeatureFlagCodeOptions'
 
 function FeatureFlagInstructionsHeader({
     selectedOptionValue,
@@ -292,6 +148,9 @@ export function CodeInstructions({
         }
         if (Object.keys(featureFlag?.filters.payloads || {}).length > 0) {
             setShowPayloadCode(true)
+        }
+        if (featureFlag?.filters.multivariate?.variants || !featureFlag?.filters.multivariate) {
+            selectOption(selectedOption.value)
         }
     }, [selectedLanguage, featureFlag])
 
@@ -450,10 +309,20 @@ export function FeatureFlagInstructions({
         <CodeInstructions
             featureFlagKey={featureFlagKey}
             headerPrompt="Learn how to use feature flags in your code"
-            options={OPTIONS}
+            options={featureFlag?.filters.multivariate?.variants ? MULTIVARIATE_OPTIONS : OPTIONS}
             selectedLanguage={language}
             newCodeExample={newCodeExample}
             featureFlag={featureFlag}
+        />
+    )
+}
+
+export function FeatureFlagMultivariateInstructions({ featureFlagKey }: { featureFlagKey: string }): JSX.Element {
+    return (
+        <CodeInstructions
+            featureFlagKey={featureFlagKey}
+            headerPrompt="Learn how to use multivariate flags"
+            options={MULTIVARIATE_OPTIONS}
         />
     )
 }
@@ -485,33 +354,6 @@ export function FeatureFlagBootstrappingInstructions({ language }: { language: s
         />
     )
 }
-
-const PAYLOAD_OPTIONS: InstructionOption[] = [
-    {
-        value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: JSPayloadSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'Node.js',
-        documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: NodeJSPayloadSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Python',
-        documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: PythonPayloadSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Ruby',
-        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: RubyPayloadSnippet,
-        type: LibraryType.Server,
-    },
-]
 
 export function FeatureFlagPayloadInstructions({ featureFlagKey }: { featureFlagKey: string }): JSX.Element {
     return (
