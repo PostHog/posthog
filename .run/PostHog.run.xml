@@ -14,6 +14,7 @@
       <env name="KEA_VERBOSE_LOGGING" value="false" />
       <env name="PRINT_SQL" value="1" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
+      <env name="CAPTURE_TIME_TO_SEE_DATA" value="0" />
     </envs>
     <option name="SDK_HOME" value="" />
     <option name="WORKING_DIRECTORY" value="" />

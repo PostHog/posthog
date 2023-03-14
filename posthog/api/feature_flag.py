@@ -18,6 +18,7 @@ from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.feature_flag import (
     FeatureFlagMatcher,
     can_user_edit_feature_flag,
@@ -157,12 +158,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                 prop = Property(**property)
                 if prop.type == "cohort":
                     try:
-                        cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
-                        if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
-                            raise serializers.ValidationError(
-                                detail=f"Cohort '{cohort.name}' with behavioral filters cannot be used in feature flags.",
-                                code="behavioral_cohort_found",
-                            )
+                        initial_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
+                        dependent_cohorts = get_dependent_cohorts(initial_cohort)
+                        for cohort in [initial_cohort, *dependent_cohorts]:
+                            if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
+                                raise serializers.ValidationError(
+                                    detail=f"Cohort '{cohort.name}' with behavioral filters cannot be used in feature flags.",
+                                    code="behavioral_cohort_found",
+                                )
                     except Cohort.DoesNotExist:
                         raise serializers.ValidationError(
                             detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist"
@@ -348,10 +351,12 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
     def local_evaluation(self, request: request.Request, **kwargs):
 
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(team=self.team, deleted=False)
+        cohorts = {}
 
         parsed_flags = []
         for feature_flag in feature_flags:
             filters = feature_flag.get_filters()
+            # transform cohort filters to be evaluated locally
             if len(feature_flag.cohort_ids) == 1:
                 feature_flag.filters = {
                     **filters,
@@ -359,7 +364,17 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                 }
             else:
                 feature_flag.filters = filters
+
             parsed_flags.append(feature_flag)
+
+            # when param set, send cohorts, for libraries that can handle evaluating them locally
+            # irrespective of complexity
+            if "send_cohorts" in request.GET:
+                for id in feature_flag.cohort_ids:
+                    # don't duplicate queries for already added cohorts
+                    if id not in cohorts:
+                        cohort = Cohort.objects.get(id=id)
+                        cohorts[cohort.pk] = cohort.properties.to_dict()
 
         return Response(
             {
@@ -371,6 +386,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                     str(row.group_type_index): row.group_type
                     for row in GroupTypeMapping.objects.filter(team_id=self.team_id)
                 },
+                "cohorts": cohorts,
             }
         )
 

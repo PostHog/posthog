@@ -278,6 +278,27 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).json()
         self.assertEqual(response["result"][0]["count"], 1)
 
+    @freeze_time("2021-12-10")
+    def test_hogql_filter_no_event(self, *args):
+        action = Action.objects.create(team=self.team, name="bla")
+        ActionStep.objects.create(
+            action=action, event=None, properties=[{"key": "event like 'blue %'", "type": "hogql"}]
+        )
+        _create_event(event="blue event", team=self.team, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
+        _create_event(event="green event", team=self.team, distinct_id="test", timestamp="2021-12-04T19:21:00Z")
+
+        # action count
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
+        self.assertEqual(response, {"count": 1})
+        # events list
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?action_id={action.id}").json()
+        self.assertEqual(len(response["results"]), 1)
+        # trends insight
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/?actions={json.dumps([{'type': 'actions', 'id': action.id}])}"
+        ).json()
+        self.assertEqual(response["result"][0]["count"], 1)
+
     @freeze_time("2021-12-12")
     def test_listing_actions_is_not_nplus1(self) -> None:
         with self.assertNumQueries(7), snapshot_postgres_queries_context(self):

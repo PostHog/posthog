@@ -43,4 +43,21 @@ $sidebar-width: 40%;
             }
         }
     }
+
+    .Navigation3000 & {
+        flex: 0;
+        background: var(--accent-3000);
+        height: auto;
+        transition: 200ms ease flex;
+
+        .NotebookSidebar__content {
+            height: 100vh;
+            top: 0px;
+            padding: 1rem;
+        }
+
+        &--show {
+            flex: 0 0 $sidebar-width;
+        }
+    }
 }

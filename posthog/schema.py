@@ -261,6 +261,7 @@ class InsightType(str, Enum):
     RETENTION = "RETENTION"
     PATHS = "PATHS"
     QUERY = "QUERY"
+    SQL = "SQL"
 
 
 class IntervalType(str, Enum):
@@ -413,7 +414,7 @@ class StickinessFilter(BaseModel):
 
     compare: Optional[bool] = None
     display: Optional[ChartDisplayType] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
+    hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
@@ -438,7 +439,7 @@ class TrendsFilter(BaseModel):
     compare: Optional[bool] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[Any] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
+    hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
@@ -523,7 +524,7 @@ class FunnelsFilter(BaseModel):
     funnel_viz_type: Optional[FunnelVizType] = None
     funnel_window_interval: Optional[float] = None
     funnel_window_interval_unit: Optional[FunnelConversionWindowTimeUnit] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
+    hidden_legend_breakdowns: Optional[List[str]] = None
     layout: Optional[FunnelLayout] = None
 
 

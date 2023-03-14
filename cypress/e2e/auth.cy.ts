@@ -23,6 +23,18 @@ describe('Auth', () => {
         cy.location('pathname').should('eq', '/home')
     })
 
+    it('Logout and verify that Google login button has correct link', () => {
+        cy.get('[data-attr=top-menu-item-logout]').click()
+
+        cy.window().then((win) => {
+            win.POSTHOG_APP_CONTEXT.preflight.available_social_auth_providers = {
+                'google-oauth2': true,
+            }
+        })
+
+        cy.get('a[href="/login/google-oauth2/"').should('exist') // As of March 2023, the trailing slash really matters!
+    })
+
     it('Try logging in improperly and then properly', () => {
         cy.get('[data-attr=top-menu-item-logout]').click()
 

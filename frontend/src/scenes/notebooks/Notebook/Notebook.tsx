@@ -1,5 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { useEditor, EditorContent, FloatingMenu } from '@tiptap/react'
+import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEffect } from 'react'
 import { QueryNode } from 'scenes/notebooks/Nodes/QueryNode'

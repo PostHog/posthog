@@ -142,3 +142,45 @@ class TestAsteriskExpander(BaseTest):
         self.assertEqual(
             str(e.exception), "Cannot use '*' without table name when there are multiple tables in the query"
         )
+
+    def test_asterisk_expander_select_union(self):
+        node = parse_select("select * from (select * from events union all select * from events)")
+        resolve_refs(node)
+        expand_asterisks(node)
+
+        events_table_ref = ast.TableRef(table=database.events)
+        inner_select_ref = ast.SelectUnionQueryRef(
+            refs=[
+                ast.SelectQueryRef(
+                    tables={"events": events_table_ref},
+                    anonymous_tables=[],
+                    aliases={},
+                    columns={
+                        "uuid": ast.FieldRef(name="uuid", table=events_table_ref),
+                        "event": ast.FieldRef(name="event", table=events_table_ref),
+                        "properties": ast.FieldRef(name="properties", table=events_table_ref),
+                        "timestamp": ast.FieldRef(name="timestamp", table=events_table_ref),
+                        "distinct_id": ast.FieldRef(name="distinct_id", table=events_table_ref),
+                        "elements_chain": ast.FieldRef(name="elements_chain", table=events_table_ref),
+                        "created_at": ast.FieldRef(name="created_at", table=events_table_ref),
+                    },
+                )
+            ]
+            * 2
+        )
+
+        self.assertEqual(
+            node.select,
+            [
+                ast.Field(chain=["uuid"], ref=ast.FieldRef(name="uuid", table=inner_select_ref)),
+                ast.Field(chain=["event"], ref=ast.FieldRef(name="event", table=inner_select_ref)),
+                ast.Field(chain=["properties"], ref=ast.FieldRef(name="properties", table=inner_select_ref)),
+                ast.Field(chain=["timestamp"], ref=ast.FieldRef(name="timestamp", table=inner_select_ref)),
+                ast.Field(chain=["distinct_id"], ref=ast.FieldRef(name="distinct_id", table=inner_select_ref)),
+                ast.Field(
+                    chain=["elements_chain"],
+                    ref=ast.FieldRef(name="elements_chain", table=inner_select_ref),
+                ),
+                ast.Field(chain=["created_at"], ref=ast.FieldRef(name="created_at", table=inner_select_ref)),
+            ],
+        )

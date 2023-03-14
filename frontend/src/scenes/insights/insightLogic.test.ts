@@ -273,17 +273,6 @@ describe('insightLogic', () => {
                 filters: partial({ hidden_legend_keys: { 0: true, 10: true } }),
             })
         })
-        it('setHiddenById', async () => {
-            logic = insightLogic({
-                dashboardItemId: undefined,
-            })
-            logic.mount()
-
-            expectLogic(logic, () => {
-                logic.actions.setHiddenById({ '0': true, '2': false })
-                logic.actions.setHiddenById({ '8': true, '2': true })
-            }).toMatchValues({ hiddenLegendKeys: { 0: true, 2: true, 8: true } })
-        })
         it('toggleVisibility', async () => {
             logic = insightLogic({
                 dashboardItemId: undefined,

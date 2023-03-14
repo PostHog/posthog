@@ -1,7 +1,7 @@
-import { FunnelResult } from '~/types'
+import { FunnelAPIResponse } from '~/types'
 
 // 1. Add step "Pageview"
-export const funnelResult: FunnelResult = {
+export const funnelResult: FunnelAPIResponse = {
     result: [
         {
             action_id: '$pageview',
@@ -40,7 +40,7 @@ export const funnelResult: FunnelResult = {
 
 // 1. Add step "Pageview"
 // 2. Add breakdown "Browser"
-export const funnelResultWithBreakdown: FunnelResult = {
+export const funnelResultWithBreakdown: FunnelAPIResponse = {
     result: [
         [
             {
@@ -156,7 +156,7 @@ export const funnelResultWithBreakdown: FunnelResult = {
 // 1. Add step "Pageview"
 // 2. Add breakdown "Browser"
 // 3. Add breakdown "OS"
-export const funnelResultWithMultiBreakdown: FunnelResult = {
+export const funnelResultWithMultiBreakdown: FunnelAPIResponse = {
     result: [
         [
             {
@@ -271,7 +271,7 @@ export const funnelResultWithMultiBreakdown: FunnelResult = {
 
 // 1. Add step "Pageview"
 // 2. Select graph type "Time to convert"
-export const funnelResultTimeToConvert: FunnelResult = {
+export const funnelResultTimeToConvert: FunnelAPIResponse = {
     result: {
         bins: [
             [4.0, 74],
@@ -292,7 +292,7 @@ export const funnelResultTimeToConvert: FunnelResult = {
 // 1. Add step "Pageview"
 // 2. Select graph type "Time to convert"
 // 3. Select time frame for which there is no data
-export const funnelResultTimeToConvertWithoutConversions: FunnelResult = {
+export const funnelResultTimeToConvertWithoutConversions: FunnelAPIResponse = {
     result: {
         bins: [
             [0.0, 0],

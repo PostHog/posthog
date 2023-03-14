@@ -1,4 +1,4 @@
-import { Card, Col, Collapse, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
+import { Card, Col, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -38,6 +38,7 @@ import { Form, Group } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { userLogic } from 'scenes/userLogic'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -787,100 +788,121 @@ export function Experiment(): JSX.Element {
                         )}
                     </Row>
                     <Row>
-                        <Collapse className="w-full" defaultActiveKey="experiment-details">
-                            <Collapse.Panel header={<b>Experiment details</b>} key="experiment-details">
-                                <Row>
-                                    <Col span={isExperimentRunning ? 12 : 24}>
-                                        <ExperimentPreview
-                                            experimentId={experiment.id}
-                                            trendCount={trendCount}
-                                            trendExposure={experiment?.parameters.recommended_running_time}
-                                            funnelSampleSize={experiment?.parameters.recommended_sample_size}
-                                            funnelConversionRate={conversionRate}
-                                            funnelEntrants={isExperimentRunning ? funnelResultsPersonsTotal : entrants}
-                                        />
-                                    </Col>
-                                    {!experimentResultsLoading && !experimentResults && isExperimentRunning && (
-                                        <Col span={12}>
-                                            <ExperimentImplementationDetails experiment={experiment} />
-                                        </Col>
-                                    )}
-                                    {experimentResults && (
-                                        <Col span={12} className="mt-4">
-                                            <div className="mb-2">
-                                                <b>Experiment progress</b>
-                                            </div>
-                                            <Progress
-                                                strokeWidth={20}
-                                                showInfo={false}
-                                                percent={experimentProgressPercent}
-                                                strokeColor="var(--success)"
-                                            />
-                                            {experimentInsightType === InsightType.TRENDS && experiment.start_date && (
-                                                <Row justify="space-between" className="mt-2">
-                                                    {experiment.end_date ? (
-                                                        <div>
-                                                            Ran for{' '}
-                                                            <b>
-                                                                {dayjs(experiment.end_date).diff(
-                                                                    experiment.start_date,
-                                                                    'day'
+                        <LemonCollapse
+                            className="w-full"
+                            defaultActiveKey="experiment-details"
+                            panels={[
+                                {
+                                    key: 'experiment-details',
+                                    header: 'Experiment details',
+                                    content: (
+                                        <Row>
+                                            <Col span={isExperimentRunning ? 12 : 24}>
+                                                <ExperimentPreview
+                                                    experimentId={experiment.id}
+                                                    trendCount={trendCount}
+                                                    trendExposure={experiment?.parameters.recommended_running_time}
+                                                    funnelSampleSize={experiment?.parameters.recommended_sample_size}
+                                                    funnelConversionRate={conversionRate}
+                                                    funnelEntrants={
+                                                        isExperimentRunning ? funnelResultsPersonsTotal : entrants
+                                                    }
+                                                />
+                                            </Col>
+                                            {!experimentResultsLoading && !experimentResults && isExperimentRunning && (
+                                                <Col span={12}>
+                                                    <ExperimentImplementationDetails experiment={experiment} />
+                                                </Col>
+                                            )}
+                                            {experimentResults && (
+                                                <Col span={12} className="mt-4">
+                                                    <div className="mb-2">
+                                                        <b>Experiment progress</b>
+                                                    </div>
+                                                    <Progress
+                                                        strokeWidth={20}
+                                                        showInfo={false}
+                                                        percent={experimentProgressPercent}
+                                                        strokeColor="var(--success)"
+                                                    />
+                                                    {experimentInsightType === InsightType.TRENDS &&
+                                                        experiment.start_date && (
+                                                            <Row justify="space-between" className="mt-2">
+                                                                {experiment.end_date ? (
+                                                                    <div>
+                                                                        Ran for{' '}
+                                                                        <b>
+                                                                            {dayjs(experiment.end_date).diff(
+                                                                                experiment.start_date,
+                                                                                'day'
+                                                                            )}
+                                                                        </b>{' '}
+                                                                        days
+                                                                    </div>
+                                                                ) : (
+                                                                    <div>
+                                                                        <b>
+                                                                            {dayjs().diff(experiment.start_date, 'day')}
+                                                                        </b>{' '}
+                                                                        days running
+                                                                    </div>
                                                                 )}
-                                                            </b>{' '}
-                                                            days
-                                                        </div>
-                                                    ) : (
-                                                        <div>
-                                                            <b>{dayjs().diff(experiment.start_date, 'day')}</b> days
-                                                            running
-                                                        </div>
-                                                    )}
-                                                    <div>
-                                                        Goal:{' '}
-                                                        <b>
-                                                            {experiment?.parameters?.recommended_running_time ??
-                                                                'Unknown'}
-                                                        </b>{' '}
-                                                        days
-                                                    </div>
-                                                </Row>
-                                            )}
-                                            {experimentInsightType === InsightType.FUNNELS && (
-                                                <Row justify="space-between" className="mt-2">
-                                                    {experiment.end_date ? (
-                                                        <div>
-                                                            Saw <b>{humanFriendlyNumber(funnelResultsPersonsTotal)}</b>{' '}
-                                                            participants
-                                                        </div>
-                                                    ) : (
-                                                        <div>
-                                                            <b>{humanFriendlyNumber(funnelResultsPersonsTotal)}</b>{' '}
-                                                            participants seen
-                                                        </div>
-                                                    )}
-                                                    <div>
-                                                        Goal:{' '}
-                                                        <b>
-                                                            {humanFriendlyNumber(
-                                                                experiment?.parameters?.recommended_sample_size || 0
+                                                                <div>
+                                                                    Goal:{' '}
+                                                                    <b>
+                                                                        {experiment?.parameters
+                                                                            ?.recommended_running_time ?? 'Unknown'}
+                                                                    </b>{' '}
+                                                                    days
+                                                                </div>
+                                                            </Row>
+                                                        )}
+                                                    {experimentInsightType === InsightType.FUNNELS && (
+                                                        <Row justify="space-between" className="mt-2">
+                                                            {experiment.end_date ? (
+                                                                <div>
+                                                                    Saw{' '}
+                                                                    <b>
+                                                                        {humanFriendlyNumber(funnelResultsPersonsTotal)}
+                                                                    </b>{' '}
+                                                                    participants
+                                                                </div>
+                                                            ) : (
+                                                                <div>
+                                                                    <b>
+                                                                        {humanFriendlyNumber(funnelResultsPersonsTotal)}
+                                                                    </b>{' '}
+                                                                    participants seen
+                                                                </div>
                                                             )}
-                                                        </b>{' '}
-                                                        participants
-                                                    </div>
-                                                </Row>
+                                                            <div>
+                                                                Goal:{' '}
+                                                                <b>
+                                                                    {humanFriendlyNumber(
+                                                                        experiment?.parameters
+                                                                            ?.recommended_sample_size || 0
+                                                                    )}
+                                                                </b>{' '}
+                                                                participants
+                                                            </div>
+                                                        </Row>
+                                                    )}
+                                                </Col>
                                             )}
-                                        </Col>
-                                    )}
-                                    <Col>
-                                        <SecondaryMetrics
-                                            experimentId={experiment.id}
-                                            onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
-                                            initialMetrics={experiment.secondary_metrics}
-                                        />
-                                    </Col>
-                                </Row>
-                            </Collapse.Panel>
-                        </Collapse>
+                                            <Col>
+                                                <SecondaryMetrics
+                                                    experimentId={experiment.id}
+                                                    onMetricsChange={(metrics) =>
+                                                        updateExperimentSecondaryMetrics(metrics)
+                                                    }
+                                                    initialMetrics={experiment.secondary_metrics}
+                                                />
+                                            </Col>
+                                        </Row>
+                                    ),
+                                },
+                            ]}
+                        />
                         {!experiment?.start_date && (
                             <div className="mt-4 w-full">
                                 <ExperimentImplementationDetails experiment={experiment} />

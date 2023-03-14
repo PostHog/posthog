@@ -1278,6 +1278,186 @@ class TestFeatureFlag(APIBaseTest):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_local_evaluation_for_arbitrary_cohorts(self, mock_capture):
+        FeatureFlag.objects.all().delete()
+
+        cohort_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {"key": "id", "value": cohort_valid_for_ff.pk, "type": "cohort", "negation": True},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort2",
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 20,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}],
+                        }
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature-2",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 20,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue(
+            "flags" in response_data and "group_type_mapping" in response_data and "cohorts" in response_data
+        )
+        self.assertEqual(len(response_data["flags"]), 2)
+
+        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
+
+        self.assertEqual(
+            response_data["cohorts"],
+            {
+                str(cohort_valid_for_ff.pk): {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
+                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
+                            ],
+                        }
+                    ],
+                },
+                str(cohort2.pk): {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
+                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
+                                {"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk, "negation": True},
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 20,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}],
+                        }
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+                "deleted": False,
+                "active": True,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[0],
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature-2",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}],
+                            "rollout_percentage": 20,
+                        },
+                        {
+                            "properties": [{"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}],
+                            "rollout_percentage": 20,
+                        },
+                    ],
+                },
+                "deleted": False,
+                "active": True,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[1],
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_evaluation_reasons(self, mock_capture):
         FeatureFlag.objects.all().delete()
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
@@ -1687,6 +1867,67 @@ class TestFeatureFlag(APIBaseTest):
                 "attr": "filters",
             },
             response.json(),
+        )
+
+    def test_creating_feature_flag_with_nested_behavioral_cohort(self):
+
+        cohort_not_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                        {"key": "email", "value": "test@posthog.com", "type": "person"},
+                    ],
+                }
+            },
+            name="cohort-behavioural",
+        )
+
+        nested_cohort_not_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "id", "value": cohort_not_valid_for_ff.pk, "type": "cohort"}]}],
+            name="cohort-not-behavioural",
+        )
+
+        cohort_request = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": nested_cohort_not_valid_for_ff.id}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'cohort-behavioural' with behavioral filters cannot be used in feature flags.",
+                "attr": "filters",
+            },
+            cohort_request.json(),
+        )
+
+        cohort_request = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort_not_valid_for_ff.id}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'cohort-behavioural' with behavioral filters cannot be used in feature flags.",
+                "attr": "filters",
+            },
+            cohort_request.json(),
         )
 
     def test_validation_group_properties(self):

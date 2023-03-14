@@ -312,16 +312,16 @@ $decorations: underline, overline, line-through, no-underline;
 
 @each $name, $hex in $colors {
     .text-#{$name} {
-        color: $hex;
+        color: var(--#{$name});
     }
     .bg-#{$name} {
-        background-color: $hex;
+        background-color: var(--#{$name});
     }
     .border-#{$name} {
-        border-color: $hex;
+        border-color: var(--#{$name});
     }
     .decoration-#{$name} {
-        text-decoration-color: $hex;
+        text-decoration-color: var(--#{$name});
     }
 }
 
