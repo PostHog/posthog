@@ -33,6 +33,7 @@ specifiers:
   '@storybook/components': 6.5.14
   '@storybook/core-events': 6.5.14
   '@storybook/react': 6.5.14
+  '@storybook/source-loader': 6.5.14
   '@storybook/test-runner': ^0.9.4
   '@storybook/theming': 6.5.14
   '@sucrase/jest-plugin': ^3.0.0
@@ -303,6 +304,7 @@ devDependencies:
   '@storybook/components': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
   '@storybook/core-events': 6.5.14
   '@storybook/react': 6.5.14_ynw662n6z6lgugf2bmr63fewey
+  '@storybook/source-loader': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
   '@storybook/test-runner': 0.9.4_goaxpva5utls3mxdpvxrfhulsq
   '@storybook/theming': 6.5.14_wcqkhtmu7mswc6yz4uyexck3ty
   '@sucrase/jest-plugin': 3.0.0_jest@29.3.1+sucrase@3.29.0
