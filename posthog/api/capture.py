@@ -32,6 +32,7 @@ from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE, LABEL_TEAM_ID
+from posthog.models import Team
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
@@ -234,7 +235,10 @@ def _ensure_web_feature_flags_in_properties(
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
     if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
         statsd.incr("active_feature_flags_missing")
-        all_flags, _, _, _ = get_all_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
+        # TODO: this ".get()" is not what we should be doing
+        all_flags, _, _, _ = get_all_feature_flags(
+            team=Team.objects.get(ingestion_context.team_id), distinct_id=distinct_id
+        )
         active_flags = {key: value for key, value in all_flags.items() if value}
         flag_keys = list(active_flags.keys())
         event["properties"]["$active_feature_flags"] = flag_keys

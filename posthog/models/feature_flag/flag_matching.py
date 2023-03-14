@@ -89,6 +89,7 @@ class FlagsMatcherCache:
 class FeatureFlagMatcher:
     def __init__(
         self,
+        team: Team,
         feature_flags: List[FeatureFlag],
         distinct_id: str,
         groups: Dict[GroupTypeName, str] = {},
@@ -98,10 +99,11 @@ class FeatureFlagMatcher:
         group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
         skip_experience_continuity_flags: bool = False,
     ):
+        self.team = team
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
         self.groups = groups
-        self.cache = cache or FlagsMatcherCache(self.feature_flags[0].team_id)
+        self.cache = cache or FlagsMatcherCache(team.pk)
         self.hash_key_overrides = hash_key_overrides
         self.property_value_overrides = property_value_overrides
         self.group_property_value_overrides = group_property_value_overrides
@@ -125,7 +127,7 @@ class FeatureFlagMatcher:
             key=lambda condition_tuple: 0 if condition_tuple[1].get("variant") else 1,
         )
         for index, condition in sorted_flag_conditions:
-            is_match, evaluation_reason = self.is_condition_match(feature_flag, feature_flag.team, condition, index)
+            is_match, evaluation_reason = self.is_condition_match(feature_flag, self.team, condition, index)
             if is_match:
                 variant_override = condition.get("variant")
                 if variant_override in [variant["key"] for variant in feature_flag.variants]:
@@ -246,7 +248,6 @@ class FeatureFlagMatcher:
 
     @cached_property
     def query_conditions(self) -> Dict[str, bool]:
-        team = self.feature_flags[0].team
         with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
             team_id = self.feature_flags[0].team_id
             person_query: QuerySet = Person.objects.filter(
@@ -280,7 +281,7 @@ class FeatureFlagMatcher:
                                 self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index], {}
                             )
                         expr = properties_to_Q(
-                            Filter(data=condition, team=team).property_groups.flat,
+                            Filter(data=condition, team=Team.objects.get(team_id)).property_groups.flat,
                             override_property_values=target_properties,
                         )
 
@@ -398,7 +399,7 @@ def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:
 # Return a Dict with all flags and their values
 def _get_all_feature_flags(
     feature_flags: List[FeatureFlag],
-    team_id: int,
+    team: Team,
     distinct_id: str,
     person_id: Optional[int] = None,
     groups: Dict[GroupTypeName, str] = {},
@@ -406,15 +407,16 @@ def _get_all_feature_flags(
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
     skip_experience_continuity_flags: bool = False,
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
-    cache = FlagsMatcherCache(team_id)
+    cache = FlagsMatcherCache(team.pk)
 
     if person_id is not None:
-        overrides = hash_key_overrides(team_id, person_id)
+        overrides = hash_key_overrides(team.pk, person_id)
     else:
         overrides = {}
 
     if feature_flags:
         return FeatureFlagMatcher(
+            team,
             feature_flags,
             distinct_id,
             groups,
@@ -430,7 +432,7 @@ def _get_all_feature_flags(
 
 # Return feature flags
 def get_all_feature_flags(
-    team_id: int,
+    team: Team,
     distinct_id: str,
     groups: Dict[GroupTypeName, str] = {},
     hash_key_override: Optional[str] = None,
@@ -438,9 +440,9 @@ def get_all_feature_flags(
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
 
-    all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
+    all_feature_flags = get_feature_flags_for_team_in_cache(team.pk)
     if all_feature_flags is None:
-        all_feature_flags = set_feature_flags_for_team_in_cache(team_id)
+        all_feature_flags = set_feature_flags_for_team_in_cache(team.pk)
 
     flags_have_experience_continuity_enabled = any(
         feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags
@@ -449,7 +451,7 @@ def get_all_feature_flags(
     if not flags_have_experience_continuity_enabled:
         return _get_all_feature_flags(
             all_feature_flags,
-            team_id,
+            team,
             distinct_id,
             groups=groups,
             property_value_overrides=property_value_overrides,
@@ -459,7 +461,7 @@ def get_all_feature_flags(
     try:
         with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
             person_id = (
-                PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team_id)
+                PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team.pk)
                 .values_list("person_id", flat=True)
                 .first()
             )
@@ -469,7 +471,7 @@ def get_all_feature_flags(
         # This automatically sets 'errorsWhileComputingFlags' to True.
         return _get_all_feature_flags(
             all_feature_flags,
-            team_id,
+            team,
             distinct_id,
             groups=groups,
             property_value_overrides=property_value_overrides,
@@ -489,7 +491,7 @@ def get_all_feature_flags(
             # will take care of it^.
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
                 person_id = (
-                    PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team_id)
+                    PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team.pk)
                     .values_list("person_id", flat=True)
                     .first()
                 )
@@ -499,7 +501,7 @@ def get_all_feature_flags(
 
         if person_id is not None:
             try:
-                set_feature_flag_hash_key_overrides(all_feature_flags, team_id, person_id, hash_key_override)
+                set_feature_flag_hash_key_overrides(all_feature_flags, team.pk, person_id, hash_key_override)
             except Exception as e:
                 # If the database is in read-only mode, we can't handle experience continuity flags.
                 # Do not error on decide for this case.
@@ -511,7 +513,7 @@ def get_all_feature_flags(
     # no flags have experience continuity enabled
     return _get_all_feature_flags(
         all_feature_flags,
-        team_id,
+        team,
         distinct_id,
         person_id,
         groups=groups,
