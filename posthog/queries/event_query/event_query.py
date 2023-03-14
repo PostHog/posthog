@@ -56,6 +56,7 @@ class EventQuery(metaclass=ABCMeta):
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
         using_person_on_events: bool = False,
+        using_person_on_events_v2: bool = False,
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -71,6 +72,7 @@ class EventQuery(metaclass=ABCMeta):
         self._should_join_sessions = should_join_sessions
         self._extra_fields = extra_fields
         self._using_person_on_events = using_person_on_events
+        self._using_person_on_events_v2 = using_person_on_events_v2
 
         if override_aggregate_users_by_distinct_id is not None:
             self._aggregate_users_by_distinct_id = override_aggregate_users_by_distinct_id
@@ -101,6 +103,19 @@ class EventQuery(metaclass=ABCMeta):
             return f"""
             INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
+            """
+        else:
+            return ""
+
+    def _get_person_id_overrides_query(self) -> str:
+        if self._should_join_distinct_ids:
+            return f"""
+            LEFT OUTER JOIN (
+                SELECT override_person_id as person_id, old_person_id
+                FROM person_overrides
+                WHERE team_id = %(team_id)s
+            ) AS overrides
+            ON {self.EVENT_TABLE_ALIAS}.person_id = overrides.old_person_id
             """
         else:
             return ""
