@@ -9,7 +9,6 @@
         flex: 1;
         min-width: 0;
         padding: 0 1rem;
-        background: var(--accent-3000);
     }
 }
 
@@ -19,7 +18,7 @@
     flex: 0 0 3rem;
     border-right: 1px solid transparent; // This is just for sizing, the visible border is on the content
     box-sizing: content-box;
-    background: var(--bg-3000);
+    background: var(--accent-3000);
     z-index: var(--z-main-nav);
 
     .LemonButton {
