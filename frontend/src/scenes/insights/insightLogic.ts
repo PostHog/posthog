@@ -14,7 +14,6 @@ import {
     ItemMode,
     SetInsightOptions,
     TrendsFilterType,
-    UserType,
 } from '~/types'
 import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
 import { router } from 'kea-router'
@@ -64,6 +63,7 @@ import { dayjs, now } from 'lib/dayjs'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
 import { globalInsightLogic } from './globalInsightLogic'
+import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -178,10 +178,8 @@ export const insightLogic = kea<insightLogicType>([
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
-        setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
         abortAnyRunningQuery: true,
-        acknowledgeRefreshButtonChanged: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         insight: [
@@ -193,7 +191,7 @@ export const insightLogic = kea<insightLogicType>([
             {
                 loadInsight: async ({ shortId }) => {
                     const load_query_insight_query_params = !!values.featureFlags[
-                        FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS
+                        FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB
                     ]
                         ? '&include_query_insights=true'
                         : ''
@@ -599,13 +597,6 @@ export const insightLogic = kea<insightLogicType>([
                 saveInsightFailure: () => false,
             },
         ],
-        acknowledgedRefreshButtonChanged: [
-            false,
-            { persist: true, storageKey: 'acknowledgedRefreshButtonChanged' },
-            {
-                acknowledgeRefreshButtonChanged: () => true,
-            },
-        ],
     })),
     selectors({
         /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
@@ -671,27 +662,11 @@ export const insightLogic = kea<insightLogicType>([
         hiddenLegendKeys: [
             (s) => [s.filters],
             (filters) => {
-                const hiddenLegendKeys: TrendsFilterType['hidden_legend_keys'] = {}
                 if (isFilterWithHiddenLegendKeys(filters) && filters.hidden_legend_keys) {
-                    for (const [key, value] of Object.entries(filters.hidden_legend_keys)) {
-                        // Transform pre-#12113 funnel series keys to the current more reliable format.
-                        // Old: `${step.type}/${step.action_id}/${step.order}/${breakdownValues.join('_')}`
-                        // New: breakdownValues.join('::')
-                        // If you squint you'll notice this doesn't actually handle the .join() part, but that's fine,
-                        // because that's only relevant for funnels with multiple breakdowns, and that hasn't been
-                        // released to users at the point of the format change.
-                        const oldFormatMatch = key.match(/\w+\/.+\/\d+\/(.+)/)
-                        if (oldFormatMatch) {
-                            // Don't override values for series if already set from a previously-seen old-format key
-                            if (!(oldFormatMatch[1] in hiddenLegendKeys)) {
-                                hiddenLegendKeys[oldFormatMatch[1]] = value
-                            }
-                        } else {
-                            hiddenLegendKeys[key] = value
-                        }
-                    }
+                    return transformLegacyHiddenLegendKeys(filters.hidden_legend_keys)
                 }
-                return hiddenLegendKeys
+
+                return {}
             },
         ],
         filtersKnown: [
@@ -807,13 +782,7 @@ export const insightLogic = kea<insightLogicType>([
         isUsingDashboardQueryTiles: [
             (s) => [s.featureFlags, s.isUsingDataExploration],
             (featureFlags: FeatureFlagsSet, isUsingDataExploration: boolean): boolean => {
-                return isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS]
-            },
-        ],
-        displayRefreshButtonChangedNotice: [
-            (s) => [s.acknowledgedRefreshButtonChanged, s.user],
-            (acknowledgedRefreshButtonChanged: boolean, user: UserType): boolean => {
-                return dayjs(user.date_joined).isBefore('2023-02-13') && !acknowledgedRefreshButtonChanged
+                return isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
             },
         ],
         insightRefreshButtonDisabledReason: [
@@ -1146,28 +1115,12 @@ export const insightLogic = kea<insightLogicType>([
             }
             actions.setFilters(newFilters)
         },
-        setHiddenById: ({ entry }) => {
-            const nextEntries = Object.fromEntries(
-                Object.entries(entry).map(([index, hiddenState]) => [index, hiddenState ? true : undefined])
-            )
-            const newFilters: Partial<TrendsFilterType> = {
-                ...values.filters,
-                hidden_legend_keys: {
-                    ...values.hiddenLegendKeys,
-                    ...nextEntries,
-                },
-            }
-            actions.setFilters(newFilters)
-        },
         cancelChanges: ({ goToViewMode }) => {
             actions.setFilters(values.savedInsight.filters || {})
             if (goToViewMode) {
                 insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 eventUsageLogic.actions.reportInsightsTabReset()
             }
-        },
-        acknowledgeRefreshButtonChanged: () => {
-            localStorage.setItem('acknowledged_refresh_button_changed', 'true')
         },
     })),
     events(({ props, values, actions }) => ({

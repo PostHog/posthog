@@ -388,7 +388,7 @@ def ingestion_lag():
         pass
 
 
-KNOWN_CELERY_TASK_IDENTIFIERS = {"pluginJob"}
+KNOWN_CELERY_TASK_IDENTIFIERS = {"pluginJob", "runEveryHour", "runEveryMinute", "runEveryDay"}
 
 
 @app.task(ignore_result=True)
@@ -413,10 +413,12 @@ def graphile_worker_queue_size():
 
         # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
         # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
+        # Jobs not yet eligible for execution are filtered out with run_at <= now()
         cursor.execute(
             """
-        SELECT task_identifier, count(*) as c, EXTRACT(EPOCH FROM MIN(updated_at)) as oldest FROM graphile_worker.jobs
+        SELECT task_identifier, count(*) as c, EXTRACT(EPOCH FROM MIN(run_at)) as oldest FROM graphile_worker.jobs
         WHERE attempts < max_attempts
+        AND run_at <= now()
         GROUP BY task_identifier
         """
         )
@@ -425,7 +427,7 @@ def graphile_worker_queue_size():
         with pushed_metrics_registry("celery_graphile_worker_queue_size") as registry:
             processing_lag_gauge = Gauge(
                 "posthog_celery_graphile_lag_seconds",
-                "Oldest update (creation or retry) on pending Graphile jobs per task identifier, zero if queue empty.",
+                "Oldest scheduled run on pending Graphile jobs per task identifier, zero if queue empty.",
                 labelnames=["task_identifier"],
                 registry=registry,
             )

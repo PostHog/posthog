@@ -1,8 +1,7 @@
 .LemonDivider {
     width: 100%;
     height: 1px;
-    opacity: 0.17;
-    background: currentColor;
+    background: var(--border);
     flex-shrink: 0;
 
     &--dashed {

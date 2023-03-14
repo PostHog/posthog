@@ -25,7 +25,6 @@ import api, { ApiMethodOptions } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { UserType } from '~/types'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -57,6 +56,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     actions({
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
+        cancelQuery: true,
         clearResponse: true,
         startAutoLoad: true,
         stopAutoLoad: true,
@@ -76,6 +76,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     if (!values.currentTeamId) {
                         // if shared/exported, the team is not loaded
+                        return null
+                    }
+
+                    if (Object.keys(props.query).length === 0) {
+                        // no need to try and load a query before properly initialized
                         return null
                     }
 
@@ -161,14 +166,38 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     reducers(({ props }) => ({
-        dataLoading: [false, { loadData: () => true, loadDataSuccess: () => false, loadDataFailure: () => false }],
+        dataLoading: [
+            false,
+            {
+                loadData: () => true,
+                loadDataSuccess: () => false,
+                loadDataFailure: () => false,
+            },
+        ],
         newDataLoading: [
             false,
-            { loadNewData: () => true, loadNewDataSuccess: () => false, loadNewDataFailure: () => false },
+            {
+                loadNewData: () => true,
+                loadNewDataSuccess: () => false,
+                loadNewDataFailure: () => false,
+            },
         ],
         nextDataLoading: [
             false,
-            { loadNextData: () => true, loadNextDataSuccess: () => false, loadNextDataFailure: () => false },
+            {
+                loadNextData: () => true,
+                loadNextDataSuccess: () => false,
+                loadNextDataFailure: () => false,
+            },
+        ],
+        queryCancelled: [
+            false,
+            {
+                loadNextData: () => false,
+                loadNewData: () => false,
+                loadData: () => false,
+                cancelQuery: () => true,
+            },
         ],
         autoLoadToggled: [
             false,
@@ -231,13 +260,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => null,
                 loadNewData: () => null,
                 loadNextData: () => null,
-            },
-        ],
-        acknowledgedRefreshButtonChanged: [
-            false,
-            { persist: true, storageKey: 'acknowledgedRefreshButtonChanged' },
-            {
-                acknowledgeRefreshButtonChanged: () => true,
             },
         ],
     })),
@@ -369,14 +391,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return disabledReason
             },
         ],
-        displayRefreshButtonChangedNotice: [
-            (s) => [s.acknowledgedRefreshButtonChanged, s.user],
-            (acknowledgedRefreshButtonChanged: boolean, user: UserType): boolean => {
-                return dayjs(user.date_joined).isBefore('2023-02-13') && !acknowledgedRefreshButtonChanged
-            },
-        ],
     }),
-    listeners(({ values, cache }) => ({
+    listeners(({ actions, values, cache }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
@@ -390,6 +406,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }
+        },
+        cancelQuery: () => {
+            actions.abortAnyRunningQuery()
         },
     })),
     subscriptions(({ actions, cache, values }) => ({

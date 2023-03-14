@@ -1808,6 +1808,7 @@
         },
         "FunnelsFilter": {
             "additionalProperties": false,
+            "description": "`FunnelsFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_breakdowns`",
             "properties": {
                 "bin_count": {
                     "$ref": "#/definitions/BinCountValue"
@@ -1889,18 +1890,11 @@
                 "funnel_window_interval_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
-                "hidden_legend_keys": {
-                    "additionalProperties": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "not": {}
-                            }
-                        ]
+                "hidden_legend_breakdowns": {
+                    "items": {
+                        "type": "string"
                     },
-                    "type": "object"
+                    "type": "array"
                 },
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout"
@@ -2092,7 +2086,7 @@
             ]
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "QUERY"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "QUERY", "SQL"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -2129,6 +2123,7 @@
         },
         "LifecycleFilter": {
             "additionalProperties": false,
+            "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "show_values_on_series": {
                     "type": "boolean"
@@ -2226,6 +2221,7 @@
         },
         "PathsFilter": {
             "additionalProperties": false,
+            "description": "`PathsFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "edge_limit": {
                     "type": "number"
@@ -2575,6 +2571,7 @@
         },
         "RetentionFilter": {
             "additionalProperties": false,
+            "description": "`RetentionFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod"
@@ -2681,6 +2678,7 @@
         },
         "StickinessFilter": {
             "additionalProperties": false,
+            "description": "`StickinessFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
             "properties": {
                 "compare": {
                     "type": "boolean"
@@ -2688,18 +2686,11 @@
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
-                "hidden_legend_keys": {
-                    "additionalProperties": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "not": {}
-                            }
-                        ]
+                "hidden_legend_indexes": {
+                    "items": {
+                        "type": "number"
                     },
-                    "type": "object"
+                    "type": "array"
                 },
                 "show_legend": {
                     "type": "boolean"
@@ -2813,6 +2804,7 @@
         },
         "TrendsFilter": {
             "additionalProperties": false,
+            "description": "`TrendsFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
             "properties": {
                 "aggregation_axis_format": {
                     "$ref": "#/definitions/AggregationAxisFormat"
@@ -2833,18 +2825,11 @@
                     "$ref": "#/definitions/ChartDisplayType"
                 },
                 "formula": {},
-                "hidden_legend_keys": {
-                    "additionalProperties": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "not": {}
-                            }
-                        ]
+                "hidden_legend_indexes": {
+                    "items": {
+                        "type": "number"
                     },
-                    "type": "object"
+                    "type": "array"
                 },
                 "show_legend": {
                     "type": "boolean"

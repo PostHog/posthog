@@ -18,6 +18,7 @@ from rest_framework.request import Request
 from posthog import schema
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team, User
@@ -60,7 +61,8 @@ class QuerySchemaParser(JSONParser):
 
     def parse(self, stream, media_type=None, parser_context=None):
         data = super(QuerySchemaParser, self).parse(stream, media_type, parser_context)
-        return QuerySchemaParser.validate_query(data)
+        QuerySchemaParser.validate_query(data.get("query"))
+        return data
 
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
@@ -76,9 +78,15 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 OpenApiTypes.STR,
                 description="Query node JSON string",
             ),
+            OpenApiParameter(
+                "client_query_id",
+                OpenApiTypes.STR,
+                description="Client provided query ID. Can be used to cancel queries.",
+            ),
         ]
     )
     def list(self, request: Request, **kw) -> HttpResponse:
+        self._tag_client_query_id(request.GET.get("client_query_id"))
         query_json = QuerySchemaParser.validate_query(self._query_json_from_request(request))
 
         is_hogql_enabled = _is_hogql_enabled(
@@ -90,7 +98,9 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
 
     def post(self, request, *args, **kwargs):
-        query_json = request.data
+        request_json = request.data
+        query_json = request_json.get("query")
+        self._tag_client_query_id(request_json.get("client_query_id"))
         is_hogql_enabled = _is_hogql_enabled(
             user=cast(User, self.request.user),
             organization_id=self.organization_id,
@@ -98,6 +108,10 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         )
         # allow lists as well as dicts in response with safe=False
         return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
+
+    def _tag_client_query_id(self, query_id: str | None):
+        if query_id is not None:
+            tag_queries(client_query_id=query_id)
 
     def _query_json_from_request(self, request):
         if request.method == "POST":
@@ -136,6 +150,9 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
     query_kind = query_json.get("kind")
+
+    tag_queries(query=query_json)
+
     if query_kind == "EventsQuery":
         events_query = EventsQuery.parse_obj(query_json)
         response = run_events_query(query=events_query, team=team)

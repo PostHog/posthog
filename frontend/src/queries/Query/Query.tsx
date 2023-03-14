@@ -21,8 +21,7 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
     query: T | string
     /** Set this if you're controlling the query parameter */
     setQuery?: (query: T) => void
-    /** Does not call setQuery, not even locally */
-    readOnly?: boolean
+
     /** Custom components passed down to a few query nodes (e.g. custom table columns) */
     context?: QueryContext
     /* Cached Results are provided when shared or exported,
@@ -31,7 +30,9 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
 }
 
 export function Query(props: QueryProps): JSX.Element {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly } = props
+    const { query: propsQuery, setQuery: propsSetQuery } = props
+    const readOnly = propsSetQuery === undefined
+
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
         if (propsQuery !== localQuery) {
@@ -43,9 +44,6 @@ export function Query(props: QueryProps): JSX.Element {
     const setQuery = readOnly ? undefined : propsSetQuery ?? localSetQuery
 
     const queryContext = props.context || {}
-    if (!!props.readOnly) {
-        queryContext.readonly = true
-    }
 
     if (typeof query === 'string') {
         try {
