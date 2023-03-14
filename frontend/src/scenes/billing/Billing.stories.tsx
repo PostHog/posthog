@@ -1,18 +1,16 @@
 import { Meta } from '@storybook/react'
-import { BillingSubscribed } from './BillingSubscribed'
-import { useEffect } from 'react'
-import { mswDecorator } from '~/mocks/browser'
+import { Billing } from './Billing'
+import { useStorybookMocks, mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import billingJson from '~/mocks/fixtures/_billing_v2.json'
 
 export default {
-    title: 'Scenes-Other/Billing',
+    title: 'Scenes-Other/Billing v2',
     parameters: {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        testOptions: { skip: true }, // FIXME: This fails for some reason
+        testOptions: { skip: true },
     },
     decorators: [
         mswDecorator({
@@ -27,9 +25,14 @@ export default {
     ],
 } as Meta
 
-export const Subscribed = (): JSX.Element => {
-    useEffect(() => {
-        router.actions.push(urls.billingSubscribed(), { s: 'success' })
+export const _BillingV2 = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/billing-v2/': {
+                ...billingJson,
+            },
+        },
     })
-    return <BillingSubscribed />
+
+    return <Billing />
 }
