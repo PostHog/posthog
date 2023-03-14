@@ -325,6 +325,7 @@ class JoinExpr(Expr):
     table_final: Optional[bool] = None
     constraint: Optional[Expr] = None
     next_join: Optional["JoinExpr"] = None
+    sample: Optional["SampleExpr"] = None
 
 
 class SelectQuery(Expr):
@@ -347,6 +348,18 @@ class SelectQuery(Expr):
 class SelectUnionQuery(Expr):
     ref: Optional[SelectUnionQueryRef] = None
     select_queries: List[SelectQuery]
+
+
+class RatioExpr(Expr):
+    left: Constant
+    right: Optional[Constant] = None
+
+
+class SampleExpr(Expr):
+    offset_value: Optional[RatioExpr]
+
+    # k or n
+    sample_value: RatioExpr
 
 
 JoinExpr.update_forward_refs(SelectUnionQuery=SelectUnionQuery)
