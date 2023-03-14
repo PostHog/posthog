@@ -32,7 +32,7 @@ export function SamplingFilter({
                         info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
                         infoLink="https://posthog.com/manual/sampling"
                     >
-                        Sampling
+                        Sampling (Beta)
                     </LemonLabel>
                     <LemonSwitch
                         className="m-2"
