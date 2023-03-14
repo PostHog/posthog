@@ -127,7 +127,6 @@ services:
     temporal:
         depends_on:
             - db
-            - elasticsearch
         environment:
             - DB=postgresql
             - DB_PORT=5432
