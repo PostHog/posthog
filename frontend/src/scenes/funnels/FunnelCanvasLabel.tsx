@@ -1,18 +1,18 @@
 import './FunnelCanvasLabel.scss'
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Button } from 'antd'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
+import { Link } from '@posthog/lemon-ui'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconInfo } from 'lib/lemon-ui/icons'
 import { InsightFilter } from '~/queries/schema'
 import { FunnelsFilterType, FunnelTimeConversionMetrics, FunnelVizType } from '~/types'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { FunnelStepsPicker, FunnelStepsPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { Noun } from '~/models/groupsModel'
 
 export function FunnelCanvasLabelDataExploration(): JSX.Element | null {
@@ -93,13 +93,16 @@ function FunnelCanvasLabelComponent({
                       </span>
                       {funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert && <StepsPicker />}
                       <span className="text-muted-alt mr-1">:</span>
-                      <Button
-                          type="link"
-                          onClick={() => updateInsightFilter({ funnel_viz_type: FunnelVizType.TimeToConvert })}
-                          disabled={funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert}
-                      >
-                          <span className="l4">{humanFriendlyDuration(conversionMetrics.averageTime)}</span>
-                      </Button>
+                      {funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert ? (
+                          <span className="font-bold">{humanFriendlyDuration(conversionMetrics.averageTime)}</span>
+                      ) : (
+                          <Link
+                              className="font-bold"
+                              onClick={() => updateInsightFilter({ funnel_viz_type: FunnelVizType.TimeToConvert })}
+                          >
+                              {humanFriendlyDuration(conversionMetrics.averageTime)}
+                          </Link>
+                      )}
                   </>,
               ]
             : []),
