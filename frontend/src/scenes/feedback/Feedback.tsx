@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTag } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -9,41 +9,7 @@ import { feedbackLogic } from './feedbackLogic'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import './Feedback.scss'
-import { IconClose, IconHelpOutline, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-
-export function ExpandableSection({
-    header,
-    children,
-    expanded,
-    setExpanded,
-}: {
-    header: JSX.Element
-    children: JSX.Element
-    expanded: boolean
-    setExpanded: (expanded: boolean) => void
-}): JSX.Element {
-    return (
-        <div className="rounded border p-4 my-4">
-            <div
-                className="flex cursor-pointer"
-                onClick={() => {
-                    setExpanded(!expanded)
-                }}
-            >
-                <LemonButton
-                    className="inline-flex items-center justify-center mr-2 mb-2"
-                    status="stealth"
-                    noPadding={true}
-                    onClick={() => setExpanded(!expanded)}
-                    icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                    title={expanded ? 'Collapse' : 'Expand'}
-                />
-                <div className="inline-flex">{header}</div>
-            </div>
-            <div>{expanded && children}</div>
-        </div>
-    )
-}
+import { IconClose, IconHelpOutline } from 'lib/lemon-ui/icons'
 
 const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
     api_host: 'YOUR API HOST',
@@ -51,93 +17,80 @@ const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
 })`
 
 export function FeedbackInstructions(): JSX.Element {
-    const { expandedSection } = useValues(feedbackLogic)
-    const { setExpandedSection } = useActions(feedbackLogic)
-
     return (
         <div className="max-w-200">
-            <ExpandableSection
-                header={<h2 className="text-xl">Set up the feedback widget</h2>}
-                expanded={expandedSection(0)}
-                setExpanded={(expanded) => setExpandedSection(0, expanded)}
-            >
-                <div>
-                    <p className="text-sm italic">
-                        The feedback widget is the quickest way to collect feedback from your users.
-                    </p>
-                    <div>
-                        <div>
-                            <div className="text-lg">1. Turn on the feedback widget</div>
-                            <div className="ml-4 my-4">
-                                <LemonButton
-                                    onClick={() => {
-                                        window.open(urls.projectAppSearch('Feedback Widget'), '_blank')
-                                    }}
-                                    type="primary"
-                                >
-                                    Feedback widget
-                                </LemonButton>
+            <LemonCollapse
+                defaultActiveKey="1"
+                panels={[
+                    {
+                        key: '1',
+                        header: 'Set up the feedback widget',
+                        content: (
+                            <div>
+                                <div>
+                                    <div>1. Turn on the feedback widget</div>
+                                    <div className="ml-4 my-4">
+                                        <LemonButton
+                                            onClick={() => {
+                                                window.open(urls.projectAppSearch('Feedback Widget'), '_blank')
+                                            }}
+                                            type="primary"
+                                        >
+                                            Feedback widget
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div>2. Enable site apps</div>
+                                    <div className="ml-4 my-4">
+                                        <CodeSnippet language={Language.JavaScript} wrap>
+                                            {OPT_IN_SNIPPET}
+                                        </CodeSnippet>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div>3. Configure the feedback widget</div>
+                                    <div className="ml-4 my-4">
+                                        <p>Configure the feedback widget one of the following ways:</p>
+                                        <ul className="list-disc ml-4">
+                                            <li>
+                                                <strong>Floating feedback button:</strong> Select show feedback button
+                                                on the page to have a floating feedback button on your website.
+                                            </li>
+                                            <li>
+                                                <strong>Custom button:</strong> Add a button with a corresponding data
+                                                attribute e.g. data-attr='posthog-feedback-button'. When clicked this
+                                                will open the feedback widget
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                        <div>
-                            <div className="text-lg">2. Enable site apps</div>
-                            <div className="ml-4 my-4">
-                                <CodeSnippet language={Language.JavaScript} wrap>
-                                    {OPT_IN_SNIPPET}
-                                </CodeSnippet>
+                        ),
+                    },
+                    {
+                        key: '2',
+                        header: 'Create a custom feedback form',
+                        content: (
+                            <div>
+                                <div>
+                                    <div>
+                                        <div>1. Create a custom form styled to your app</div>
+                                    </div>
+                                    <div>
+                                        <div>2. Send the feedback to PostHog</div>
+                                        <div className="ml-4 my-4">
+                                            <CodeSnippet language={Language.JavaScript} wrap>
+                                                {`posthog.capture('Feedback Sent', { '$feedback': 'Can you make the logo bigger?' })`}
+                                            </CodeSnippet>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                        <div>
-                            <div className="text-lg">3. Configure the feedback widget</div>
-                            <div className="ml-4 my-4 text-base">
-                                <p>Configure the feedback widget one of the following ways:</p>
-                                <ul className="list-disc ml-4">
-                                    <li>
-                                        <strong>Floating feedback button:</strong> Select show feedback button on the
-                                        page to have a floating feedback button on your website.
-                                    </li>
-                                    <li>
-                                        <strong>Custom button:</strong> Add a button with a corresponding data attribute
-                                        e.g. data-attr='posthog-feedback-button'. When clicked this will open the
-                                        feedback widget
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </ExpandableSection>
-            <div>
-                <div className="flex justify-center items-center">
-                    <LemonDivider dashed className="flex-1" />
-                    <h4 className="text-lg mx-4 text-muted mt-auto mb-auto">OR</h4>
-                    <LemonDivider dashed className="flex-1" />
-                </div>
-            </div>
-            <ExpandableSection
-                header={<h2 className="text-xl">Create a custom feedback form</h2>}
-                expanded={expandedSection(1)}
-                setExpanded={(expanded) => setExpandedSection(1, expanded)}
-            >
-                <div>
-                    <p className="text-sm italic">
-                        Create a custom form styled to your app and then send the feedback to PostHog.
-                    </p>
-                    <div>
-                        <div>
-                            <div className="text-lg">1. Create the form</div>
-                        </div>
-                        <div>
-                            <div className="text-lg">2. Send the feedback to PostHog</div>
-                            <div className="ml-4 my-4">
-                                <CodeSnippet language={Language.JavaScript} wrap>
-                                    {`posthog.capture('Feedback Sent', { '$feedback': 'Can you make the logo bigger?' })`}
-                                </CodeSnippet>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </ExpandableSection>
+                        ),
+                    },
+                ]}
+            />
         </div>
     )
 }
