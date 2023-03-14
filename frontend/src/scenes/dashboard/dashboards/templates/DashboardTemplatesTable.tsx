@@ -37,8 +37,8 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         {
             title: 'Type',
             dataIndex: 'team_id',
-            render: (_, { is_public }) => {
-                if (is_public) {
+            render: (_, { scope }) => {
+                if (scope === 'everyone') {
                     return <LemonSnack>Official</LemonSnack>
                 } else {
                     return <LemonSnack>Team</LemonSnack>
@@ -47,7 +47,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         },
         {
             width: 0,
-            render: (_, { id, is_public }: DashboardTemplateType) => {
+            render: (_, { id, scope }: DashboardTemplateType) => {
                 if (!user?.is_staff) {
                     return null
                 }
@@ -78,12 +78,14 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                         }
                                         updateDashboardTemplate({
                                             id,
-                                            dashboardTemplateUpdates: { is_public: !is_public },
+                                            dashboardTemplateUpdates: {
+                                                scope: scope === 'everyone' ? 'team' : 'everyone',
+                                            },
                                         })
                                     }}
                                     fullWidth
                                 >
-                                    Make {is_public ? 'private' : 'public'}
+                                    Make {scope === 'everyone' ? 'private' : 'public'}
                                 </LemonButton>
 
                                 <LemonDivider />
