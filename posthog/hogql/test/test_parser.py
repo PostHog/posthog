@@ -728,13 +728,13 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("select 1 from events sample 1/10 offset 999"),
             ast.SelectQuery(
-                select=[ast.NumericConstant(value=1)],
+                select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["events"]),
                     sample=ast.SampleExpr(
-                        offset_value=ast.RatioExpr(left=ast.NumericConstant(value=999)),
+                        offset_value=ast.RatioExpr(left=ast.Constant(value=999)),
                         sample_value=ast.RatioExpr(
-                            left=ast.NumericConstant(value=1), right=ast.NumericConstant(value=10)
+                            left=ast.Constant(value=1), right=ast.Constant(value=10)
                         ),
                     ),
                 ),
@@ -744,13 +744,13 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("select 1 from events sample 0.1 offset 999"),
             ast.SelectQuery(
-                select=[ast.NumericConstant(value=1)],
+                select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["events"]),
                     sample=ast.SampleExpr(
-                        offset_value=ast.RatioExpr(left=ast.NumericConstant(value=999)),
+                        offset_value=ast.RatioExpr(left=ast.Constant(value=999)),
                         sample_value=ast.RatioExpr(
-                            left=ast.NumericConstant(value=0.1),
+                            left=ast.Constant(value=0.1),
                         ),
                     ),
                 ),
@@ -760,15 +760,15 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("select 1 from events sample 10 offset 1/2"),
             ast.SelectQuery(
-                select=[ast.NumericConstant(value=1)],
+                select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["events"]),
                     sample=ast.SampleExpr(
                         offset_value=ast.RatioExpr(
-                            left=ast.NumericConstant(value=1), right=ast.NumericConstant(value=2)
+                            left=ast.Constant(value=1), right=ast.Constant(value=2)
                         ),
                         sample_value=ast.RatioExpr(
-                            left=ast.NumericConstant(value=10),
+                            left=ast.Constant(value=10),
                         ),
                     ),
                 ),
@@ -778,12 +778,12 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("select 1 from events sample 10"),
             ast.SelectQuery(
-                select=[ast.NumericConstant(value=1)],
+                select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["events"]),
                     sample=ast.SampleExpr(
                         sample_value=ast.RatioExpr(
-                            left=ast.NumericConstant(value=10),
+                            left=ast.Constant(value=10),
                         ),
                     ),
                 ),
