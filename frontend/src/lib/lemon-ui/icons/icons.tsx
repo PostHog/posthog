@@ -992,6 +992,18 @@ export function IconEllipsis(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Material Design More Vert icon. */
+export function IconEllipsisVertical(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
 /** Material Design Content Copy icon. */
 export function IconCopy(props: LemonIconProps): JSX.Element {
     return (

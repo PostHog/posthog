@@ -1,0 +1,75 @@
+import React, { useState } from 'react'
+import { useValues } from 'kea'
+import { IconArrowDropDown, IconEllipsisVertical, IconPlusMini } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import './Breadcrumbs.scss'
+import { Breadcrumb as IBreadcrumb } from '~/types'
+import clsx from 'clsx'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { LemonButton } from '@posthog/lemon-ui'
+
+export function Breadcrumbs(): JSX.Element | null {
+    const { firstBreadcrumb, tailBreadcrumbs } = useValues(breadcrumbsLogic)
+
+    return firstBreadcrumb ? (
+        <div className="Breadcrumbs3000">
+            <Breadcrumb breadcrumb={firstBreadcrumb} index={0} />
+            {tailBreadcrumbs.map((breadcrumb, index) => (
+                <React.Fragment key={breadcrumb.name || '…'}>
+                    <div className="Breadcrumbs3000__separator" />
+                    <Breadcrumb breadcrumb={breadcrumb} index={index + 1} />
+                </React.Fragment>
+            ))}
+            <LemonButton className="Breadcrumbs3000__more" status="3000" icon={<IconEllipsisVertical />} size="small" />
+            <div className="Breadcrumbs3000__actions">
+                <LemonButton status="3000" type="primary" size="small" icon={<IconPlusMini />}>
+                    New insight
+                </LemonButton>
+            </div>
+        </div>
+    ) : null
+}
+
+function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: number }): JSX.Element {
+    const [popoverShown, setPopoverShown] = useState(false)
+
+    let breadcrumbContent = (
+        <div
+            className={clsx(
+                'Breadcrumbs3000__breadcrumb',
+                (breadcrumb.path || breadcrumb.popover) && 'Breadcrumbs3000__breadcrumb--actionable'
+            )}
+            onClick={() => {
+                breadcrumb.popover && setPopoverShown(!popoverShown)
+            }}
+            data-attr={`breadcrumb-${index}`}
+        >
+            {breadcrumb.symbol}
+            <span>{breadcrumb.name}</span>
+            {breadcrumb.popover && <IconArrowDropDown />}
+        </div>
+    )
+
+    if (breadcrumb.path) {
+        breadcrumbContent = <Link to={breadcrumb.path}>{breadcrumbContent}</Link>
+    }
+
+    if (breadcrumb.popover) {
+        return (
+            <Popover
+                {...breadcrumb.popover}
+                visible={popoverShown}
+                onClickOutside={() => {
+                    if (popoverShown) {
+                        setPopoverShown(false)
+                    }
+                }}
+            >
+                {breadcrumbContent}
+            </Popover>
+        )
+    }
+
+    return breadcrumbContent
+}
