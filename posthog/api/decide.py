@@ -66,10 +66,9 @@ def get_decide(request: HttpRequest):
         "isAuthenticated": False,
         "capturePerformance": False,
         "supportedCompression": ["gzip", "gzip-js", "lz64"],
+        "featueFlags": [],
+        "sessionRecording": False,
     }
-
-    response["featureFlags"] = []
-    response["sessionRecording"] = False
 
     if request.method == "POST":
         try:
@@ -174,7 +173,7 @@ def get_decide(request: HttpRequest):
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
-                response["capturePerformance"] = True if team.capture_performance_opt_in else False
+                response["capturePerformance"] = team.capture_performance_enabled
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,

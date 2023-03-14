@@ -4,8 +4,6 @@ from typing import TYPE_CHECKING, Optional
 from django.core.cache import cache
 from sentry_sdk import capture_exception
 
-from posthog.constants import AvailableFeature
-
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
@@ -18,16 +16,12 @@ def set_team_in_cache(token: str, team: Optional["Team"] = None) -> None:
 
     if not team:
         try:
-            team = Team.objects.get(api_token=token)
+            team = Team.objects.select_related("organization").get(api_token=token)
         except (Team.DoesNotExist, Team.MultipleObjectsReturned):
             cache.delete(f"team_token:{token}")
             return
 
-    serialized_team = {
-        **CachingTeamSerializer(team).data,
-        "capture_performance_opt_in": team.organization.is_feature_available(AvailableFeature.RECORDINGS_PERFORMANCE)
-        and team["capture_performance_opt_in"],
-    }
+    serialized_team = CachingTeamSerializer(team).data
 
     cache.set(f"team_token:{token}", json.dumps(serialized_team), FIVE_DAYS)
 

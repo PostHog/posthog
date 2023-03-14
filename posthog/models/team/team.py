@@ -12,6 +12,7 @@ from django.db.models.signals import post_delete, post_save
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
+from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
@@ -220,6 +221,13 @@ class Team(UUIDClassicModel):
     def strict_caching_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
+
+    @property
+    def capture_performance_enabled(self) -> bool:
+        # Performance capture is enabled if they have opted in AND they have the available feature
+        return self.capture_performance_opt_in and self.organization.is_feature_available(
+            AvailableFeature.RECORDINGS_PERFORMANCE
+        )
 
     @cached_property
     def persons_seen_so_far(self) -> int:
