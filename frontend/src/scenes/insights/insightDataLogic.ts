@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { FilterType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -79,6 +79,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 'loadInsightSuccess',
                 'loadResultsSuccess',
                 'saveInsight as insightLogicSaveInsight',
+                'setInsightResults',
             ],
         ],
     })),
@@ -255,19 +256,20 @@ export const insightDataLogic = kea<insightDataLogicType>([
          * that haven't been refactored to use the data exploration yet.
          */
         insightData: (insightData: Record<string, any> | null) => {
-            if (!values.isUsingDataExploration) {
+            if (!values.isUsingDataExploration || insightData === null) {
                 return
             }
 
-            actions.setInsight(
-                {
-                    ...values.insight,
-                    result: insightData?.result,
-                    next: insightData?.next,
-                    filters: values.insight.query ? {} : queryNodeToFilter(values.querySource),
-                },
-                {}
-            )
+            // todo what about results that aren't in this shape?
+            actions.setInsightResults({
+                result: insightData?.result,
+                next: insightData?.next,
+            })
         },
     })),
+    propsChanged(({ actions, props, values }) => {
+        if (props.cachedInsight?.query && !objectsEqual(props.cachedInsight.query, values.query)) {
+            actions.setQuery(props.cachedInsight.query)
+        }
+    }),
 ])
