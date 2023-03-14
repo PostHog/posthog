@@ -15,15 +15,16 @@ from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
+from posthog.models.team.team_caching import get_or_set_cached_team, set_cached_team
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 
-def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
+def on_permitted_recording_domain(recording_domains: List[str], request: HttpRequest) -> bool:
     origin = parse_domain(request.headers.get("Origin"))
     referer = parse_domain(request.headers.get("Referer"))
-    return hostname_in_allowed_url_list(team.recording_domains, origin) or hostname_in_allowed_url_list(
-        team.recording_domains, referer
+    return hostname_in_allowed_url_list(recording_domains, origin) or hostname_in_allowed_url_list(
+        recording_domains, referer
     )
 
 
@@ -95,8 +96,8 @@ def get_decide(request: HttpRequest):
             )
 
         token = get_token(data, request)
-        team = Team.objects.get_team_from_cache_or_token(token)
-        if team is None and token:
+        cached_team = get_or_set_cached_team(token)
+        if cached_team is None and token:
             project_id = get_project_id(data, request)
 
             if not project_id:
@@ -123,10 +124,11 @@ def get_decide(request: HttpRequest):
                         status_code=status.HTTP_401_UNAUTHORIZED,
                     ),
                 )
-            team = user.teams.get(id=project_id)
+            user_team = user.teams.get(id=project_id)
+            cached_team = set_cached_team(user_team.api_token, user_team)
 
-        if team:
-            structlog.contextvars.bind_contextvars(team_id=team.id)
+        if cached_team:
+            structlog.contextvars.bind_contextvars(team_id=cached_team["id"])
 
             distinct_id = data.get("distinct_id")
             if distinct_id is None:
@@ -148,7 +150,7 @@ def get_decide(request: HttpRequest):
             }
 
             feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
-                team.pk,
+                cached_team["id"],
                 data["distinct_id"],
                 data.get("groups") or {},
                 hash_key_override=data.get("$anon_distinct_id"),
@@ -169,21 +171,22 @@ def get_decide(request: HttpRequest):
                 # default v1
                 response["featureFlags"] = list(active_flags.keys())
 
-            if team.session_recording_opt_in and (
-                on_permitted_recording_domain(team, request) or not team.recording_domains
+            if cached_team["session_recording_opt_in"] and (
+                on_permitted_recording_domain(cached_team["recording_domains"], request)
+                or not cached_team["recording_domains"]
             ):
-                capture_console_logs = True if team.capture_console_log_opt_in else False
-                response["capturePerformance"] = team.capture_performance_enabled
+                capture_console_logs = True if cached_team["capture_console_log_opt_in"] else False
+                response["capturePerformance"] = cached_team["capture_performance_enabled"]
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
-                    "recorderVersion": "v2" if team.session_recording_version == "v2" else "v1",
+                    "recorderVersion": "v2" if cached_team["session_recording_version"] == "v2" else "v1",
                 }
 
             site_apps = []
-            if team.inject_web_apps:
+            if cached_team["inject_web_apps"]:
                 try:
-                    site_apps = get_decide_site_apps(team)
+                    site_apps = get_decide_site_apps(cached_team["id"])
                 except Exception:
                     pass
 

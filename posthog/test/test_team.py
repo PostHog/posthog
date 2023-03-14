@@ -5,7 +5,7 @@ from django.test import TestCase
 
 from posthog.models import Dashboard, DashboardTile, Organization, PluginConfig, Team, User
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.team import get_team_in_cache, util
+from posthog.models.team import get_cached_team, util
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 
 from .base import BaseTest
@@ -22,7 +22,7 @@ class TestModelCache(TestCase):
         api_token = "test_token"
         org = Organization.objects.create(name="org name")
 
-        initial_team = get_team_in_cache(api_token)
+        initial_team = get_cached_team(api_token)
         self.assertIsNone(initial_team)
 
         team = Team.objects.create(
@@ -31,7 +31,7 @@ class TestModelCache(TestCase):
             test_account_filters=[],
         )
 
-        cached_team = get_team_in_cache(api_token)
+        cached_team = get_cached_team(api_token)
         assert cached_team is not None
         self.assertEqual(cached_team.session_recording_opt_in, False)
         self.assertEqual(cached_team.api_token, api_token)
@@ -43,7 +43,7 @@ class TestModelCache(TestCase):
         team.session_recording_opt_in = True
         team.save()
 
-        cached_team = get_team_in_cache(api_token)
+        cached_team = get_cached_team(api_token)
         assert cached_team is not None
         self.assertEqual(cached_team.session_recording_opt_in, True)
         self.assertEqual(cached_team.api_token, api_token)
@@ -52,7 +52,7 @@ class TestModelCache(TestCase):
         self.assertEqual(cached_team.name, "New name")
 
         team.delete()
-        cached_team = get_team_in_cache(api_token)
+        cached_team = get_cached_team(api_token)
         assert cached_team is None
 
 

@@ -25,7 +25,6 @@ from posthog.models.utils import UUIDClassicModel, generate_random_token_project
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
-from .team_caching import get_team_in_cache, set_team_in_cache
 
 TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
@@ -88,21 +87,6 @@ class TeamManager(models.Manager):
             return None
         try:
             return Team.objects.get(api_token=token)
-        except Team.DoesNotExist:
-            return None
-
-    def get_team_from_cache_or_token(self, token: Optional[str]) -> Optional["Team"]:
-        if not token:
-            return None
-        try:
-            team = get_team_in_cache(token)
-            if team:
-                return team
-
-            team = Team.objects.get(api_token=token)
-            set_team_in_cache(token, team)
-            return team
-
         except Team.DoesNotExist:
             return None
 
@@ -274,12 +258,16 @@ class Team(UUIDClassicModel):
 
 @mutable_receiver(post_save, sender=Team)
 def put_team_in_cache_on_save(sender, instance: Team, **kwargs):
-    set_team_in_cache(instance.api_token, instance)
+    from .team_caching import set_cached_team
+
+    set_cached_team(instance.api_token, instance)
 
 
 @mutable_receiver(post_delete, sender=Team)
 def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
-    set_team_in_cache(instance.api_token, None)
+    from .team_caching import set_cached_team
+
+    set_cached_team(instance.api_token, None)
 
 
 def groups_on_events_querying_enabled():

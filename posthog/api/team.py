@@ -14,7 +14,8 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
+from posthog.models.team.team import groups_on_events_querying_enabled
+from posthog.models.team.team_caching import set_cached_team
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
@@ -65,29 +66,6 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
             return True
         else:
             return True
-
-
-class CachingTeamSerializer(serializers.ModelSerializer):
-    """
-    This serializer is used for caching teams.
-    Currently used only in `/decide` endpoint.
-    Has all parameters needed for a successful decide request.
-    """
-
-    class Meta:
-        model = Team
-        fields = [
-            "id",
-            "uuid",
-            "name",
-            "api_token",
-            "capture_console_log_opt_in",
-            "capture_performance_enabled",
-            "session_recording_opt_in",
-            "session_recording_version",
-            "recording_domains",
-            "inject_web_apps",
-        ]
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
@@ -311,7 +289,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         old_token = team.api_token
         team.api_token = generate_random_token_project()
         team.save()
-        set_team_in_cache(old_token, None)
+        set_cached_team(old_token, None)
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
