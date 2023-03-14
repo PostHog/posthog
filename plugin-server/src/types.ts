@@ -622,6 +622,9 @@ export interface DeadLetterQueueEvent {
     _offset: number
 }
 
+export type PropertiesLastUpdatedAt = Record<string, string>
+export type PropertiesLastOperation = Record<string, PropertyUpdateOperation>
+
 /** Properties shared by RawPerson and Person. */
 export interface BasePerson {
     id: number
@@ -630,6 +633,8 @@ export interface BasePerson {
     is_user_id: number
     is_identified: boolean
     uuid: string
+    properties_last_updated_at: PropertiesLastUpdatedAt
+    properties_last_operation: PropertiesLastOperation | null
 }
 
 /** Raw Person row from database. */
@@ -665,6 +670,8 @@ interface BaseGroup {
     group_type_index: GroupTypeIndex
     group_key: string
     group_properties: Properties
+    properties_last_updated_at: PropertiesLastUpdatedAt
+    properties_last_operation: PropertiesLastOperation
 }
 
 /** Raw Group row from database. */
