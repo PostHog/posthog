@@ -494,9 +494,10 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setState: () => getUrl(values),
         updateCurrentTeamSuccess: (val) => {
             if (
-                router.values.location.pathname.includes(
+                (router.values.location.pathname.includes(
                     values.showBillingStep ? '/ingestion/billing' : '/ingestion/superpowers'
-                ) &&
+                ) ||
+                    router.values.location.pathname.includes('/ingestion/invites-sent')) &&
                 val.payload?.completed_snippet_onboarding
             ) {
                 return combineUrl(urls.events(), { onboarding_completed: true }).url
@@ -548,6 +549,9 @@ export const ingestionLogic = kea<ingestionLogicType>([
                     !!values.currentTeam?.capture_console_log_opt_in,
                     !!values.currentTeam?.capture_performance_opt_in
                 )
+            }
+            if (!!values.currentTeam?.autocapture_opt_out) {
+                eventUsageLogic.actions.reportIngestionAutocaptureToggled(!!values.currentTeam?.autocapture_opt_out)
             }
         },
         openThirdPartyPluginModal: ({ plugin }) => {

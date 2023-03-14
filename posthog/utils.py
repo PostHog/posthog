@@ -553,8 +553,9 @@ def cors_response(request, response):
 
     # Handle headers that sentry randomly sends for every request.
     # Would cause a CORS failure otherwise.
+    # specified here to override the default added by the cors headers package in web.py
     allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
-    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id"]]
+    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id", "request-context"]]
 
     response["Access-Control-Allow-Headers"] = "X-Requested-With,Content-Type" + (
         "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""

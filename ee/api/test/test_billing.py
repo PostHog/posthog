@@ -560,8 +560,6 @@ class TestBillingAPI(APILicensedTest):
         }
         assert self.organization.customer_id == "cus_123"
 
-    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
-    @patch("posthog.demo.matrix.manager.copy_graphile_worker_jobs_between_teams")
     @patch("ee.api.billing.requests.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:

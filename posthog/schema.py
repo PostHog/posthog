@@ -261,6 +261,7 @@ class InsightType(str, Enum):
     RETENTION = "RETENTION"
     PATHS = "PATHS"
     QUERY = "QUERY"
+    SQL = "SQL"
 
 
 class IntervalType(str, Enum):
@@ -413,21 +414,18 @@ class StickinessFilter(BaseModel):
 
     compare: Optional[bool] = None
     display: Optional[ChartDisplayType] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
+    hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     stickiness_days: Optional[float] = None
 
 
-class TimeToSeeDataSessionsQuery(BaseModel):
+class TimeToSeeDataSessionsQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
-    kind: str = Field("TimeToSeeDataSessionsQuery", const=True)
-    response: Optional[List[Dict[str, Any]]] = Field(None, description="Cached query response")
-    teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
+    results: List[Dict[str, Any]]
 
 
 class TrendsFilter(BaseModel):
@@ -441,7 +439,7 @@ class TrendsFilter(BaseModel):
     compare: Optional[bool] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[Any] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
+    hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
@@ -526,7 +524,7 @@ class FunnelsFilter(BaseModel):
     funnel_viz_type: Optional[FunnelVizType] = None
     funnel_window_interval: Optional[float] = None
     funnel_window_interval_unit: Optional[FunnelConversionWindowTimeUnit] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
+    hidden_legend_breakdowns: Optional[List[str]] = None
     layout: Optional[FunnelLayout] = None
 
 
@@ -591,6 +589,16 @@ class RetentionFilter(BaseModel):
     returning_entity: Optional[Dict[str, Any]] = None
     target_entity: Optional[Dict[str, Any]] = None
     total_intervals: Optional[float] = None
+
+
+class TimeToSeeDataSessionsQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
+    kind: str = Field("TimeToSeeDataSessionsQuery", const=True)
+    response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(None, description="Cached query response")
+    teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
 
 
 class EventsNode(BaseModel):

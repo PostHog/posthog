@@ -38,6 +38,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { subscriptions } from 'kea-subscriptions'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
+import { displayTypesWithoutLegend } from 'lib/components/InsightLegend/utils'
 
 const defaultQuery = (insightProps: InsightLogicProps): Node => {
     const filters = insightProps.cachedInsight?.filters
@@ -68,7 +69,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['featureFlags'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['response'],
+            ['response as insightData'],
         ],
         actions: [
             insightLogic,
@@ -131,6 +132,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
         isNonTimeSeriesDisplay: [
             (s) => [s.display],
             (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
+        ],
+
+        hasLegend: [
+            (s) => [s.isTrends, s.isStickiness, s.display],
+            (isTrends, isStickiness, display) =>
+                (isTrends || isStickiness) && !!display && !displayTypesWithoutLegend.includes(display),
         ],
 
         isQueryBasedInsight: [
@@ -197,6 +204,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
             if (overrideFilter && query == null) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
+            } else if (query) {
+                actions.setQuery(query)
             }
         },
         loadInsightSuccess: ({ insight }) => {
@@ -240,7 +249,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
          * This subscription updates the insight for all visualizations
          * that haven't been refactored to use the data exploration yet.
          */
-        response: (response: Record<string, any> | null) => {
+        insightData: (insightData: Record<string, any> | null) => {
             if (!values.isUsingDataExploration) {
                 return
             }
@@ -248,9 +257,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsight(
                 {
                     ...values.insight,
-                    result: response?.result,
-                    next: response?.next,
-                    // filters: queryNodeToFilter(query.source),
+                    result: insightData?.result,
+                    next: insightData?.next,
+                    filters: values.insight.query ? {} : queryNodeToFilter(values.querySource),
                 },
                 {}
             )

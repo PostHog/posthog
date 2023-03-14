@@ -8,7 +8,7 @@ import {
     TooltipModel,
     ChartOptions,
     ChartDataset,
-} from 'chart.js'
+} from 'lib/Chart'
 import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty } from '~/lib/utils'
 import { GraphType } from '~/types'
@@ -29,8 +29,6 @@ import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-
-import './chartjsSetup'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 
 let timer: NodeJS.Timeout | null = null
