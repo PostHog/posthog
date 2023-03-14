@@ -279,7 +279,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 filters=Filter(data=filter_dict, team=self.team).to_dict(),
                 team=self.team,
                 last_refresh=now(),
-                team=self.team,
             )
             DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
