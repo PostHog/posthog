@@ -246,7 +246,7 @@
         "postcss-loader": "^4.3.0",
         "raw-loader": "^4.0.2",
         "sass-loader": "^10.0.1",
-        "storybook-addon-pseudo-states": "^1.15.2",
+        "storybook-addon-pseudo-states": "1.15.1",
         "style-loader": "^2.0.0",
         "sucrase": "^3.29.0",
         "timekeeper": "^2.2.0",

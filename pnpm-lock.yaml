@@ -175,7 +175,7 @@ specifiers:
   sass: ^1.26.2
   sass-loader: ^10.0.1
   sql-formatter: ^12.1.2
-  storybook-addon-pseudo-states: ^1.15.2
+  storybook-addon-pseudo-states: 1.15.1
   style-loader: ^2.0.0
   sucrase: ^3.29.0
   timekeeper: ^2.2.0
@@ -373,7 +373,7 @@ devDependencies:
   postcss-loader: 4.3.0_dhonik3q6ff6ozbzdscnovq2ka
   raw-loader: 4.0.2_webpack@4.46.0
   sass-loader: 10.3.1_sass@1.56.0+webpack@4.46.0
-  storybook-addon-pseudo-states: 1.15.2_yd46ff7gcssnxj6tmjxqrvhpxm
+  storybook-addon-pseudo-states: 1.15.1_yd46ff7gcssnxj6tmjxqrvhpxm
   style-loader: 2.0.0_webpack@4.46.0
   sucrase: 3.29.0
   timekeeper: 2.2.0
@@ -17070,8 +17070,8 @@ packages:
     resolution: {integrity: sha512-siT1RiqlfQnGqgT/YzXVUNsom9S0H1OX+dpdGN1xkyYATo4I6sep5NmsRD/40s3IIOvlCq6akxkqG82urIZW1w==}
     dev: true
 
-  /storybook-addon-pseudo-states/1.15.2_yd46ff7gcssnxj6tmjxqrvhpxm:
-    resolution: {integrity: sha512-YMjzct/747PyCfzAD2469283gbBSdK3pMfuPg4nq5ZtPzfDAkaiGlxPnXNL9dMA2Bo1PLgNJ3f9u2Kh1OfuPlw==}
+  /storybook-addon-pseudo-states/1.15.1_yd46ff7gcssnxj6tmjxqrvhpxm:
+    resolution: {integrity: sha512-GRBf63wRHoFwN65hRTdTaIcE7jn2Yj2B/dNyj03o8TRBevnmOL80NfLAGsmDYP4a7Ye3kBkILX952aUkK4P+ZA==}
     peerDependencies:
       '@storybook/addons': ^6.5.0
       '@storybook/api': ^6.5.0
