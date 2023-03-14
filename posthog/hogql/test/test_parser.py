@@ -733,9 +733,7 @@ class TestParser(BaseTest):
                     table=ast.Field(chain=["events"]),
                     sample=ast.SampleExpr(
                         offset_value=ast.RatioExpr(left=ast.Constant(value=999)),
-                        sample_value=ast.RatioExpr(
-                            left=ast.Constant(value=1), right=ast.Constant(value=10)
-                        ),
+                        sample_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=10)),
                     ),
                 ),
             ),
@@ -764,9 +762,7 @@ class TestParser(BaseTest):
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["events"]),
                     sample=ast.SampleExpr(
-                        offset_value=ast.RatioExpr(
-                            left=ast.Constant(value=1), right=ast.Constant(value=2)
-                        ),
+                        offset_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=2)),
                         sample_value=ast.RatioExpr(
                             left=ast.Constant(value=10),
                         ),

@@ -360,7 +360,8 @@ class SampleExpr(Expr):
 
     # k or n
     sample_value: RatioExpr
-    
+
+
 JoinExpr.update_forward_refs(SampleExpr=SampleExpr)
 JoinExpr.update_forward_refs(SelectUnionQuery=SelectUnionQuery)
 JoinExpr.update_forward_refs(SelectQuery=SelectQuery)
