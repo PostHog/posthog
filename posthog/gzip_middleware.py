@@ -40,11 +40,14 @@ class ScopedGZipMiddleware(GZipMiddleware):
         super().__init__(get_response)
         try:
             self.allowed_paths = [re.compile(pattern) for pattern in settings.GZIP_RESPONSE_ALLOW_LIST]
+            self.allowed_post_paths = [re.compile(pattern) for pattern in settings.GZIP_POST_RESPONSE_ALLOW_LIST]
         except re.error as ex:
             raise InvalidGZipAllowList(str(ex)) from ex
 
     def process_response(self, request, response):
         if request.method == "GET" and allowed_path(request.path, self.allowed_paths):
+            return super().process_response(request, response)
+        elif request.method == "POST" and allowed_path(request.path, self.allowed_post_paths):
             return super().process_response(request, response)
         else:
             return response
