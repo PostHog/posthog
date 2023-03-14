@@ -20,7 +20,9 @@ class TestPrinter(BaseTest):
 
     # Helper to always translate HogQL with a blank context,
     def _select(self, query: str, context: Optional[HogQLContext] = None) -> str:
-        return print_ast(parse_select(query), context or HogQLContext(select_team_id=42), "clickhouse")
+        return print_ast(
+            parse_select(query), context or HogQLContext(select_team_id=42, database=self.database), "clickhouse"
+        )
 
     def _assert_expr_error(self, expr, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
         with self.assertRaises(ValueError) as context:
@@ -63,25 +65,25 @@ class TestPrinter(BaseTest):
             "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
-        context = HogQLContext(within_non_hogql_query=True, using_person_on_events=False)
+        context = HogQLContext(database=self.database, within_non_hogql_query=True, using_person_on_events=False)
         self.assertEqual(
             self._expr("person.properties.bla", context),
             "replaceRegexpAll(JSONExtractRaw(person_props, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
-        context = HogQLContext(within_non_hogql_query=True, using_person_on_events=True)
+        context = HogQLContext(database=self.database, within_non_hogql_query=True, using_person_on_events=True)
         self.assertEqual(
             self._expr("person.properties.bla", context),
             "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
-        context = HogQLContext(within_non_hogql_query=False, using_person_on_events=False)
+        context = HogQLContext(database=self.database, within_non_hogql_query=False, using_person_on_events=False)
         self.assertEqual(
             self._expr("person.properties.bla", context),
             "events__pdi__person.properties___bla",
         )
 
-        context = HogQLContext(within_non_hogql_query=False, using_person_on_events=True)
+        context = HogQLContext(database=self.database, within_non_hogql_query=False, using_person_on_events=True)
         self.assertEqual(
             # TODO: for now, explicitly writing "poe." to opt in. Automatic switching will come soon.
             self._expr("poe.properties.bla", context),

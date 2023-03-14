@@ -4,6 +4,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.client import sync_execute
+from posthog.hogql.database import create_hogql_database
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -640,7 +641,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            sql, _ = format_filter_query(cohort, 0, HogQLContext())
+            sql, _ = format_filter_query(cohort, 0, HogQLContext(database=create_hogql_database(self.team)))
             self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):
