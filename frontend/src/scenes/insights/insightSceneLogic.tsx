@@ -109,7 +109,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         '/insights/:shortId(/:mode)(/:subscriptionId)': (
             { shortId, mode, subscriptionId }, // url params
             { dashboard, ...searchParams }, // search params
-            { filters: _filters }, // hash params
+            { filters: _filters, q }, // hash params
             { method, initial } // "location changed" event payload
         ) => {
             const insightMode =
@@ -147,7 +147,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
 
             // Redirect to a simple URL if we had filters in the URL
-            if (filters) {
+            if (filters || q) {
                 router.actions.replace(
                     insightId === 'new'
                         ? urls.insightNew(undefined, dashboard)
@@ -158,7 +158,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             // reset the insight's state if we have to
-            if (initial || method === 'PUSH' || filters) {
+            if (initial || method === 'PUSH' || filters || q) {
                 if (insightId === 'new') {
                     values.insightCache?.logic.actions.setInsight(
                         {
@@ -168,6 +168,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             ),
                             ...(filters ? { filters: cleanFilters(filters || {}) } : {}),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
+                            ...(q ? { query: JSON.parse(q) } : {}),
                         },
                         {
                             fromPersistentApi: false,

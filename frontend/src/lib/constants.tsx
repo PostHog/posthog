@@ -135,14 +135,15 @@ export const FEATURE_FLAGS = {
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
+    DATA_EXPLORATION_QUERY_TAB: 'data-exploration-query-tab', // owner: @pauldambra
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
     FF_JSON_PAYLOADS: 'ff-json-payloads', // owner @EDsCODE
     PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
     REQUIRE_EMAIL_VERIFICATION: 'require-email-verification', // owner: @raquelmsmith
-    DATA_EXPLORATION_QUERIES_ON_DASHBOARDS: 'data-exploration-queries-on-dashboards', // owner: @pauldambra
     SAMPLING: 'sampling', // owner: @yakkomajuri
     TEMPLUKES: 'templukes', // owner: @pauldambra and @lharries
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
+    POSTHOG_3000: 'posthog-3000', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FF_CODE_EXAMPLE: 'ff-code-example', // owner: @liyiy
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries

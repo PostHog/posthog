@@ -38,6 +38,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { subscriptions } from 'kea-subscriptions'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
+import { displayTypesWithoutLegend } from 'lib/components/InsightLegend/utils'
 
 const defaultQuery = (insightProps: InsightLogicProps): Node => {
     const filters = insightProps.cachedInsight?.filters
@@ -133,6 +134,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
         ],
 
+        hasLegend: [
+            (s) => [s.isTrends, s.isStickiness, s.display],
+            (isTrends, isStickiness, display) =>
+                (isTrends || isStickiness) && !!display && !displayTypesWithoutLegend.includes(display),
+        ],
+
         isQueryBasedInsight: [
             (s) => [s.query],
             (query) => {
@@ -197,6 +204,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
             if (overrideFilter && query == null) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
+            } else if (query) {
+                actions.setQuery(query)
             }
         },
         loadInsightSuccess: ({ insight }) => {
@@ -250,7 +259,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     ...values.insight,
                     result: insightData?.result,
                     next: insightData?.next,
-                    filters: queryNodeToFilter(values.querySource),
+                    filters: values.insight.query ? {} : queryNodeToFilter(values.querySource),
                 },
                 {}
             )

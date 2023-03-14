@@ -26,8 +26,9 @@ import {
     isLifecycleFilter,
 } from 'scenes/insights/sharedUtils'
 import { objectCleanWithEmpty } from 'lib/utils'
+import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 
-const reverseInsightMap: Record<Exclude<InsightType, InsightType.QUERY>, InsightNodeKind> = {
+const reverseInsightMap: Record<Exclude<InsightType, InsightType.QUERY | InsightType.SQL>, InsightNodeKind> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
     [InsightType.FUNNELS]: NodeKind.FunnelsQuery,
     [InsightType.RETENTION]: NodeKind.RetentionQuery,
@@ -78,6 +79,26 @@ export const actionsAndEventsToSeries = ({
     return series
 }
 
+export const cleanHiddenLegendIndexes = (
+    hidden_legend_keys: Record<string, boolean | undefined> | undefined
+): number[] | undefined => {
+    return hidden_legend_keys
+        ? Object.entries(hidden_legend_keys)
+              .filter(([k, v]) => /^\d+$/.test(k) && v === true)
+              .map(([k]) => Number(k))
+        : undefined
+}
+
+export const cleanHiddenLegendSeries = (
+    hidden_legend_keys: Record<string, boolean | undefined> | undefined
+): string[] | undefined => {
+    return hidden_legend_keys
+        ? Object.entries(transformLegacyHiddenLegendKeys(hidden_legend_keys))
+              .filter(([k, v]) => !/^\d+$/.test(k) && v === true)
+              .map(([k]) => k)
+        : undefined
+}
+
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
     if (!filters.insight) {
         throw new Error('filtersToQueryNode expects "insight"')
@@ -121,7 +142,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         query.trendsFilter = objectCleanWithEmpty({
             smoothing_intervals: filters.smoothing_intervals,
             show_legend: filters.show_legend,
-            hidden_legend_keys: filters.hidden_legend_keys,
+            hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
             compare: filters.compare,
             aggregation_axis_format: filters.aggregation_axis_format,
             aggregation_axis_prefix: filters.aggregation_axis_prefix,
@@ -156,7 +177,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             funnel_step: filters.funnel_step,
             entrance_period_start: filters.entrance_period_start,
             drop_off: filters.drop_off,
-            hidden_legend_keys: filters.hidden_legend_keys,
+            hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
         })
     }
 
@@ -202,7 +223,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             display: filters.display,
             compare: filters.compare,
             show_legend: filters.show_legend,
-            hidden_legend_keys: filters.hidden_legend_keys,
+            hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
             stickiness_days: filters.stickiness_days,
             shown_as: filters.shown_as,
         })

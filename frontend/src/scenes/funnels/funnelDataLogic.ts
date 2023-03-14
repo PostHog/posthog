@@ -13,7 +13,7 @@ import {
     FlattenedFunnelStepByBreakdown,
     FunnelsTimeConversionBins,
     HistogramGraphDatum,
-    FunnelResult,
+    FunnelAPIResponse,
 } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -21,7 +21,6 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { groupsModel, Noun } from '~/models/groupsModel'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { isFunnelsQuery } from '~/queries/utils'
 import { percentage, sum } from 'lib/utils'
 import {
@@ -45,8 +44,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series', 'insightData'],
             groupsModel,
             ['aggregationLabel'],
-            insightLogic(props),
-            ['hiddenLegendKeys'],
         ],
         actions: [insightDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
@@ -98,10 +95,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
         results: [
             (s) => [s.insightData],
-            (insightData: FunnelResult | null): FunnelResultType => {
+            (insightData: FunnelAPIResponse | null): FunnelResultType => {
                 // TODO: after hooking up data manager, check that we have a funnels result here
                 if (insightData?.result) {
-                    if (isBreakdownFunnelResults(insightData.result) && insightData.result[0][0].breakdowns) {
+                    if (isBreakdownFunnelResults(insightData.result) && insightData.result?.[0]?.[0]?.breakdowns) {
                         // in order to stop the UI having to check breakdowns and breakdown
                         // this collapses breakdowns onto the breakdown property
                         return insightData.result.map((series) =>
@@ -155,8 +152,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         visibleStepsWithConversionMetrics: [
-            (s) => [s.stepsWithConversionMetrics, s.hiddenLegendKeys, s.flattenedBreakdowns],
-            (steps, hiddenLegendKeys, flattenedBreakdowns): FunnelStepWithConversionMetrics[] => {
+            (s) => [s.stepsWithConversionMetrics, s.funnelsFilter, s.flattenedBreakdowns],
+            (steps, funnelsFilter, flattenedBreakdowns): FunnelStepWithConversionMetrics[] => {
                 const isOnlySeries = flattenedBreakdowns.length <= 1
                 const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
                 return steps.map((step, stepIndex) => ({
@@ -169,7 +166,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                             ...b,
                             order: breakdownIndex,
                         }))
-                        ?.filter((b) => isOnlySeries || !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]),
+                        ?.filter(
+                            (b) =>
+                                isOnlySeries ||
+                                !funnelsFilter?.hidden_legend_breakdowns?.includes(getVisibilityKey(b.breakdown_value))
+                        ),
                 }))
             },
         ],
