@@ -975,4 +975,89 @@ describe('funnelDataLogic', () => {
             })
         })
     })
+
+    describe('conversionMetrics', () => {
+        it('for steps viz with multiple steps', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Steps,
+                },
+            }
+
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResult.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                conversionMetrics: {
+                    averageTime: 87098.67529697785,
+                    stepRate: 0.46048109965635736,
+                    totalRate: 0.46048109965635736,
+                },
+            })
+        })
+
+        it('for time to convert viz', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.TimeToConvert,
+                },
+            }
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTimeToConvert.result,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toMatchValues({
+                conversionMetrics: {
+                    averageTime: 86456.76, // from backend
+                    stepRate: 0,
+                    totalRate: 0,
+                },
+            })
+        })
+
+        it('for trends viz', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Trends,
+                },
+            }
+
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTrends.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                conversionMetrics: {
+                    averageTime: 0,
+                    stepRate: 0,
+                    totalRate: 0.7120000000000001, // avg(steps[0] / 100)
+                },
+            })
+        })
+    })
 })
