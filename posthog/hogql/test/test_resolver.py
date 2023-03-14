@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest
 
 class TestResolver(BaseTest):
     def setUp(self):
-        self.database = self.team.datbase
+        self.database = self.team.database
 
     def test_resolve_events_table(self):
         expr = parse_select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
