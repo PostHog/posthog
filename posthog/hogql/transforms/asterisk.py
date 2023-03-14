@@ -23,12 +23,16 @@ class AsteriskExpander(TraversingVisitor):
                         ref = ast.FieldRef(name=key, table=asterisk.table)
                         columns.append(ast.Field(chain=[key], ref=ref))
                         node.ref.columns[key] = ref
-                elif isinstance(asterisk.table, ast.SelectQueryRef) or isinstance(
-                    asterisk.table, ast.SelectQueryAliasRef
+                elif (
+                    isinstance(asterisk.table, ast.SelectUnionQueryRef)
+                    or isinstance(asterisk.table, ast.SelectQueryRef)
+                    or isinstance(asterisk.table, ast.SelectQueryAliasRef)
                 ):
                     select = asterisk.table
                     while isinstance(select, ast.SelectQueryAliasRef):
                         select = select.ref
+                    if isinstance(select, ast.SelectUnionQueryRef):
+                        select = select.refs[0]
                     if isinstance(select, ast.SelectQueryRef):
                         for name in select.columns.keys():
                             ref = ast.FieldRef(name=name, table=asterisk.table)

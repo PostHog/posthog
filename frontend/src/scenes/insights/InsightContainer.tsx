@@ -221,30 +221,30 @@ export function InsightContainer({
                         </div>
                     ) : null}
 
-                    <Row
-                        className={clsx('insights-graph-header', {
-                            funnels: isFunnelsFilter(filters),
-                        })}
-                        align="middle"
-                        justify="space-between"
-                    >
-                        {/*Don't add more than two columns in this row.*/}
-                        <Col className="flex items-center gap-1">
-                            {!disableLastComputation && <ComputationTimeWithRefresh />}
-                            {!!filters.sampling_factor ? (
-                                <span className="text-muted-alt">
-                                    {!disableLastComputation ? '• ' : ' '}
-                                    Results calculated from {filters.sampling_factor * 100}% of users
-                                </span>
-                            ) : null}
-                        </Col>
+                    {!disableLastComputation || !!filters.sampling_factor ? (
+                        <Row
+                            className="insights-graph-header computation-time-and-sampling-notice"
+                            align="middle"
+                            justify="space-between"
+                        >
+                            {/*Don't add more than two columns in this row.*/}
+                            <Col className="flex items-center gap-1">
+                                {!disableLastComputation && <ComputationTimeWithRefresh />}
+                                {!!filters.sampling_factor ? (
+                                    <span className="text-muted-alt">
+                                        {!disableLastComputation ? '• ' : ' '}
+                                        Results calculated from {filters.sampling_factor * 100}% of users
+                                    </span>
+                                ) : null}
+                            </Col>
 
-                        <Col>
-                            {isPathsFilter(filters) ? <PathCanvasLabel /> : null}
+                            <Col>
+                                {isPathsFilter(filters) ? <PathCanvasLabel /> : null}
 
-                            <InsightLegendButton />
-                        </Col>
-                    </Row>
+                                <InsightLegendButton />
+                            </Col>
+                        </Row>
+                    ) : null}
 
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState

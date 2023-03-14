@@ -223,6 +223,7 @@ export interface PersonsNode extends DataNode {
 // Data table node
 
 export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
+
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
@@ -281,7 +282,7 @@ export interface InsightVizNode extends Node {
     // showViz, showTable, etc.
 }
 
-// Base class should not be used directly
+/** Base class for insight query nodes. Should not be used directly. */
 export interface InsightsQueryBase extends Node {
     /** Date range for the query */
     dateRange?: DateRange
@@ -293,7 +294,12 @@ export interface InsightsQueryBase extends Node {
     aggregation_group_type_index?: number
 }
 
-export type TrendsFilter = Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+/** `TrendsFilterType` minus everything inherited from `FilterType` and
+ * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
+export type TrendsFilter = Omit<
+    TrendsFilterType & { hidden_legend_indexes?: number[] },
+    keyof FilterType | 'hidden_legend_keys'
+>
 export interface TrendsQuery extends InsightsQueryBase {
     kind: NodeKind.TrendsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -306,7 +312,12 @@ export interface TrendsQuery extends InsightsQueryBase {
     breakdown?: BreakdownFilter
 }
 
-export type FunnelsFilter = Omit<FunnelsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+/** `FunnelsFilterType` minus everything inherited from `FilterType` and
+ * `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
+export type FunnelsFilter = Omit<
+    FunnelsFilterType & { hidden_legend_breakdowns?: string[] },
+    keyof FilterType | 'hidden_legend_keys'
+>
 export interface FunnelsQuery extends InsightsQueryBase {
     kind: NodeKind.FunnelsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -319,21 +330,28 @@ export interface FunnelsQuery extends InsightsQueryBase {
     breakdown?: BreakdownFilter
 }
 
-export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+/** `RetentionFilterType` minus everything inherited from `FilterType` */
+export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType>
 export interface RetentionQuery extends InsightsQueryBase {
     kind: NodeKind.RetentionQuery
     /** Properties specific to the retention insight */
     retentionFilter?: RetentionFilter
 }
 
-export type PathsFilter = Omit<PathsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+/** `PathsFilterType` minus everything inherited from `FilterType` */
+export type PathsFilter = Omit<PathsFilterType, keyof FilterType>
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
     /** Properties specific to the paths insight */
     pathsFilter?: PathsFilter
 }
 
-export type StickinessFilter = Omit<StickinessFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+/** `StickinessFilterType` minus everything inherited from `FilterType` and
+ * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
+export type StickinessFilter = Omit<
+    StickinessFilterType & { hidden_legend_indexes?: number[] },
+    keyof FilterType | 'hidden_legend_keys'
+>
 export interface StickinessQuery extends InsightsQueryBase {
     kind: NodeKind.StickinessQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -344,6 +362,7 @@ export interface StickinessQuery extends InsightsQueryBase {
     stickinessFilter?: StickinessFilter
 }
 
+/** `LifecycleFilterType` minus everything inherited from `FilterType` */
 export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
     /** Lifecycles that have been removed from display are not included in this array */
     toggledLifecycles?: LifecycleToggle[]
@@ -467,8 +486,6 @@ export interface BreakdownFilter {
 export interface QueryContext {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
-
-    readonly?: boolean
 }
 
 interface QueryContextColumn {

@@ -250,6 +250,17 @@ CSRF_COOKIE_NAME = "posthog_csrftoken"
 
 # see posthog.gzip_middleware.ScopedGZipMiddleware
 # for how adding paths here can add vulnerability to the "breach" attack
+GZIP_POST_RESPONSE_ALLOW_LIST = get_list(
+    os.getenv(
+        "GZIP_POST_RESPONSE_ALLOW_LIST",
+        ",".join(
+            [
+                "^/?api/projects/\\d+/query/?$",
+            ]
+        ),
+    )
+)
+
 GZIP_RESPONSE_ALLOW_LIST = get_list(
     os.getenv(
         "GZIP_RESPONSE_ALLOW_LIST",
@@ -281,6 +292,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/projects/\\d+/persons/?$",
                 "^/api/organizations/@current/plugins/?$",
                 "^api/projects/@current/feature_flags/my_flags/?$",
+                "^/?api/projects/\\d+/query/?$",
             ]
         ),
     )

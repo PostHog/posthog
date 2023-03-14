@@ -74,6 +74,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         response,
         responseLoading,
         responseError,
+        queryCancelled,
         canLoadNextData,
         canLoadNewData,
         nextDataLoading,
@@ -102,8 +103,11 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         expandable,
     } = queryWithDefaults
 
+    const isReadOnly = setQuery === undefined
+
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
     const columnsInLemonTable = isHogQLQuery(query.source) ? columnsInResponse ?? columnsInQuery : columnsInQuery
+
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
@@ -127,7 +131,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
             },
             sorter: undefined, // using custom sorting code
             more:
-                !context?.readonly && showActions && isEventsQuery(query.source) ? (
+                !isReadOnly && showActions && isEventsQuery(query.source) ? (
                     <>
                         <div className="px-2 py-1">
                             <div className="font-mono font-bold">{extractExpressionComment(key)}</div>
@@ -345,15 +349,15 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
     ].filter((x) => !!x)
 
-    const showFirstRow = firstRowLeft.length > 0 || firstRowRight.length > 0
-    const showSecondRow = secondRowLeft.length > 0 || secondRowRight.length > 0
+    const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)
+    const showSecondRow = !isReadOnly && (secondRowLeft.length > 0 || secondRowRight.length > 0)
     const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
 
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <div className="relative w-full h-full space-y-4">
-                    {showHogQLEditor && isHogQLQuery(query.source) ? (
+                    {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
                     ) : null}
                     {showFirstRow && (
@@ -361,7 +365,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             {firstRowLeft}
                             <div className="flex-1" />
                             {firstRowRight}
-                            {inlineEditorButtonOnRow === 1 && context?.readonly !== true ? (
+                            {inlineEditorButtonOnRow === 1 && !isReadOnly ? (
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
@@ -372,7 +376,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             {secondRowLeft}
                             <div className="flex-1" />
                             {secondRowRight}
-                            {inlineEditorButtonOnRow === 2 && context?.readonly !== true ? (
+                            {inlineEditorButtonOnRow === 2 && !isReadOnly ? (
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
@@ -380,7 +384,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                     {showEventsBufferWarning && isEventsQuery(query.source) && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
-                    {inlineEditorButtonOnRow === 0 && context?.readonly !== true ? (
+                    {inlineEditorButtonOnRow === 0 && !isReadOnly ? (
                         <div className="absolute right-0 z-10 p-1">
                             <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                         </div>
@@ -418,11 +422,15 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                         useURLForSorting={false}
                         emptyState={
                             responseError ? (
-                                isHogQLQuery(query.source) ? (
+                                isHogQLQuery(query.source) || isEventsQuery(query.source) ? (
                                     <InsightErrorState
                                         excludeDetail
                                         title={
-                                            response && 'error' in response ? (response as any).error : responseError
+                                            queryCancelled
+                                                ? 'The query was cancelled'
+                                                : response && 'error' in response
+                                                ? (response as any).error
+                                                : responseError
                                         }
                                     />
                                 ) : (
