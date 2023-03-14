@@ -102,7 +102,7 @@ function FunnelCanvasLabelComponent({
         ...(funnelsFilter?.funnel_viz_type === FunnelVizType.Trends
             ? [
                   <>
-                      <span className="text-muted-alt">Conversion rate </span>
+                      <span className="text-muted-alt">Conversion rate</span>
                       <FunnelStepsPicker />
                   </>,
               ]
@@ -110,7 +110,7 @@ function FunnelCanvasLabelComponent({
     ]
 
     return (
-        <div className="flex items-center text-muted-alt">
+        <div className="flex items-center">
             {labels.map((label, i) => (
                 <React.Fragment key={i}>
                     {i > 0 && <span className="my-0.5 mx-2 border-l border-border h-3.5" />}

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { EntityFilter, FunnelVizType } from '~/types'
-import { Row, Select } from 'antd'
+import { EntityFilter } from '~/types'
+import { Select } from 'antd'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -10,10 +10,6 @@ export function FunnelStepsPicker(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { filters, numberOfSeries, isFunnelWithEnoughSteps, filterSteps } = useValues(funnelLogic(insightProps))
     const { changeStepRange } = useActions(funnelLogic(insightProps))
-
-    if (filters.funnel_viz_type === FunnelVizType.Steps) {
-        return null
-    }
 
     const onChange = (funnel_from_step?: number, funnel_to_step?: number): void => {
         changeStepRange(funnel_from_step, funnel_to_step)
@@ -30,8 +26,8 @@ export function FunnelStepsPicker(): JSX.Element | null {
 
             return stepFilter ? (
                 <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
-                    <div style={{ display: 'flex', flexDirection: 'row' }}>
-                        <span style={{ marginRight: 4 }}>Step {stepIndex + 1}:</span>
+                    <div className="flex flex-row">
+                        <span className="mr-1">Step {stepIndex + 1}:</span>
                         <EntityFilterInfo filter={stepFilter as EntityFilter} />
                     </div>
                 </Select.Option>
@@ -40,8 +36,8 @@ export function FunnelStepsPicker(): JSX.Element | null {
     }
 
     return (
-        <Row className="funnel-options-inputs">
-            <span className="text-muted-alt">from</span>
+        <div className="flex items-center">
+            <span className="text-muted-alt">&nbsp;from</span>
             <Select
                 disabled={!isFunnelWithEnoughSteps}
                 dropdownMatchSelectWidth={false}
@@ -67,6 +63,6 @@ export function FunnelStepsPicker(): JSX.Element | null {
             >
                 {renderStepOptions(toRange)}
             </Select>
-        </Row>
+        </div>
     )
 }
