@@ -29,7 +29,7 @@ export function QueryScene(): JSX.Element {
 
     return (
         <div className="QueryScene">
-            <PageHeader title="Query" />
+            <PageHeader title="Query Debugger" />
             <div className="space-y-2">
                 <div>
                     For example:{' '}

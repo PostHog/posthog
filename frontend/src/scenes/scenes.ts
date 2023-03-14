@@ -237,7 +237,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
     },
-    [Scene.Query]: {
+    [Scene.DebugQuery]: {
         projectBased: true,
     },
     [Scene.VerifyEmail]: {
@@ -365,7 +365,7 @@ export const routes: Record<string, Scene> = {
     [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
-    [urls.query()]: Scene.Query,
+    [urls.debugQuery()]: Scene.DebugQuery,
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
 }
