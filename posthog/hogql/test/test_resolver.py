@@ -7,7 +7,7 @@ from posthog.test.base import BaseTest
 
 class TestResolver(BaseTest):
     def setUp(self):
-        self.database = create_hogql_database(self.team)
+        self.database = create_hogql_database(self.team.pk)
 
     def test_resolve_events_table(self):
         expr = parse_select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
@@ -235,7 +235,7 @@ class TestResolver(BaseTest):
         ]
         for query in queries:
             with self.assertRaises(ResolverException) as e:
-                resolve_refs(parse_select(query))
+                resolve_refs(parse_select(query), self.database)
             self.assertIn("Unable to resolve field:", str(e.exception))
 
     def test_resolve_lazy_pdi_person_table(self):
@@ -536,7 +536,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_union_all(self):
         node = parse_select("select event, timestamp from events union all select event, timestamp from events")
-        resolve_refs(node)
+        resolve_refs(node, self.database)
 
         events_table_ref = ast.TableRef(table=self.database.events)
         self.assertEqual(

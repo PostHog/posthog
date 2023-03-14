@@ -1,5 +1,4 @@
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.test.base import BaseTest
@@ -13,10 +12,10 @@ class TestLazyTables(BaseTest):
             "FROM events "
             "INNER JOIN "
             "(SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id "
-            "FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id "
+            f"FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id "
             "HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi "
             "ON equals(events.distinct_id, events__pdi.distinct_id) "
-            "WHERE equals(team_id, 42) "
+            f"WHERE equals(team_id, {self.team.pk}) "
             "LIMIT 65535"
         )
         self.assertEqual(printed, expected)
@@ -28,10 +27,10 @@ class TestLazyTables(BaseTest):
             "FROM events "
             "INNER JOIN "
             "(SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id "
-            "FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id "
+            f"FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id "
             "HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi "
             "ON equals(events.distinct_id, events__pdi.distinct_id) "
-            "WHERE equals(team_id, 42) "
+            f"WHERE equals(team_id, {self.team.pk}) "
             "LIMIT 65535"
         )
         self.assertEqual(printed, expected)
@@ -42,13 +41,13 @@ class TestLazyTables(BaseTest):
             "SELECT event, events__pdi__person.id "
             "FROM events "
             "INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id "
-            "FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id "
+            f"FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id "
             "HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi "
             "ON equals(events.distinct_id, events__pdi.distinct_id) "
-            "INNER JOIN (SELECT id FROM person WHERE equals(team_id, 42) GROUP BY id "
+            f"INNER JOIN (SELECT id FROM person WHERE equals(team_id, {self.team.pk}) GROUP BY id "
             "HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi__person "
             "ON equals(events__pdi.person_id, events__pdi__person.id) "
-            "WHERE equals(team_id, 42) "
+            f"WHERE equals(team_id, {self.team.pk}) "
             "LIMIT 65535"
         )
         self.assertEqual(printed, expected)
@@ -59,13 +58,13 @@ class TestLazyTables(BaseTest):
             "SELECT event, events__pdi__person.id "
             "FROM events "
             "INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id "
-            "FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id "
+            f"FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id "
             "HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi "
             "ON equals(events.distinct_id, events__pdi.distinct_id) "
-            "INNER JOIN (SELECT id FROM person WHERE equals(team_id, 42) GROUP BY id "
+            f"INNER JOIN (SELECT id FROM person WHERE equals(team_id, {self.team.pk}) GROUP BY id "
             "HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi__person "
             "ON equals(events__pdi.person_id, events__pdi__person.id) "
-            "WHERE equals(team_id, 42) "
+            f"WHERE equals(team_id, {self.team.pk}) "
             "LIMIT 65535"
         )
         self.assertEqual(printed, expected)
@@ -77,10 +76,10 @@ class TestLazyTables(BaseTest):
             "FROM person_distinct_id2 INNER JOIN "
             "(SELECT argMax(replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', ''), version) "
             "AS `properties___$browser`, id FROM person "
-            "WHERE equals(team_id, 42) GROUP BY id "
+            f"WHERE equals(team_id, {self.team.pk}) GROUP BY id "
             "HAVING equals(argMax(is_deleted, version), 0)"
             ") AS person_distinct_ids__person ON equals(person_id, person_distinct_ids__person.id) "
-            "WHERE equals(team_id, 42) "
+            f"WHERE equals(team_id, {self.team.pk}) "
             "LIMIT 65535"
         )
         self.assertEqual(printed, expected)
@@ -90,14 +89,14 @@ class TestLazyTables(BaseTest):
         expected = (
             "SELECT event, events__pdi__person.`properties___$browser` FROM events INNER JOIN "
             "(SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id "
-            "FROM person_distinct_id2 WHERE equals(team_id, 42) "
+            f"FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) "
             "GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)"
             ") AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN "
             "(SELECT argMax(replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', ''), version) "
             "AS `properties___$browser`, id FROM person "
-            "WHERE equals(team_id, 42) GROUP BY id HAVING equals(argMax(is_deleted, version), 0)"
+            f"WHERE equals(team_id, {self.team.pk}) GROUP BY id HAVING equals(argMax(is_deleted, version), 0)"
             ") AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) "
-            "WHERE equals(team_id, 42) "
+            f"WHERE equals(team_id, {self.team.pk}) "
             "LIMIT 65535"
         )
         self.assertEqual(printed, expected)
@@ -107,17 +106,16 @@ class TestLazyTables(BaseTest):
         expected = (
             "SELECT event, events__pdi__person.properties, events__pdi__person.properties___name "
             "FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id "
-            "FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)"
+            f"FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)"
             ") AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN "
             "(SELECT argMax(person.properties, version) AS properties, "
             "argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), version) AS properties___name, "
-            "id FROM person WHERE equals(team_id, 42) GROUP BY id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi__person "
+            f"id FROM person WHERE equals(team_id, {self.team.pk}) GROUP BY id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi__person "
             "ON equals(events__pdi.person_id, events__pdi__person.id) "
-            "WHERE equals(team_id, 42) LIMIT 65535"
+            f"WHERE equals(team_id, {self.team.pk}) LIMIT 65535"
         )
         self.assertEqual(printed, expected)
 
     def _print_select(self, select: str):
         expr = parse_select(select)
-        database = create_hogql_database(self.team)
-        return print_ast(expr, HogQLContext(select_team_id=42, database=database), "clickhouse")
+        return print_ast(expr, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse")

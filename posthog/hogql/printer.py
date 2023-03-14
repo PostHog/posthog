@@ -5,7 +5,7 @@ from ee.clickhouse.materialized_columns.columns import TablesWithMaterializedCol
 from posthog.hogql import ast
 from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import Table
+from posthog.hogql.database import Table, create_hogql_database
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_refs
 from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
@@ -15,13 +15,13 @@ from posthog.models.property import PropertyName, TableColumn
 
 def team_id_guard_for_table(table_ref: Union[ast.TableRef, ast.TableAliasRef], context: HogQLContext) -> ast.Expr:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
-    if not context.select_team_id:
-        raise ValueError("context.select_team_id not found")
+    if not context.team_id:
+        raise ValueError("context.team_id not found")
 
     return ast.CompareOperation(
         op=ast.CompareOperationType.Eq,
         left=ast.Field(chain=["team_id"], ref=ast.FieldRef(name="team_id", table=table_ref)),
-        right=ast.Constant(value=context.select_team_id),
+        right=ast.Constant(value=context.team_id),
     )
 
 
@@ -35,6 +35,7 @@ def print_ast(
     ref = stack[-1].ref if stack else None
 
     # resolve refs
+    context.database = context.database or create_hogql_database(context.team_id)
     resolve_refs(node, context.database, ref)
 
     # modify the cloned tree as needed
@@ -76,8 +77,11 @@ class _Printer(Visitor):
         return query
 
     def visit_select_query(self, node: ast.SelectQuery):
-        if self.dialect == "clickhouse" and not self.context.select_team_id:
-            raise ValueError("Full SELECT queries are disabled if context.select_team_id is not set")
+        if self.dialect == "clickhouse":
+            if not self.context.enable_select_queries:
+                raise ValueError("Full SELECT queries are disabled if context.enable_select_queries is False")
+            if not self.context.team_id:
+                raise ValueError("Full SELECT queries are disabled if context.team_id is not set")
 
         # if we are the first parsed node in the tree, or a child of a SelectUnionQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectUnionQuery)

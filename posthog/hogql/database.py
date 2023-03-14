@@ -1,9 +1,6 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from pydantic import BaseModel, Extra
-
-if TYPE_CHECKING:
-    from posthog.models import Team
 
 
 class DatabaseField(BaseModel):
@@ -334,9 +331,12 @@ class Database(BaseModel):
         raise ValueError(f'Table "{table_name}" not found in database')
 
 
-def create_hogql_database(team: Optional["Team"]) -> Database:
+def create_hogql_database(team_id: Optional[int]) -> Database:
+    from posthog.models import Team
+
     database = Database()
-    if team and team.person_on_events_querying_enabled:
+    team = Team.objects.get(pk=team_id)
+    if team.person_on_events_querying_enabled:
         database.events.person = FieldTraverser(chain=["poe"])
         database.events.person_id = FieldTraverser(chain=["poe", "person_id"])
     return database

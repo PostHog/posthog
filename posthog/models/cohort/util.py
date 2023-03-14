@@ -10,7 +10,6 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
-from posthog.hogql.database import create_hogql_database
 from posthog.hogql.hogql import HogQLContext
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
@@ -231,7 +230,7 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
-    hogql_context = HogQLContext(within_non_hogql_query=True, database=create_hogql_database(cohort.team))
+    hogql_context = HogQLContext(within_non_hogql_query=True, team_id=cohort.team_id)
     cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
 
     before_count = get_cohort_size(cohort.pk, cohort.team_id)
