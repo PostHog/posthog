@@ -60,7 +60,7 @@
         gap: 0.25rem;
 
         &.LemonButton--no-content {
-            padding: 0.125rem !important; // Override hasIcon and hasSideIcon
+            padding: 0.125rem;
             min-height: 1rem;
         }
 
@@ -86,15 +86,9 @@
 
     &.LemonButton--hasIcon {
         padding-left: 0.5rem;
-        &.LemonButton--small {
-            padding-left: 0.375rem;
-        }
     }
     &.LemonButton--hasSideIcon {
         padding-right: 0.5rem;
-        &.LemonButton--small {
-            padding-right: 0.375rem;
-        }
     }
     &.LemonButton--noPadding {
         min-height: 0;
@@ -144,7 +138,8 @@
             border: 1px solid var(--border);
 
             &:not(.LemonButton--disabled):hover,
-            &.LemonButton--active {
+            &.LemonButton--active,
+            &:not(.LemonButton--disabled):active {
                 background: var(--primary-highlight);
                 border-color: var(--primary);
             }
@@ -205,7 +200,8 @@
                 border: 1px solid var(--border);
 
                 &:not(.LemonButton--disabled):hover,
-                &.LemonButton--active {
+                &.LemonButton--active,
+                &:not(.LemonButton--disabled):active {
                     background: var(--#{$status}-highlight, var(--primary-highlight));
                     border-color: var(--#{$status});
                 }
