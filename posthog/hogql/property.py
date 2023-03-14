@@ -199,7 +199,9 @@ def action_to_expr(action: Action) -> ast.Expr:
 
     or_queries = []
     for step in steps:
-        exprs: List[ast.Expr] = [parse_expr("event = {event}", {"event": ast.Constant(value=step.event)})]
+        exprs: List[ast.Expr] = []
+        if step.event:
+            exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=step.event)}))
 
         if step.event == AUTOCAPTURE_EVENT:
             if step.selector:
