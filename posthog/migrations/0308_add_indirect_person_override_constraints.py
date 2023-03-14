@@ -69,6 +69,7 @@ class Migration(migrations.Migration):
                 to="posthog.personoverridemapping",
             ),
         ),
+        # These two constraints need to be re-added as they are dropped when removing fields.
         migrations.AddConstraint(
             model_name="personoverride",
             constraint=models.UniqueConstraint(

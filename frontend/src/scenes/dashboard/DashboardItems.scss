@@ -9,7 +9,7 @@
 
     /* remove initial loading animation, animations are only needed in edit mode */
     &.dashboard-view-mode .react-grid-item {
-        transition: none;
+        transition: border-color 100ms ease;
     }
 }
 .react-grid-item {

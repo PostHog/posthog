@@ -64,12 +64,6 @@ $list_style_types: 'none', 'disc', 'decimal';
 // See https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=2028%3A841
 // NOTE: Currently this has to be manually synced wit `tailwind.config.j` to allow IDE auto-completion
 $colors: (
-    // orange is a temporary variable only for year in posthog
-    'orange-highlight': #f4e7de,
-    'orange-extralight': #ff9647,
-    'orange-light': #ff8434,
-    'orange': #f54e00,
-    'orange-dark': #e43c00,
     'primary-highlight': #e8edff,
     'primary-extralight': #d2dbff,
     'primary-light': #345cff,
@@ -110,7 +104,14 @@ $colors: (
     'border-light': rgba(0, 0, 0, 0.08),
     'border-dark': rgba(0, 0, 0, 0.24),
     'border-active': rgba(0, 0, 0, 0.36),
-    'transparent': transparent
+    'transparent': transparent,
+
+    // PostHog 3000
+    'text-3000': #111,
+    'muted-3000': rgba(#111, 0.5),
+    'accent-3000': #e5e7e0,
+    'bg-3000': #eeefe9,
+    'border-3000': #d0d1c9,
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
@@ -260,7 +261,7 @@ $_lifecycle_dormant: #f86234;
     // Update and override from react-toastify
     // which attaches these variables to :root
     // which means they aren't available in the toolbar
-    --toastify-color-light: #fff;
+    --toastify-color-light: var(--bg-light);
     --toastify-color-info: var(--primary);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);

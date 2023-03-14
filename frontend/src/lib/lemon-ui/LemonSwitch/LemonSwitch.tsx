@@ -33,7 +33,7 @@ export function LemonSwitch({
     icon,
     'data-attr': dataAttr,
 }: LemonSwitchProps): JSX.Element {
-    const id = useMemo(() => rawId || `lemon-checkbox-${switchCounter++}`, [rawId])
+    const id = useMemo(() => rawId || `lemon-switch-${switchCounter++}`, [rawId])
     const [isActive, setIsActive] = useState(false)
 
     return (

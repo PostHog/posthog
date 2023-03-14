@@ -6,7 +6,7 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
+import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
@@ -191,7 +191,7 @@ export class DB {
     // Postgres
 
     public postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
-        queryString: string,
+        queryString: string | QueryConfig<I>,
         values: I | undefined,
         tag: string,
         client?: PoolClient
@@ -218,6 +218,7 @@ export class DB {
                 if (e.message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => e.message.includes(message))) {
                     throw new DependencyUnavailableError(e.message, 'Postgres', e)
                 }
+
                 throw e
             } finally {
                 client.release()
@@ -1173,7 +1174,10 @@ export class DB {
         // The CTE helps make this happen.
         //
         // Every override is unique for a team-personID-featureFlag combo.
-        // Thus, if the target person already has an override, we do nothing on conflict
+        // In case we run into a conflict we would ideally use the override from most recent
+        // personId used, so the user experience is consistent, however that's tricky to figure out
+        // this also happens rarely, so we're just going to do the performance optimal thing
+        // i.e. do nothing on conflicts, so we keep using the value that the person merged into had
         await this.postgresQuery(
             `
             WITH deletions AS (

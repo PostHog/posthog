@@ -150,7 +150,7 @@ def create_starter_template(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0308_add_indirect_person_override_constraints"),
+        ("posthog", "0309_team_autocapture_opt_out"),
     ]
 
     operations = [migrations.RunPython(create_starter_template, reverse_code=migrations.RunPython.noop)]
