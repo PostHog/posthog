@@ -15,7 +15,7 @@ export function OpenEditorButton({ query }: InlineEditorButtonProps): JSX.Elemen
                 status="primary-alt"
                 to={urls.insightNew(undefined, undefined, JSON.stringify(query))}
                 icon={<IconQueryEditor />}
-                title={'Open in query editor'}
+                tooltip={'Open as a new insight'}
             />
         </>
     )
