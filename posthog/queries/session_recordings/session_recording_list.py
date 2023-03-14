@@ -498,21 +498,6 @@ class SessionRecordingListV2(SessionRecordingList):
         LIMIT %(limit)s OFFSET %(offset)s
         """
 
-    def _determine_should_join_persons(self) -> None:
-        super()._determine_should_join_persons()
-        if self._team.person_on_events_querying_enabled:
-            self._filter.hogql_context.using_person_on_events = (
-                True  # explicitly set here as "team" isn't always passed into hogql context
-            )
-            self._should_join_distinct_ids = False
-            self._should_join_persons = False
-            return
-
-        if self._filter.person_uuid:
-            self._should_join_distinct_ids = True
-            self._should_join_persons = True
-            return
-
     def _get_core_events_query(self) -> Tuple[str, Dict[str, Any]]:
         params: Dict[str, Any] = {}
         event_filters = self.format_event_filters

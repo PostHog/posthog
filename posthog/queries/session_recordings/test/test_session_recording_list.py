@@ -8,7 +8,6 @@ from posthog.models import Cohort, Person
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
 from posthog.session_recordings.test.test_factory import create_chunked_snapshots, create_snapshot
@@ -860,8 +859,6 @@ class TestClickhouseSessionRecordingsListV2(session_recording_list_test_factory(
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_event_filter_with_hogql_properties(self):
-        if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
-            return
 
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         create_snapshot(distinct_id="user", session_id="1", timestamp=self.base_time, team_id=self.team.id)
