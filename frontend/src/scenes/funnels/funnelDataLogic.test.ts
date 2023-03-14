@@ -1,11 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
+import timekeeper from 'timekeeper'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
-import { FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
+import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
 import { ActionsNode, DataNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
 import {
     funnelResult,
@@ -1057,6 +1058,88 @@ describe('funnelDataLogic', () => {
                     stepRate: 0,
                     totalRate: 0.7120000000000001, // avg(steps[0] / 100)
                 },
+            })
+        })
+    })
+
+    describe('conversionWindow', () => {
+        it('with defaults', async () => {
+            await expectLogic(logic).toMatchValues({
+                conversionWindow: {
+                    funnel_window_interval: 14,
+                    funnel_window_interval_unit: 'day',
+                },
+            })
+        })
+
+        it('with conversion window', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_window_interval: 3,
+                    funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Week,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                conversionWindow: {
+                    funnel_window_interval: 3,
+                    funnel_window_interval_unit: 'week',
+                },
+            })
+        })
+    })
+
+    describe('incompletenessOffsetFromEnd', () => {
+        beforeAll(() => {
+            const lastResponseDay = funnelResultTrends.result[0].days.slice(-1)[0]
+            timekeeper.freeze(new Date(lastResponseDay))
+        })
+
+        afterAll(() => {
+            timekeeper.reset()
+        })
+
+        it('with defaults', async () => {
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTrends.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toMatchValues({
+                incompletenessOffsetFromEnd: -7,
+            })
+        })
+
+        it('with conversion window', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_window_interval: 2,
+                    funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
+                },
+            }
+
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTrends.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                incompletenessOffsetFromEnd: -3,
             })
         })
     })
