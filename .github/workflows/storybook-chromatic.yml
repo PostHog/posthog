@@ -5,6 +5,7 @@ on:
         paths: # Only run if the frontend has changed
             - 'frontend/**'
             - '.storybook/**'
+            - 'package.json'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
