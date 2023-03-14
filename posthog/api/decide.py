@@ -13,7 +13,7 @@ from posthog.api.geoip import get_geoip_properties
 from posthog.api.utils import get_project_id, get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.team.team_caching import get_or_set_cached_team, set_cached_team
 from posthog.plugins.site import get_decide_site_apps
@@ -67,7 +67,7 @@ def get_decide(request: HttpRequest):
         "isAuthenticated": False,
         "capturePerformance": False,
         "supportedCompression": ["gzip", "gzip-js", "lz64"],
-        "featueFlags": [],
+        "featureFlags": [],
         "sessionRecording": False,
     }
 
@@ -128,7 +128,7 @@ def get_decide(request: HttpRequest):
             cached_team = set_cached_team(user_team.api_token, user_team)
 
         if cached_team:
-            structlog.contextvars.bind_contextvars(team_id=cached_team["id"])
+            structlog.contextvars.bind_contextvars(team_id=cached_team.id)
 
             distinct_id = data.get("distinct_id")
             if distinct_id is None:
@@ -150,7 +150,7 @@ def get_decide(request: HttpRequest):
             }
 
             feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
-                cached_team["id"],
+                cached_team.id,
                 data["distinct_id"],
                 data.get("groups") or {},
                 hash_key_override=data.get("$anon_distinct_id"),
@@ -171,22 +171,22 @@ def get_decide(request: HttpRequest):
                 # default v1
                 response["featureFlags"] = list(active_flags.keys())
 
-            if cached_team["session_recording_opt_in"] and (
-                on_permitted_recording_domain(cached_team["recording_domains"], request)
-                or not cached_team["recording_domains"]
+            if cached_team.session_recording_opt_in and (
+                on_permitted_recording_domain(cached_team.recording_domains, request)
+                or not cached_team.recording_domains
             ):
-                capture_console_logs = True if cached_team["capture_console_log_opt_in"] else False
-                response["capturePerformance"] = cached_team["capture_performance_enabled"]
+                capture_console_logs = True if cached_team.capture_console_log_opt_in else False
+                response["capturePerformance"] = cached_team.capture_performance_enabled
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
-                    "recorderVersion": "v2" if cached_team["session_recording_version"] == "v2" else "v1",
+                    "recorderVersion": "v2" if cached_team.session_recording_version == "v2" else "v1",
                 }
 
             site_apps = []
-            if cached_team["inject_web_apps"]:
+            if cached_team.inject_web_apps:
                 try:
-                    site_apps = get_decide_site_apps(cached_team["id"])
+                    site_apps = get_decide_site_apps(cached_team.id)
                 except Exception:
                     pass
 

@@ -25,7 +25,6 @@ from posthog.models.utils import UUIDClassicModel, generate_random_token_project
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
-
 TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
 # TODO: DEPRECATED; delete when these attributes can be fully removed from `Team` model

@@ -1,4 +1,6 @@
 import json
+from dataclasses import asdict
+from typing import cast
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
@@ -305,7 +307,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(cached_team.session_recording_opt_in, True)
 
         # only things in CachedTeamSerializer are cached!
-        self.assertEqual(cached_team.timezone, "UTC")
+        self.assertEqual(asdict(cached_team).get("timezone"), None)
 
         # reset token should update cache as well
         response = self.client.patch(f"/api/projects/{team_id}/reset_token/")
