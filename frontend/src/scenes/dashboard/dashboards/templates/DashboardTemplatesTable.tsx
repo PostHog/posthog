@@ -12,16 +12,12 @@ import { userLogic } from 'scenes/userLogic'
 
 export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { searchTerm } = useValues(dashboardsLogic)
-    const { allTemplates, allTemplatesLoading, isUsingDashboardTemplatesV2 } = useValues(dashboardTemplatesLogic)
+    const { allTemplates, allTemplatesLoading } = useValues(dashboardTemplatesLogic)
 
     const { openDashboardTemplateEditor, setDashboardTemplateId, deleteDashboardTemplate } =
         useActions(dashboardTemplateEditorLogic)
 
     const { user } = useValues(userLogic)
-
-    if (!isUsingDashboardTemplatesV2) {
-        return null
-    }
 
     const columns: LemonTableColumns<DashboardTemplateType> = [
         {

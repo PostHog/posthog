@@ -173,11 +173,10 @@ def run_events_query(
                 query_result.results[index] = list(result)
                 if distinct_to_person.get(distinct_id):
                     person = distinct_to_person[distinct_id]
-                    properties = person.properties or {}
                     query_result.results[index][column_index] = {
                         "uuid": person.uuid,
                         "created_at": person.created_at,
-                        "properties": {"name": properties.get("name"), "email": properties.get("email")},
+                        "properties": person.properties or {},
                         "distinct_id": distinct_id,
                     }
                 else:

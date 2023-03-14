@@ -63,7 +63,6 @@ describe('eachBatchIngestionWithOverflow', () => {
             },
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
-                runLightweightCaptureEndpointEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(),
                 runBufferEventPipeline: jest.fn(),
             },
@@ -115,7 +114,7 @@ describe('eachBatchIngestionWithOverflow', () => {
             1
         )
         // This is "the rest of the pipeline"
-        expect(queue.workerMethods.runLightweightCaptureEndpointEventPipeline).toHaveBeenCalled()
+        expect(queue.workerMethods.runEventPipeline).toHaveBeenCalled()
     })
 
     it('does not produce the event again', async () => {

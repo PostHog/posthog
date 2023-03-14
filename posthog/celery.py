@@ -127,6 +127,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
     sender.add_periodic_task(120, clickhouse_errors_count.s(), name="clickhouse instance errors count")
 
+    sender.add_periodic_task(120, pg_row_count.s(), name="PG tables row counts")
     sender.add_periodic_task(120, pg_table_cache_hit_rate.s(), name="PG table cache hit rate")
     sender.add_periodic_task(
         crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
@@ -312,7 +313,32 @@ def pg_plugin_server_query_timing():
             pass
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_recording_events"]
+POSTGRES_TABLES = ["posthog_personoverride", "posthog_personoverridemapping"]
+
+
+@app.task(ignore_result=True)
+def pg_row_count():
+    with pushed_metrics_registry("celery_pg_row_count") as registry:
+        row_count_gauge = Gauge(
+            "posthog_celery_pg_table_row_count",
+            "Number of rows per Postgres table.",
+            labelnames=["table_name"],
+            registry=registry,
+        )
+        with connection.cursor() as cursor:
+            for table in POSTGRES_TABLES:
+                QUERY = "SELECT count(*) FROM {table};"
+                query = QUERY.format(table=table)
+
+                try:
+                    cursor.execute(query)
+                    row = cursor.fetchone()
+                    row_count_gauge.labels(table_name=table).set(row[0])
+                except:
+                    pass
+
+
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "person_overrides", "session_recording_events"]
 
 
 @app.task(ignore_result=True)
@@ -460,7 +486,7 @@ def clickhouse_row_count():
         row_count_gauge = Gauge(
             "posthog_celery_clickhouse_table_row_count",
             "Number of rows per ClickHouse table.",
-            labelnames=["table"],
+            labelnames=["table_name"],
             registry=registry,
         )
         for table in CLICKHOUSE_TABLES:
@@ -468,7 +494,7 @@ def clickhouse_row_count():
                 QUERY = """select count(1) freq from {table};"""
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
-                row_count_gauge.labels(table=table).set(rows)
+                row_count_gauge.labels(table_name=table).set(rows)
                 statsd.gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
             except:
                 pass
