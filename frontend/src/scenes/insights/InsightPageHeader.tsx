@@ -69,7 +69,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query, queryChanged } = useValues(insightDataLogic(insightProps))
+    const { query, queryChanged, showQueryEditor } = useValues(insightDataLogic(insightProps))
     const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
@@ -315,7 +315,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         )}
                         {isUsingDataExploration && isInsightVizNode(query) ? (
-                            <LemonButton tooltip="Edit as text" type={'secondary'} onClick={toggleQueryEditorPanel}>
+                            <LemonButton
+                                tooltip={showQueryEditor ? 'Hide text editor' : 'Edit as text'}
+                                type={'secondary'}
+                                onClick={toggleQueryEditorPanel}
+                            >
                                 <IconEvent />
                             </LemonButton>
                         ) : null}
