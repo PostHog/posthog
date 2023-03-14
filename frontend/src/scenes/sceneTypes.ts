@@ -62,7 +62,7 @@ export enum Scene {
     Ingestion = 'IngestionWizard',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
-    Query = 'Query',
+    DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
 }

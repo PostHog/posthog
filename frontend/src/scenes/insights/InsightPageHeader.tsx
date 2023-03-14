@@ -1,7 +1,15 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { summariseInsight } from 'scenes/insights/utils'
+import {
+    AvailableFeature,
+    ExporterFormat,
+    FilterType,
+    InsightLogicProps,
+    InsightModel,
+    InsightShortId,
+    ItemMode,
+} from '~/types'
 import { IconEvent, IconLock } from 'lib/lemon-ui/icons'
-import { AvailableFeature, ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode } from '~/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -35,6 +43,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { globalInsightLogic } from './globalInsightLogic'
 import { isInsightVizNode } from '~/queries/utils'
+import { posthog } from 'posthog-js'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -251,9 +260,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     <div>
                                         <LemonSwitch
                                             onChange={(checked) => {
-                                                const samplingFilter = checked
-                                                    ? { sampling_factor: 0.1 }
-                                                    : { sampling_factor: null }
+                                                let samplingFilter: { sampling_factor: FilterType['sampling_factor'] } =
+                                                    { sampling_factor: null }
+                                                if (checked) {
+                                                    samplingFilter = { sampling_factor: 0.1 }
+                                                    posthog.capture('sampling_fast_mode_enabled')
+                                                } else {
+                                                    posthog.capture('sampling_fast_mode_disabled')
+                                                }
                                                 setGlobalInsightFilters({ ...globalInsightFilters, ...samplingFilter })
                                             }}
                                             checked={!!globalInsightFilters.sampling_factor}
@@ -301,7 +315,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         )}
                         {isUsingDataExploration && isInsightVizNode(query) ? (
-                            <LemonButton tooltip="Edit as code" type={'secondary'} onClick={toggleQueryEditorPanel}>
+                            <LemonButton tooltip="Edit as text" type={'secondary'} onClick={toggleQueryEditorPanel}>
                                 <IconEvent />
                             </LemonButton>
                         ) : null}

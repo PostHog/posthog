@@ -15,6 +15,7 @@ import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 import { LemonButton } from '@posthog/lemon-ui'
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
+import { posthog } from 'posthog-js'
 
 export function InsightEmptyState(): JSX.Element {
     return (
@@ -68,7 +69,12 @@ export function InsightTimeoutState({
                         <LemonButton
                             className="mx-auto mt-4"
                             type="primary"
-                            onClick={() => setSamplingPercentage(suggestedSamplingPercentage)}
+                            onClick={() => {
+                                setSamplingPercentage(suggestedSamplingPercentage)
+                                posthog.capture('sampling_enabled_on_slow_query', {
+                                    samplingPercentage: suggestedSamplingPercentage,
+                                })
+                            }}
                         >
                             Click here to speed up calculation with {suggestedSamplingPercentage}% sampling
                         </LemonButton>
