@@ -114,11 +114,23 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                             {billing?.has_active_subscription && (
                                 <>
                                     <LemonLabel
-                                        info={'This is the current amount you have been billed for this month so far.'}
+                                        info={`This is the current amount you have been billed for this ${billing.billing_period.interval} so far.`}
                                     >
                                         Current bill total
                                     </LemonLabel>
-                                    <div className="font-bold text-6xl">${billing.current_total_amount_usd}</div>
+                                    <div className="font-bold text-6xl">
+                                        ${billing.current_total_amount_usd_after_discount}
+                                    </div>
+                                    {billing.discount_percent && (
+                                        <div className="text-xl">
+                                            ({billing.discount_percent}% off discount applied)
+                                        </div>
+                                    )}
+                                    {billing.discount_amount_usd && (
+                                        <div className="text-xl">
+                                            (-${billing.discount_amount_usd} discount applied)
+                                        </div>
+                                    )}
                                 </>
                             )}
 
@@ -384,7 +396,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                 {product.current_amount_usd ? (
                     <div className="flex justify-between gap-8 flex-wrap">
                         <div className="space-y-2">
-                            <LemonLabel info={'This is the current amount you have been billed for this month so far.'}>
+                            <LemonLabel
+                                info={`This is the current amount you have been billed for this ${billing?.billing_period?.interval} so far.`}
+                            >
                                 Current bill
                             </LemonLabel>
                             <div className="font-bold text-4xl">${product.current_amount_usd}</div>
@@ -406,84 +420,86 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                             : '0.00'}
                                     </div>
                                 </div>
-                                <div className="space-y-2">
-                                    <LemonLabel
-                                        info={
-                                            <>
-                                                Set a billing limit to control your recurring costs.{' '}
-                                                <b>
-                                                    Your critical data will still be ingested and available in the
-                                                    product
-                                                </b>
-                                                . Some features may stop working if your usage greatly exceeds your
-                                                billing cap.
-                                            </>
-                                        }
-                                    >
-                                        Billing limit
-                                    </LemonLabel>
-                                    <div className="flex items-center gap-1">
-                                        {!isEditingBillingLimit ? (
-                                            <>
-                                                <div
-                                                    className={clsx(
-                                                        'text-muted font-semibold mr-2',
-                                                        customLimitUsd && 'text-2xl'
-                                                    )}
-                                                >
-                                                    {customLimitUsd ? `$${customLimitUsd}` : 'No limit'}
-                                                </div>
-                                                <LemonButton
-                                                    icon={<IconEdit />}
-                                                    status="primary-alt"
-                                                    size="small"
-                                                    tooltip="Edit billing limit"
-                                                    onClick={() => setIsEditingBillingLimit(true)}
-                                                />
-                                                {customLimitUsd ? (
+                                {billing?.billing_period?.interval == 'month' && (
+                                    <div className="space-y-2">
+                                        <LemonLabel
+                                            info={
+                                                <>
+                                                    Set a billing limit to control your recurring costs.{' '}
+                                                    <b>
+                                                        Your critical data will still be ingested and available in the
+                                                        product
+                                                    </b>
+                                                    . Some features may stop working if your usage greatly exceeds your
+                                                    billing cap.
+                                                </>
+                                            }
+                                        >
+                                            Billing limit
+                                        </LemonLabel>
+                                        <div className="flex items-center gap-1">
+                                            {!isEditingBillingLimit ? (
+                                                <>
+                                                    <div
+                                                        className={clsx(
+                                                            'text-muted font-semibold mr-2',
+                                                            customLimitUsd && 'text-2xl'
+                                                        )}
+                                                    >
+                                                        {customLimitUsd ? `$${customLimitUsd}` : 'No limit'}
+                                                    </div>
                                                     <LemonButton
-                                                        icon={<IconDelete />}
+                                                        icon={<IconEdit />}
                                                         status="primary-alt"
                                                         size="small"
-                                                        tooltip="Remove billing limit"
-                                                        onClick={() => updateBillingLimit(undefined)}
+                                                        tooltip="Edit billing limit"
+                                                        onClick={() => setIsEditingBillingLimit(true)}
                                                     />
-                                                ) : null}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <div style={{ maxWidth: 180 }}>
-                                                    <LemonInput
-                                                        type="number"
-                                                        fullWidth={false}
-                                                        value={billingLimitInput}
-                                                        onChange={setBillingLimitInput}
-                                                        prefix={<b>$</b>}
-                                                        disabled={billingLoading}
-                                                        min={0}
-                                                        step={10}
-                                                        suffix={<>/month</>}
-                                                    />
-                                                </div>
+                                                    {customLimitUsd ? (
+                                                        <LemonButton
+                                                            icon={<IconDelete />}
+                                                            status="primary-alt"
+                                                            size="small"
+                                                            tooltip="Remove billing limit"
+                                                            onClick={() => updateBillingLimit(undefined)}
+                                                        />
+                                                    ) : null}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <div style={{ maxWidth: 180 }}>
+                                                        <LemonInput
+                                                            type="number"
+                                                            fullWidth={false}
+                                                            value={billingLimitInput}
+                                                            onChange={setBillingLimitInput}
+                                                            prefix={<b>$</b>}
+                                                            disabled={billingLoading}
+                                                            min={0}
+                                                            step={10}
+                                                            suffix={<>/month</>}
+                                                        />
+                                                    </div>
 
-                                                <LemonButton
-                                                    onClick={() => setIsEditingBillingLimit(false)}
-                                                    disabled={billingLoading}
-                                                    type="secondary"
-                                                >
-                                                    Cancel
-                                                </LemonButton>
-                                                <LemonButton
-                                                    onClick={() => updateBillingLimit(billingLimitInput)}
-                                                    loading={billingLoading}
-                                                    type="primary"
-                                                >
-                                                    Save
-                                                </LemonButton>
-                                            </>
-                                        )}
+                                                    <LemonButton
+                                                        onClick={() => setIsEditingBillingLimit(false)}
+                                                        disabled={billingLoading}
+                                                        type="secondary"
+                                                    >
+                                                        Cancel
+                                                    </LemonButton>
+                                                    <LemonButton
+                                                        onClick={() => updateBillingLimit(billingLimitInput)}
+                                                        loading={billingLoading}
+                                                        type="primary"
+                                                    >
+                                                        Save
+                                                    </LemonButton>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                                 <div className="flex-1" />
                             </>
                         )}
@@ -544,7 +560,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                     >
                                         <span>
                                             {i === 0
-                                                ? `First ${summarizeUsage(tier.up_to)} ${productType.plural} / mo`
+                                                ? `First ${summarizeUsage(tier.up_to)} ${productType.plural} / ${
+                                                      billing?.billing_period?.interval
+                                                  }`
                                                 : tier.up_to
                                                 ? `${summarizeUsage(
                                                       product.tiers?.[i - 1].up_to || null
@@ -569,7 +587,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             <div className="font-bold">Pricing breakdown</div>
 
                             <div className="flex justify-between py-2">
-                                <span>Per month</span>
+                                <span>Per {billing.billing_period?.interval}</span>
                                 <span className="font-bold">${product.unit_amount_usd}</span>
                             </div>
                         </div>

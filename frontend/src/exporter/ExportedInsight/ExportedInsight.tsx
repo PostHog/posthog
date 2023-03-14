@@ -13,6 +13,7 @@ import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { isDataTableNode, isInsightVizNode } from '~/queries/utils'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
+import { Query } from '~/queries/Query/Query'
 
 export function ExportedInsight({
     insight,
@@ -89,7 +90,6 @@ export function ExportedInsight({
                         <FriendlyLogo />
                     </div>
                 )}
-
                 <div
                     className={clsx({
                         ExportedInsight__content: true,
@@ -97,7 +97,11 @@ export function ExportedInsight({
                     })}
                 >
                     {!!query ? (
-                        <QueriesUnsupportedHere />
+                        !!insight.result ? (
+                            <Query query={query} cachedResults={insight.result} />
+                        ) : (
+                            <QueriesUnsupportedHere />
+                        )
                     ) : (
                         <InsightViz insight={insight as any} style={{ top: 0, left: 0 }} />
                     )}

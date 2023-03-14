@@ -44,7 +44,6 @@ export enum Scene {
     Annotations = 'Annotations',
     Billing = 'Billing',
     BillingSubscribed = 'BillingSubscribed',
-    BillingLocked = 'BillingLocked',
     Plugins = 'Plugins',
     FrontendAppScene = 'FrontendAppScene',
     AppMetrics = 'AppMetrics',
@@ -65,6 +64,7 @@ export enum Scene {
     Unsubscribe = 'Unsubscribe',
     Query = 'Query',
     VerifyEmail = 'VerifyEmail',
+    Feedback = 'Feedback',
 }
 
 export type SceneProps = Record<string, any>

@@ -96,7 +96,7 @@ export enum Region {
     EU = 'EU',
 }
 
-export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
@@ -197,7 +197,7 @@ export interface OrganizationDomainType {
     verified_at: string // Datetime
     verification_challenge: string
     jit_provisioning_enabled: boolean
-    sso_enforcement: SSOProviders | ''
+    sso_enforcement: SSOProvider | ''
     has_saml: boolean
     saml_entity_id: string
     saml_acs_url: string
@@ -293,6 +293,7 @@ export interface TeamType extends TeamBasicType {
     app_urls: string[]
     recording_domains: string[]
     slack_incoming_webhook: string
+    autocapture_opt_out: boolean
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
@@ -1100,6 +1101,7 @@ export interface BillingV2Type {
     stripe_portal_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string
+    current_total_amount_usd_after_discount?: string
     products: BillingProductV2Type[]
     products_enterprise?: BillingProductV2Type[]
 
@@ -1109,11 +1111,14 @@ export interface BillingV2Type {
     billing_period?: {
         current_period_start: Dayjs
         current_period_end: Dayjs
+        interval: 'month' | 'year'
     }
     license?: {
         plan: LicensePlan
     }
     available_plans?: BillingV2PlanType[]
+    discount_percent?: number
+    discount_amount_usd?: string
 }
 
 export interface BillingV2PlanType {
@@ -1448,6 +1453,7 @@ export enum InsightType {
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
     QUERY = 'QUERY',
+    SQL = 'SQL',
 }
 
 export enum PathType {
@@ -1744,6 +1750,14 @@ export interface ActionFilter extends EntityFilter {
     properties?: AnyPropertyFilter[]
     type: EntityType
 }
+export interface TrendAPIResponse<ResultType = TrendResult[]> {
+    type: 'Trends'
+    is_cached: boolean
+    last_refresh: string | null
+    result: ResultType
+    timezone: string
+    next: string | null
+}
 
 export interface TrendResult {
     action: ActionFilter
@@ -1801,7 +1815,7 @@ export interface FunnelsTimeConversionBins {
 
 export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
 
-export interface FunnelResult<ResultType = FunnelResultType> {
+export interface FunnelAPIResponse<ResultType = FunnelResultType> {
     is_cached: boolean
     last_refresh: string | null
     result: ResultType
@@ -2068,7 +2082,7 @@ export enum DashboardMode { // Default mode is null
 }
 
 // Hotkeys for local (component) actions
-export type HotKeys =
+export type HotKey =
     | 'a'
     | 'b'
     | 'c'
@@ -2101,6 +2115,8 @@ export type HotKeys =
     | 'arrowright'
     | 'arrowdown'
     | 'arrowup'
+
+export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export interface LicenseType {
     id: number

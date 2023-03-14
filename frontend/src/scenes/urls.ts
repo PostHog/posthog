@@ -43,8 +43,11 @@ export const urls = {
     propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
     events: (): string => '/events',
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
-    insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null): string =>
-        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, filters ? { filters } : {}).url,
+    insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
+        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
+            ...(filters ? { filters } : {}),
+            ...(query ? { q: query } : {}),
+        }).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
@@ -83,6 +86,7 @@ export const urls = {
     annotations: (): string => '/annotations',
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,
+    projectAppSearch: (name: string): string => `/project/apps?name=${name}`,
     projectAppLogs: (id: string | number): string => `/project/apps/${id}/logs`,
     projectAppSource: (id: string | number): string => `/project/apps/${id}/source`,
     frontendApp: (id: string | number): string => `/app/${id}`,
@@ -114,7 +118,6 @@ export const urls = {
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     billingSubscribed: (): string => '/organization/billing/subscribed',
-    billingLocked: (): string => '/organization/billing/locked',
     // Self-hosted only
     instanceLicenses: (): string => '/instance/licenses',
     instanceStatus: (): string => '/instance/status',
@@ -142,4 +145,5 @@ export const urls = {
         }).url,
     query: (query?: string | Record<string, any>): string =>
         combineUrl('/query', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
+    feedback: (): string => '/feedback',
 }

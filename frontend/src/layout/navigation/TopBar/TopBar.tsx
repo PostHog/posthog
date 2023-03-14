@@ -20,10 +20,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeedbackButton } from './FeedbackButton'
 import ActivationSidebarToggle from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
-import { LemonSwitch } from '@posthog/lemon-ui'
-import { ThunderboltFilled } from '@ant-design/icons'
-import { userLogic } from 'scenes/userLogic'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -34,8 +30,6 @@ export function TopBar(): JSX.Element {
     const { hideInviteModal } = useActions(inviteLogic)
     const { groupNamesTaxonomicTypes } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { setGlobalSessionFilters } = useActions(userLogic)
-    const { globalSessionFilters } = useValues(userLogic)
     return (
         <>
             <Announcement />
@@ -73,39 +67,6 @@ export function TopBar(): JSX.Element {
                     <ActivationSidebarToggle />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
-                    {featureFlags[FEATURE_FLAGS.SAMPLING] ? (
-                        <Tooltip
-                            title={
-                                !globalSessionFilters.sampling_factor
-                                    ? 'Turning on lightning mode will automatically enable 10% sampling for all new insights, speeding up the calculation of results'
-                                    : ''
-                            }
-                            placement="bottom"
-                        >
-                            <div>
-                                <LemonSwitch
-                                    onChange={(checked) =>
-                                        checked
-                                            ? setGlobalSessionFilters({ sampling_factor: 0.1 })
-                                            : setGlobalSessionFilters({})
-                                    }
-                                    checked={!!globalSessionFilters.sampling_factor}
-                                    icon={
-                                        <ThunderboltFilled
-                                            style={
-                                                !!globalSessionFilters.sampling_factor
-                                                    ? { color: 'var(--primary)' }
-                                                    : {}
-                                            }
-                                        />
-                                    }
-                                    className="TopBar__lightning-mode-box"
-                                    bordered
-                                />
-                            </div>
-                        </Tooltip>
-                    ) : null}
-
                     {!!featureFlags[FEATURE_FLAGS.FEEDBACK_BUTTON] && <FeedbackButton />}
                     {!!featureFlags[FEATURE_FLAGS.HOG_BOOK] && <NotificationBell />}
                     <HelpButton />

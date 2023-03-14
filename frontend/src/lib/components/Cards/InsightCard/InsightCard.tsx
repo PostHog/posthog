@@ -597,6 +597,14 @@ function InsightCardInternal(
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
     const [areDetailsShown, setAreDetailsShown] = useState(false)
 
+    const exportedAndCached = dashboardPlacement && dashboardPlacement == DashboardPlacement.Export && !!insight.result
+    const sharedAndCached = dashboardPlacement && dashboardPlacement == DashboardPlacement.Public && !!insight.result
+    const canMakeQueryAPICalls =
+        dashboardPlacement &&
+        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
+            dashboardPlacement
+        )
+
     return (
         <div
             className={clsx('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
@@ -635,10 +643,10 @@ function InsightCardInternal(
                                 : undefined
                         }
                     >
-                        {isUsingDashboardQueryTiles &&
-                        dashboardPlacement &&
-                        ![DashboardPlacement.Public, DashboardPlacement.Export].includes(dashboardPlacement) ? (
-                            <Query query={insight.query} readOnly={true} />
+                        {exportedAndCached || (isUsingDashboardQueryTiles && sharedAndCached) ? (
+                            <Query query={insight.query} cachedResults={insight.result} />
+                        ) : isUsingDashboardQueryTiles && canMakeQueryAPICalls ? (
+                            <Query query={insight.query} />
                         ) : (
                             <>
                                 <QueriesUnsupportedHere />

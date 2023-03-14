@@ -25,7 +25,7 @@ import {
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
-    InsightsQueryIcon,
+    InsightSQLIcon,
     InsightsRetentionIcon,
     InsightsStickinessIcon,
     InsightsTrendsIcon,
@@ -56,6 +56,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
+import { examples } from '~/queries/examples'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -105,10 +106,16 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         icon: InsightsLifecycleIcon,
         inMenu: true,
     },
+    [InsightType.SQL]: {
+        name: 'SQL',
+        description: 'Use SQL to query your data',
+        icon: InsightSQLIcon,
+        inMenu: true,
+    },
     [InsightType.QUERY]: {
         name: 'Query',
         description: 'Build custom insights with our powerful query language',
-        icon: InsightsQueryIcon,
+        icon: InsightSQLIcon,
         inMenu: false, // until data exploration is released
     },
 }
@@ -250,6 +257,17 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
 }
 
+const insightTypeURL: Record<InsightType, string> = {
+    TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
+    STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
+    LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
+    FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
+    RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
+    PATHS: urls.insightNew({ insight: InsightType.PATHS }),
+    QUERY: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
+    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
+}
+
 export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
     let insightType = insight?.filters?.insight || InsightType.TRENDS
     if (!!insight.query && !isInsightVizNode(insight.query)) {
@@ -263,6 +281,15 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    let menuEntries = Object.entries(INSIGHT_TYPES_METADATA)
+    if (!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]) {
+        menuEntries = menuEntries.filter(
+            ([insightType]) => insightType !== InsightType.QUERY && insightType !== InsightType.SQL
+        )
+    }
+
     return (
         <LemonButtonWithSideAction
             type="primary"
@@ -272,7 +299,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
-                    overlay: Object.entries(INSIGHT_TYPES_METADATA).map(
+                    overlay: menuEntries.map(
                         ([listedInsightType, listedInsightTypeMetadata]) =>
                             listedInsightTypeMetadata.inMenu && (
                                 <LemonButton
@@ -283,7 +310,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                                             <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
                                         )
                                     }
-                                    to={urls.insightNew({ insight: listedInsightType as InsightType })}
+                                    to={insightTypeURL[listedInsightType as InsightType]}
                                     data-attr={dataAttr}
                                     data-attr-insight-type={listedInsightType}
                                     onClick={() => {

@@ -30,6 +30,13 @@ describe('dataNodeLogic - query cancellation', () => {
             },
             post: {
                 '/api/projects/997/insights/cancel/': [201],
+                '/api/projects/997/query/': async () => {
+                    return new Promise((resolve) =>
+                        setTimeout(() => {
+                            resolve([200, { result: ['slow result from api'] }])
+                        }, 1000)
+                    )
+                },
             },
         })
     })
@@ -66,5 +73,32 @@ describe('dataNodeLogic - query cancellation', () => {
             logic.actionCreators.abortQuery({ queryId: 'uuid-first' }),
             logic.actionCreators.loadDataSuccess({ result: ['result from api'] }),
         ])
+    })
+
+    it('cancels a running query on click', async () => {
+        ;(libUtils as any).uuid = jest.fn().mockReturnValueOnce('uuid-first').mockReturnValueOnce('uuid-second')
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select * from events',
+            },
+        })
+        logic.mount()
+
+        setTimeout(() => {
+            logic.actions.cancelQuery()
+        }, 200)
+
+        await expectLogic(logic)
+            .toDispatchActions([
+                'loadData',
+                'abortAnyRunningQuery',
+                'cancelQuery',
+                'abortAnyRunningQuery',
+                logic.actionCreators.abortQuery({ queryId: 'uuid-first' }),
+                'loadDataFailure',
+            ])
+            .toMatchValues({ queryCancelled: true, response: null })
     })
 })
