@@ -162,6 +162,7 @@ async function expectLocatorToMatchStorySnapshot(
     expect(image).toMatchImageSnapshot({
         customSnapshotsDir,
         customSnapshotIdentifier,
-        failureThreshold: 4, // 4 pixels of difference
+        failureThreshold: 0.00002, // 0.002%, which is roughly 18px at 1280x720 and 0.5px at 250x100
+        failureThresholdType: 'percent',
     })
 }
