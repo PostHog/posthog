@@ -643,12 +643,24 @@ function InsightCardInternal(
                                 : undefined
                         }
                     >
-                        {exportedAndCached || (isUsingDashboardQueryTiles && sharedAndCached) ? (
+                        {exportedAndCached || sharedAndCached ? (
                             <Query query={insight.query} cachedResults={insight.result} />
                         ) : isUsingDashboardQueryTiles && canMakeQueryAPICalls ? (
                             <Query query={insight.query} />
                         ) : (
                             <>
+                                <pre>
+                                    {JSON.stringify(
+                                        {
+                                            exportedAndCached,
+                                            sharedAndCached,
+                                            canMakeQueryAPICalls,
+                                            isUsingDashboardQueryTiles,
+                                        },
+                                        null,
+                                        2
+                                    )}
+                                </pre>
                                 <QueriesUnsupportedHere />
                             </>
                         )}
