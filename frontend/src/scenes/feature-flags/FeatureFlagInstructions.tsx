@@ -205,7 +205,7 @@ export function CodeInstructions({
                                 title={
                                     <>
                                         {`Feature flag payloads is only available in these libraries: ${PAYLOAD_OPTIONS.map(
-                                            (payloadOption) => payloadOption.value
+                                            (payloadOption) => ` ${payloadOption.value}`
                                         )}`}
                                     </>
                                 }
