@@ -20,6 +20,6 @@ class ClickhouseRetentionEventsQuery(RetentionEventsQuery):
                 get_aggregation_target_field(
                     self._filter.aggregation_group_type_index,
                     self.EVENT_TABLE_ALIAS,
-                    f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id AS target",
+                    f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
                 )
             )
