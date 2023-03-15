@@ -427,3 +427,10 @@ class TestPrinter(TestCase):
             self._select("SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id"),
             "SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN person ON equals(id, events__pdi.person_id) INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(person.team_id, 42), equals(events.team_id, 42)) LIMIT 65535",
         )
+
+        self.assertEqual(
+            self._select(
+                "SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id"
+            ),
+            "SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN person SAMPLE 0.1 ON equals(id, events__pdi.person_id) INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(person.team_id, 42), equals(events.team_id, 42)) LIMIT 65535",
+        )
