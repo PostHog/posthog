@@ -238,7 +238,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.HogQLQuery]: {
         name: 'HogQL',
         description: 'Direct HogQL query',
-        icon: IconCoffee,
+        icon: InsightSQLIcon,
         inMenu: true,
     },
 }

@@ -41,13 +41,20 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, Node, StickinessQuery } from '~/queries/schema'
 import {
+    isDataTableNode,
     isEventsNode,
+    isEventsQuery,
     isFunnelsQuery,
+    isHogQLQuery,
     isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
+    isPersonsNode,
+    isRecentPerformancePageViewNode,
     isRetentionQuery,
     isStickinessQuery,
+    isTimeToSeeDataSessionsNode,
+    isTimeToSeeDataSessionsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
 
@@ -453,6 +460,48 @@ export function summarizeInsightQuery(
     }
 }
 
+function summariseQuery(query: Node): string {
+    if (isDataTableNode(query)) {
+        let selected: string[] = []
+        let source = ''
+
+        if (isEventsQuery(query.source)) {
+            selected = [...query.source.select]
+            source = 'events'
+        } else if (isPersonsNode(query.source)) {
+            selected = []
+            source = 'persons'
+        } else if (isHogQLQuery(query.source)) {
+            selected = []
+            source = 'HogQL'
+        } else if (isTimeToSeeDataSessionsQuery(query.source)) {
+            selected = ['sessions']
+            source = 'Time to See Data'
+        }
+
+        if (!!query.columns) {
+            selected = [...query.columns]
+        }
+        return `${selected
+            .filter((c) => !(query.hiddenColumns || []).includes(c))
+            .join(', ')} from ${source} into a data table.`
+    }
+
+    if (isTimeToSeeDataSessionsNode(query)) {
+        return `Waterfall chart for time to see session ${query.source.sessionId}.`
+    }
+
+    if (isHogQLQuery(query)) {
+        return 'HogQL query results into data table.'
+    }
+
+    if (isRecentPerformancePageViewNode(query)) {
+        return 'Recent page views with performance data.'
+    }
+
+    return `QueryKind: ${query?.kind}`
+}
+
 export function summariseInsight(
     isUsingDataExploration: boolean,
     query: Node | undefined,
@@ -466,7 +515,7 @@ export function summariseInsight(
     return isUsingDataExploration && isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, aggregationLabel, cohortsById, mathDefinitions)
         : isUsingDataExploration && !!query
-        ? `QueryKind: ${query?.kind}`
+        ? summariseQuery(query)
         : hasFilters
         ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
         : ''
