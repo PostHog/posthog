@@ -165,7 +165,12 @@ async function expectLocatorToMatchStorySnapshot(
         // Compare structural similarity instead of raw pixels - reducing false positives
         // See https://github.com/americanexpress/jest-image-snapshot#recommendations-when-using-ssim-comparison
         comparisonMethod: 'ssim',
-        failureThreshold: 0.001,
+        customDiffConfig: {
+            // This is ironically slower than `bezkrovny`, the default - but also more accurate
+            // The `bezkrovny` algorithm seemed to cause false positives when using a decreased threshold
+            ssim: 'fast',
+        },
+        failureThreshold: 0.0001,
         failureThresholdType: 'percent',
     })
 }
