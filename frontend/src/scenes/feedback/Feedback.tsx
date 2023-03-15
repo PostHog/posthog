@@ -2,7 +2,7 @@ import { LemonButton, LemonCollapse, LemonDivider, LemonModal, LemonTag } from '
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { urls, AdHocInsight } from '@posthog/apps-common'
+import { urls } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
 import { feedbackLogic } from './feedbackLogic'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -108,43 +108,17 @@ export function FeedbackInstructions(): JSX.Element {
     )
 }
 
-function getFilters(eventName: string): Record<string, any> {
-    return {
-        insight: 'TRENDS',
-        events: [{ id: eventName, name: eventName, type: 'events', order: 0 }],
-        actions: [],
-        display: 'ActionsLineGraph',
-        interval: 'day',
-        new_entity: [],
-        properties: [],
-        filter_test_accounts: false,
-        date_from: '-30d',
-    }
-}
-
-function InAppFeedback({
-    config,
-}: {
-    config: {
-        eventName: string
-        feedbackProperty: string
-    }
-}): JSX.Element {
-    const { eventName } = config
-    const filters = getFilters(eventName)
-
-    const { query } = useValues(feedbackLogic)
-    const { setQuery } = useActions(feedbackLogic)
+function InAppFeedback(): JSX.Element {
+    const { dataTableQuery, trendQuery } = useValues(feedbackLogic)
+    const { setDataTableQuery } = useActions(feedbackLogic)
 
     const { toggleInAppFeedbackInstructions } = useActions(feedbackLogic)
-    // TODO: add setQuery
-
     // TODO call the events endpoint to get the feedback events and allow adding new events
 
     return (
         <>
             <div className="flex w-full justify-between">
-                <h3 className="text-lg">Feedback received in the last 30 days</h3>
+                <h3 className="text-lg">Feedback received</h3>
                 <LemonButton
                     onClick={() => {
                         toggleInAppFeedbackInstructions()
@@ -154,22 +128,14 @@ function InAppFeedback({
                     Show instructions
                 </LemonButton>
             </div>
-            <AdHocInsight filters={filters} style={{ height: 200 }} />
+            <Query query={trendQuery} />
             <LemonDivider className="my-6" />
-            <Query query={query} setQuery={setQuery} />
+            <Query query={dataTableQuery} setQuery={setDataTableQuery} />
         </>
     )
 }
 
-function FeedbackWidgetTab({
-    config,
-}: {
-    config: {
-        eventName: string
-        feedbackProperty: string
-    }
-}): JSX.Element {
-    // const { eventName } = config
+function FeedbackWidgetTab(): JSX.Element {
     const { eventsLoading } = useValues(feedbackLogic)
 
     return (
@@ -178,7 +144,7 @@ function FeedbackWidgetTab({
                 <div>Loading...</div>
             ) : (
                 <>
-                    <InAppFeedback config={config} />
+                    <InAppFeedback />
                 </>
             )}
         </>
@@ -203,14 +169,7 @@ export const Feedback = (): JSX.Element => {
                 onChange={function noRefCheck() {}}
                 tabs={[
                     {
-                        content: (
-                            <FeedbackWidgetTab
-                                config={{
-                                    eventName: 'Feedback Sent',
-                                    feedbackProperty: '$feedback',
-                                }}
-                            />
-                        ),
+                        content: <FeedbackWidgetTab />,
                         key: 'in-app-feedback',
                         label: 'In-app feedback',
                     },
