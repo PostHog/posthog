@@ -46,7 +46,7 @@ def _calculate_experiment_results(experiment: Experiment):
     return _experiment_results_cached(experiment, "primary", filter, calculate_func)
 
 
-def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: str):
+def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: int):
     filter = Filter(experiment.secondary_metrics[parsed_id]["filters"])
 
     # TODO: refactor such that ClickhouseSecondaryExperimentResult's get_results doesn't return a dict
