@@ -39,12 +39,21 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, Node, StickinessQuery } from '~/queries/schema'
+import {
+    ActionsNode,
+    BreakdownFilter,
+    EventsNode,
+    InsightQueryNode,
+    NewEntityNode,
+    Node,
+    StickinessQuery,
+} from '~/queries/schema'
 import {
     isEventsNode,
     isFunnelsQuery,
     isInsightVizNode,
     isLifecycleQuery,
+    isNewEntityNode,
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
@@ -66,7 +75,14 @@ export const getDisplayNameFromEntityFilter = (
     return (isCustom ? customName : null) ?? name ?? (filter?.id ? `${filter?.id}` : null)
 }
 
-export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isCustom = true): string | null => {
+export const getDisplayNameFromEntityNode = (
+    node: EventsNode | ActionsNode | NewEntityNode,
+    isCustom = true
+): string | null => {
+    if (isNewEntityNode(node)) {
+        return null
+    }
+
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
