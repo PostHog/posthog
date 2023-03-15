@@ -648,21 +648,7 @@ function InsightCardInternal(
                         ) : isUsingDashboardQueryTiles && canMakeQueryAPICalls ? (
                             <Query query={insight.query} />
                         ) : (
-                            <>
-                                <pre>
-                                    {JSON.stringify(
-                                        {
-                                            exportedAndCached,
-                                            sharedAndCached,
-                                            canMakeQueryAPICalls,
-                                            isUsingDashboardQueryTiles,
-                                        },
-                                        null,
-                                        2
-                                    )}
-                                </pre>
-                                <QueriesUnsupportedHere />
-                            </>
+                            <QueriesUnsupportedHere />
                         )}
                     </div>
                 ) : (
