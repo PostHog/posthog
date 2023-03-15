@@ -1067,8 +1067,11 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()["result"]
+        response_json = response.json()
+        response_data = response_json["result"]
         result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
+
+        self.assertEqual(response_json.pop("is_cached"), False)
 
         self.assertEqual(result[0][0]["name"], "$pageview")
         self.assertEqual(result[0][0]["count"], 2)
