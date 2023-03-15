@@ -1,8 +1,8 @@
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { EventType } from '~/types'
+import { DataTableNode, Node, NodeKind, QuerySchema } from '~/queries/schema'
 
 import type { feedbackLogicType } from './feedbackLogicType'
 
