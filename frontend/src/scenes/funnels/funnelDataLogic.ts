@@ -240,10 +240,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         numericBinCount: [
             (s) => [s.funnelsFilter, s.timeConversionResults],
             (funnelsFilter, timeConversionResults): number => {
-                if (funnelsFilter.bin_count === BIN_COUNT_AUTO) {
+                if (funnelsFilter?.bin_count === BIN_COUNT_AUTO) {
                     return timeConversionResults?.bins?.length ?? 0
                 }
-                return funnelsFilter.bin_count ?? 0
+                return funnelsFilter?.bin_count ?? 0
             },
         ],
 
