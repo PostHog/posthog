@@ -14,6 +14,8 @@ import {
     FunnelsTimeConversionBins,
     HistogramGraphDatum,
     FunnelAPIResponse,
+    FunnelTimeConversionMetrics,
+    TrendResult,
 } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -22,10 +24,12 @@ import { groupsModel, Noun } from '~/models/groupsModel'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
 import { isFunnelsQuery } from '~/queries/utils'
-import { percentage, sum } from 'lib/utils'
+import { percentage, sum, average } from 'lib/utils'
 import {
     aggregateBreakdownResult,
     flattenedStepsByBreakdown,
+    getLastFilledStep,
+    getReferenceStep,
     getVisibilityKey,
     isBreakdownFunnelResults,
     stepsWithConversionMetrics,
@@ -227,6 +231,50 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
 
+        conversionMetrics: [
+            (s) => [s.steps, s.funnelsFilter, s.timeConversionResults],
+            (steps, funnelsFilter, timeConversionResults): FunnelTimeConversionMetrics => {
+                // steps should be empty in time conversion view. Return metrics precalculated on backend
+                if (funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                    return {
+                        averageTime: timeConversionResults?.average_conversion_time ?? 0,
+                        stepRate: 0,
+                        totalRate: 0,
+                    }
+                }
+
+                // Handle metrics for trends
+                if (funnelsFilter?.funnel_viz_type === FunnelVizType.Trends) {
+                    return {
+                        averageTime: 0,
+                        stepRate: 0,
+                        totalRate: average((steps?.[0] as unknown as TrendResult)?.data ?? []) / 100,
+                    }
+                }
+
+                // Handle metrics for steps
+                // no concept of funnel_from_step and funnel_to_step here
+                if (steps.length <= 1) {
+                    return {
+                        averageTime: 0,
+                        stepRate: 0,
+                        totalRate: 0,
+                    }
+                }
+
+                const toStep = getLastFilledStep(steps)
+                const fromStep = getReferenceStep(steps, FunnelStepReference.total)
+
+                return {
+                    averageTime: steps.reduce(
+                        (conversion_time, step) => conversion_time + (step.average_conversion_time || 0),
+                        0
+                    ),
+                    stepRate: toStep.count / fromStep.count,
+                    totalRate: steps[steps.length - 1].count / steps[0].count,
+                }
+            },
+        ],
         /*
          * Advanced options: funnel_order_type, funnel_step_reference, exclusions
          */
