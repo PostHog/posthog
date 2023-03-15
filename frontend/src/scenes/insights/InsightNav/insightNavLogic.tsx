@@ -118,7 +118,14 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     })
 
                     tabs.push({
-                        label: 'JSON',
+                        label: (
+                            <>
+                                JSON{' '}
+                                <LemonTag type="warning" className="uppercase ml-2">
+                                    Beta
+                                </LemonTag>
+                            </>
+                        ),
                         type: InsightType.JSON,
                         dataAttr: 'insight-query-tab',
                     })
