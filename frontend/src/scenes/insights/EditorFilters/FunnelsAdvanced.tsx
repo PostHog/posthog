@@ -1,4 +1,4 @@
-import { useValues, useActions, useMountedLogic } from 'kea'
+import { useValues, useActions } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { EditorFilterProps, QueryEditorFilterProps, FunnelsFilterType } from '~/types'
 import { FunnelStepOrderPicker, FunnelStepOrderPickerDataExploration } from '../views/Funnels/FunnelStepOrderPicker'
@@ -10,7 +10,6 @@ import {
     FunnelStepReferencePicker,
     FunnelStepReferencePickerDataExploration,
 } from '../filters/FunnelStepReferencePicker'
-import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PureField } from 'lib/forms/Field'
 import { Noun } from '~/models/groupsModel'
@@ -19,8 +18,6 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 export function FunnelsAdvancedDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
     const { insightFilter, aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
-    // TODO: Replicate command logic
-    // useMountedLogic(funnelCommandLogic)
 
     return (
         <FunnelsAdvancedComponent
@@ -36,7 +33,6 @@ export function FunnelsAdvancedDataExploration({ insightProps }: QueryEditorFilt
 export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
     const { filters, aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
-    useMountedLogic(funnelCommandLogic)
 
     return (
         <FunnelsAdvancedComponent

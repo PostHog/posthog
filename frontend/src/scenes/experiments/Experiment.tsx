@@ -276,6 +276,7 @@ export function Experiment(): JSX.Element {
                                                         >
                                                             <div
                                                                 className="variant-label"
+                                                                // eslint-disable-next-line react/forbid-dom-props
                                                                 style={
                                                                     index === 0
                                                                         ? { ...variantLabelColors[index] }
@@ -566,7 +567,7 @@ export function Experiment(): JSX.Element {
                                                     <b>Secondary metrics</b>
                                                     <span className="text-muted ml-2">(optional)</span>
                                                 </div>
-                                                <div className="text-muted" style={{ marginTop: 4 }}>
+                                                <div className="text-muted mt-1">
                                                     Use secondary metrics to monitor metrics related to your experiment
                                                     goal. You can add up to three secondary metrics.{' '}
                                                 </div>

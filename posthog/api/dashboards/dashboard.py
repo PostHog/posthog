@@ -64,7 +64,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "insight"]
         depth = 1
 
-    def to_representation(self, instance: Insight):
+    def to_representation(self, instance: DashboardTile):
         representation = super().to_representation(instance)
 
         insight_representation = representation["insight"] or {}  # May be missing for text tiles
