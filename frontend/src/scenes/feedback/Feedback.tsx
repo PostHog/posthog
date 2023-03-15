@@ -8,9 +8,8 @@ import { feedbackLogic } from './feedbackLogic'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import './Feedback.scss'
-import { IconClose, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { IconHelpOutline } from 'lib/lemon-ui/icons'
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
@@ -18,9 +17,19 @@ const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
     opt_in_site_apps: true // <--- Add this line
 })`
 
+const SEND_FEEDBACK_SNIPPET = `posthog.capture('Feedback Sent', {
+    '$feedback': 'Can you make the logo bigger?'
+})`
+
 export function FeedbackInstructions(): JSX.Element {
+    const { inAppFeedbackInstructions } = useValues(feedbackLogic)
+    const { toggleInAppFeedbackInstructions } = useActions(feedbackLogic)
     return (
-        <LemonModal isOpen title="How to send in-app feedback to Posthog">
+        <LemonModal
+            title="How to send in-app feedback to Posthog"
+            isOpen={inAppFeedbackInstructions}
+            onClose={toggleInAppFeedbackInstructions}
+        >
             <div className="w-160">
                 <LemonCollapse
                     defaultActiveKey="1"
@@ -84,7 +93,7 @@ export function FeedbackInstructions(): JSX.Element {
                                             <div>2. Send the feedback to PostHog</div>
                                             <div className="ml-4 my-4">
                                                 <CodeSnippet language={Language.JavaScript} wrap>
-                                                    {`posthog.capture('Feedback Sent', { '$feedback': 'Can you make the logo bigger?' })`}
+                                                    {SEND_FEEDBACK_SNIPPET}
                                                 </CodeSnippet>
                                             </div>
                                         </div>
@@ -124,35 +133,30 @@ function InAppFeedback({
     const { eventName } = config
     const filters = getFilters(eventName)
 
-    const { events } = useValues(feedbackLogic)
+    const { query } = useValues(feedbackLogic)
+    const { setQuery } = useActions(feedbackLogic)
 
-    const query: DataTableNode = {
-        kind: NodeKind.DataTableNode,
-        full: true,
-        source: {
-            kind: NodeKind.EventsQuery,
-            select: ['*', 'event', 'person', 'properties.$lib', 'timestamp'],
-            orderBy: ['timestamp DESC'],
-            after: '-24h',
-            limit: 100,
-            event: 'Feedback Sent',
-        },
-        propertiesViaUrl: true,
-        showSavedQueries: true,
-        showExport: true,
-        showReload: true,
-        showColumnConfigurator: true,
-        showEventFilter: true,
-        showPropertyFilter: true,
-    }
+    const { toggleInAppFeedbackInstructions } = useActions(feedbackLogic)
+    // TODO: add setQuery
 
     // TODO call the events endpoint to get the feedback events and allow adding new events
 
     return (
         <>
-            <h3 className="text-lg">Feedback received in the last 30 days</h3>
+            <div className="flex w-full justify-between">
+                <h3 className="text-lg">Feedback received in the last 30 days</h3>
+                <LemonButton
+                    onClick={() => {
+                        toggleInAppFeedbackInstructions()
+                    }}
+                    sideIcon={<IconHelpOutline />}
+                >
+                    Show instructions
+                </LemonButton>
+            </div>
             <AdHocInsight filters={filters} style={{ height: 200 }} />
-            <Query query={query} />
+            <LemonDivider className="my-6" />
+            <Query query={query} setQuery={setQuery} />
         </>
     )
 }
@@ -168,14 +172,10 @@ function FeedbackWidgetTab({
     // const { eventName } = config
     const { eventsLoading } = useValues(feedbackLogic)
 
-    const { inAppFeedbackInstructions } = useValues(feedbackLogic)
-
     return (
         <>
             {eventsLoading ? (
                 <div>Loading...</div>
-            ) : inAppFeedbackInstructions ? (
-                <FeedbackInstructions />
             ) : (
                 <>
                     <InAppFeedback config={config} />
@@ -186,9 +186,6 @@ function FeedbackWidgetTab({
 }
 
 export const Feedback = (): JSX.Element => {
-    const { inAppFeedbackInstructions } = useValues(feedbackLogic)
-    const { toggleInAppFeedbackInstructions } = useActions(feedbackLogic)
-
     return (
         <div className="Feedback">
             <PageHeader
@@ -199,16 +196,6 @@ export const Feedback = (): JSX.Element => {
                             Alpha
                         </LemonTag>
                     </div>
-                }
-                buttons={
-                    <LemonButton
-                        onClick={() => {
-                            toggleInAppFeedbackInstructions()
-                        }}
-                        sideIcon={!inAppFeedbackInstructions ? <IconHelpOutline /> : <IconClose />}
-                    >
-                        {!inAppFeedbackInstructions ? 'Show' : 'Hide'} instructions
-                    </LemonButton>
                 }
             />
             <LemonTabs
