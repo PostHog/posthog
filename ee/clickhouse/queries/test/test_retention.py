@@ -257,7 +257,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
                 pluck(result, "values", "count"),
                 [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
             )
-            
+
     @also_test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_groups_aggregating_person_on_events(self):

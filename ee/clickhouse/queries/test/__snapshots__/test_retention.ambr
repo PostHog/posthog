@@ -664,15 +664,13 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-               pdi.person_id as target
+               if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) AS target
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        LEFT OUTER JOIN
+          (SELECT override_person_id as person_id,
+                  old_person_id
+           FROM person_overrides
+           WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
         INNER JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
@@ -689,7 +687,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp), 0, 'UTC') AS event_date,
-                        pdi.person_id as target,
+                        if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) AS target,
                         [
                           dateDiff(
                               'Week',
@@ -698,13 +696,11 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        LEFT OUTER JOIN
+          (SELECT override_person_id as person_id,
+                  old_person_id
+           FROM person_overrides
+           WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
         INNER JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
@@ -752,15 +748,13 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-               pdi.person_id as target
+               if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) AS target
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        LEFT OUTER JOIN
+          (SELECT override_person_id as person_id,
+                  old_person_id
+           FROM person_overrides
+           WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
         INNER JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
@@ -777,7 +771,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp), 0, 'UTC') AS event_date,
-                        pdi.person_id as target,
+                        if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) AS target,
                         [
                           dateDiff(
                               'Week',
@@ -786,13 +780,11 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        LEFT OUTER JOIN
+          (SELECT override_person_id as person_id,
+                  old_person_id
+           FROM person_overrides
+           WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
         INNER JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
