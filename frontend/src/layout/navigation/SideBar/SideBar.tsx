@@ -17,6 +17,7 @@ import {
     IconOpenInApp,
     IconPerson,
     IconPinOutline,
+    IconPlus,
     IconRecording,
     IconSettings,
     IconTools,
@@ -157,6 +158,7 @@ function Pages(): JSX.Element {
                         identifier={Scene.SavedInsights}
                         to={urls.savedInsights()}
                         sideAction={{
+                            icon: <IconPlus />,
                             identifier: Scene.Insight,
                             tooltip: 'Choose an insight type to create',
                             onClick: () => setIsNewInsightMenuShown((state) => !state),
