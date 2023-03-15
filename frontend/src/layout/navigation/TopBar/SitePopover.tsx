@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -19,23 +19,19 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from '../../../scenes/urls'
 import { navigationLogic } from '../navigationLogic'
-import { LicenseType, OrganizationBasicType } from '../../../types'
+import { OrganizationBasicType } from '../../../types'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
-import { licenseLogic, isLicenseExpired } from '../../../scenes/instance/Licenses/licenseLogic'
-import { identifierToHuman } from 'lib/utils'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import {
     AccessLevelIndicator,
     NewOrganizationButton,
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
-import { dayjs } from 'lib/dayjs'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -121,36 +117,6 @@ export function InviteMembersButton({
         >
             Invite members
         </LemonButton>
-    )
-}
-
-function License({ license, expired }: { license: LicenseType | null; expired: boolean | null }): JSX.Element {
-    const { closeSitePopover } = useActions(navigationLogic)
-
-    return (
-        <LemonRow icon={<Lettermark name={license ? license.plan : '–'} />} fullWidth>
-            <>
-                <div className="SitePopover__main-info">
-                    <div>{license ? `${identifierToHuman(license.plan)} plan` : 'Free plan'}</div>
-                    {license &&
-                        (!expired ? (
-                            <div className="supplement">
-                                Valid until {dayjs(license.valid_until).format('D MMM YYYY')}
-                            </div>
-                        ) : (
-                            <div className="supplement supplement--danger">Expired!</div>
-                        ))}
-                </div>
-                <Link
-                    to={urls.instanceLicenses()}
-                    onClick={closeSitePopover}
-                    className="SitePopover__side-link"
-                    data-attr="top-menu-item-licenses"
-                >
-                    Manage license
-                </Link>
-            </>
-        </LemonRow>
     )
 }
 
@@ -275,13 +241,7 @@ export function SitePopoverOverlay(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
-    const { billingVersion } = useValues(billingLogic)
     const { closeSitePopover } = useActions(navigationLogic)
-    const { relevantLicense } = useValues(licenseLogic)
-    useMountedLogic(licenseLogic)
-
-    const expired = relevantLicense && isLicenseExpired(relevantLicense)
-    const billingV2 = billingVersion === 'v2'
 
     return (
         <>
@@ -290,7 +250,7 @@ export function SitePopoverOverlay(): JSX.Element {
             </SitePopoverSection>
             <SitePopoverSection title="Current organization">
                 {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
-                {billingV2 || preflight?.cloud ? (
+                {preflight?.cloud ? (
                     <LemonButton
                         onClick={closeSitePopover}
                         to={urls.organizationBilling()}
@@ -317,7 +277,6 @@ export function SitePopoverOverlay(): JSX.Element {
             )}
             {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
                 <SitePopoverSection title="PostHog instance">
-                    {!preflight?.cloud && !billingV2 ? <License license={relevantLicense} expired={expired} /> : null}
                     <SystemStatus />
                     {!preflight?.cloud && <Version />}
                     <AsyncMigrations />
@@ -335,10 +294,6 @@ export function SitePopover(): JSX.Element {
     const { user } = useValues(userLogic)
     const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
-    const { relevantLicense } = useValues(licenseLogic)
-    useMountedLogic(licenseLogic)
-
-    const expired = relevantLicense && isLicenseExpired(relevantLicense)
 
     return (
         <Popover
@@ -348,12 +303,9 @@ export function SitePopover(): JSX.Element {
             overlay={<SitePopoverOverlay />}
         >
             <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
-                <div
-                    className="SitePopover__profile-picture"
-                    title={!systemStatus ? 'Potential system issue' : expired ? 'License expired' : undefined}
-                >
+                <div className="SitePopover__profile-picture" title="Potential system issue">
                     <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
-                    {(!systemStatus || expired) && <IconExclamation className="SitePopover__danger" />}
+                    {!systemStatus && <IconExclamation className="SitePopover__danger" />}
                 </div>
                 <IconArrowDropDown />
             </div>

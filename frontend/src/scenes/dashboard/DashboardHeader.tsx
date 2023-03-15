@@ -13,7 +13,7 @@ import { AvailableFeature, DashboardMode, DashboardType, ExporterFormat } from '
 import { dashboardLogic } from './dashboardLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
-import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
+import { privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/lemon-ui/icons'
@@ -29,7 +29,6 @@ import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { tagsModel } from '~/models/tagsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
@@ -59,9 +58,6 @@ export function DashboardHeader(): JSX.Element | null {
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const allowSaveAsTemplate = !!featureFlags[FEATURE_FLAGS.TEMPLUKES]
-
     const { tags } = useValues(tagsModel)
 
     const { push } = useActions(router)
@@ -75,7 +71,7 @@ export function DashboardHeader(): JSX.Element | null {
             },
         },
     ]
-    if (allowSaveAsTemplate) {
+    if (user?.is_staff) {
         exportOptions.push({
             export_format: ExporterFormat.JSON,
             export_context: {
@@ -141,6 +137,7 @@ export function DashboardHeader(): JSX.Element | null {
                                       }
                                     : undefined
                             }
+                            data-attr="dashboard-name"
                         />
                     </div>
                 }
@@ -239,7 +236,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
                                             <ExportButton fullWidth status="stealth" items={exportOptions} />
-                                            {!!featureFlags[FEATURE_FLAGS.TEMPLUKES] && user?.is_staff && (
+                                            {user?.is_staff && (
                                                 <LemonButton
                                                     onClick={() => {
                                                         if (asDashboardTemplate) {

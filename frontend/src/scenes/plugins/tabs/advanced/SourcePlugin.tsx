@@ -10,7 +10,7 @@ export function SourcePlugin(): JSX.Element {
     const { setSourcePluginName, installPlugin } = useActions(pluginsLogic)
 
     return (
-        <div style={{ marginTop: 16 }}>
+        <div className="mt-4">
             <Card>
                 <Title level={5}>App editor</Title>
                 <Paragraph>

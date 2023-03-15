@@ -66,18 +66,19 @@ export const insight = {
 export const dashboards = {
     createDashboardFromDefaultTemplate: (dashboardName: string): void => {
         cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
-        cy.get('[data-attr=copy-from-template]').click()
-        cy.get('[data-attr=dashboard-select-default-app]').click()
-
-        cy.get('[data-attr=dashboard-submit-and-go]').click()
-
+        cy.get('[data-attr="create-dashboard-from-template"]').click()
+        cy.get('[data-attr="dashboard-name"]').contains('Product analytics').should('exist')
+        cy.get('[data-attr="dashboard-name"] button').click()
+        cy.get('[data-attr="dashboard-name"] input').clear().type(dashboardName).blur()
         cy.contains(dashboardName).should('exist')
     },
     createAndGoToEmptyDashboard: (dashboardName: string): void => {
         cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
-        cy.get('button[data-attr="dashboard-submit-and-go"]').click()
+        cy.get('[data-attr="create-dashboard-blank"]').click()
+        cy.get('[data-attr="dashboard-name"]').should('exist')
+        cy.get('[data-attr="dashboard-name"] button').click()
+        cy.get('[data-attr="dashboard-name"] input').clear().type(dashboardName).blur()
+        cy.contains(dashboardName).should('exist')
     },
     visitDashboard: (dashboardName: string): void => {
         cy.get('[placeholder="Search for dashboards"]').clear().type(dashboardName)
