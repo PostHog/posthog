@@ -462,16 +462,16 @@ class _Printer(Visitor):
         return property_sql
 
     def visit_sample_expr(self, node: ast.SampleExpr):
-        sample_value = self.visit_ratio_expr(ref.sample_value)
+        sample_value = self.visit_ratio_expr(node.sample_value)
         offset_clause = ""
-        if ref.offset_value:
-            offset_value = self.visit_ratio_expr(ref.offset_value)
+        if node.offset_value:
+            offset_value = self.visit_ratio_expr(node.offset_value)
             offset_clause = f" OFFSET {offset_value}"
 
         return f"SAMPLE {sample_value}{offset_clause}"
 
     def visit_ratio_expr(self, node: ast.RatioExpr):
-        return self.visit(ref.left) if ref.right is None else f"{self.visit(ref.left)}/{self.visit(ref.right)}"
+        return self.visit(node.left) if node.right is None else f"{self.visit(node.left)}/{self.visit(node.right)}"
 
     def visit_select_query_alias_ref(self, ref: ast.SelectQueryAliasRef):
         return self._print_identifier(ref.name)
