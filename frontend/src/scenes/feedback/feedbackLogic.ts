@@ -60,10 +60,10 @@ export const feedbackLogic = kea<feedbackLogicType>([
             {
                 setQuery: (_, { query }) => {
                     if (query.kind === NodeKind.DataTableNode) {
-                        return query
+                        return query as DataTableNode
                     } else {
                         console.error('Invalid query', query)
-                        return DEFAULT_QUERY
+                        return DEFAULT_QUERY as DataTableNode
                     }
                 },
             },
