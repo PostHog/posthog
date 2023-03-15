@@ -294,7 +294,6 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
     const overrides3000: Partial<LemonButtonWithSideActionProps> = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
         ? {
               size: 'small',
-              status: '3000',
               icon: <IconPlusMini />,
           }
         : {}

@@ -96,12 +96,7 @@ export function SidebarHotkeyHint(): JSX.Element {
             <span>
                 <i>Tip:</i> Press <KeyboardShortcut command b /> to toggle this sidebar
             </span>
-            <LemonButton
-                status="3000"
-                icon={<IconClose />}
-                size="small"
-                onClick={() => acknowledgeSidebarHotkeyHint()}
-            />
+            <LemonButton icon={<IconClose />} size="small" onClick={() => acknowledgeSidebarHotkeyHint()} />
         </div>
     )
 }

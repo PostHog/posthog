@@ -22,7 +22,7 @@ export function Breadcrumbs(): JSX.Element | null {
                     <Breadcrumb breadcrumb={breadcrumb} index={index + 1} />
                 </React.Fragment>
             ))}
-            <LemonButton className="Breadcrumbs3000__more" status="3000" icon={<IconEllipsisVertical />} size="small" />
+            <LemonButton className="Breadcrumbs3000__more" icon={<IconEllipsisVertical />} size="small" />
             <div className="Breadcrumbs3000__actions">
                 <NewInsightButton dataAttr="project-home-new-insight" />
             </div>
