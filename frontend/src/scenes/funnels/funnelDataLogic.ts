@@ -132,7 +132,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         steps: [
             (s) => [s.breakdown, s.results, s.isTimeToConvertFunnel],
             (breakdown, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
-                if (!isTimeToConvertFunnel) {
+                // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
+                // while still having "time-to-convert" results in insightData
+                if (!isTimeToConvertFunnel && Array.isArray(results)) {
                     if (isBreakdownFunnelResults(results)) {
                         const breakdownProperty = breakdown?.breakdowns
                             ? breakdown?.breakdowns.map((b) => b.property).join('::')
