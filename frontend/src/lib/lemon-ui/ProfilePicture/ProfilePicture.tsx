@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import { CSSProperties, useEffect, useState } from 'react'
+import { CSSProperties, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
@@ -31,32 +31,21 @@ export function ProfilePicture({
     type = 'person',
 }: ProfilePictureProps): JSX.Element {
     const { user } = useValues(userLogic)
-    const [gravatarUrl, setGravatarUrl] = useState<string | null>(null)
+    const [didImageError, setDidImageError] = useState(false)
     const pictureClass = clsx('profile-picture', size, className)
 
     let pictureComponent: JSX.Element
 
     const combinedNameAndEmail = name && email ? `${name} <${email}>` : name || email
 
-    useEffect(() => {
-        // Check if Gravatar exists
-        if (email) {
-            const emailHash = md5(email.trim().toLowerCase())
-            const tentativeUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
-            // The image will be cached, so it's better to do a full GET request in this check
-            fetch(tentativeUrl).then((response) => {
-                if (response.status === 200) {
-                    setGravatarUrl(tentativeUrl)
-                }
-            })
-        }
-    }, [email])
-
-    if (gravatarUrl) {
+    if (email && !didImageError) {
+        const emailHash = md5(email.trim().toLowerCase())
+        const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
         pictureComponent = (
             <img
                 className={pictureClass}
                 src={gravatarUrl}
+                onError={() => setDidImageError(true)}
                 title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
                 alt=""
                 style={style}

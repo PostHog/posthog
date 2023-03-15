@@ -162,7 +162,10 @@ async function expectLocatorToMatchStorySnapshot(
     expect(image).toMatchImageSnapshot({
         customSnapshotsDir,
         customSnapshotIdentifier,
-        failureThreshold: 0.00002, // 0.002%, which is roughly 18px at 1280x720 and 0.5px at 250x100
+        // Compare structural similarity instead of raw pixels - reducing false positives
+        // See https://github.com/americanexpress/jest-image-snapshot#recommendations-when-using-ssim-comparison
+        comparisonMethod: 'ssim',
+        failureThreshold: 0.001,
         failureThresholdType: 'percent',
     })
 }

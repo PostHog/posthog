@@ -13,7 +13,6 @@ export default {
         options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
-            skip: true, // FIXME: Use mockdate in this story
         },
         viewMode: 'story',
         // Might need to add a mockdate here, however when I do it breaks the page
