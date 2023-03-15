@@ -1146,7 +1146,7 @@ describe('summarize data table query', () => {
 
         const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
 
-        expect(result).toEqual('HogQL query results into data table.')
+        expect(result).toEqual('HogQL data table.')
     })
 
     it('summarizes a person query', () => {

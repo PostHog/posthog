@@ -492,7 +492,7 @@ function summariseQuery(query: Node): string {
     }
 
     if (isHogQLQuery(query)) {
-        return 'HogQL query results into data table.'
+        return 'HogQL data table.'
     }
 
     if (isRecentPerformancePageViewNode(query)) {
