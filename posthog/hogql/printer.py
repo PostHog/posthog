@@ -471,7 +471,7 @@ class _Printer(Visitor):
         return f"SAMPLE {sample_value}{offset_clause}"
 
     def visit_ratio_expr(self, ref: ast.RatioExpr):
-        return ref.left.value if ref.right is None else f"{ref.left.value}/{ref.right.value}"
+        return self.visit(ref.left) if ref.right is None else f"{self.visit(ref.left)}/{self.visit(ref.right)}"
 
     def visit_select_query_alias_ref(self, ref: ast.SelectQueryAliasRef):
         return self._print_identifier(ref.name)
