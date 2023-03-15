@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
-import { IconArrowDropDown, IconEllipsisVertical, IconPlusMini } from 'lib/lemon-ui/icons'
+import { IconArrowDropDown, IconEllipsisVertical } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import './Breadcrumbs.scss'
 import { Breadcrumb as IBreadcrumb } from '~/types'
@@ -8,6 +8,7 @@ import clsx from 'clsx'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { LemonButton } from '@posthog/lemon-ui'
+import { NewInsightButton } from 'scenes/saved-insights/SavedInsights'
 
 export function Breadcrumbs(): JSX.Element | null {
     const { firstBreadcrumb, tailBreadcrumbs } = useValues(breadcrumbsLogic)
@@ -23,9 +24,7 @@ export function Breadcrumbs(): JSX.Element | null {
             ))}
             <LemonButton className="Breadcrumbs3000__more" status="3000" icon={<IconEllipsisVertical />} size="small" />
             <div className="Breadcrumbs3000__actions">
-                <LemonButton status="3000" type="primary" size="small" icon={<IconPlusMini />}>
-                    New insight
-                </LemonButton>
+                <NewInsightButton dataAttr="project-home-new-insight" />
             </div>
         </div>
     ) : null
