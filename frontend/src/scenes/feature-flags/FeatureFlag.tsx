@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
-import { featureFlagLogic } from './featureFlagLogic'
+import { defaultEntityFilterOnFlag, featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { FeatureFlagInstructions, FeatureFlagPayloadInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -20,6 +20,7 @@ import {
     IconErrorOutline,
     IconUnfoldLess,
     IconUnfoldMore,
+    IconPlayCircle,
 } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -37,6 +38,7 @@ import {
     PropertyOperator,
     Resource,
     FeatureFlagType,
+    SessionRecordingsTabs,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -61,7 +63,6 @@ import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
-import { FeatureFlagRecordings } from './FeatureFlagRecordingsCard'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
@@ -483,6 +484,18 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 >
                                                     Delete feature flag
                                                 </LemonButton>
+                                                <LemonDivider vertical />
+                                                {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
+                                                    <LemonButton
+                                                        to={urls.sessionRecordings(SessionRecordingsTabs.Recent, {
+                                                            events: defaultEntityFilterOnFlag(featureFlag.key).events,
+                                                        })}
+                                                        type="secondary"
+                                                        sideIcon={<IconPlayCircle />}
+                                                    >
+                                                        View Recordings
+                                                    </LemonButton>
+                                                )}
                                                 <LemonButton
                                                     data-attr="edit-feature-flag"
                                                     type="secondary"
@@ -519,13 +532,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <Col span={11} className="pl-4">
                                                 <RecentFeatureFlagInsights />
                                                 <div className="my-4" />
-                                                {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] ? (
-                                                    <FeatureFlagRecordings flagKey={featureFlag.key || 'my-flag'} />
-                                                ) : (
-                                                    <FeatureFlagInstructions
-                                                        featureFlagKey={featureFlag.key || 'my-flag'}
-                                                    />
-                                                )}
+                                                <FeatureFlagInstructions
+                                                    featureFlagKey={featureFlag.key || 'my-flag'}
+                                                />
                                             </Col>
                                         </Row>
                                     </Tabs.TabPane>
