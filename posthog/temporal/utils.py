@@ -1,6 +1,6 @@
 import asyncio
 from functools import wraps
-from typing import Any, Awaitable, Callable, TypeVar, cast
+from typing import Any, Awaitable, Callable, TypeVar
 
 from temporalio import activity
 
@@ -25,7 +25,7 @@ def auto_heartbeater(fn: F) -> F:
                 # Wait for heartbeat cancellation to complete
                 await asyncio.wait([heartbeat_task])
 
-    return cast(F, wrapper)
+    return wrapper
 
 
 async def heartbeat_every(delay: float, *details: Any) -> None:
