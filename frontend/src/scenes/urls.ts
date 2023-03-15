@@ -117,9 +117,7 @@ export const urls = {
     ingestion: (): string => '/ingestion',
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
-    billingSubscribed: (): string => '/organization/billing/subscribed',
     // Self-hosted only
-    instanceLicenses: (): string => '/instance/licenses',
     instanceStatus: (): string => '/instance/status',
     instanceStaffUsers: (): string => '/instance/staff_users',
     instanceKafkaInspector: (): string => '/instance/kafka_inspector',

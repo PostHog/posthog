@@ -1,5 +1,5 @@
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { BillingV2 } from './Billing'
+import { Billing } from './Billing'
 
 export type BillingPopupProps = {
     title?: string
@@ -13,7 +13,7 @@ export function openBillingPopupModal({
     LemonDialog.open({
         title: title,
         description: description,
-        content: <BillingV2 />,
+        content: <Billing />,
         width: 800,
         primaryButton: {
             children: 'Maybe later...',

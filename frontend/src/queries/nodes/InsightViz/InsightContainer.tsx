@@ -1,13 +1,26 @@
 import { Card, Col, Row } from 'antd'
-import { InsightDisplayConfig } from './InsightDisplayConfig'
-import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
+import { useValues } from 'kea'
+import clsx from 'clsx'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
+
+import { StickinessFilter, TrendsFilter } from '~/queries/schema'
 import { ChartDisplayType, FunnelVizType, ExporterFormat, InsightType, ItemMode } from '~/types'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Animation } from 'lib/components/Animation/Animation'
+import { AnimationType } from 'lib/animations/animations'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+
+import { InsightDisplayConfig } from './InsightDisplayConfig'
+import { FunnelCanvasLabelDataExploration } from 'scenes/funnels/FunnelCanvasLabel'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { PathsDataExploration } from 'scenes/paths/Paths'
-import { useValues } from 'kea'
 import { InsightsTableDataExploration } from 'scenes/insights/views/InsightsTable/InsightsTable'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,
     FunnelSingleStepState,
@@ -15,25 +28,14 @@ import {
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
-// import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { InsightLegendButtonDataExploration } from 'lib/components/InsightLegend/InsightLegendButton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Animation } from 'lib/components/Animation/Animation'
-import { AnimationType } from 'lib/animations/animations'
 // import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 // import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
-import { StickinessFilter, TrendsFilter } from '~/queries/schema'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { FunnelStepsTableDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsTable'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -217,7 +219,7 @@ export function InsightContainer({
                             </div>
                         )}
                         <div>
-                            {isFunnels ? <FunnelCanvasLabel /> : null}
+                            {isFunnels ? <FunnelCanvasLabelDataExploration /> : null}
                             {isPaths ? <PathCanvasLabel /> : null}
                             <InsightLegendButtonDataExploration />
                         </div>
