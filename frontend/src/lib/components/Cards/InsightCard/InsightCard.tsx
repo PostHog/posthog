@@ -422,7 +422,7 @@ function InsightMeta({
     )
 }
 
-function TopHeading({ insight }: { insight: InsightModel }): JSX.Element {
+export function TopHeading({ insight }: { insight: InsightModel }): JSX.Element {
     const { filters, query } = insight
 
     let insightType: InsightTypeMetadata
