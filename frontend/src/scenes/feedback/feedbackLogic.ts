@@ -12,7 +12,7 @@ const DEFAULT_DATATABLE_QUERY: DataTableNode = {
     full: true,
     source: {
         kind: NodeKind.EventsQuery,
-        select: ['*', 'event', 'person', 'timestamp'],
+        select: ['*', 'properties.$feedback', 'timestamp', 'person'],
         orderBy: ['timestamp DESC'],
         after: '-30d',
         limit: 100,
