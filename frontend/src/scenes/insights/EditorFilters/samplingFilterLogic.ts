@@ -87,7 +87,6 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 sampling_factor: samplingFactor,
             }
 
-            console.log('here', newFilters)
             if (props.setFilters) {
                 // Experiments
                 props.setFilters(newFilters)
