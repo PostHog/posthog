@@ -1,3 +1,4 @@
+import { CommandPalette } from 'lib/components/CommandPalette'
 import { ReactNode, useEffect } from 'react'
 import { Breadcrumbs } from './components/Breadcrumbs'
 import { Navbar } from './components/Navbar'
@@ -18,6 +19,7 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
                 <Breadcrumbs />
                 <div className="Navigation3000__scene">{children}</div>
             </main>
+            <CommandPalette />
         </div>
     )
 }
