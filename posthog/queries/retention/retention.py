@@ -143,6 +143,7 @@ def build_returning_event_query(
     team: Team,
     aggregate_users_by_distinct_id: Optional[bool] = None,
     using_person_on_events: bool = False,
+    using_person_on_events_v2: bool = False,
     retention_events_query=RetentionEventsQuery,
 ) -> Tuple[str, Dict[str, Any]]:
     returning_event_query_templated, returning_event_params = retention_events_query(
@@ -151,6 +152,7 @@ def build_returning_event_query(
         event_query_type=RetentionQueryType.RETURNING,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
         using_person_on_events=using_person_on_events,
+        using_person_on_events_v2=using_person_on_events_v2
     ).get_query()
 
     return returning_event_query_templated, returning_event_params
@@ -161,6 +163,7 @@ def build_target_event_query(
     team: Team,
     aggregate_users_by_distinct_id: Optional[bool] = None,
     using_person_on_events: bool = False,
+    using_person_on_events_v2: bool = False,
     retention_events_query=RetentionEventsQuery,
 ) -> Tuple[str, Dict[str, Any]]:
     target_event_query_templated, target_event_params = retention_events_query(
@@ -173,6 +176,7 @@ def build_target_event_query(
         ),
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
         using_person_on_events=using_person_on_events,
+        using_person_on_events_v2=using_person_on_events_v2
     ).get_query()
 
     return target_event_query_templated, target_event_params

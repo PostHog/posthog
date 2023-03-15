@@ -81,6 +81,9 @@ KEA_VERBOSE_LOGGING = get_from_env("KEA_VERBOSE_LOGGING", False, type_cast=str_t
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_OVERRIDE = get_from_env("PERSON_ON_EVENTS_OVERRIDE", optional=True, type_cast=str_to_bool)
 
+# Only written in specific scripts - do not use outside of them.
+PERSON_ON_EVENTS_V2_OVERRIDE = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE", optional=True, type_cast=str_to_bool)
+
 HOOK_EVENTS: Dict[str, str] = {}
 
 

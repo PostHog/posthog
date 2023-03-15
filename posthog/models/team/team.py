@@ -216,6 +216,37 @@ class Team(UUIDClassicModel):
 
         # on self-hosted, use the instance setting
         return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
+    
+    @property
+    def person_on_events_v2_querying_enabled(self) -> bool:
+        result = self._person_on_events_v2_querying_enabled
+        tag_queries(person_on_events_v2_querying_enabled=result)
+        return result
+    
+    @property
+    def _person_on_events_v2_querying_enabled(self) -> bool:
+        if settings.PERSON_ON_EVENTS_V2_OVERRIDE is not None:
+            return settings.PERSON_ON_EVENTS_V2_OVERRIDE
+
+        # on PostHog Cloud, use the feature flag
+        if is_cloud():
+            return posthoganalytics.feature_enabled(
+                "persons-on-events-v2-reads-enabled",
+                str(self.uuid),
+                groups={"organization": str(self.organization_id)},
+                group_properties={
+                    "organization": {"id": str(self.organization_id), "created_at": self.organization.created_at}
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+
+        # If the async migration is not complete, don't enable actor on events querying.
+        if not actor_on_events_ready():
+            return False
+
+        # on self-hosted, use the instance setting
+        return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
 
     @property
     def strict_caching_enabled(self) -> bool:

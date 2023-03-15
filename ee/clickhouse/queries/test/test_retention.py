@@ -204,6 +204,60 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
                 [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
             )
 
+    @also_test_with_materialized_columns(
+        group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
+    )
+    @snapshot_clickhouse_queries
+    def test_groups_filtering_person_on_events_v2(self):
+        self._create_groups_and_events()
+
+        with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", True):
+            result = Retention().run(
+                RetentionFilter(
+                    data={
+                        "date_to": _date(10, month=1, hour=0),
+                        "period": "Week",
+                        "total_intervals": 7,
+                        "properties": [
+                            {"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}
+                        ],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+
+            self.assertEqual(
+                pluck(result, "values", "count"),
+                [[1, 1, 0, 1, 1, 0, 1], [1, 0, 1, 1, 0, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [1, 0, 1], [0, 0], [1]],
+            )
+
+            result = Retention().run(
+                RetentionFilter(
+                    data={
+                        "date_to": _date(10, month=1, hour=0),
+                        "period": "Week",
+                        "total_intervals": 7,
+                        "properties": [
+                            {
+                                "key": "industry",
+                                "value": "",
+                                "type": "group",
+                                "group_type_index": 0,
+                                "operator": "is_set",
+                            }
+                        ],
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+
+            self.assertEqual(
+                pluck(result, "values", "count"),
+                [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
+            )
+            
     @also_test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_groups_aggregating_person_on_events(self):

@@ -113,6 +113,7 @@ def build_actor_activity_query(
         team=team,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
         using_person_on_events=team.person_on_events_querying_enabled,
+        using_person_on_events_v2=team.person_on_events_v2_querying_enabled,
         retention_events_query=retention_events_query,
     )
 
@@ -121,6 +122,7 @@ def build_actor_activity_query(
         team=team,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
         using_person_on_events=team.person_on_events_querying_enabled,
+        using_person_on_events_v2=team.person_on_events_v2_querying_enabled,
         retention_events_query=retention_events_query,
     )
 
