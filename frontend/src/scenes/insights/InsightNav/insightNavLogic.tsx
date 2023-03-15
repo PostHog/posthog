@@ -68,8 +68,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.isUsingDataExploration, s.allowQueryTab],
-            (isUsingDataExploration, allowQueryTab) => {
+            (s) => [s.allowQueryTab],
+            (allowQueryTab) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',
@@ -103,7 +103,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     },
                 ]
 
-                if (isUsingDataExploration) {
+                if (allowQueryTab) {
                     tabs.push({
                         label: (
                             <>
@@ -116,13 +116,12 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     })
-                    if (allowQueryTab) {
-                        tabs.push({
-                            label: 'JSON',
-                            type: InsightType.JSON,
-                            dataAttr: 'insight-query-tab',
-                        })
-                    }
+
+                    tabs.push({
+                        label: 'JSON',
+                        type: InsightType.JSON,
+                        dataAttr: 'insight-query-tab',
+                    })
                 }
 
                 return tabs
