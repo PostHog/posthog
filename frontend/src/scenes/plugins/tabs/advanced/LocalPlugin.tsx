@@ -10,7 +10,7 @@ export function LocalPlugin(): JSX.Element {
     const { setLocalPluginUrl, installPlugin } = useActions(pluginsLogic)
 
     return (
-        <div style={{ marginTop: 16 }}>
+        <div className="mt-4">
             <Card>
                 <Title level={5}>Install Local App</Title>
                 <Paragraph>To install a local app from this computer/server, give its full path below.</Paragraph>

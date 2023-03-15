@@ -173,6 +173,7 @@ export function Circle({
                         {label ? (
                             <div
                                 className="circle-label"
+                                // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     position: 'absolute',
                                     fontSize: '16px',
