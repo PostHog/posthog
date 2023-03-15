@@ -356,10 +356,9 @@ class RatioExpr(Expr):
 
 
 class SampleExpr(Expr):
-    offset_value: Optional[RatioExpr]
-
     # k or n
     sample_value: RatioExpr
+    offset_value: Optional[RatioExpr]
 
 
 JoinExpr.update_forward_refs(SampleExpr=SampleExpr)
