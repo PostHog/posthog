@@ -316,7 +316,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
                         {isUsingDataExploration && isInsightVizNode(query) ? (
                             <LemonButton
-                                tooltip={showQueryEditor ? 'Hide text editor' : 'Edit as text'}
+                                tooltip={showQueryEditor ? 'Hide JSON editor' : 'Edit as JSON'}
                                 type={'secondary'}
                                 onClick={toggleQueryEditorPanel}
                             >
