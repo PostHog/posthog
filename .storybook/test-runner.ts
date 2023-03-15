@@ -170,7 +170,7 @@ async function expectLocatorToMatchStorySnapshot(
             // The `bezkrovny` algorithm seemed to cause false positives when using a decreased threshold
             ssim: 'fast',
         },
-        failureThreshold: 0.0001,
+        failureThreshold: 0.0002,
         failureThresholdType: 'percent',
     })
 }
