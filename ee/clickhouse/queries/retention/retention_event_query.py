@@ -6,8 +6,6 @@ class ClickhouseRetentionEventsQuery(RetentionEventsQuery):
     def target_field(self) -> str:
         if self._aggregate_users_by_distinct_id and not self._filter.aggregation_group_type_index:
             return f"{self.EVENT_TABLE_ALIAS}.distinct_id AS target"
-        elif self._using_person_on_events:
-            return f"{self.EVENT_TABLE_ALIAS}.person_id AS target"
         elif self._using_person_on_events_v2:
             return f"""
             if(
