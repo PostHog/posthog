@@ -1,6 +1,7 @@
 export function FriendlyLogo({ style }: React.PropsWithoutRef<JSX.IntrinsicElements['svg']>): JSX.Element {
     return (
         <svg
+            // eslint-disable-next-line react/forbid-dom-props
             style={style}
             fill="none"
             width="8.125em"
