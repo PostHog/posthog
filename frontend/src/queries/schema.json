@@ -2090,7 +2090,7 @@
             ]
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "QUERY", "SQL"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL"],
             "type": "string"
         },
         "InsightVizNode": {
