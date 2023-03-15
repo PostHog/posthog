@@ -6,7 +6,7 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-               pdi.person_id as target
+               pdi.person_id AS target
         FROM events e SAMPLE 1.0
         INNER JOIN
           (SELECT distinct_id,
@@ -23,7 +23,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp), 'UTC') AS event_date,
-                        pdi.person_id as target,
+                        pdi.person_id AS target,
                         [
                           dateDiff(
                               'Day',
@@ -78,7 +78,7 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-               pdi.person_id as target
+               pdi.person_id AS target
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -95,7 +95,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp), 'UTC') AS event_date,
-                        pdi.person_id as target,
+                        pdi.person_id AS target,
                         [
                           dateDiff(
                               'Day',
@@ -150,7 +150,7 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-               pdi.person_id as target
+               pdi.person_id AS target
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -174,7 +174,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp), 'UTC') AS event_date,
-                        pdi.person_id as target,
+                        pdi.person_id AS target,
                         [
                           dateDiff(
                               'Day',
@@ -237,7 +237,7 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-               pdi.person_id as target
+               pdi.person_id AS target
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -254,7 +254,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp), 'UTC') AS event_date,
-                        pdi.person_id as target,
+                        pdi.person_id AS target,
                         [
                           dateDiff(
                               'Day',
@@ -309,7 +309,7 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific')) AS event_date,
-               pdi.person_id as target
+               pdi.person_id AS target
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -326,7 +326,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp), 'US/Pacific') AS event_date,
-                        pdi.person_id as target,
+                        pdi.person_id AS target,
                         [
                           dateDiff(
                               'Day',
