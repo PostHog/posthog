@@ -18,9 +18,14 @@ export function SamplingFilter({
     insightProps,
     infoTooltipContent,
     setFilters,
-    initialSamplingPercentage
+    initialSamplingPercentage,
 }: SamplingFilterProps): JSX.Element {
-    const logic = samplingFilterLogic({ insightType: filters.insight, insightProps, setFilters, initialSamplingPercentage })
+    const logic = samplingFilterLogic({
+        insightType: filters.insight,
+        insightProps,
+        setFilters,
+        initialSamplingPercentage,
+    })
 
     const { setSamplingPercentage } = useActions(logic)
 

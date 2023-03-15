@@ -44,7 +44,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     })),
     reducers(({ props }) => ({
         samplingPercentage: [
-            props.initialSamplingPercentage || null as number | null,
+            props.initialSamplingPercentage || (null as number | null),
             {
                 // clicking on the active button untoggles it and disables sampling
                 setSamplingPercentage: (oldSamplingPercentage, { samplingPercentage }) =>
