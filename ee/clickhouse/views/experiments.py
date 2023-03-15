@@ -1,11 +1,13 @@
 from typing import Any, Type, Union
 
+from django.utils.timezone import now
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from statshog.defaults.django import statsd
 
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
 from ee.clickhouse.queries.experiments.secondary_experiment_result import ClickhouseSecondaryExperimentResult
@@ -14,6 +16,8 @@ from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.caching.insight_cache import update_cached_state
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
@@ -23,17 +27,12 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
-
 from posthog.utils import generate_cache_key, get_safe_cache
-from posthog.clickhouse.query_tagging import tag_queries
-from statshog.defaults.django import statsd
-from django.utils.timezone import now
-from posthog.caching.insight_cache import update_cached_state
 
 EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes
 
 
-def _calculate_experiment_results(self, experiment: Experiment):
+def _calculate_experiment_results(experiment: Experiment):
     filter = Filter(experiment.filters)
 
     cache_key = generate_cache_key(f"experiment_{filter.toJSON()}_{experiment.team.pk}")
