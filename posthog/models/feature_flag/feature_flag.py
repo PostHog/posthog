@@ -143,6 +143,10 @@ class FeatureFlag(models.Model):
         if not all(property.type == "person" for property in cohort.properties.flat):
             return self.conditions
 
+        if any(property.negation for property in cohort.properties.flat):
+            # Local evaluation doesn't support negation.
+            return self.conditions
+
         # all person properties, so now if we can express the cohort as feature flag groups, we'll be golden.
 
         # If there's only one effective property group, we can always express this as feature flag groups.

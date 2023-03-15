@@ -67,7 +67,7 @@ import { globalInsightLogic } from './globalInsightLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
+const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
 export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {

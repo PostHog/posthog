@@ -1037,23 +1037,6 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export interface BillingType {
-    should_setup_billing: boolean
-    is_billing_active: boolean
-    plan: PlanInterface | null
-    billing_period_ends: string | null
-    event_allocation: number | null
-    current_usage: number | null
-    subscription_url: string
-    current_bill_amount: number | null
-    current_bill_usage: number | null
-    should_display_current_bill: boolean
-    billing_limit: number | null
-    billing_limit_exceeded: boolean | null
-    current_bill_cycle: CurrentBillCycleType | null
-    tiers: BillingTierType[] | null
-}
-
 export type BillingVersion = 'v1' | 'v2'
 
 export interface BillingV2FeatureType {
@@ -1127,14 +1110,6 @@ export interface BillingV2PlanType {
     description: string
     is_free?: boolean
     products: BillingProductV2Type[]
-}
-
-export interface BillingTierType {
-    name: string
-    price_per_event: number
-    number_of_events: number
-    subtotal: number
-    running_total: number
 }
 
 export interface PlanInterface {
@@ -2117,13 +2092,6 @@ export type HotKey =
     | 'arrowup'
 
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
-
-export interface LicenseType {
-    id: number
-    plan: LicensePlan
-    valid_until: string
-    created_at: string
-}
 
 export interface EventDefinition {
     id: string
