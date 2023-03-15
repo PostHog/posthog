@@ -69,7 +69,7 @@ export function ExportedInsight({
                                     {
                                         INSIGHT_TYPES_METADATA[
                                             !!query && !isInsightVizNode(query)
-                                                ? InsightType.QUERY
+                                                ? InsightType.JSON
                                                 : filters.insight || InsightType.TRENDS
                                         ]?.name
                                     }

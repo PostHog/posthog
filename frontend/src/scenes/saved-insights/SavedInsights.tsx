@@ -108,15 +108,15 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
     [InsightType.SQL]: {
         name: 'SQL',
-        description: 'Use SQL to query your data',
+        description: 'Use PostHog SQL to query your data',
         icon: InsightSQLIcon,
         inMenu: true,
     },
-    [InsightType.QUERY]: {
-        name: 'Query',
-        description: 'Build custom insights with our powerful query language',
+    [InsightType.JSON]: {
+        name: 'JSON',
+        description: 'Build custom insights with our powerful JSON query language',
         icon: InsightSQLIcon,
-        inMenu: false, // until data exploration is released
+        inMenu: true,
     },
 }
 
@@ -264,14 +264,14 @@ const insightTypeURL: Record<InsightType, string> = {
     FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
     RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
     PATHS: urls.insightNew({ insight: InsightType.PATHS }),
-    QUERY: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
+    JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
     SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
 }
 
 export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
     let insightType = insight?.filters?.insight || InsightType.TRENDS
     if (!!insight.query && !isInsightVizNode(insight.query)) {
-        insightType = InsightType.QUERY
+        insightType = InsightType.JSON
     }
     const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
     if (insightMetadata && insightMetadata.icon) {
@@ -286,7 +286,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
     let menuEntries = Object.entries(INSIGHT_TYPES_METADATA)
     if (!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]) {
         menuEntries = menuEntries.filter(
-            ([insightType]) => insightType !== InsightType.QUERY && insightType !== InsightType.SQL
+            ([insightType]) => insightType !== InsightType.JSON && insightType !== InsightType.SQL
         )
     }
 
