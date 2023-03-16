@@ -486,6 +486,7 @@ export interface BreakdownFilter {
 export interface QueryContext {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
+    showQueryEditor?: boolean
 }
 
 interface QueryContextColumn {
