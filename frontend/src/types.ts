@@ -1069,6 +1069,7 @@ export interface BillingProductV2Type {
     percentage_usage: number
     current_amount_usd?: string
     usage_limit?: number
+    unit: string
     unit_amount_usd: string | null
     feature_groups: {
         group: string
