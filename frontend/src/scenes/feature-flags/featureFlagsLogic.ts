@@ -74,7 +74,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 }
 
                 if (searchTerm) {
-                    searchedFlags = new Fuse(featureFlags, {
+                    searchedFlags = new Fuse(searchedFlags, {
                         keys: ['key', 'name'],
                         threshold: 0.3,
                     })
