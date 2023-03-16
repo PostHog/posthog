@@ -71,13 +71,13 @@ export interface InsightTypeMetadata {
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
     [InsightType.TRENDS]: {
         name: 'Trends',
-        description: 'Visualize and break down how actions or events vary over time',
+        description: 'Visualize and break down how actions or events vary over time',
         icon: InsightsTrendsIcon,
         inMenu: true,
     },
     [InsightType.FUNNELS]: {
         name: 'Funnel',
-        description: 'Discover how many users complete or drop out of a sequence of actions',
+        description: 'Discover how many users complete or drop out of a sequence of actions',
         icon: InsightsFunnelsIcon,
         inMenu: true,
     },
@@ -89,19 +89,19 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
     [InsightType.PATHS]: {
         name: 'Paths',
-        description: 'Trace the journeys users take within your product and where they drop off',
+        description: 'Trace the journeys users take within your product and where they drop off',
         icon: InsightsPathsIcon,
         inMenu: true,
     },
     [InsightType.STICKINESS]: {
         name: 'Stickiness',
-        description: 'See what keeps users coming back by viewing the interval between repeated actions',
+        description: 'See what keeps users coming back by viewing the interval between repeated actions',
         icon: InsightsStickinessIcon,
         inMenu: true,
     },
     [InsightType.LIFECYCLE]: {
         name: 'Lifecycle',
-        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
+        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
         icon: InsightsLifecycleIcon,
         inMenu: true,
     },
@@ -122,13 +122,13 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.TrendsQuery]: {
         name: 'Trends',
-        description: 'Visualize and break down how actions or events vary over time',
+        description: 'Visualize and break down how actions or events vary over time',
         icon: InsightsTrendsIcon,
         inMenu: true,
     },
     [NodeKind.FunnelsQuery]: {
         name: 'Funnel',
-        description: 'Discover how many users complete or drop out of a sequence of actions',
+        description: 'Discover how many users complete or drop out of a sequence of actions',
         icon: InsightsFunnelsIcon,
         inMenu: true,
     },
@@ -140,19 +140,19 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.PathsQuery]: {
         name: 'Paths',
-        description: 'Trace the journeys users take within your product and where they drop off',
+        description: 'Trace the journeys users take within your product and where they drop off',
         icon: InsightsPathsIcon,
         inMenu: true,
     },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
-        description: 'See what keeps users coming back by viewing the interval between repeated actions',
+        description: 'See what keeps users coming back by viewing the interval between repeated actions',
         icon: InsightsStickinessIcon,
         inMenu: true,
     },
     [NodeKind.LifecycleQuery]: {
         name: 'Lifecycle',
-        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
+        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
         icon: InsightsLifecycleIcon,
         inMenu: true,
     },
@@ -280,6 +280,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
+                    maxWidth: '21rem',
                     overlay: overlayForNewInsightMenu(
                         dataAttr,
                         !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
