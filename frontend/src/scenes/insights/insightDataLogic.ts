@@ -174,6 +174,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return !objectsEqual(query, insight.query)
             },
         ],
+
+        erroredQueryId: [
+            (s) => [s.insightDataError],
+            (insightDataError) => {
+                return insightDataError?.queryId || null
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({

@@ -84,7 +84,7 @@ export function InsightContainer({
         insightFilter,
         exportContext,
         insightDataLoading,
-        insightDataError,
+        erroredQueryId,
         timedOutQueryId,
     } = useValues(insightDataLogic(insightProps))
 
@@ -114,8 +114,8 @@ export function InsightContainer({
         }
 
         // Insight agnostic empty states
-        if (!!insightDataError) {
-            return <InsightErrorState queryId={insightDataError?.queryId} />
+        if (!!erroredQueryId) {
+            return <InsightErrorState queryId={erroredQueryId} />
         }
         if (!!timedOutQueryId) {
             return (
@@ -134,7 +134,7 @@ export function InsightContainer({
     function renderTable(): JSX.Element | null {
         if (
             isFunnels &&
-            !insightDataError &&
+            erroredQueryId === null &&
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
