@@ -346,6 +346,7 @@ function SavedInsightsGrid(): JSX.Element {
                                 callback: loadInsights,
                             })
                         }
+                        placement={'SavedInsightGrid'}
                     />
                 ))}
                 {insightsLoading && (
