@@ -558,14 +558,13 @@ function InsightCardInternal(
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
     const [areDetailsShown, setAreDetailsShown] = useState(false)
 
-    const exportedAndCached = placement && placement == DashboardPlacement.Export && !!insight.result
-    const sharedAndCached = placement && placement == DashboardPlacement.Public && !!insight.result
+    const exportedAndCached = placement == DashboardPlacement.Export && !!insight.result
+    const sharedAndCached = placement == DashboardPlacement.Public && !!insight.result
     const canMakeQueryAPICalls =
         placement === 'SavedInsightGrid' ||
-        (placement &&
-            [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
-                placement
-            ))
+        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
+            placement
+        )
 
     return (
         <div
