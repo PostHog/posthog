@@ -9,6 +9,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { userLogic } from 'scenes/userLogic'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { searchTerm } = useValues(dashboardsLogic)
@@ -95,10 +96,25 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                             console.error('Dashboard template id not defined')
                                             return
                                         }
-                                        deleteDashboardTemplate(id)
+                                        LemonDialog.open({
+                                            title: 'Delete dashboard template?',
+                                            description: 'This action cannot be undone.',
+                                            primaryButton: {
+                                                status: 'danger',
+                                                children: 'Delete',
+                                                onClick: () => {
+                                                    deleteDashboardTemplate(id)
+                                                },
+                                            },
+                                        })
                                     }}
                                     fullWidth
                                     status="danger"
+                                    disabledReason={
+                                        scope === 'global'
+                                            ? 'Cannot delete global dashboard templates, make them team only first'
+                                            : undefined
+                                    }
                                 >
                                     Delete dashboard
                                 </LemonButton>
