@@ -12,6 +12,7 @@ import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { isDataTableNode } from '~/queries/utils'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 import { Query } from '~/queries/Query/Query'
+import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 
 export function ExportedInsight({
     insight,

@@ -334,6 +334,7 @@ export const InsightCard: Story = (args) => {
                     removeFromDashboard={() => setWasItemRemoved(true)}
                     rename={() => {}}
                     duplicate={() => {}}
+                    placement={'SavedInsightGrid'}
                 />
             )}
             <InsightCardComponent
@@ -346,11 +347,13 @@ export const InsightCard: Story = (args) => {
                 }}
                 rename={() => {}}
                 duplicate={() => {}}
+                placement={'SavedInsightGrid'}
             />
             <InsightCardComponent
                 insight={{ ...EXAMPLE_TRENDS, name: '', description: '', last_modified_by: null }}
                 rename={() => {}}
                 duplicate={() => {}}
+                placement={'SavedInsightGrid'}
             />
             <InsightCardComponent
                 insight={{
@@ -361,11 +364,13 @@ export const InsightCard: Story = (args) => {
                 }}
                 rename={() => {}}
                 duplicate={() => {}}
+                placement={'SavedInsightGrid'}
             />
             <InsightCardComponent
                 insight={{ ...EXAMPLE_FUNNEL, name: 'What a plentiful funnel' }}
                 rename={() => {}}
                 duplicate={() => {}}
+                placement={'SavedInsightGrid'}
             />
             <InsightCardComponent
                 insight={{
@@ -377,6 +382,7 @@ export const InsightCard: Story = (args) => {
                 }}
                 rename={() => {}}
                 duplicate={() => {}}
+                placement={'SavedInsightGrid'}
             />
         </div>
     )

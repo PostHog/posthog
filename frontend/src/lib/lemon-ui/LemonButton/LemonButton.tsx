@@ -121,15 +121,15 @@ function LemonButtonInternal(
                 'LemonButton',
                 `LemonButton--${type}`,
                 `LemonButton--status-${status}`,
-                noPadding && `LemonButton--noPadding`,
+                noPadding && `LemonButton--no-padding`,
                 size && `LemonButton--${size}`,
                 disabled && 'LemonButton--disabled',
                 active && 'LemonButton--active',
                 fullWidth && 'LemonButton--full-width',
                 center && 'LemonButton--centered',
                 !children && 'LemonButton--no-content',
-                !!icon && `LemonButton--hasIcon`,
-                !!sideIcon && `LemonButton--hasSideIcon`,
+                !!icon && `LemonButton--has-icon`,
+                !!sideIcon && `LemonButton--has-side-icon`,
                 className
             )}
             disabled={disabled || loading}

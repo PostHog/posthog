@@ -127,7 +127,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                             </>
                         ),
                         type: InsightType.JSON,
-                        dataAttr: 'insight-query-tab',
+                        dataAttr: 'insight-json-tab',
                     })
                 }
 
