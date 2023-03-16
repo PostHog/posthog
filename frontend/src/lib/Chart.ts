@@ -14,6 +14,7 @@ import {
     ScriptableLineSegmentContext,
     DefaultDataPoint,
     Tooltip,
+    Plugin,
     registerables,
 } from 'chart.js'
 import CrosshairPlugin from 'chartjs-plugin-crosshair'
@@ -58,5 +59,6 @@ export {
     TickOptions,
     TooltipModel,
     TooltipOptions,
+    Plugin,
     ScriptableLineSegmentContext,
 }
