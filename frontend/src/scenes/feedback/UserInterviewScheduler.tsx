@@ -1,13 +1,15 @@
-import { LemonButton, LemonCollapse, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonInput, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 import { urls } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
-import './Feedback.scss'
 import { IconHelpOutline } from 'lib/lemon-ui/icons'
-import { userInterviewSchedulerLogic } from './userInterviewSchedulerLogic'
+import { FLAG_PREFIX, userInterviewSchedulerLogic } from './userInterviewSchedulerLogic'
 import { OverViewTab } from 'scenes/feature-flags/FeatureFlags'
+import { Field, Form } from 'kea-forms'
+
+import './UserInterviewScheduler.scss'
 
 const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
     api_host: 'YOUR API HOST',
@@ -101,18 +103,18 @@ export function SchedulerInstructions(): JSX.Element {
                                             <div className="ml-4 my-4">
                                                 <ul className="list-disc ml-4">
                                                     <li>
-                                                        <strong>Show the popup</strong> The popup should show when a
-                                                        flag with the prefix <code>interview-</code> is enabled.
+                                                        <strong>Show the popup:</strong> The popup should show when a
+                                                        flag with the prefix <code>{FLAG_PREFIX}</code> is enabled.
                                                     </li>
                                                     <li>
-                                                        <strong>Hide the popup</strong> Hide the popup when the user
+                                                        <strong>Hide the popup:</strong> Hide the popup when the user
                                                         clicks <code>Close</code> or <code>Book</code>. Then use local
                                                         storage to disable it from showing again and set the user
                                                         properties to prevent is showing across devices. (See the code
                                                         for an example)
                                                     </li>
                                                     <li>
-                                                        <strong>Send events</strong> Send events to PostHog when the
+                                                        <strong>Send events:</strong> Send events to PostHog when the
                                                         user clicks the buttons. (See the code for the events)
                                                     </li>
                                                 </ul>
@@ -135,11 +137,45 @@ export function SchedulerInstructions(): JSX.Element {
     )
 }
 
+export function CreateInterviewFlag(): JSX.Element {
+    const { interviewFlagModal, isInterviewFlagSubmitting } = useValues(userInterviewSchedulerLogic)
+
+    const { toggleInterviewFlagModal } = useActions(userInterviewSchedulerLogic)
+
+    // TODO: fix form styling, errors don't seem to be the right color and the overal style looks off
+    return (
+        <LemonModal title="Create a user interview flag" isOpen={interviewFlagModal} onClose={toggleInterviewFlagModal}>
+            <Form logic={userInterviewSchedulerLogic} formKey="interviewFlag" enableFormOnSubmit>
+                <Field name="key" label="Key">
+                    {({ value, onChange }) => <LemonInput value={value} onChange={onChange} />}
+                </Field>
+                <Field name="title" label="Title">
+                    <LemonInput />
+                </Field>
+                <Field name="bookingLink" label="Booking Link">
+                    <LemonInput />
+                </Field>
+                <Field name="body" label="Body">
+                    <LemonInput />
+                </Field>
+                <Field name="description" label="Description (Internal only)">
+                    <LemonTextArea placeholder="What are these interviews for?" />
+                </Field>
+                <div className="flex justify-end my-4">
+                    <LemonButton loading={isInterviewFlagSubmitting} htmlType="submit" type="primary">
+                        Create
+                    </LemonButton>
+                </div>
+            </Form>
+        </LemonModal>
+    )
+}
+
 export function UserInterviewScheduler(): JSX.Element {
-    const { toggleSchedulerInstructions } = useActions(userInterviewSchedulerLogic)
+    const { toggleInterviewFlagModal, toggleSchedulerInstructions } = useActions(userInterviewSchedulerLogic)
 
     return (
-        <>
+        <div>
             <div className="flex w-full justify-between">
                 <div>
                     <h3 className="text-lg">User Interview Scheduler</h3>
@@ -156,7 +192,7 @@ export function UserInterviewScheduler(): JSX.Element {
                     <LemonButton
                         type="primary"
                         onClick={() => {
-                            // TODO create the interview invitation
+                            toggleInterviewFlagModal()
                         }}
                     >
                         Create interview invitation
@@ -164,8 +200,9 @@ export function UserInterviewScheduler(): JSX.Element {
                 </div>
             </div>
             <div className="my-4" />
-            <OverViewTab flagPrefix="interview-" searchPlaceholder="Search interview invitations" />
+            <OverViewTab flagPrefix={FLAG_PREFIX} searchPlaceholder="Search interview invitations" />
             <SchedulerInstructions />
-        </>
+            <CreateInterviewFlag />
+        </div>
     )
 }
