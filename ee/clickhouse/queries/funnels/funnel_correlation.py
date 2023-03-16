@@ -547,7 +547,7 @@ class FunnelCorrelation:
                     )
                 else:
                     expression, _ = get_property_string_expr(
-                        "person" if not self._team.person_on_events_mode != PersonOnEventsMode.DISABLED else "events",
+                        "person" if self._team.person_on_events_mode == PersonOnEventsMode.DISABLED else "events",
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
