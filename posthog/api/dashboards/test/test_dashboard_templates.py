@@ -109,7 +109,7 @@ class TestDashboardTemplates(APIBaseTest):
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
-            {"scope": "everyone"},
+            {"scope": "global"},
         )
 
         assert update_response.status_code == status.HTTP_200_OK, update_response
@@ -117,7 +117,7 @@ class TestDashboardTemplates(APIBaseTest):
         get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
         assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
 
-        assert get_updated_response.json()["results"][0]["scope"] == "everyone"
+        assert get_updated_response.json()["results"][0]["scope"] == "global"
 
     def test_staff_can_make_dashboard_template_private(self) -> None:
         assert self.team.pk is not None
@@ -131,14 +131,14 @@ class TestDashboardTemplates(APIBaseTest):
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{id}",
-            {"scope": "everyone"},
+            {"scope": "global"},
         )
         assert update_response.status_code == status.HTTP_200_OK, update_response
 
         get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
         assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
 
-        assert get_template_from_response(get_updated_response, id)["scope"] == "everyone"
+        assert get_template_from_response(get_updated_response, id)["scope"] == "global"
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{id}",
@@ -163,13 +163,13 @@ class TestDashboardTemplates(APIBaseTest):
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
-            {"scope": "everyone"},
+            {"scope": "global"},
         )
         assert update_response.status_code == status.HTTP_403_FORBIDDEN, update_response
 
     def test_non_staff_cannot_edit_dashboard_template(self) -> None:
         default_template = DashboardTemplate.objects.all()[0]
-        assert default_template.scope == "everyone"
+        assert default_template.scope == "global"
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{default_template.id}",
@@ -201,7 +201,7 @@ class TestDashboardTemplates(APIBaseTest):
 
         assert len(response.json()["results"]) == 1  # Only default template
 
-        dashboard_template.scope = "everyone"
+        dashboard_template.scope = "global"
         dashboard_template.save()
 
         get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")

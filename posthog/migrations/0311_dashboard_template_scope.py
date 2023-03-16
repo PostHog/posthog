@@ -14,13 +14,13 @@ class Migration(migrations.Migration):
             model_name="dashboardtemplate",
             name="scope",
             field=models.CharField(
-                choices=[("team", "Only team"), ("everyone", "Everyone")], default="team", max_length=24
+                choices=[("team", "Only team"), ("global", "Global")], default="team", max_length=24
             ),
         ),
         migrations.RunSQL(
             sql="""
                 UPDATE posthog_dashboardtemplate
-                SET scope = 'everyone'
+                SET scope = 'global'
                 WHERE team_id IS NULL;
             """,
             reverse_sql=migrations.RunSQL.noop,

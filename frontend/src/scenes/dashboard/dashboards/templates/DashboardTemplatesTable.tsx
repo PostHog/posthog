@@ -38,7 +38,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             title: 'Type',
             dataIndex: 'team_id',
             render: (_, { scope }) => {
-                if (scope === 'everyone') {
+                if (scope === 'global') {
                     return <LemonSnack>Official</LemonSnack>
                 } else {
                     return <LemonSnack>Team</LemonSnack>
@@ -79,13 +79,13 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                         updateDashboardTemplate({
                                             id,
                                             dashboardTemplateUpdates: {
-                                                scope: scope === 'everyone' ? 'team' : 'everyone',
+                                                scope: scope === 'global' ? 'team' : 'global',
                                             },
                                         })
                                     }}
                                     fullWidth
                                 >
-                                    Make {scope === 'everyone' ? 'private' : 'public'}
+                                    Make visible to {scope === 'global' ? 'this team only' : 'global'}
                                 </LemonButton>
 
                                 <LemonDivider />

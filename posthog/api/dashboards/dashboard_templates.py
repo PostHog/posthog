@@ -75,4 +75,4 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, ForbidDestroyModel, views
         return response.Response(dashboard_template_schema)
 
     def get_queryset(self, *args, **kwargs):
-        return DashboardTemplate.objects.filter(Q(team_id=self.team_id) | Q(scope="everyone"))
+        return DashboardTemplate.objects.filter(Q(team_id=self.team_id) | Q(scope="global"))
