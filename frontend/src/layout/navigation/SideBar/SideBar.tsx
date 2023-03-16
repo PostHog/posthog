@@ -167,7 +167,10 @@ function Pages(): JSX.Element {
                                 onClickOutside: () => setIsNewInsightMenuShown(false),
                                 onClickInside: hideSideBarMobile,
                                 overlay: (
-                                    <div className="SideBar__side-actions" data-attr="sidebar-new-insights">
+                                    <div
+                                        className="SideBar__side-actions new-insight-overlay"
+                                        data-attr="sidebar-new-insights"
+                                    >
                                         <h5>Creating a new insight</h5>
                                         <LemonDivider />
                                         {overlayForNewInsightMenu(
