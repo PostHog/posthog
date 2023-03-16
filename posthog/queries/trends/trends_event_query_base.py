@@ -32,7 +32,7 @@ class TrendsEventQueryBase(EventQuery):
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups),
             person_properties_mode=get_person_properties_mode(self._team),
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._person_on_events_mode != PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
         )
 
         self.params.update(prop_params)
