@@ -25,7 +25,7 @@ class PathEventQuery(EventQuery):
         funnel_paths_join = ""
         funnel_paths_filter = ""
 
-        person_id = f"{self.DISTINCT_ID_TABLE_ALIAS if not self._person_on_events_mode != PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id"
+        person_id = f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id"
 
         if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP or self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP:
             # used when looking for paths up to a dropoff point to account for events happening between the latest even and when the person is deemed dropped off
