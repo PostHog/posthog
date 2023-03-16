@@ -79,10 +79,8 @@ CLICKHOUSE_FUNCTIONS = {
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS = {
-    "count": 0,
-    "countIf": 1,
-    "countDistinct": 1,
-    "countDistinctIf": 2,
+    "count": (0, 1),
+    "countIf": (1, 2),
     "min": 1,
     "minIf": 2,
     "max": 1,
