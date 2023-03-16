@@ -5,6 +5,8 @@ import { databaseSceneLogic } from './databaseSceneLogic'
 import { useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Link } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
 
 export function DatabaseScene(): JSX.Element {
     const { database } = useValues(databaseSceneLogic)
@@ -63,21 +65,33 @@ export function DatabaseScene(): JSX.Element {
                                 title: 'Info',
                                 key: 'info',
                                 dataIndex: 'type',
-                                render: function RenderInfo(type, table) {
+                                render: function RenderInfo(type, field) {
                                     if (type === 'virtual_table') {
                                         return (
                                             <>
-                                                Fields: <code>{(table as any).fields.join(', ')}</code>
+                                                Fields: <code>{(field as any).fields.join(', ')}</code>
                                             </>
                                         )
                                     } else if (type === 'lazy_table') {
                                         return (
                                             <>
-                                                To table: <code>{String((table as any).table)}</code>
+                                                To table: <code>{String((field as any).table)}</code>
                                             </>
                                         )
-                                    } else if (type === 'field_traverser' && Array.isArray((table as any).chain)) {
-                                        return <code>{(table as any).chain.join('.')}</code>
+                                    } else if (type === 'field_traverser' && Array.isArray((field as any).chain)) {
+                                        return <code>{(field as any).chain.join('.')}</code>
+                                    } else if (table == 'events' && type == 'json' && field.key == 'properties') {
+                                        return (
+                                            <Link to={urls.propertyDefinitions('event')}>
+                                                Edit event property types
+                                            </Link>
+                                        )
+                                    } else if (table == 'persons' && type == 'json' && field.key == 'properties') {
+                                        return (
+                                            <Link to={urls.propertyDefinitions('person')}>
+                                                Edit person property types
+                                            </Link>
+                                        )
                                     }
                                     return ''
                                 },
