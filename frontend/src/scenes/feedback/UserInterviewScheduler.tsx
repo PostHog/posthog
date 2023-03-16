@@ -7,9 +7,10 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconHelpOutline } from 'lib/lemon-ui/icons'
 import { FLAG_PREFIX, userInterviewSchedulerLogic } from './userInterviewSchedulerLogic'
 import { OverViewTab } from 'scenes/feature-flags/FeatureFlags'
-import { Field, Form } from 'kea-forms'
+import { Form } from 'kea-forms'
 
 import './UserInterviewScheduler.scss'
+import { Field } from 'lib/forms/Field'
 
 const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
     api_host: 'YOUR API HOST',
@@ -150,7 +151,7 @@ export function CreateInterviewFlag(): JSX.Element {
     // TODO: fix form styling, errors don't seem to be the right color and the overal style looks off
     return (
         <LemonModal title="Create a user interview flag" isOpen={interviewFlagModal} onClose={toggleInterviewFlagModal}>
-            <Form logic={userInterviewSchedulerLogic} formKey="interviewFlag" enableFormOnSubmit>
+            <Form logic={userInterviewSchedulerLogic} formKey="interviewFlag" enableFormOnSubmit className="space-y-2">
                 <Field name="key" label="Key">
                     {({ value, onChange }) => <LemonInput value={value} onChange={onChange} />}
                 </Field>
