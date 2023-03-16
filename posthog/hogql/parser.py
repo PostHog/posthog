@@ -184,15 +184,17 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return join1
 
     def visitJoinExprTable(self, ctx: HogQLParser.JoinExprTableContext):
+        sample = None
         if ctx.sampleClause():
-            raise NotImplementedError(f"Unsupported: SAMPLE (JoinExprTable.sampleClause)")
+            sample = self.visit(ctx.sampleClause())
         table = self.visit(ctx.tableExpr())
         table_final = True if ctx.FINAL() else None
         if isinstance(table, ast.JoinExpr):
             # visitTableExprAlias returns a JoinExpr to pass the alias
             table.table_final = table_final
+            table.sample = sample
             return table
-        return ast.JoinExpr(table=table, table_final=table_final)
+        return ast.JoinExpr(table=table, table_final=table_final, sample=sample)
 
     def visitJoinExprParens(self, ctx: HogQLParser.JoinExprParensContext):
         return self.visit(ctx.joinExpr())
@@ -255,7 +257,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return column_expr_list[0]
 
     def visitSampleClause(self, ctx: HogQLParser.SampleClauseContext):
-        raise NotImplementedError(f"Unsupported node: SampleClause")
+        ratio_expressions = ctx.ratioExpr()
+
+        sample_ratio_expr = self.visit(ratio_expressions[0])
+        offset_ratio_expr = self.visit(ratio_expressions[1]) if len(ratio_expressions) > 1 and ctx.OFFSET() else None
+
+        return ast.SampleExpr(sample_value=sample_ratio_expr, offset_value=offset_ratio_expr)
 
     def visitLimitExpr(self, ctx: HogQLParser.LimitExprContext):
         raise NotImplementedError(f"Unsupported node: LimitExpr")
@@ -268,7 +275,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.OrderExpr(expr=self.visit(ctx.columnExpr()), order=cast(Literal["ASC", "DESC"], order))
 
     def visitRatioExpr(self, ctx: HogQLParser.RatioExprContext):
-        raise NotImplementedError(f"Unsupported node: RatioExpr")
+        number_literals = ctx.numberLiteral()
+
+        left = number_literals[0]
+        right = number_literals[1] if ctx.SLASH() and len(number_literals) > 1 else None
+
+        return ast.RatioExpr(
+            left=self.visitNumberLiteral(left), right=self.visitNumberLiteral(right) if right else None
+        )
 
     def visitSettingExprList(self, ctx: HogQLParser.SettingExprListContext):
         raise NotImplementedError(f"Unsupported node: SettingExprList")

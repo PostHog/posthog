@@ -1,6 +1,5 @@
 import { Mocks, MockSignature, mocksToHandlers } from './utils'
 import {
-    MOCK_DEFAULT_LICENSE,
     MOCK_DEFAULT_ORGANIZATION,
     MOCK_DEFAULT_ORGANIZATION_INVITE,
     MOCK_DEFAULT_ORGANIZATION_MEMBER,
@@ -60,7 +59,6 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/persons': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/persons/properties/': toPaginatedResponse(MOCK_PERSON_PROPERTIES),
         '/api/personal_api_keys/': [],
-        '/api/license/': toPaginatedResponse([MOCK_DEFAULT_LICENSE]),
         '/api/users/@me/': (): MockSignature => [
             200,
             {

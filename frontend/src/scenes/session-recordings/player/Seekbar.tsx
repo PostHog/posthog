@@ -145,11 +145,14 @@ export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
                         ))}
                     </div>
 
+                    {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div className="PlayerSeekbar__currentbar" style={{ width: `${Math.max(thumbLeftPos, 0)}px` }} />
+                    {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div className="PlayerSeekbar__bufferbar" style={{ width: `${bufferPercent}%` }} />
                     <div
                         className="PlayerSeekbar__thumb"
                         ref={thumbRef}
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
 

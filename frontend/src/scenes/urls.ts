@@ -117,9 +117,7 @@ export const urls = {
     ingestion: (): string => '/ingestion',
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
-    billingSubscribed: (): string => '/organization/billing/subscribed',
     // Self-hosted only
-    instanceLicenses: (): string => '/instance/licenses',
     instanceStatus: (): string => '/instance/status',
     instanceStaffUsers: (): string => '/instance/staff_users',
     instanceKafkaInspector: (): string => '/instance/kafka_inspector',
@@ -143,7 +141,7 @@ export const urls = {
             ...(exportOptions?.legend ? { legend: null } : {}),
             ...(exportOptions?.noHeader ? { noHeader: null } : {}),
         }).url,
-    query: (query?: string | Record<string, any>): string =>
-        combineUrl('/query', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
+    debugQuery: (query?: string | Record<string, any>): string =>
+        combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     feedback: (): string => '/feedback',
 }

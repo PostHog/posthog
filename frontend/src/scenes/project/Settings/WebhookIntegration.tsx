@@ -27,7 +27,7 @@ export function WebhookIntegration(): JSX.Element {
                 supported.
             </p>
 
-            <div className="space-y-4" style={{ maxWidth: '40rem' }}>
+            <div className="space-y-4 max-w-160">
                 <LemonInput
                     value={webhook}
                     onChange={setWebhook}

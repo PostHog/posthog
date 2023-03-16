@@ -119,10 +119,10 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     })
-                    // don't show query tab to everyone with the data exploration flags on
+                    // don't show debug tab to everyone with the data exploration flags on
                     if (allowQueryTab && user?.is_staff) {
                         tabs.push({
-                            label: 'Query',
+                            label: 'Debug',
                             type: InsightType.QUERY,
                             dataAttr: 'insight-query-tab',
                         })
