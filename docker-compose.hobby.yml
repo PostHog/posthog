@@ -60,6 +60,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: web
+        command: /compose/start
         volumes:
             - ./compose:/compose
         image: posthog/posthog:$POSTHOG_APP_TAG
@@ -125,6 +126,7 @@ services:
         ports:
             - 8081:8080
     temporal-django-worker:
+        command: /compose/temporal-django-worker
         extends:
             file: docker-compose.base.yml
             service: temporal-django-worker

@@ -19,5 +19,6 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        logging.info(f"Executing Temporal Workflow with options: {options}")
         output = asyncio.run(execute_noop_workflow(options["temporal_host"], options["temporal_port"]))
         logging.warning(f"Workflow output: {output}")

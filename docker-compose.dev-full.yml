@@ -71,6 +71,10 @@ services:
             file: docker-compose.base.yml
             service: worker
         build: .
+        volumes:
+            - .:/app/posthog
+        environment:
+            - DEBUG=1
 
     web:
         extends:
@@ -79,12 +83,20 @@ services:
         ports:
             - '8080:8080'
         build: .
+        volumes:
+            - .:/app/posthog
+        environment:
+            - DEBUG=1
 
     plugins:
         extends:
             file: docker-compose.base.yml
             service: plugins
         build: .
+        volumes:
+            - .:/app/posthog
+        environment:
+            - DEBUG=1
 
     # Temporal containers
     elasticsearch:
@@ -114,3 +126,5 @@ services:
             file: docker-compose.base.yml
             service: temporal-django-worker
         build: .
+        volumes:
+            - .:/app/posthog
