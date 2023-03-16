@@ -42,7 +42,7 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { summarizeInsightFilters, summarizeInsightQuery } from 'scenes/insights/utils'
+import { summariseInsight } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -60,13 +60,13 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { CardMeta, Resizeable } from 'lib/components/Cards/CardMeta'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { Query } from '~/queries/Query/Query'
-import { dateRangeFor, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
-import { InsightVizNode } from '~/queries/schema'
+import { containsHogQLQuery, dateRangeFor, isDataTableNode, isInsightQueryNode } from '~/queries/utils'
 import { PieChartFilled } from '@ant-design/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -215,13 +215,15 @@ function InsightMeta({
     showDetailsControls = true,
     moreButtons,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, filters, dashboards } = insight
+    const { short_id, name, dashboards } = insight
     const { exporterResourceParams, insightProps } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
         (d: DashboardType) => !dashboards?.includes(d.id)
     )
@@ -230,21 +232,14 @@ function InsightMeta({
     // not all interactions are currently implemented for queries
     const allInteractionsAllowed = !insight.query
 
-    const summary = !!name
-        ? null
-        : !!Object.keys(insight.filters).length
-        ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
-        : !!insight.query
-        ? isInsightVizNode(insight.query)
-            ? summarizeInsightQuery(
-                  (insight.query as InsightVizNode).source,
-                  aggregationLabel,
-                  cohortsById,
-                  mathDefinitions
-              )
-            : // TODO summarise other kinds of query too
-              'query: ' + insight.query.kind
-        : null
+    const summary = summariseInsight(
+        !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
+        insight.query,
+        aggregationLabel,
+        cohortsById,
+        mathDefinitions,
+        insight.filters
+    )
 
     return (
         <CardMeta
@@ -429,7 +424,11 @@ function TopHeading({ insight }: { insight: InsightModel }): JSX.Element {
 
     // check the query first because the backend still adds defaults to empty filters :/
     if (!!query?.kind) {
-        insightType = QUERY_TYPES_METADATA[query.kind]
+        if (isDataTableNode(query) && containsHogQLQuery(query)) {
+            insightType = QUERY_TYPES_METADATA[query.source.kind]
+        } else {
+            insightType = QUERY_TYPES_METADATA[query.kind]
+        }
     } else if (!!filters.insight) {
         insightType = INSIGHT_TYPES_METADATA[filters.insight]
     } else {
@@ -447,10 +446,11 @@ function TopHeading({ insight }: { insight: InsightModel }): JSX.Element {
     }
 
     const defaultDateRange = query == undefined || isInsightQueryNode(query) ? 'Last 7 days' : null
+    const dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     return (
         <>
-            <span title={insightType?.description}>{insightType?.name}</span> •{' '}
-            {dateFilterToText(date_from, date_to, defaultDateRange)}
+            <span title={insightType?.description}>{insightType?.name}</span>
+            {dateText ? <> • {dateText}</> : null}
         </>
     )
 }
