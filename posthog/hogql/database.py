@@ -341,7 +341,7 @@ def serialize_database(database: Database) -> dict:
     for table_key in database.__fields__.keys():
         fields: List[Dict[str, Any]] = []
         table = getattr(database, table_key, None)
-        for field_key in table.__fields__.keys():
+        for field_key in table.__fields__.keys() if table else []:
             field = getattr(table, field_key, None)
             if field_key == "team_id":
                 pass
