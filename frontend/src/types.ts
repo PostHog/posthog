@@ -1427,7 +1427,7 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
-    QUERY = 'QUERY',
+    JSON = 'JSON',
     SQL = 'SQL',
 }
 

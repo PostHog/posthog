@@ -628,6 +628,6 @@ export const insightTypeURL: Record<InsightType, string> = {
     FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
     RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
     PATHS: urls.insightNew({ insight: InsightType.PATHS }),
-    QUERY: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
+    JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
     SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
 }

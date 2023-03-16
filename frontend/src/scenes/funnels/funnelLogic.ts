@@ -894,16 +894,16 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         excludedPropertyNames: [
             () => [selectors.currentTeam],
-            (currentTeam) =>
+            (currentTeam): string[] =>
                 currentTeam?.correlation_config?.excluded_person_property_names || DEFAULT_EXCLUDED_PERSON_PROPERTIES,
         ],
         excludedEventNames: [
             () => [selectors.currentTeam],
-            (currentTeam) => currentTeam?.correlation_config?.excluded_event_names || [],
+            (currentTeam): string[] => currentTeam?.correlation_config?.excluded_event_names || [],
         ],
         excludedEventPropertyNames: [
             () => [selectors.currentTeam],
-            (currentTeam) => currentTeam?.correlation_config?.excluded_event_property_names || [],
+            (currentTeam): string[] => currentTeam?.correlation_config?.excluded_event_property_names || [],
         ],
         inversePropertyNames: [
             (s) => [s.filters, s.personProperties, s.groupProperties],
