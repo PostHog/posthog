@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 import { FilterType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -39,6 +40,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 import { displayTypesWithoutLegend } from 'lib/components/InsightLegend/utils'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
@@ -261,6 +263,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
             if (!!values.insightDataLoading) {
                 actions.setTimedOutQueryId(queryId)
+                const tags = {
+                    kind: values.querySource.kind,
+                    scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
+                }
+                posthog.capture('insight timeout message shown', tags)
             }
         },
         loadDataSuccess: () => {
