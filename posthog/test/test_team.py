@@ -146,5 +146,5 @@ class TestTeam(BaseTest):
 
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertTrue(team.person_on_events_mode, PersonOnEventsMode.DISABLED)
+                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.DISABLED)
                 mock_feature_enabled.assert_not_called()
