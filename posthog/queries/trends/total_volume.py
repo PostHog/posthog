@@ -14,7 +14,7 @@ from posthog.constants import (
 from posthog.models.entity import Entity
 from posthog.models.event.sql import NULL_SQL
 from posthog.models.filters import Filter
-from posthog.models.team import Team
+from posthog.models.team import PersonOnEventsMode, Team
 from posthog.queries.trends.sql import (
     ACTIVE_USERS_AGGREGATE_SQL,
     ACTIVE_USERS_SQL,
@@ -51,7 +51,9 @@ class TrendsTotalVolume:
             entity,
             team,
             event_table_alias=TrendsEventQuery.EVENT_TABLE_ALIAS,
-            person_id_alias=f"person_id" if team.person_on_events_querying_enabled else "pdi.person_id",
+            person_id_alias=f"person_id"
+            if team.person_on_events_mode != PersonOnEventsMode.DISABLED
+            else "pdi.person_id",
         )
 
         trend_event_query = TrendsEventQuery(
@@ -62,7 +64,7 @@ class TrendsTotalVolume:
             if join_condition != ""
             or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
             else False,
-            person_on_events_mode=team.person_on_events_querying_enabled,
+            person_on_events_mode=team.person_on_events_mode,
         )
         event_query_base, event_query_params = trend_event_query.get_query_base()
 

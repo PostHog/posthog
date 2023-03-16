@@ -16,7 +16,7 @@ from posthog.models.property.util import (
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
 )
-from posthog.models.team import Team
+from posthog.models.team import PersonOnEventsMode, Team
 from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
@@ -73,7 +73,9 @@ def get_breakdown_prop_values(
     sessions_join_clause = ""
     sessions_join_params: Dict = {}
 
-    null_person_filter = f"AND notEmpty(e.person_id)" if team.person_on_events_querying_enabled else ""
+    null_person_filter = (
+        f"AND notEmpty(e.person_id)" if team.person_on_events_mode != PersonOnEventsMode.DISABLED else ""
+    )
 
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
         outer_properties: Optional[PropertyGroup] = props_to_filter
@@ -124,7 +126,7 @@ def get_breakdown_prop_values(
         entity_filter, entity_params = FunnelEventQuery(
             filter,
             team,
-            person_on_events_mode=team.person_on_events_querying_enabled,
+            person_on_events_mode=team.person_on_events_mode,
         )._get_entity_query()
         entity_format_params = {"entity_query": entity_filter}
     else:

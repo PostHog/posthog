@@ -142,7 +142,7 @@ class FOSSCohortQuery(EventQuery):
             extra_event_properties=extra_event_properties,
             extra_person_fields=extra_person_fields,
             override_aggregate_users_by_distinct_id=override_aggregate_users_by_distinct_id,
-            person_on_events_mode=team.person_on_events_querying_enabled,
+            person_on_events_mode=team.person_on_events_mode,
             **kwargs,
         )
 

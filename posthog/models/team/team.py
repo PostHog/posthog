@@ -191,6 +191,7 @@ class Team(UUIDClassicModel):
 
     objects: TeamManager = TeamManager()
 
+
     @property
     def person_on_events_mode(self) -> PersonOnEventsMode:
         # Persons on Events V2 always takes priority over Persons on Events V1
@@ -204,7 +205,13 @@ class Team(UUIDClassicModel):
             return PersonOnEventsMode.V1_ENABLED
         
         return PersonOnEventsMode.DISABLED
-            
+         
+         
+    # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
+    # Keeping this property for now only to be used by the frontend in certain cases
+    @property
+    def person_on_events_querying_enabled(self) -> bool:
+        return self.person_on_events_mode != PersonOnEventsMode.DISABLED
 
     @property
     def _person_on_events_querying_enabled(self) -> bool:

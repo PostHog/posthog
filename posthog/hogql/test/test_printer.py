@@ -6,6 +6,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.models.team import PersonOnEventsMode
 
 
 class TestPrinter(TestCase):
@@ -60,25 +61,25 @@ class TestPrinter(TestCase):
             "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
-        context = HogQLContext(within_non_hogql_query=True, using_person_on_events=False)
+        context = HogQLContext(within_non_hogql_query=True, person_on_events_mode=PersonOnEventsMode.DISABLED)
         self.assertEqual(
             self._expr("person.properties.bla", context),
             "replaceRegexpAll(JSONExtractRaw(person_props, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
-        context = HogQLContext(within_non_hogql_query=True, using_person_on_events=True)
+        context = HogQLContext(within_non_hogql_query=True, person_on_events_mode=PersonOnEventsMode.V1_ENABLED)
         self.assertEqual(
             self._expr("person.properties.bla", context),
             "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
-        context = HogQLContext(within_non_hogql_query=False, using_person_on_events=False)
+        context = HogQLContext(within_non_hogql_query=False, person_on_events_mode=PersonOnEventsMode.DISABLED)
         self.assertEqual(
             self._expr("person.properties.bla", context),
             "events__pdi__person.properties___bla",
         )
 
-        context = HogQLContext(within_non_hogql_query=False, using_person_on_events=True)
+        context = HogQLContext(within_non_hogql_query=False, person_on_events_mode=PersonOnEventsMode.V1_ENABLED)
         self.assertEqual(
             # TODO: for now, explicitly writing "poe." to opt in. Automatic switching will come soon.
             self._expr("poe.properties.bla", context),

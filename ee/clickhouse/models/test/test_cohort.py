@@ -14,7 +14,7 @@ from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.models.team import Team
+from posthog.models.team import PersonOnEventsMode, Team
 from posthog.queries.util import PersonPropertiesMode
 from posthog.test.base import (
     BaseTest,
@@ -108,9 +108,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -150,9 +150,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -165,9 +165,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -207,9 +207,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -222,9 +222,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)

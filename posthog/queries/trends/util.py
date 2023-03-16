@@ -16,7 +16,7 @@ from posthog.models.filters import Filter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
-from posthog.models.team import Team
+from posthog.models.team import PersonOnEventsMode, Team
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp
 
 logger = structlog.get_logger(__name__)
@@ -169,7 +169,7 @@ def determine_aggregator(entity: Entity, team: Team) -> str:
         return f'"$group_{entity.math_group_type_index}"'
     elif team.aggregate_users_by_distinct_id:
         return "e.distinct_id"
-    elif team.person_on_events_querying_enabled:
+    elif team.person_on_events_mode != PersonOnEventsMode.DISABLED:
         return "e.person_id"
     else:
         return "pdi.person_id"
