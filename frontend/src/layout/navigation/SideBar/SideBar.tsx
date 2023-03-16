@@ -160,7 +160,7 @@ function Pages(): JSX.Element {
                         sideAction={{
                             icon: <IconPlus />,
                             identifier: Scene.Insight,
-                            tooltip: 'Choose an insight type to create',
+                            tooltip: 'New insight',
                             onClick: () => setIsNewInsightMenuShown((state) => !state),
                             dropdown: {
                                 visible: isNewInsightMenuShown,
