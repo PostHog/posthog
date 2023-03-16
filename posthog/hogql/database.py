@@ -239,8 +239,8 @@ class EventsTable(Table):
     poe: EventsPersonSubTable = EventsPersonSubTable()
 
     # These are swapped out if the user has PoE enabled
-    person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
-    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
+    person: BaseModel = FieldTraverser(chain=["pdi", "person"])
+    person_id: BaseModel = FieldTraverser(chain=["pdi", "person_id"])
 
     def clickhouse_table(self):
         return "events"
