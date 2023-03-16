@@ -69,6 +69,11 @@ class TestPrinter(BaseTest):
                 self._expr("person.properties.bla", context),
                 "replaceRegexpAll(JSONExtractRaw(person_props, %(hogql_val_0)s), '^\"|\"$', '')",
             )
+            context = HogQLContext(team_id=self.team.pk)
+            self.assertEqual(
+                self._expr("person.properties.bla", context),
+                "events__pdi__person.properties___bla",
+            )
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
             context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=True, using_person_on_events=True)
@@ -76,16 +81,7 @@ class TestPrinter(BaseTest):
                 self._expr("person.properties.bla", context),
                 "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
             )
-
-        with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
-            context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=False, using_person_on_events=False)
-            self.assertEqual(
-                self._expr("person.properties.bla", context),
-                "events__pdi__person.properties___bla",
-            )
-
-        with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
-            context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=False, using_person_on_events=True)
+            context = HogQLContext(team_id=self.team.pk)
             self.assertEqual(
                 self._expr("person.properties.bla", context),
                 "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
