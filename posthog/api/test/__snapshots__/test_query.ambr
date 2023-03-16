@@ -48,9 +48,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          distinct_id,
-         mat_key,
+         events.mat_key,
          'a%sd',
-         concat(event, ' ', mat_key)
+         concat(event, ' ', events.mat_key)
   FROM events
   WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
@@ -63,11 +63,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          distinct_id,
-         mat_key,
+         events.mat_key,
          'a%sd',
-         concat(event, ' ', mat_key)
+         concat(event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(team_id, 2), equals(mat_key, 'test_val3'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(team_id, 2), equals(events.mat_key, 'test_val3'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
   OFFSET 0
@@ -78,11 +78,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          distinct_id,
-         mat_key,
+         events.mat_key,
          'a%sd',
-         concat(event, ' ', mat_key)
+         concat(event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(team_id, 2), ilike(mat_path, '%/%'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(team_id, 2), ilike(events.mat_path, '%/%'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
   OFFSET 0
@@ -105,7 +105,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          distinct_id,
-         mat_key
+         events.mat_key
   FROM events
   WHERE equals(team_id, 2)
   ORDER BY timestamp ASC
@@ -177,9 +177,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          distinct_id,
-         mat_key,
+         events.mat_key,
          'a%sd',
-         concat(event, ' ', mat_key)
+         concat(event, ' ', events.mat_key)
   FROM events
   WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
@@ -192,9 +192,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          distinct_id,
-         mat_key,
+         events.mat_key,
          'a%sd',
-         concat(event, ' ', mat_key)
+         concat(event, ' ', events.mat_key)
   FROM events
   WHERE and(equals(team_id, 2), equals('a%sd', 'foo'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
@@ -207,9 +207,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          distinct_id,
-         mat_key,
+         events.mat_key,
          'a%sd',
-         concat(event, ' ', mat_key)
+         concat(event, ' ', events.mat_key)
   FROM events
   WHERE and(equals(team_id, 2), equals('a%sd', 'a%sd'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
@@ -222,11 +222,11 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          distinct_id,
-         mat_key,
+         events.mat_key,
          'a%sd',
-         concat(event, ' ', mat_key)
+         concat(event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(team_id, 2), equals(mat_key, 'test_val2'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(team_id, 2), equals(events.mat_key, 'test_val2'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
   OFFSET 0
@@ -266,9 +266,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT event,
          events.distinct_id,
-         mat_key,
+         events.mat_key,
          'a%sd',
-         concat(event, ' ', mat_key)
+         concat(event, ' ', events.mat_key)
   FROM events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, version) AS person_id,
@@ -278,7 +278,7 @@
      GROUP BY distinct_id
      HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   INNER JOIN
-    (SELECT argMax(pmat_email, version) AS properties___email,
+    (SELECT argMax(person.pmat_email, version) AS properties___email,
             id
      FROM person
      WHERE equals(team_id, 2)
@@ -320,11 +320,11 @@
 # name: TestQuery.test_property_filter_aggregations_materialized
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT mat_key,
+  SELECT events.mat_key,
          count(*)
   FROM events
   WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
-  GROUP BY mat_key
+  GROUP BY events.mat_key
   ORDER BY count(*) DESC
   LIMIT 101
   OFFSET 0
@@ -333,11 +333,11 @@
 # name: TestQuery.test_property_filter_aggregations_materialized.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT mat_key,
+  SELECT events.mat_key,
          count(*)
   FROM events
   WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
-  GROUP BY mat_key
+  GROUP BY events.mat_key
   HAVING and(greater(count(*), 1))
   ORDER BY count(*) DESC
   LIMIT 101
