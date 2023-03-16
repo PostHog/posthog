@@ -193,10 +193,17 @@
   FROM
     (SELECT behavior_query.person_id AS id
      FROM
-       (SELECT e.person_id AS person_id,
+       (SELECT pdi.person_id AS person_id,
                minIf(timestamp, event = 'signup') >= now() - INTERVAL 15 day
         AND minIf(timestamp, event = 'signup') < now() as first_time_condition_1_level_level_0_level_0_0
         FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event IN ['signup']
         GROUP BY person_id) behavior_query
@@ -227,13 +234,20 @@
   FROM
     (SELECT behavior_query.person_id AS id
      FROM
-       (SELECT e.person_id AS person_id,
+       (SELECT pdi.person_id AS person_id,
                countIf(timestamp > now() - INTERVAL 2 year
                        AND timestamp < now()
                        AND event = '$pageview') > 0 AS performed_event_condition_2_level_level_0_level_0_level_0_0,
                minIf(timestamp, event = 'signup') >= now() - INTERVAL 15 day
         AND minIf(timestamp, event = 'signup') < now() as first_time_condition_2_level_level_0_level_1_level_0_level_0_level_0_0
         FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event IN ['$pageview', 'signup']
         GROUP BY person_id) behavior_query
