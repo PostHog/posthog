@@ -19,7 +19,7 @@ export default {
 
 export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
     return (
-        <div style={{ display: 'flex' }}>
+        <div className="flex">
             <div style={{ width: 350 }}>
                 <CompactList
                     loading={loading}

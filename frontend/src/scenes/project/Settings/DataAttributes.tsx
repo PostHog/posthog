@@ -36,7 +36,7 @@ export function DataAttributes(): JSX.Element {
                 <code>data-custom-id</code> attribute. If you whitelist it here, the selector for your button will
                 instead be <code>button[data-custom-id='cta-button']</code>.
             </p>
-            <div className="space-y-4" style={{ maxWidth: '40rem' }}>
+            <div className="space-y-4 max-w-160">
                 <LemonSelectMultiple
                     mode="multiple-custom"
                     onChange={(values) => setValue(values || [])}

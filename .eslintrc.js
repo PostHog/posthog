@@ -146,6 +146,10 @@ module.exports = {
                         element: 'Badge',
                         message: 'use LemonBadge instead',
                     },
+                    {
+                        element: 'Collapse',
+                        message: 'use <LemonCollapse> instead',
+                    },
                 ],
             },
         ],

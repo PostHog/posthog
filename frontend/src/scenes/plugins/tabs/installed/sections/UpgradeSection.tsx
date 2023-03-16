@@ -73,11 +73,11 @@ export function UpgradeSection(): JSX.Element {
                                     ))}
                                 </>
                             ) : (
-                                <p style={{ margin: 10 }}>No apps match your search.</p>
+                                <p className="m-2.5">No apps match your search.</p>
                             )}
                         </Row>
                     ) : (
-                        <p style={{ margin: 10 }}>All your apps are up to date. Great work!</p>
+                        <p className="m-2.5">All your apps are up to date. Great work!</p>
                     )}
                 </>
             ) : null}

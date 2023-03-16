@@ -111,7 +111,7 @@ export function ProjectSettings(): JSX.Element {
                     Set the timezone for your project. All charts will be based on this timezone, including how PostHog
                     buckets data in day/week/month intervals.
                 </p>
-                <div style={{ maxWidth: '40rem' }}>
+                <div className="max-w-160">
                     <TimezoneConfig />
                 </div>
                 <LemonDivider className="my-6" />

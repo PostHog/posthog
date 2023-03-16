@@ -2,6 +2,7 @@ import { useState } from 'react'
 import MonacoEditor from '@monaco-editor/react'
 import './JSONEditorInput.scss'
 import { JsonType } from '~/types'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 interface EditorProps {
     onChange?: (val: string | undefined) => void
@@ -81,6 +82,7 @@ export function JSONEditorInput({
                     updateHeight(val)
                     onChange?.(val)
                 }}
+                loading={<Spinner />}
             />
             {!focused && !value?.toString() && placeholder && (
                 <div className="placeholder">

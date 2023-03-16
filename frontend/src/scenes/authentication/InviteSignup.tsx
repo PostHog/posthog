@@ -3,7 +3,7 @@ import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
 import { userLogic } from 'scenes/userLogic'
 import { PrevalidatedInvite } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
-import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
+import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -292,7 +292,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 caption={`Remember to log in with ${invite?.target_email}`}
                 captionLocation="bottom"
                 topDivider
-                queryString={invite ? `?invite_id=${invite.id}` : ''}
+                redirectQueryParams={invite ? { invite_id: invite.id } : undefined}
             />
         </BridgePage>
     )

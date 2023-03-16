@@ -24,7 +24,7 @@ export const scene: SceneExport = {
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setSearchTerm, setCurrentTab } = useActions(dashboardsLogic)
-    const { dashboards, searchTerm, currentTab, templatesTabIsVisible } = useValues(dashboardsLogic)
+    const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
 
@@ -68,7 +68,7 @@ export function Dashboards(): JSX.Element {
                         key: DashboardsTab.Shared,
                         label: 'Shared',
                     },
-                    templatesTabIsVisible && {
+                    {
                         key: DashboardsTab.Templates,
                         label: 'Templates',
                     },

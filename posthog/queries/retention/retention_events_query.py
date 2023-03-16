@@ -145,7 +145,8 @@ class RetentionEventsQuery(EventQuery):
 
         null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
 
-        sample_clause = f"SAMPLE {self._filter.sampling_factor}" if self._filter.sampling_factor else ""
+        sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
+        self.params.update({"sampling_factor": self._filter.sampling_factor})
 
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}

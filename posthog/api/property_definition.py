@@ -294,7 +294,18 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
         )
 
     def update(self, property_definition: PropertyDefinition, validated_data):
-        raise EnterpriseFeatureException()
+        # free users can update property type but no other properties on property definitions
+        if list(validated_data.keys()) == ["property_type"]:
+            validated_data["updated_by"] = self.context["request"].user
+            if "property_type" in validated_data:
+                if validated_data["property_type"] == "Numeric":
+                    validated_data["is_numerical"] = True
+                else:
+                    validated_data["is_numerical"] = False
+
+            return super().update(property_definition, validated_data)
+        else:
+            raise EnterpriseFeatureException()
 
 
 class NotCountingLimitOffsetPaginator(LimitOffsetPagination):

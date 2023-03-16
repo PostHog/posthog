@@ -81,6 +81,9 @@ export function EditAction(): JSX.Element {
                 initialValues={initialValuesForForm}
                 onFinish={saveAction}
                 fields={editingFields || undefined}
+                onChange={(e) => {
+                    e.stopPropagation()
+                }}
                 onFieldsChange={(_, allFields) => {
                     setEditingFields(allFields)
                 }}
@@ -91,7 +94,7 @@ export function EditAction(): JSX.Element {
                     className="action-title-field"
                     rules={[{ required: true, message: 'Please enter a name for this action!' }]}
                 >
-                    <Input placeholder="E.g: Clicked Sign Up" />
+                    <Input onChange={(e) => e.stopPropagation()} placeholder="E.g: Clicked Sign Up" />
                 </Form.Item>
                 <Form.List name="steps">
                     {(fields, { add, remove }) => (

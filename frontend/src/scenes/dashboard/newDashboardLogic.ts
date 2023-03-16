@@ -60,10 +60,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     path(['scenes', 'dashboard', 'newDashboardLogic']),
     connect({ logic: [dashboardsModel], values: [featureFlagLogic, ['featureFlags']] }),
     actions({
+        setIsLoading: (isLoading: boolean) => ({ isLoading }),
         showNewDashboardModal: true,
         hideNewDashboardModal: true,
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
-        createAndGoToDashboard: true,
         setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
         clearActiveDashboardTemplate: true,
         createDashboardFromTemplate: (template: DashboardTemplateType, variables: DashboardTemplateVariableType[]) => ({
@@ -72,6 +72,15 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         }),
     }),
     reducers({
+        isLoading: [
+            false,
+            {
+                setIsLoading: (_, { isLoading }) => isLoading,
+                hideNewDashboardModal: () => false,
+                submitNewDashboardSuccess: () => false,
+                submitNewDashboardFailure: () => false,
+            },
+        ],
         newDashboardModalVisible: [
             false,
             {
@@ -95,6 +104,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 restrictionLevel: !restrictionLevel ? 'Restriction level needs to be specified.' : null,
             }),
             submit: async ({ name, description, useTemplate, restrictionLevel, show }, breakpoint) => {
+                actions.setIsLoading(true)
                 try {
                     const result: DashboardType = await api.create(
                         `api/projects/${teamLogic.values.currentTeamId}/dashboards/`,
@@ -118,6 +128,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                         lemonToast.error(`Could not create dashboard: ${message}`)
                     }
                 }
+                actions.setIsLoading(false)
             },
         },
     })),
@@ -129,10 +140,6 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         },
         showNewDashboardModal: () => {
             actions.resetNewDashboard()
-        },
-        createAndGoToDashboard: () => {
-            actions.setNewDashboardValue('show', true)
-            actions.submitNewDashboard()
         },
         hideNewDashboardModal: () => {
             actions.clearActiveDashboardTemplate()
@@ -160,6 +167,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     lemonToast.error(`Could not create dashboard: ${message}`)
                 }
             }
+            actions.setIsLoading(false)
         },
     })),
 ])

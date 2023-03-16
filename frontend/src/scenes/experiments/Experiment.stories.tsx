@@ -210,6 +210,7 @@ const MOCK_EXPERIMENT_RESULTS: FunnelExperimentResults = {
         interval: 'day',
         limit: 100,
         smoothing_intervals: 1,
+        sampling_factor: 0.1,
     } as FunnelsFilterType,
     significance_code: SignificanceCode.NotEnoughExposure,
     expected_loss: 1,

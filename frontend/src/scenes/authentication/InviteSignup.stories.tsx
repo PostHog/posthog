@@ -11,9 +11,6 @@ export default {
     parameters: {
         layout: 'fullscreen',
         options: { showPanel: false },
-        testOptions: {
-            waitForLoadersToDisappear: true,
-        },
         viewMode: 'story',
     },
     decorators: [
@@ -61,6 +58,24 @@ export const Cloud = (): JSX.Element => {
             '/_preflight': {
                 ...preflightJson,
                 cloud: true,
+                realm: 'cloud',
+                can_create_org: true,
+                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+            },
+        },
+    })
+    useEffect(() => {
+        inviteSignupLogic.actions.prevalidateInvite('1234')
+    }, [])
+    return <InviteSignup />
+}
+export const CloudEU = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: true,
+                region: 'EU',
                 realm: 'cloud',
                 can_create_org: true,
                 available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },

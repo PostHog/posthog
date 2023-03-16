@@ -1,3 +1,5 @@
+@use 'sass:string';
+
 @import 'vars';
 @import 'mixins';
 
@@ -310,16 +312,16 @@ $decorations: underline, overline, line-through, no-underline;
 
 @each $name, $hex in $colors {
     .text-#{$name} {
-        color: $hex;
+        color: var(--#{$name});
     }
     .bg-#{$name} {
-        background-color: $hex;
+        background-color: var(--#{$name});
     }
     .border-#{$name} {
-        border-color: $hex;
+        border-color: var(--#{$name});
     }
     .decoration-#{$name} {
-        text-decoration-color: $hex;
+        text-decoration-color: var(--#{$name});
     }
 }
 
@@ -901,10 +903,10 @@ $decorations: underline, overline, line-through, no-underline;
 
 @each $fitOption in ('contain', 'cover', 'fill', 'none', 'scale-down') {
     .object-#{$fitOption} {
-        object-fit: $fitOption;
+        object-fit: string.unquote($fitOption);
     }
     hover\:object-#{$fitOption}:hover {
-        object-fit: $fitOption;
+        object-fit: string.unquote($fitOption);
     }
 }
 
@@ -1012,4 +1014,10 @@ $decorations: underline, overline, line-through, no-underline;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
+}
+
+.transition-all {
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
 }

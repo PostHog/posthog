@@ -37,6 +37,7 @@ class LicenseInfo(TypedDict):
 class BillingPeriod(TypedDict):
     current_period_start: str
     current_period_end: str
+    interval: str
 
 
 class UsageSummary(TypedDict):
@@ -52,10 +53,13 @@ class CustomerInfo(TypedDict):
     billing_period: BillingPeriod
     available_features: List[AvailableFeature]
     current_total_amount_usd: Optional[str]
+    current_total_amount_usd_after_discount: Optional[str]
     products: Optional[List[CustomerProduct]]
     custom_limits_usd: Optional[Dict[str, str]]
+    usage_summary: Optional[Dict[str, Dict[str, Optional[int]]]]
     free_trial_until: Optional[str]
-    usage_summary: Dict[str, UsageSummary]
+    discount_percent: Optional[int]
+    discount_amount_usd: Optional[str]
 
 
 class BillingStatus(TypedDict):

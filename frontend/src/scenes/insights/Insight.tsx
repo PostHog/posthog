@@ -13,6 +13,9 @@ import { EditorFilters } from './EditorFilters/EditorFilters'
 import clsx from 'clsx'
 import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { containsHogQLQuery } from '~/queries/utils'
 
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
@@ -29,27 +32,15 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         insightLoading,
         filtersKnown,
         filters,
-        insight,
         isUsingDataExploration,
         erroredQueryId,
         isFilterBasedInsight,
-        isQueryBasedInsight,
     } = useValues(logic)
     const { reportInsightViewedForRecentInsights, abortAnyRunningQuery, loadResults } = useActions(logic)
 
     // insightDataLogic
-    const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
-    const { setQuery: insighVizSetQuery } = useActions(insightDataLogic(insightProps))
-
-    // TODO - separate presentation of insight with viz query from insight with query
-    let query = insightVizQuery
-    let setQuery = insighVizSetQuery
-    if (!!insight.query && isQueryBasedInsight) {
-        query = insight.query
-        setQuery = () => {
-            // don't support editing non-insight viz queries _yet_
-        }
-    }
+    const { query, isQueryBasedInsight } = useValues(insightDataLogic(insightProps))
+    const { setQuery } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -78,14 +69,30 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         return <InsightSkeleton />
     }
 
+    // TODO the query editor visibility will be determined by the Query component after #14709
+    const showQueryEditorPanel = insightMode === ItemMode.Edit && isQueryBasedInsight && !containsHogQLQuery(query)
+
     const insightScene = (
         <div className={'insights-page'}>
             <InsightPageHeader insightLogicProps={insightProps} />
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 
-            {isUsingDataExploration ? (
-                <Query query={query} setQuery={setQuery} />
+            {isUsingDataExploration && query !== null ? (
+                <>
+                    {showQueryEditorPanel ? (
+                        <>
+                            <QueryEditor
+                                query={JSON.stringify(query)}
+                                setQuery={(stringQuery) => setQuery(JSON.parse(stringQuery))}
+                            />
+                            <div className="my-4">
+                                <LemonDivider />
+                            </div>
+                        </>
+                    ) : null}
+                    <Query query={query} setQuery={insightMode === ItemMode.Edit ? setQuery : undefined} />
+                </>
             ) : (
                 <>
                     <div

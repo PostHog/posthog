@@ -2,8 +2,6 @@ import {
     CohortType,
     FilterLogicalOperator,
     GroupType,
-    LicensePlan,
-    LicenseType,
     OrganizationInviteType,
     OrganizationMemberType,
     OrganizationType,
@@ -67,6 +65,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         excluded_event_property_names: ['$plugins_deferred', '$geoip_time_zone'],
         excluded_person_property_names: ['$browser_version'],
     },
+    autocapture_opt_out: true,
     session_recording_opt_in: true,
     capture_console_log_opt_in: true,
     session_recording_version: 'v1',
@@ -122,6 +121,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_impersonated: false,
     is_email_verified: true,
     is_2fa_enabled: false,
+    has_social_auth: false,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
     organizations: [MOCK_DEFAULT_ORGANIZATION].map(({ id, name, slug, membership_level }) => ({
@@ -142,6 +142,7 @@ export const MOCK_DEFAULT_ORGANIZATION_MEMBER: OrganizationMemberType = {
     joined_at: '2020-09-24T15:05:26.758796Z',
     updated_at: '2020-09-24T15:05:26.758837Z',
     is_2fa_enabled: false,
+    has_social_auth: false,
 }
 
 export const MOCK_SECOND_BASIC_USER: UserBasicType = {
@@ -159,6 +160,7 @@ export const MOCK_SECOND_ORGANIZATION_MEMBER: OrganizationMemberType = {
     joined_at: '2021-03-11T19:11:11Z',
     updated_at: '2021-03-11T19:11:11Z',
     is_2fa_enabled: false,
+    has_social_auth: false,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
@@ -170,13 +172,6 @@ export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
     created_by: MOCK_DEFAULT_BASIC_USER,
     created_at: '2022-03-11T16:44:01.264613Z',
     updated_at: '2022-03-11T16:44:01.318717Z',
-}
-
-export const MOCK_DEFAULT_LICENSE: LicenseType = {
-    id: 1,
-    plan: LicensePlan.Scale,
-    valid_until: '2025-03-11T14:05:45.338000Z',
-    created_at: '2022-03-11T14:05:36.107000Z',
 }
 
 export const MOCK_PERSON_PROPERTIES: PersonProperty[] = [
