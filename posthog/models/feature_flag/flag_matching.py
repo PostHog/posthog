@@ -528,20 +528,22 @@ def set_feature_flag_hash_key_overrides(
                 "feature_flag_key", flat=True
             )
         )
-    new_overrides = []
-    for feature_flag in feature_flags:
-        if feature_flag.ensure_experience_continuity and feature_flag.key not in existing_flag_overrides:
-            new_overrides.append(
-                FeatureFlagHashKeyOverride(
-                    team_id=team_id, person_id=person_id, feature_flag_key=feature_flag.key, hash_key=hash_key_override
+        new_overrides = []
+        for feature_flag in feature_flags:
+            if feature_flag.ensure_experience_continuity and feature_flag.key not in existing_flag_overrides:
+                new_overrides.append(
+                    FeatureFlagHashKeyOverride(
+                        team_id=team_id,
+                        person_id=person_id,
+                        feature_flag_key=feature_flag.key,
+                        hash_key=hash_key_override,
+                    )
                 )
-            )
 
-    if new_overrides:
-        # :TRICKY: regarding the ignore_conflicts parameter:
-        # This can happen if the same person is being processed by multiple workers
-        # / we got multiple requests for the same person
-        # at the same time. In this case, we can safely ignore the error.
-        # We don't want to return an error response for `/decide` just because of this.
-        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+        if new_overrides:
+            # :TRICKY: regarding the ignore_conflicts parameter:
+            # This can happen if the same person is being processed by multiple workers
+            # / we got multiple requests for the same person
+            # at the same time. In this case, we can safely ignore the error.
+            # We don't want to return an error response for `/decide` just because of this.
             FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides, ignore_conflicts=True)

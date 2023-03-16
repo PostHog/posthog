@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import {
@@ -16,6 +16,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     ChartDisplayType,
     ChartParams,
+    DashboardPlacement,
     DashboardTile,
     DashboardType,
     ExporterFormat,
@@ -33,7 +34,6 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import './InsightCard.scss'
 import { InsightDetails } from './InsightDetails'
-import { InsightTypeMetadata, INSIGHT_TYPES_METADATA, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
@@ -41,7 +41,7 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { summarizeInsightFilters, summarizeInsightQuery } from 'scenes/insights/utils'
+import { summariseInsight } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -59,10 +59,13 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { CardMeta, Resizeable } from 'lib/components/Cards/CardMeta'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { Query } from '~/queries/Query/Query'
-import { dateRangeFor, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
-import { InsightVizNode } from '~/queries/schema'
+import { PieChartFilled } from '@ant-design/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -124,7 +127,7 @@ const displayMap: Record<
 }
 
 function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
-    const displayedType: DisplayedType = isRetentionFilter(filters)
+    return isRetentionFilter(filters)
         ? 'RetentionContainer'
         : isPathsFilter(filters)
         ? 'PathsContainer'
@@ -133,7 +136,6 @@ function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
         : isFilterWithDisplay(filters)
         ? filters.display || ChartDisplayType.ActionsLineGraph
         : ChartDisplayType.ActionsLineGraph
-    return displayedType
 }
 
 export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLDivElement> {
@@ -165,6 +167,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     moveToDashboard?: (dashboard: DashboardType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
+    placement: DashboardPlacement | 'SavedInsightGrid'
 }
 
 interface InsightMetaProps
@@ -211,13 +214,15 @@ function InsightMeta({
     showDetailsControls = true,
     moreButtons,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, filters, dashboards } = insight
+    const { short_id, name, dashboards } = insight
     const { exporterResourceParams, insightProps } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
         (d: DashboardType) => !dashboards?.includes(d.id)
     )
@@ -226,21 +231,14 @@ function InsightMeta({
     // not all interactions are currently implemented for queries
     const allInteractionsAllowed = !insight.query
 
-    const summary = !!name
-        ? null
-        : !!Object.keys(insight.filters).length
-        ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
-        : !!insight.query
-        ? isInsightVizNode(insight.query)
-            ? summarizeInsightQuery(
-                  (insight.query as InsightVizNode).source,
-                  aggregationLabel,
-                  cohortsById,
-                  mathDefinitions
-              )
-            : // TODO summarise other kinds of query too
-              'query: ' + insight.query.kind
-        : null
+    const summary = summariseInsight(
+        !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
+        insight.query,
+        aggregationLabel,
+        cohortsById,
+        mathDefinitions,
+        insight.filters
+    )
 
     return (
         <CardMeta
@@ -266,6 +264,15 @@ function InsightMeta({
                 </>
             }
             metaDetails={<InsightDetails insight={insight} />}
+            samplingNotice={
+                insight.filters.sampling_factor && insight.filters.sampling_factor < 1 ? (
+                    <Tooltip
+                        title={`Insight contains data sampled at a ${100 * insight.filters.sampling_factor}% rate`}
+                    >
+                        <PieChartFilled className="mr-2" style={{ color: 'var(--primary-light)' }} />
+                    </Tooltip>
+                ) : null
+            }
             moreButtons={
                 <>
                     {allInteractionsAllowed && (
@@ -409,39 +416,6 @@ function InsightMeta({
     )
 }
 
-function TopHeading({ insight }: { insight: InsightModel }): JSX.Element {
-    const { filters, query } = insight
-
-    let insightType: InsightTypeMetadata
-
-    // check the query first because the backend still adds defaults to empty filters :/
-    if (!!query?.kind) {
-        insightType = QUERY_TYPES_METADATA[query.kind]
-    } else if (!!filters.insight) {
-        insightType = INSIGHT_TYPES_METADATA[filters.insight]
-    } else {
-        // maintain the existing default
-        insightType = INSIGHT_TYPES_METADATA[InsightType.TRENDS]
-    }
-
-    let { date_from, date_to } = filters
-    if (!!query) {
-        const queryDateRange = dateRangeFor(query)
-        if (!!queryDateRange) {
-            date_from = queryDateRange.date_from
-            date_to = queryDateRange.date_to
-        }
-    }
-
-    const defaultDateRange = query == undefined || isInsightQueryNode(query) ? 'Last 7 days' : null
-    return (
-        <>
-            <span title={insightType?.description}>{insightType?.name}</span> •{' '}
-            {dateFilterToText(date_from, date_to, defaultDateRange)}
-        </>
-    )
-}
-
 function VizComponentFallback(): JSX.Element {
     return <AlertMessage type="warning">Unknown insight display type</AlertMessage>
 }
@@ -502,7 +476,11 @@ export function InsightViz({
             ) : empty ? (
                 <InsightEmptyState />
             ) : timedOut ? (
-                <InsightTimeoutState isLoading={!!loading} />
+                <InsightTimeoutState
+                    isLoading={!!loading}
+                    insightProps={{ dashboardItemId: undefined }}
+                    insightType={insight.filters.insight}
+                />
             ) : apiErrored && !loading ? (
                 <InsightErrorState excludeDetail />
             ) : (
@@ -535,6 +513,7 @@ function InsightCardInternal(
         className,
         children,
         moreButtons,
+        placement,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -546,19 +525,23 @@ function InsightCardInternal(
         doNotLoad: true,
     }
 
-    const { timedOutQueryId, erroredQueryId, insightLoading } = useValues(insightLogic(insightLogicProps))
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightLogicProps))
+    const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueryTiles } = useValues(
+        insightLogic(insightLogicProps)
+    )
+    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
+        funnelLogic(insightLogicProps)
+    )
 
     let tooFewFunnelSteps = false
     let invalidFunnelExclusion = false
     let empty = false
     if (insight.filters.insight === InsightType.FUNNELS) {
-        if (!areFiltersValid) {
+        if (!isFunnelWithEnoughSteps) {
             tooFewFunnelSteps = true
         } else if (!areExclusionFiltersValid) {
             invalidFunnelExclusion = true
         }
-        if (!isValidFunnel) {
+        if (!hasFunnelResults) {
             empty = true
         }
     }
@@ -575,9 +558,17 @@ function InsightCardInternal(
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
     const [areDetailsShown, setAreDetailsShown] = useState(false)
 
+    const exportedAndCached = placement == DashboardPlacement.Export && !!insight.result
+    const sharedAndCached = placement == DashboardPlacement.Public && !!insight.result
+    const canMakeQueryAPICalls =
+        placement === 'SavedInsightGrid' ||
+        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
+            placement
+        )
+
     return (
         <div
-            className={clsx('InsightCard', highlighted && 'InsightCard--highlighted', className)}
+            className={clsx('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
             data-attr="insight-card"
             {...divProps}
             ref={ref}
@@ -613,7 +604,13 @@ function InsightCardInternal(
                                 : undefined
                         }
                     >
-                        <Query query={insight.query} />
+                        {exportedAndCached || sharedAndCached ? (
+                            <Query query={insight.query} cachedResults={insight.result} />
+                        ) : isUsingDashboardQueryTiles && canMakeQueryAPICalls ? (
+                            <Query query={insight.query} />
+                        ) : (
+                            <QueriesUnsupportedHere />
+                        )}
                     </div>
                 ) : (
                     <InsightViz

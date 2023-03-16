@@ -2,21 +2,26 @@ import { useActions, useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconRefresh } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export function Reload(): JSX.Element {
     const { responseLoading } = useValues(dataNodeLogic)
-    const { loadData } = useActions(dataNodeLogic)
+    const { loadData, cancelQuery } = useActions(dataNodeLogic)
 
     return (
         <LemonButton
             type="secondary"
             onClick={() => {
-                loadData()
+                if (responseLoading) {
+                    cancelQuery()
+                } else {
+                    loadData()
+                }
             }}
-            loading={responseLoading}
-            icon={<IconRefresh />}
+            // Setting the loading icon manually to capture clicks while spinning.
+            icon={responseLoading ? <Spinner monocolor /> : <IconRefresh />}
         >
-            {responseLoading ? 'Loading' : 'Reload'}
+            {responseLoading ? 'Cancel' : 'Reload'}
         </LemonButton>
     )
 }

@@ -79,10 +79,8 @@ CLICKHOUSE_FUNCTIONS = {
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS = {
-    "count": 0,
-    "countIf": 1,
-    "countDistinct": 1,
-    "countDistinctIf": 2,
+    "count": (0, 1),
+    "countIf": (1, 2),
     "min": 1,
     "minIf": 2,
     "max": 1,
@@ -101,21 +99,6 @@ KEYWORDS = ["true", "false", "null"]
 
 # Keywords you can't alias to
 RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
-
-# Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
-SELECT_STAR_FROM_EVENTS_FIELDS = [
-    "uuid",
-    "event",
-    "properties",
-    "timestamp",
-    "team_id",
-    "distinct_id",
-    "elements_chain",
-    "created_at",
-    "person_id",
-    "person.created_at",
-    "person.properties",
-]
 
 # Never return more rows than this in top level HogQL SELECT statements
 DEFAULT_RETURNED_ROWS = 100

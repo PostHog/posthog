@@ -2,7 +2,7 @@ from posthog.hogql import ast
 
 
 def clone_expr(self: ast.Expr) -> ast.Expr:
-    """Clone an expression node. Removes all symbols."""
+    """Clone an expression node. Removes all refs."""
     return CloningVisitor().visit(self)
 
 
@@ -48,17 +48,25 @@ class TraversingVisitor(Visitor):
         self.visit(node.expr)
 
     def visit_constant(self, node: ast.Constant):
-        self.visit(node.symbol)
+        self.visit(node.ref)
 
     def visit_field(self, node: ast.Field):
-        self.visit(node.symbol)
+        self.visit(node.ref)
 
     def visit_placeholder(self, node: ast.Placeholder):
-        self.visit(node.symbol)
+        self.visit(node.ref)
 
     def visit_call(self, node: ast.Call):
         for expr in node.args:
             self.visit(expr)
+
+    def visit_sample_expr(self, node: ast.SampleExpr):
+        self.visit(node.sample_value)
+        self.visit(node.offset_value)
+
+    def visit_ratio_expr(self, node: ast.RatioExpr):
+        self.visit(node.left)
+        self.visit(node.right)
 
     def visit_join_expr(self, node: ast.JoinExpr):
         self.visit(node.table)
@@ -81,13 +89,17 @@ class TraversingVisitor(Visitor):
         self.visit(node.limit),
         self.visit(node.offset),
 
-    def visit_field_alias_symbol(self, node: ast.FieldAliasSymbol):
-        self.visit(node.symbol)
+    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        for expr in node.select_queries:
+            self.visit(expr)
 
-    def visit_field_symbol(self, node: ast.FieldSymbol):
+    def visit_field_alias_ref(self, node: ast.FieldAliasRef):
+        self.visit(node.ref)
+
+    def visit_field_ref(self, node: ast.FieldRef):
         self.visit(node.table)
 
-    def visit_select_query_symbol(self, node: ast.SelectQuerySymbol):
+    def visit_select_query_ref(self, node: ast.SelectQueryRef):
         for expr in node.tables.values():
             self.visit(expr)
         for expr in node.anonymous_tables:
@@ -97,40 +109,44 @@ class TraversingVisitor(Visitor):
         for expr in node.columns.values():
             self.visit(expr)
 
-    def visit_table_symbol(self, node: ast.TableSymbol):
+    def visit_select_union_query_ref(self, node: ast.SelectUnionQueryRef):
+        for ref in node.refs:
+            self.visit(ref)
+
+    def visit_table_ref(self, node: ast.TableRef):
         pass
 
-    def visit_field_traverser_symbol(self, node: ast.LazyTableSymbol):
+    def visit_field_traverser_ref(self, node: ast.LazyTableRef):
         self.visit(node.table)
 
-    def visit_lazy_table_symbol(self, node: ast.LazyTableSymbol):
+    def visit_lazy_table_ref(self, node: ast.LazyTableRef):
         self.visit(node.table)
 
-    def visit_virtual_table_symbol(self, node: ast.VirtualTableSymbol):
+    def visit_virtual_table_ref(self, node: ast.VirtualTableRef):
         self.visit(node.table)
 
-    def visit_table_alias_symbol(self, node: ast.TableAliasSymbol):
-        self.visit(node.table_symbol)
+    def visit_table_alias_ref(self, node: ast.TableAliasRef):
+        self.visit(node.table_ref)
 
-    def visit_select_query_alias_symbol(self, node: ast.SelectQueryAliasSymbol):
-        self.visit(node.symbol)
+    def visit_select_query_alias_ref(self, node: ast.SelectQueryAliasRef):
+        self.visit(node.ref)
 
-    def visit_asterisk_symbol(self, node: ast.AsteriskSymbol):
+    def visit_asterisk_ref(self, node: ast.AsteriskRef):
         self.visit(node.table)
 
-    def visit_call_symbol(self, node: ast.CallSymbol):
+    def visit_call_ref(self, node: ast.CallRef):
         for expr in node.args:
             self.visit(expr)
 
-    def visit_constant_symbol(self, node: ast.ConstantSymbol):
+    def visit_constant_ref(self, node: ast.ConstantRef):
         pass
 
-    def visit_property_symbol(self, node: ast.PropertySymbol):
+    def visit_property_ref(self, node: ast.PropertyRef):
         self.visit(node.parent)
 
 
 class CloningVisitor(Visitor):
-    """Visitor that traverses and clones the AST tree. Clears symbols."""
+    """Visitor that traverses and clones the AST tree. Clears refs."""
 
     def visit_expr(self, node: ast.Expr):
         raise ValueError("Can not visit generic Expr node")
@@ -191,6 +207,12 @@ class CloningVisitor(Visitor):
             args=[self.visit(arg) for arg in node.args],
         )
 
+    def visit_ratio_expr(self, node: ast.RatioExpr):
+        return ast.RatioExpr(left=self.visit(node.left), right=self.visit(node.right))
+
+    def visit_sample_expr(self, node: ast.SampleExpr):
+        return ast.SampleExpr(sample_value=self.visit(node.sample_value), offset_value=self.visit(node.offset_value))
+
     def visit_join_expr(self, node: ast.JoinExpr):
         return ast.JoinExpr(
             table=self.visit(node.table),
@@ -199,6 +221,7 @@ class CloningVisitor(Visitor):
             alias=node.alias,
             join_type=node.join_type,
             constraint=self.visit(node.constraint),
+            sample=self.visit(node.sample),
         )
 
     def visit_select_query(self, node: ast.SelectQuery):
@@ -217,3 +240,6 @@ class CloningVisitor(Visitor):
             offset=self.visit(node.offset),
             distinct=node.distinct,
         )
+
+    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        return ast.SelectUnionQuery(select_queries=[self.visit(expr) for expr in node.select_queries])

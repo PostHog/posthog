@@ -1,4 +1,4 @@
-import { EventName } from './EventName'
+import { LemonEventName } from './EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 import { Col, Radio, RadioChangeEvent } from 'antd'
@@ -55,7 +55,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                     {step.event != null && step.event !== '$autocapture' && step.event !== '$pageview' && (
                         <div className="space-y-1">
                             <LemonLabel>Event name</LemonLabel>
-                            <EventName
+                            <LemonEventName
                                 value={step.event}
                                 onChange={(value) =>
                                     sendStep({
@@ -63,6 +63,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                         event: value || '',
                                     })
                                 }
+                                placeholder="Any event"
                             />
 
                             <small>
@@ -88,26 +89,24 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                         </div>
                     )}
 
-                    {step.event && (
-                        <div className="mt-6 space-y-2">
-                            <h3>Filters</h3>
-                            {(!step.properties || step.properties.length === 0) && (
-                                <div className="text-muted">This match group has no additional filters.</div>
-                            )}
-                            <PropertyFilters
-                                propertyFilters={step.properties}
-                                pageKey={identifier}
-                                eventNames={step.event ? [step.event] : []}
-                                onChange={(properties) => {
-                                    sendStep({
-                                        ...step,
-                                        properties: properties as [],
-                                    })
-                                }}
-                                showConditionBadge
-                            />
-                        </div>
-                    )}
+                    <div className="mt-6 space-y-2">
+                        <h3>Filters</h3>
+                        {(!step.properties || step.properties.length === 0) && (
+                            <div className="text-muted">This match group has no additional filters.</div>
+                        )}
+                        <PropertyFilters
+                            propertyFilters={step.properties}
+                            pageKey={identifier}
+                            eventNames={step.event ? [step.event] : []}
+                            onChange={(properties) => {
+                                sendStep({
+                                    ...step,
+                                    properties: properties as [],
+                                })
+                            }}
+                            showConditionBadge
+                        />
+                    </div>
                 </div>
             </div>
         </Col>

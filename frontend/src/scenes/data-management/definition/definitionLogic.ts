@@ -96,6 +96,7 @@ export const definitionLogic = kea<definitionLogicType>([
                 hasAvailableFeature(AvailableFeature.TAGGING),
         ],
         isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith(urls.eventDefinitions())],
+        isProperty: [(s) => [s.isEvent], (isEvent) => !isEvent],
         singular: [(s) => [s.isEvent], (isEvent): string => (isEvent ? 'event' : 'property')],
         backDetailUrl: [
             (s) => [s.isEvent, s.definition],

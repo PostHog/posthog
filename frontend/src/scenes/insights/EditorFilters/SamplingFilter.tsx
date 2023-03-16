@@ -1,80 +1,83 @@
-import { EditorFilterProps, InsightType } from '~/types'
-import './LifecycleToggles.scss'
-import { Link } from '@posthog/lemon-ui'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { EditorFilterProps } from '~/types'
+import { LemonButton, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { Slider } from 'antd'
-import { IconInfo } from 'lib/lemon-ui/icons'
-import { retentionLogic } from 'scenes/retention/retentionLogic'
+import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic, SamplingFilterLogicProps } from './samplingFilterLogic'
+import posthog from 'posthog-js'
 
-const INSIGHT_TYPES_WITH_SAMPLING_SUPPORT = new Set([
-    InsightType.LIFECYCLE,
-    InsightType.FUNNELS,
-    InsightType.TRENDS,
-    InsightType.RETENTION,
-])
+interface SamplingFilterProps extends Omit<EditorFilterProps, 'insight' | 'value'> {
+    infoTooltipContent?: string
+    setFilters?: SamplingFilterLogicProps['setFilters']
+    initialSamplingPercentage?: number | null
+}
 
-export function SamplingFilter({ filters: editorFilters, insightProps }: EditorFilterProps): JSX.Element {
-    const initializedInsightLogic = insightLogic(insightProps)
-    const initializedFunnelLogic = funnelLogic(insightProps)
-    const initializedRetentionLogic = retentionLogic(insightProps)
+const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
+    'Sampling computes the result on only a subset of the data, making insights load significantly faster.'
 
-    const { setFilters: setInsightFilters } = useActions(initializedInsightLogic)
-    const { setFilters: setFunnelFilters } = useActions(initializedFunnelLogic)
-    const { setFilters: setRetentionFilters } = useActions(initializedRetentionLogic)
+export function SamplingFilter({
+    filters,
+    insightProps,
+    infoTooltipContent,
+    setFilters,
+    initialSamplingPercentage,
+}: SamplingFilterProps): JSX.Element {
+    const logic = samplingFilterLogic({
+        insightType: filters.insight,
+        insightProps,
+        setFilters,
+        initialSamplingPercentage,
+    })
 
-    const { filters } = useValues(initializedInsightLogic)
+    const { setSamplingPercentage } = useActions(logic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { samplingPercentage, samplingAvailable } = useValues(logic)
 
-    // Sampling is currently behind a feature flag and only available on lifecycle queries
-    const insightSupportsSampling =
-        featureFlags[FEATURE_FLAGS.SAMPLING] &&
-        editorFilters.insight &&
-        INSIGHT_TYPES_WITH_SAMPLING_SUPPORT.has(editorFilters.insight)
-
-    if (insightSupportsSampling) {
+    if (samplingAvailable) {
         return (
             <>
-                <span>
-                    <b>Sampling percentage</b>{' '}
-                    <Link to="https://posthog.com/manual/sampling" target="_blank">
-                        <IconInfo className="text-xl text-muted-alt shrink-0" />
-                    </Link>
-                </span>
-                <div className="SamplingFilter">
-                    <Slider
-                        defaultValue={100}
-                        min={5}
-                        max={100}
-                        step={5}
-                        trackStyle={{ background: 'var(--primary)' }}
-                        handleStyle={{ background: 'var(--primary)' }}
-                        style={{ maxWidth: 150 }}
-                        onAfterChange={(newValue) => {
-                            if (editorFilters.insight === InsightType.FUNNELS) {
-                                setFunnelFilters({
-                                    ...filters,
-                                    sampling_factor: newValue / 100,
-                                })
+                <div className="flex items-center gap-1">
+                    <LemonLabel
+                        info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
+                        infoLink="https://posthog.com/manual/sampling"
+                    >
+                        Sampling (Beta)
+                    </LemonLabel>
+                    <LemonSwitch
+                        className="m-2"
+                        onChange={(checked) => {
+                            if (checked) {
+                                setSamplingPercentage(10)
+                                posthog.capture('sampling_enabled_on_insight')
                                 return
-                            } else if (editorFilters.insight === InsightType.RETENTION) {
-                                setRetentionFilters({
-                                    ...filters,
-                                    sampling_factor: newValue / 100,
-                                })
                             }
-                            setInsightFilters({
-                                ...filters,
-                                sampling_factor: newValue / 100,
-                            })
+                            setSamplingPercentage(null)
+                            posthog.capture('sampling_disabled_on_insight')
                         }}
-                        tipFormatter={(value) => `${value}%`}
+                        checked={!!samplingPercentage}
                     />
                 </div>
+                {!!samplingPercentage ? (
+                    <div className="SamplingFilter">
+                        <div className="flex items-center gap-2">
+                            {AVAILABLE_SAMPLING_PERCENTAGES.map((percentage, key) => (
+                                <LemonButton
+                                    key={key}
+                                    type="secondary"
+                                    size="small"
+                                    active={samplingPercentage === percentage}
+                                    onClick={() => {
+                                        setSamplingPercentage(percentage)
+
+                                        if (samplingPercentage === percentage) {
+                                            posthog.capture('sampling_disabled_on_insight')
+                                        } else {
+                                            posthog.capture('sampling_percentage_updated', { samplingPercentage })
+                                        }
+                                    }}
+                                >{`${percentage}%`}</LemonButton>
+                            ))}
+                        </div>
+                    </div>
+                ) : null}
             </>
         )
     }

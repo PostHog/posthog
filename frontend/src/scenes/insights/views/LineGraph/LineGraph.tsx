@@ -15,9 +15,8 @@ import {
     TooltipModel,
     TooltipOptions,
     ScriptableLineSegmentContext,
-} from 'chart.js'
+} from 'lib/Chart'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
-import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
@@ -32,8 +31,6 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
-
-import './chartjsSetup'
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
@@ -479,7 +476,7 @@ export function LineGraph_({
                           },
                       }
                     : {
-                          crosshair: false as CrosshairOptions,
+                          crosshair: false,
                       }),
             },
             hover: {

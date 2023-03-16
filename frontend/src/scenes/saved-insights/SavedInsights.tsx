@@ -25,7 +25,7 @@ import {
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
-    InsightsQueryIcon,
+    InsightSQLIcon,
     InsightsRetentionIcon,
     InsightsStickinessIcon,
     InsightsTrendsIcon,
@@ -33,7 +33,6 @@ import {
 import { SceneExport } from 'scenes/sceneTypes'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -56,6 +55,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
+import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -105,10 +105,16 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         icon: InsightsLifecycleIcon,
         inMenu: true,
     },
-    [InsightType.QUERY]: {
-        name: 'Query',
-        description: 'Build custom insights with our powerful query language',
-        icon: InsightsQueryIcon,
+    [InsightType.SQL]: {
+        name: 'SQL',
+        description: 'Use SQL to query your data',
+        icon: InsightSQLIcon,
+        inMenu: true,
+    },
+    [InsightType.JSON]: {
+        name: 'JSON',
+        description: 'Build custom insights with our JSON query language',
+        icon: InsightSQLIcon,
         inMenu: false, // until data exploration is released
     },
 }
@@ -231,7 +237,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.HogQLQuery]: {
         name: 'HogQL',
         description: 'Direct HogQL query',
-        icon: IconCoffee,
+        icon: InsightSQLIcon,
         inMenu: true,
     },
 }
@@ -253,7 +259,7 @@ export const scene: SceneExport = {
 export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
     let insightType = insight?.filters?.insight || InsightType.TRENDS
     if (!!insight.query && !isInsightVizNode(insight.query)) {
-        insightType = InsightType.QUERY
+        insightType = InsightType.JSON
     }
     const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
     if (insightMetadata && insightMetadata.icon) {
@@ -263,6 +269,8 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
         <LemonButtonWithSideAction
             type="primary"
@@ -272,31 +280,9 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
-                    overlay: Object.entries(INSIGHT_TYPES_METADATA).map(
-                        ([listedInsightType, listedInsightTypeMetadata]) =>
-                            listedInsightTypeMetadata.inMenu && (
-                                <LemonButton
-                                    key={listedInsightType}
-                                    status="stealth"
-                                    icon={
-                                        listedInsightTypeMetadata.icon && (
-                                            <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
-                                        )
-                                    }
-                                    to={urls.insightNew({ insight: listedInsightType as InsightType })}
-                                    data-attr={dataAttr}
-                                    data-attr-insight-type={listedInsightType}
-                                    onClick={() => {
-                                        eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType)
-                                    }}
-                                    fullWidth
-                                >
-                                    <div className="text-default flex flex-col text-sm py-1">
-                                        <strong>{listedInsightTypeMetadata.name}</strong>
-                                        <span className="text-xs">{listedInsightTypeMetadata.description}</span>
-                                    </div>
-                                </LemonButton>
-                            )
+                    overlay: overlayForNewInsightMenu(
+                        dataAttr,
+                        !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
                     ),
                 },
                 'data-attr': 'saved-insights-new-insight-dropdown',
@@ -331,6 +317,7 @@ function SavedInsightsGrid(): JSX.Element {
                                 callback: loadInsights,
                             })
                         }
+                        placement={'SavedInsightGrid'}
                     />
                 ))}
                 {insightsLoading && (

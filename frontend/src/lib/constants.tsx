@@ -1,5 +1,5 @@
 import { urls } from 'scenes/urls'
-import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProviders } from '../types'
+import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProvider } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -118,7 +118,6 @@ export const FEATURE_FLAGS = {
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
-    BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     PERSON_ON_EVENTS_ENABLED: 'person-on-events-enabled', //owner: @EDsCODE
     REGION_SELECT: 'region-select', //owner: @kappa90
@@ -134,18 +133,18 @@ export const FEATURE_FLAGS = {
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
-    HOGQL_EXPRESSIONS: 'hogql_expressions', // owner @mariusandra
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
+    DATA_EXPLORATION_QUERY_TAB: 'data-exploration-query-tab', // owner: @pauldambra
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
-    FF_JSON_PAYLOADS: 'ff-json-payloads', // owner @EDsCODE
     PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
     REQUIRE_EMAIL_VERIFICATION: 'require-email-verification', // owner: @raquelmsmith
-    DATA_EXPLORATION_QUERIES_ON_DASHBOARDS: 'data-exploration-queries-on-dashboards', // owner: @pauldambra
     SAMPLING: 'sampling', // owner: @yakkomajuri
-    DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra and @lharries
-    TEMPLUKES: 'templukes', // owner: @pauldambra and @lharries
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
+    POSTHOG_3000: 'posthog-3000', // owner: @Twixes
+    ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
+    FF_CODE_EXAMPLE: 'ff-code-example', // owner: @liyiy
+    FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -198,11 +197,11 @@ export enum CohortTypeEnum {
  */
 export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
 
-export const SSO_PROVIDER_NAMES: Record<SSOProviders, string> = {
+export const SSO_PROVIDER_NAMES: Record<SSOProvider, string> = {
     'google-oauth2': 'Google',
     github: 'GitHub',
     gitlab: 'GitLab',
-    saml: 'single sign-on (SAML)',
+    saml: 'Single sign-on (SAML)',
 }
 
 // TODO: Remove UPGRADE_LINK, as the billing page is now universal

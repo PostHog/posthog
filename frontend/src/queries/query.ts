@@ -106,62 +106,58 @@ export function queryExportContext<N extends DataNode = DataNode>(
 
 // Return data for a given query
 export async function query<N extends DataNode = DataNode>(
-    query: N,
+    queryNode: N,
     methodOptions?: ApiMethodOptions,
-    refresh?: boolean
+    refresh?: boolean,
+    queryId?: string
 ): Promise<N['response']> {
-    if (isEventsQuery(query)) {
-        if (!query.before && !query.after) {
-            const earlyResults = await api.query(
-                { ...query, after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString() },
-                methodOptions
-            )
-            if (earlyResults.results.length > 0) {
-                return earlyResults
-            }
+    if (isEventsQuery(queryNode)) {
+        return await api.query(queryNode, methodOptions, queryId)
+    } else if (isHogQLQuery(queryNode)) {
+        return api.query(queryNode, methodOptions, queryId)
+    } else if (isPersonsNode(queryNode)) {
+        return await api.get(getPersonsEndpoint(queryNode), methodOptions)
+    } else if (isInsightQueryNode(queryNode)) {
+        const filters = queryNodeToFilter(queryNode)
+        const params = {
+            ...filters,
+            ...(refresh ? { refresh: true } : {}),
+            client_query_id: queryId,
+            session_id: currentSessionId(),
         }
-        return await api.query({ after: now().subtract(1, 'year').toISOString(), ...query }, methodOptions)
-    } else if (isHogQLQuery(query)) {
-        return api.query(query, methodOptions)
-    } else if (isPersonsNode(query)) {
-        return await api.get(getPersonsEndpoint(query), methodOptions)
-    } else if (isInsightQueryNode(query)) {
-        const filters = queryNodeToFilter(query)
         const [response] = await legacyInsightQuery({
-            filters,
+            filters: params,
             currentTeamId: getCurrentTeamId(),
+            methodOptions,
             refresh,
         })
         return await response.json()
-    } else if (isLegacyQuery(query)) {
+    } else if (isLegacyQuery(queryNode)) {
         const [response] = await legacyInsightQuery({
-            filters: query.filters,
+            filters: queryNode.filters,
             currentTeamId: getCurrentTeamId(),
             methodOptions,
         })
         return await response.json()
-    } else if (isTimeToSeeDataSessionsQuery(query)) {
-        return await api.create('/api/time_to_see_data/sessions', {
-            team_id: query.teamId ?? getCurrentTeamId(),
-        })
-    } else if (isTimeToSeeDataQuery(query)) {
-        return await api.create('/api/time_to_see_data/session_events', {
-            team_id: query.teamId ?? getCurrentTeamId(),
-            session_id: query.sessionId ?? currentSessionId(),
-            session_start: query.sessionStart ?? now().subtract(1, 'day').toISOString(),
-            session_end: query.sessionEnd ?? now().toISOString(),
-        })
-    } else if (isTimeToSeeDataSessionsNode(query)) {
-        return await api.create('/api/time_to_see_data/session_events', {
-            team_id: query.source.teamId ?? getCurrentTeamId(),
-            session_id: query.source.sessionId ?? currentSessionId(),
-            session_start: query.source.sessionStart ?? now().subtract(1, 'day').toISOString(),
-            session_end: query.source.sessionEnd ?? now().toISOString(),
-        })
-    } else if (isRecentPerformancePageViewNode(query)) {
-        return await api.performanceEvents.recentPageViews()
+    } else if (isTimeToSeeDataSessionsQuery(queryNode)) {
+        return await api.query(queryNode, methodOptions)
+    } else if (isTimeToSeeDataQuery(queryNode)) {
+        return await api.query(
+            {
+                ...queryNode,
+                teamId: queryNode.teamId ?? getCurrentTeamId(),
+                sessionId: queryNode.sessionId ?? currentSessionId(),
+                sessionStart: queryNode.sessionStart ?? now().subtract(1, 'day').toISOString(),
+                sessionEnd: queryNode.sessionEnd ?? now().toISOString(),
+            },
+            methodOptions
+        )
+    } else if (isTimeToSeeDataSessionsNode(queryNode)) {
+        return query(queryNode.source)
+    } else if (isRecentPerformancePageViewNode(queryNode)) {
+        return await api.query(queryNode, methodOptions)
     }
-    throw new Error(`Unsupported query: ${query.kind}`)
+    throw new Error(`Unsupported query: ${queryNode.kind}`)
 }
 
 export function getEventsEndpoint(query: EventsQuery): string {

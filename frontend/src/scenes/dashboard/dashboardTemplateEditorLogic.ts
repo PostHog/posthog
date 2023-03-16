@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DashboardTemplateEditorType, DashboardTemplateType, MonacoMarker } from '~/types'
@@ -7,7 +7,6 @@ import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplat
 
 import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplateEditorLogic']),
@@ -108,14 +107,6 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             },
         ],
     })),
-    selectors({
-        isUsingDashboardTemplates: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
-            },
-        ],
-    }),
     listeners(({ values, actions }) => ({
         createDashboardTemplateSuccess: async () => {
             actions.closeDashboardTemplateEditor()
@@ -153,15 +144,20 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                 }
             }
         },
+        updateValidationErrors: async ({ markers }) => {
+            // used to handle the race condition between the editor updating and the validation errors updating
+            // otherwise the dashboard template might not be updated with the latest value
+            if (!markers?.length) {
+                actions.setEditorValue(values.editorValue)
+            }
+        },
         setDashboardTemplate: async ({ dashboardTemplate }) => {
             if (dashboardTemplate) {
                 actions.setEditorValue(JSON.stringify(dashboardTemplate, null, 4))
             }
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.isUsingDashboardTemplates) {
-            actions.getTemplateSchema()
-        }
+    afterMount(({ actions }) => {
+        actions.getTemplateSchema()
     }),
 ])

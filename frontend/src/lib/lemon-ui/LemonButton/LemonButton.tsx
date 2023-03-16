@@ -18,10 +18,8 @@ export interface LemonButtonPropsBase
     > {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
-    /** What color scheme the button should follow
-     * orange is a temporary variable only for year in posthog
-     * */
-    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth' | 'orange'
+    /** Button color scheme. */
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth' | 'default-dark' | '3000'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -123,15 +121,15 @@ function LemonButtonInternal(
                 'LemonButton',
                 `LemonButton--${type}`,
                 `LemonButton--status-${status}`,
-                noPadding && `LemonButton--noPadding`,
+                noPadding && `LemonButton--no-padding`,
                 size && `LemonButton--${size}`,
                 disabled && 'LemonButton--disabled',
                 active && 'LemonButton--active',
                 fullWidth && 'LemonButton--full-width',
                 center && 'LemonButton--centered',
                 !children && 'LemonButton--no-content',
-                !!icon && `LemonButton--hasIcon`,
-                !!sideIcon && `LemonButton--hasSideIcon`,
+                !!icon && `LemonButton--has-icon`,
+                !!sideIcon && `LemonButton--has-side-icon`,
                 className
             )}
             disabled={disabled || loading}

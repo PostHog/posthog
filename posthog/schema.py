@@ -192,6 +192,7 @@ class FilterLogicalOperator(str, Enum):
 
 
 class FunnelConversionWindowTimeUnit(str, Enum):
+    second = "second"
     minute = "minute"
     hour = "hour"
     day = "day"
@@ -259,7 +260,8 @@ class InsightType(str, Enum):
     FUNNELS = "FUNNELS"
     RETENTION = "RETENTION"
     PATHS = "PATHS"
-    QUERY = "QUERY"
+    JSON = "JSON"
+    SQL = "SQL"
 
 
 class IntervalType(str, Enum):
@@ -274,6 +276,14 @@ class LifecycleToggle(str, Enum):
     resurrecting = "resurrecting"
     returning = "returning"
     dormant = "dormant"
+
+
+class MathGroupTypeIndex2(float, Enum):
+    number_0 = 0
+    number_1 = 1
+    number_2 = 2
+    number_3 = 3
+    number_4 = 4
 
 
 class PathCleaningFilter(BaseModel):
@@ -350,8 +360,8 @@ class RecentPerformancePageViewNode(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    dateRange: DateRange
     kind: str = Field("RecentPerformancePageViewNode", const=True, description="Performance")
-    numberOfDays: Optional[float] = None
     response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
 
 
@@ -412,21 +422,18 @@ class StickinessFilter(BaseModel):
 
     compare: Optional[bool] = None
     display: Optional[ChartDisplayType] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
+    hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     stickiness_days: Optional[float] = None
 
 
-class TimeToSeeDataSessionsQuery(BaseModel):
+class TimeToSeeDataSessionsQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
-    kind: str = Field("TimeToSeeDataSessionsQuery", const=True)
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
-    teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
+    results: List[Dict[str, Any]]
 
 
 class TrendsFilter(BaseModel):
@@ -440,7 +447,7 @@ class TrendsFilter(BaseModel):
     compare: Optional[bool] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[Any] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
+    hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
@@ -525,7 +532,7 @@ class FunnelsFilter(BaseModel):
     funnel_viz_type: Optional[FunnelVizType] = None
     funnel_window_interval: Optional[float] = None
     funnel_window_interval_unit: Optional[FunnelConversionWindowTimeUnit] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
+    hidden_legend_breakdowns: Optional[List[str]] = None
     layout: Optional[FunnelLayout] = None
 
 
@@ -566,9 +573,7 @@ class LifecycleFilter(BaseModel):
 
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
-    toggledLifecycles: Optional[List[LifecycleToggle]] = Field(
-        None, description="Lifecycles that have been removed from display"
-    )
+    toggledLifecycles: Optional[List[LifecycleToggle]] = None
 
 
 class PersonPropertyFilter(BaseModel):
@@ -592,6 +597,16 @@ class RetentionFilter(BaseModel):
     returning_entity: Optional[Dict[str, Any]] = None
     target_entity: Optional[Dict[str, Any]] = None
     total_intervals: Optional[float] = None
+
+
+class TimeToSeeDataSessionsQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
+    kind: str = Field("TimeToSeeDataSessionsQuery", const=True)
+    response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(None, description="Cached query response")
+    teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
 
 
 class EventsNode(BaseModel):
@@ -696,6 +711,55 @@ class EventsQuery(BaseModel):
     response: Optional[EventsQueryResponse] = Field(None, description="Cached query response")
     select: List[str] = Field(..., description="Return a limited set of data. Required.")
     where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
+
+
+class NewEntityNode(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    custom_name: Optional[str] = None
+    event: Optional[str] = None
+    fixedProperties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    kind: str = Field("NewEntityNode", const=True)
+    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str]] = None
+    math_group_type_index: Optional[MathGroupTypeIndex2] = None
+    math_property: Optional[str] = None
+    name: Optional[str] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(None, description="Properties configurable in the interface")
+    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
 
 
 class PersonsNode(BaseModel):
@@ -854,9 +918,9 @@ class DataTableNode(BaseModel):
     showReload: Optional[bool] = Field(None, description="Show a reload button")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
-    source: Union[EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode, HogQLQuery] = Field(
-        ..., description="Source of the events"
-    )
+    source: Union[
+        EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode, HogQLQuery, TimeToSeeDataSessionsQuery
+    ] = Field(..., description="Source of the events")
 
 
 class PropertyGroupFilter(BaseModel):
@@ -931,7 +995,9 @@ class StickinessQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
+        ..., description="Events and actions to include"
+    )
     stickinessFilter: Optional[StickinessFilter] = Field(
         None, description="Properties specific to the stickiness insight"
     )
@@ -970,7 +1036,9 @@ class TrendsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
+        ..., description="Events and actions to include"
+    )
     trendsFilter: Optional[TrendsFilter] = Field(None, description="Properties specific to the trends insight")
 
 
@@ -1331,6 +1399,7 @@ class AnyPartialFilterTypeItem5(BaseModel):
     sampling_factor: Optional[float] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
+    toggledLifecycles: Optional[List[LifecycleToggle]] = None
 
 
 class AnyPartialFilterTypeItem6(BaseModel):
@@ -1416,7 +1485,9 @@ class FunnelsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
+        ..., description="Events and actions to include"
+    )
 
 
 class LegacyQuery(BaseModel):
@@ -1468,7 +1539,9 @@ class LifecycleQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
+        ..., description="Events and actions to include"
+    )
 
 
 class PathsQuery(BaseModel):
@@ -1524,7 +1597,7 @@ class Model(BaseModel):
         LifecycleQuery,
         RecentPerformancePageViewNode,
         TimeToSeeDataSessionsQuery,
-        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery],
+        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery],
     ]
 
 

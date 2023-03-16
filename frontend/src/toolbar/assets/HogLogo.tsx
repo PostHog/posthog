@@ -1,5 +1,6 @@
 export function HogLogo({ style }: React.PropsWithoutRef<JSX.IntrinsicElements['svg']>): JSX.Element {
     return (
+        // eslint-disable-next-line react/forbid-dom-props
         <svg width="58" height="34" viewBox="0 0 58 34" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
             <path
                 d="M0 23.8578L9.55594 33.4009H0V23.8578ZM0 21.472L11.9449 33.4009H21.5009L0 11.9289V21.472ZM0 9.54311L23.8898 33.4009H33.4458L0 0V9.54311ZM11.9449 9.54311L35.8348 33.4009V23.8578L11.9449 0V9.54311ZM23.8898 0V9.54311L35.8348 21.472V11.9289L23.8898 0Z"
