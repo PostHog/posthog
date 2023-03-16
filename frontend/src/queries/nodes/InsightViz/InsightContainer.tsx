@@ -33,6 +33,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
+import { LemonButton } from '@posthog/lemon-ui'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -86,6 +87,9 @@ export function InsightContainer({
         supportsDisplay,
         insightFilter,
         exportContext,
+        response,
+        getQueryResponse,
+        queryId,
     } = useValues(insightDataLogic(insightProps))
 
     // TODO: implement in funnelDataLogic
@@ -203,6 +207,20 @@ export function InsightContainer({
                 data-attr="insights-graph"
                 className="insights-graph-container"
             >
+                <pre className="w-full min-h-20 p-2 text-white bg-primary">
+                    <p>QueryId: {queryId}</p>
+                    {typeof getQueryResponse}
+                    {JSON.stringify(getQueryResponse(queryId), null, 2)}
+                    {response ? JSON.stringify(response, null, 2) : 'none'}
+                </pre>
+                <LemonButton
+                    onClick={() => {
+                        window.alert(JSON.stringify(getQueryResponse(queryId), null, 2))
+                    }}
+                >
+                    asd
+                </LemonButton>
+
                 <div>
                     <div
                         className={clsx('flex items-center justify-between insights-graph-header', {

@@ -25,7 +25,7 @@ type InsightVizProps = {
 
 export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key: insightVizDataNodeKey(insightProps) }
+    // const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key: insightVizDataNodeKey(insightProps) }
 
     const { insightMode } = useValues(insightSceneLogic)
 
@@ -36,18 +36,18 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
     }
 
     return (
-        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            <div
-                className={clsx('insight-wrapper', {
-                    'insight-wrapper--singlecolumn': isFunnels,
-                })}
-            >
-                <EditorFilters query={query.source} setQuery={setQuerySource} showing={insightMode === ItemMode.Edit} />
+        // <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+        <div
+            className={clsx('insight-wrapper', {
+                'insight-wrapper--singlecolumn': isFunnels,
+            })}
+        >
+            <EditorFilters query={query.source} setQuery={setQuerySource} showing={insightMode === ItemMode.Edit} />
 
-                <div className="insights-container" data-attr="insight-view">
-                    <InsightContainer insightMode={insightMode} />
-                </div>
+            <div className="insights-container" data-attr="insight-view">
+                <InsightContainer insightMode={insightMode} />
             </div>
-        </BindLogic>
+        </div>
+        // </BindLogic>
     )
 }

@@ -21,6 +21,7 @@ export const dataManagerLogic = kea<dataManagerLogicType>([
     // }),
     actions({
         runQuery: (queryId: QueryId, queryObject: AnyDataNode) => {
+            console.log('runQuery: ', queryId, queryObject)
             const logic = dataNodeLogic.build({ key: queryId, query: queryObject })
             const unmount = logic.mount()
             return { queryId, queryObject, logic, unmount }

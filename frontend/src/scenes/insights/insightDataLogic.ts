@@ -38,6 +38,8 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { subscriptions } from 'kea-subscriptions'
 import { queryExportContext } from '~/queries/query'
+import { dataManagerLogic, QueryId } from '~/queries/nodes/DataNode/dataManagerLogic'
+import { uuid } from 'lib/utils'
 
 const defaultQuery = (insightProps: InsightLogicProps): InsightVizNode => {
     const filters = insightProps.cachedInsight?.filters
@@ -67,9 +69,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['featureFlags'],
             trendsLogic,
             ['toggledLifecycles as trendsLifecycles'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['response'],
+            dataManagerLogic,
+            ['getQueryLoading', 'getQueryResponse', 'getQueryError'],
         ],
         actions: [
             insightLogic,
@@ -82,6 +83,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ],
             trendsLogic(props),
             ['setLifecycles as setTrendsLifecycles'],
+            dataManagerLogic,
+            ['runQuery'],
         ],
     })),
 
@@ -92,6 +95,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        getInsightData: (queryId: QueryId) => ({ queryId }),
     }),
 
     reducers(({ props }) => ({
@@ -99,6 +103,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             defaultQuery(props) as Node,
             {
                 setQuery: (_, { query }) => query,
+            },
+        ],
+        queryId: [
+            null as QueryId | null,
+            {
+                getInsightData: (_, { queryId }) => queryId,
             },
         ],
     })),
@@ -150,6 +160,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return { ...queryExportContext(query), filename }
             },
         ],
+
+        response: [
+            (s) => [s.queryId, s.getQueryResponse],
+            (queryId, getQueryResponse) => {
+                return getQueryResponse(queryId)
+            },
+            { resultEqualityCheck: () => false },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -183,6 +201,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
 
             const querySource = (query as InsightVizNode).source
+
+            actions.getInsightData(uuid())
+
             if (isLifecycleQuery(querySource)) {
                 const filters = queryNodeToFilter(querySource)
                 actions.setFilters(filters)
@@ -227,26 +248,29 @@ export const insightDataLogic = kea<insightDataLogicType>([
             )
             actions.insightLogicSaveInsight(redirectToViewMode)
         },
-    })),
-    subscriptions(({ values, actions }) => ({
-        /**
-         * This subscription updates the insight for all visualizations
-         * that haven't been refactored to use the data exploration yet.
-         */
-        response: (response: Record<string, any> | null) => {
-            if (!values.isUsingDataExploration) {
-                return
-            }
-
-            actions.setInsight(
-                {
-                    ...values.insight,
-                    result: response?.result,
-                    next: response?.next,
-                    // filters: queryNodeToFilter(query.source),
-                },
-                {}
-            )
+        getInsightData: ({ queryId }) => {
+            actions.runQuery(queryId, values.querySource)
         },
     })),
+    // subscriptions(({ values, actions }) => ({
+    //     /**
+    //      * This subscription updates the insight for all visualizations
+    //      * that haven't been refactored to use the data exploration yet.
+    //      */
+    //     response: (response: Record<string, any> | null) => {
+    //         if (!values.isUsingDataExploration) {
+    //             return
+    //         }
+
+    //         actions.setInsight(
+    //             {
+    //                 ...values.insight,
+    //                 result: response?.result,
+    //                 next: response?.next,
+    //                 // filters: queryNodeToFilter(query.source),
+    //             },
+    //             {}
+    //         )
+    //     },
+    // })),
 ])

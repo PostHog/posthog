@@ -3,14 +3,17 @@ import { expectLogic } from 'kea-test-utils'
 
 import { dataManagerLogic } from '~/queries/nodes/DataNode/dataManagerLogic'
 import { NodeKind, TrendsQuery } from '~/queries/schema'
-import { connect, kea, selectors } from 'kea'
+import { connect, kea, selectors, path } from 'kea'
 import { useMocks } from '~/mocks/jest'
+
+import type { dummyLogicType } from './dataManagerLogic.testType'
 
 // jest.mock('~/queries/query')
 
 const TEST_QUERY_ID = 'test-id'
 
-const dummyLogic = kea([
+const dummyLogic = kea<dummyLogicType>([
+    path(['queries', 'nodes', 'DataNode', 'dataManagerLogic', 'test']),
     connect({
         values: [dataManagerLogic, ['getQueryLoading', 'getQueryResponse', 'getQueryError']],
     }),
