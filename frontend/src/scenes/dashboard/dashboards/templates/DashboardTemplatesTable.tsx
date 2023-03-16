@@ -85,7 +85,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                     }}
                                     fullWidth
                                 >
-                                    Make visible to {scope === 'global' ? 'this team only' : 'global'}
+                                    Make visible to {scope === 'global' ? 'this team only' : 'everyone'}
                                 </LemonButton>
 
                                 <LemonDivider />
