@@ -9,6 +9,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     Node,
+    NodeKind,
 } from '~/queries/schema'
 
 import { insightLogic } from './insightLogic'
@@ -32,7 +33,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { subscriptions } from 'kea-subscriptions'
 import { displayTypesWithoutLegend } from 'lib/components/InsightLegend/utils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
@@ -130,10 +131,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
         updateQuerySource: ({ querySource }) => {
-            if (values.query && isInsightVizNode(values.query)) {
+            const localQuery = values.query ? values.query : queryFromKind(NodeKind.TrendsQuery)
+            if (localQuery && isInsightVizNode(localQuery)) {
                 actions.setQuery({
-                    ...values.query,
-                    source: { ...(values.query as InsightVizNode).source, ...querySource },
+                    ...localQuery,
+                    source: { ...(localQuery as InsightVizNode).source, ...querySource },
                 } as Node)
             }
         },

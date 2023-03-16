@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { FilterType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { DataNode, InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
@@ -167,4 +167,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 },
         })
     ),
+    propsChanged(({ actions, props, values }) => {
+        if (props.cachedInsight?.query && !objectsEqual(props.cachedInsight.query, values.query)) {
+            actions.setQuery(props.cachedInsight.query)
+        }
+    }),
 ])
