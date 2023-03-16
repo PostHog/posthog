@@ -1,7 +1,7 @@
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightViz, TopHeading } from 'lib/components/Cards/InsightCard/InsightCard'
+import { InsightViz } from 'lib/components/Cards/InsightCard/InsightCard'
 import './ExportedInsight.scss'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
