@@ -561,10 +561,11 @@ function InsightCardInternal(
     const exportedAndCached = dashboardPlacement && dashboardPlacement == DashboardPlacement.Export && !!insight.result
     const sharedAndCached = dashboardPlacement && dashboardPlacement == DashboardPlacement.Public && !!insight.result
     const canMakeQueryAPICalls =
-        dashboardPlacement &&
-        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
-            dashboardPlacement
-        )
+        (dashboardPlacement &&
+            [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
+                dashboardPlacement
+            )) ||
+        dashboardPlacement === undefined // saved insights grid
 
     return (
         <div
