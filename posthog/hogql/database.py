@@ -329,3 +329,46 @@ class Database(BaseModel):
 
 
 database = Database()
+
+
+def create_hogql_database(team_id: Optional[int]) -> Database:
+    return Database()
+
+
+def serialize_database(database: Database) -> dict:
+    tables: Dict[str, List[Dict[str, Any]]] = {}
+
+    for table_key in database.__fields__.keys():
+        fields: List[Dict[str, Any]] = []
+        table = getattr(database, table_key, None)
+        for field_key in table.__fields__.keys():
+            field = getattr(table, field_key, None)
+            if field_key == "team_id":
+                pass
+            elif isinstance(field, DatabaseField):
+                if isinstance(field, IntegerDatabaseField):
+                    fields.append({"key": field_key, "type": "integer"})
+                elif isinstance(field, StringDatabaseField):
+                    fields.append({"key": field_key, "type": "string"})
+                elif isinstance(field, DateTimeDatabaseField):
+                    fields.append({"key": field_key, "type": "datetime"})
+                elif isinstance(field, BooleanDatabaseField):
+                    fields.append({"key": field_key, "type": "boolean"})
+                elif isinstance(field, StringJSONDatabaseField):
+                    fields.append({"key": field_key, "type": "json"})
+            elif isinstance(field, LazyTable):
+                fields.append({"key": field_key, "type": "lazy_table", "table": field.table.hogql_table()})
+            elif isinstance(field, VirtualTable):
+                fields.append(
+                    {
+                        "key": field_key,
+                        "type": "virtual_table",
+                        "table": field.hogql_table(),
+                        "fields": list(field.__fields__.keys()),
+                    }
+                )
+            elif isinstance(field, FieldTraverser):
+                fields.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
+        tables[table_key] = fields
+
+    return tables

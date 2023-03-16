@@ -41,6 +41,7 @@ export const urls = {
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     propertyDefinitions: (): string => '/data-management/properties',
     propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
+    database: (): string => '/data-management/database',
     events: (): string => '/events',
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
