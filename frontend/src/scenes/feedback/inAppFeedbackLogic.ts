@@ -107,8 +107,7 @@ export const inAppFeedbackLogic = kea<inAppFeedbackLogicType>([
                         event: eventName,
                         orderBy: ['-timestamp'],
                     })
-                    // TODO: fix this type
-                    return response.results as unknown as EventType[]
+                    return response.results as EventType[]
                 },
             },
         ],

@@ -148,7 +148,6 @@ export function CreateInterviewFlag(): JSX.Element {
 
     const { toggleInterviewFlagModal } = useActions(userInterviewSchedulerLogic)
 
-    // TODO: fix form styling, errors don't seem to be the right color and the overal style looks off
     return (
         <LemonModal
             title="Create a user interview flag"
