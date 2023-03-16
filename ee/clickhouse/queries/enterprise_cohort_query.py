@@ -262,7 +262,8 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
     def _get_sequence_query(self) -> Tuple[str, Dict[str, Any], str]:
         params = {}
 
-        names = ["event", "properties", "distinct_id", "timestamp"]
+        materialized_columns = list(self._column_optimizer.event_columns_to_query)
+        names = ["event", "properties", "distinct_id", "timestamp", *materialized_columns]
 
         person_prop_query = ""
         person_prop_params: dict = {}
