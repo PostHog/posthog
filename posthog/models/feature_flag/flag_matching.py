@@ -483,12 +483,12 @@ def get_all_feature_flags(
             skip_experience_continuity_flags=True,
         )
 
-    # make the entire hash key override logic a single transaction
-    # with a small timeout
-    try:
-        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
-            if hash_key_override is not None:
-                # setting overrides only when we get an override
+    # setting overrides only when we get an override
+    if hash_key_override is not None:
+        # make the entire hash key override logic a single transaction
+        # with a small timeout
+        try:
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
                 if person_id is None:
                     # :TRICKY: Some ingestion delays may mean that `$identify` hasn't yet created
                     # the new person on which decide was called.
@@ -509,12 +509,12 @@ def get_all_feature_flags(
                 if person_id is not None:
                     set_feature_flag_hash_key_overrides(all_feature_flags, team_id, person_id, hash_key_override)
 
-    except Exception as e:
-        # If the database is in read-only mode, we can't handle experience continuity flags,
-        # since the set_feature_flag_hash_key_overrides call will fail.
+        except Exception as e:
+            # If the database is in read-only mode, we can't handle experience continuity flags,
+            # since the set_feature_flag_hash_key_overrides call will fail.
 
-        # For this case, and for any other case, do not error out on decide, we can handle it!
-        capture_exception(e)
+            # For this case, and for any other case, do not error out on decide, we can handle it!
+            capture_exception(e)
 
     # :TRICKY: Consistency matters only when personIDs exist
     # as overrides are stored on personIDs.
