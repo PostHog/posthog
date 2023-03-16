@@ -33,7 +33,7 @@ export function Breadcrumbs(): JSX.Element | null {
 interface BreadcrumbProps {
     breadcrumb: IBreadcrumb
     index: number
-    here: boolean
+    here?: boolean
 }
 
 function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
