@@ -2,10 +2,9 @@ import { useActions, useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { useEffect } from 'react'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 export function AutoLoad(): JSX.Element {
-    const { autoLoadToggled, newDataLoading } = useValues(dataNodeLogic)
+    const { autoLoadToggled } = useValues(dataNodeLogic)
     const { startAutoLoad, stopAutoLoad, toggleAutoLoad } = useActions(dataNodeLogic)
 
     // Reload data only when this AutoLoad component is mounted.
@@ -26,7 +25,6 @@ export function AutoLoad(): JSX.Element {
                 checked={autoLoadToggled}
                 onChange={toggleAutoLoad}
             />
-            {newDataLoading ? <Spinner className="text-2xl" /> : null}
         </div>
     )
 }
