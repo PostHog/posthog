@@ -21,7 +21,8 @@ class Migration(migrations.Migration):
             sql="""
                 UPDATE posthog_dashboardtemplate
                 SET scope = 'global'
-                WHERE team_id IS NULL;
+                WHERE team_id IS NULL
+                 -- not-null-ignore
             """,
             reverse_sql=migrations.RunSQL.noop,
         ),
