@@ -441,17 +441,17 @@ class TestPrinter(BaseTest):
     def test_count_distinct(self):
         self.assertEqual(
             self._select("SELECT count(distinct event) FROM events"),
-            "SELECT count(DISTINCT event) FROM events WHERE equals(team_id, 42) LIMIT 65535",
+            f"SELECT count(DISTINCT event) FROM events WHERE equals(team_id, {self.team.pk}) LIMIT 65535",
         )
 
     def test_count_star(self):
         self.assertEqual(
             self._select("SELECT count(*) FROM events"),
-            "SELECT count(*) FROM events WHERE equals(team_id, 42) LIMIT 65535",
+            f"SELECT count(*) FROM events WHERE equals(team_id, {self.team.pk}) LIMIT 65535",
         )
 
     def test_count_if_distinct(self):
         self.assertEqual(
             self._select("SELECT countIf(distinct event, event like '%a%') FROM events"),
-            "SELECT countIf(DISTINCT event, like(event, %(hogql_val_0)s)) FROM events WHERE equals(team_id, 42) LIMIT 65535",
+            f"SELECT countIf(DISTINCT event, like(event, %(hogql_val_0)s)) FROM events WHERE equals(team_id, {self.team.pk}) LIMIT 65535",
         )

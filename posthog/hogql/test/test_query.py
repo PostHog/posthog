@@ -402,13 +402,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10"):
             self._create_random_events()
             response = execute_hogql_query(
-                "SELECT poe.properties.sneaky_email, count() FROM events s GROUP BY poe.properties.email LIMIT 10",
+                "SELECT poe.properties.sneaky_mail, count() FROM events s GROUP BY poe.properties.sneaky_mail LIMIT 10",
                 self.team,
             )
             self.assertEqual(
                 response.clickhouse,
                 f"SELECT replaceRegexpAll(JSONExtractRaw(s.person_properties, %(hogql_val_0)s), '^\"|\"$', ''), "
-                f"count(*) FROM events AS s WHERE equals(s.team_id, {self.team.pk}) GROUP BY "
+                f"count() FROM events AS s WHERE equals(s.team_id, {self.team.pk}) GROUP BY "
                 f"replaceRegexpAll(JSONExtractRaw(s.person_properties, %(hogql_val_1)s), '^\"|\"$', '') LIMIT 10",
             )
             self.assertEqual(
@@ -503,7 +503,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
             with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
                 response = execute_hogql_query(
-                    "SELECT event, count() FROM events WHERE {cohort_filter} GROUP BY event",
+                    "SELECT event, count(*) FROM events WHERE {cohort_filter} GROUP BY event",
                     team=self.team,
                     placeholders={
                         "cohort_filter": property_to_expr(
@@ -551,7 +551,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
             with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
                 response = execute_hogql_query(
-                    "SELECT event, count() FROM events WHERE {cohort_filter} GROUP BY event",
+                    "SELECT event, count(*) FROM events WHERE {cohort_filter} GROUP BY event",
                     team=self.team,
                     placeholders={
                         "cohort_filter": property_to_expr(
