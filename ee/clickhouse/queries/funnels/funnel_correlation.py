@@ -539,7 +539,7 @@ class FunnelCorrelation:
                 param_name = f"property_name_{index}"
                 if self._filter.aggregation_group_type_index is not None:
                     expression, _ = get_property_string_expr(
-                        "groups" if not self._team.person_on_events_mode != PersonOnEventsMode.DISABLED else "events",
+                        "groups" if self._team.person_on_events_mode == PersonOnEventsMode.DISABLED else "events",
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
