@@ -89,7 +89,7 @@ class TrendsBreakdown:
     def _person_properties_mode(self) -> PersonPropertiesMode:
         return (
             PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
-            if not self.person_on_events_mode
+            if self.person_on_events_mode == PersonOnEventsMode.DISABLED
             else PersonPropertiesMode.DIRECT_ON_EVENTS
         )
 
@@ -106,7 +106,7 @@ class TrendsBreakdown:
         )
 
         target_properties: Optional[PropertyGroup] = props_to_filter
-        if not self.person_on_events_mode:
+        if self.person_on_events_mode == PersonOnEventsMode.DISABLED:
             target_properties = self.column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
 
         return parse_prop_grouped_clauses(
@@ -115,7 +115,7 @@ class TrendsBreakdown:
             table_name="e",
             person_properties_mode=self._person_properties_mode,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-            if not self.person_on_events_mode
+            if self.person_on_events_mode == PersonOnEventsMode.DISABLED
             else "person_id",
             hogql_context=self.filter.hogql_context,
         )
@@ -139,7 +139,7 @@ class TrendsBreakdown:
             self.entity,
             self.team,
             event_table_alias="e",
-            person_id_alias=f"person_id" if self.person_on_events_mode else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            person_id_alias=f"person_id" if self.person_on_events_mode != PersonOnEventsMode.DISABLED else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
         action_query = ""
@@ -151,7 +151,7 @@ class TrendsBreakdown:
                 action=action,
                 table_name="e",
                 person_properties_mode=self._person_properties_mode,
-                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self.person_on_events_mode else 'e'}.person_id",
+                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self.person_on_events_mode == PersonOnEventsMode.DISABLED else 'e'}.person_id",
                 hogql_context=self.filter.hogql_context,
             )
 
@@ -172,7 +172,7 @@ class TrendsBreakdown:
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
             "filters": prop_filters,
-            "null_person_filter": f"AND notEmpty(e.person_id)" if self.person_on_events_mode else "",
+            "null_person_filter": f"AND notEmpty(e.person_id)" if self.person_on_events_mode == PersonOnEventsMode.DISABLED else "",
         }
 
         _params, _breakdown_filter_params = {}, {}
@@ -229,7 +229,7 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.person_on_events_mode else "e",
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if self.person_on_events_mode == PersonOnEventsMode.DISABLED else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -298,7 +298,7 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.person_on_events_mode else "e",
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if self.person_on_events_mode == PersonOnEventsMode.DISABLED else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -314,7 +314,7 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.person_on_events_mode else "e",
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if self.person_on_events_mode == PersonOnEventsMode.DISABLED else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -420,13 +420,13 @@ class TrendsBreakdown:
                 raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
 
         elif (
-            self.person_on_events_mode and self.filter.breakdown_type == "group" and groups_on_events_querying_enabled()
+            self.person_on_events_mode != PersonOnEventsMode.DISABLED and self.filter.breakdown_type == "group" and groups_on_events_querying_enabled()
         ):
             properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
             breakdown_value, _ = get_property_string_expr(
                 "events", breakdown, "%(key)s", properties_field, materialised_table_column=properties_field
             )
-        elif self.person_on_events_mode and self.filter.breakdown_type != "group":
+        elif self.person_on_events_mode != PersonOnEventsMode.DISABLED and self.filter.breakdown_type != "group":
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr(
                     "events", breakdown, "%(key)s", "person_properties", materialised_table_column="person_properties"
@@ -613,7 +613,7 @@ class TrendsBreakdown:
             return str(value) or "none"
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
-        if self.person_on_events_mode:
+        if self.person_on_events_mode != PersonOnEventsMode.DISABLED:
             return "", {}
 
         person_query = PersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)

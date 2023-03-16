@@ -18,6 +18,7 @@ T = TypeVar("T")
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
 
+
 class UUIDT(uuid.UUID):
     """UUID (mostly) sortable by generation time.
 
@@ -265,4 +266,3 @@ def execute_with_timeout(timeout: int):
         with connection.cursor() as cursor:
             cursor.execute("SET LOCAL statement_timeout = %s", [timeout])
             yield
-

@@ -1233,8 +1233,8 @@ def patchable(fn):
 
     return inner
 
+
 class PersonOnEventsMode:
     DISABLED = "disabled"
     V1_ENABLED = "v1_enabled"
     V2_ENABLED = "v2_enabled"
-

@@ -22,9 +22,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.team.util import actor_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
-from posthog.utils import GenericEmails
-
-from posthog.utils import PersonOnEventsMode
+from posthog.utils import GenericEmails, PersonOnEventsMode
 
 from .team_caching import get_team_in_cache, set_team_in_cache
 
@@ -40,6 +38,7 @@ DEPRECATED_ATTRS = (
     "event_properties_with_usage",
     "event_properties_numerical",
 )
+
 
 class TeamManager(models.Manager):
     def get_queryset(self):
@@ -187,22 +186,20 @@ class Team(UUIDClassicModel):
 
     objects: TeamManager = TeamManager()
 
-
     @property
     def person_on_events_mode(self) -> PersonOnEventsMode:
         # Persons on Events V2 always takes priority over Persons on Events V1
         if self._person_on_events_v2_querying_enabled:
             tag_queries(person_on_events_mode=PersonOnEventsMode.V2_ENABLED)
             return PersonOnEventsMode.V2_ENABLED
-        
+
         if self._person_on_events_querying_enabled:
             # also tag person_on_events_enabled for legacy compatibility
             tag_queries(person_on_events_enabled=True, person_on_events_mode=PersonOnEventsMode.V1_ENABLED)
             return PersonOnEventsMode.V1_ENABLED
-        
+
         return PersonOnEventsMode.DISABLED
-         
-         
+
     # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
     # Keeping this property for now only to be used by the frontend in certain cases
     @property
@@ -233,8 +230,6 @@ class Team(UUIDClassicModel):
 
         # on self-hosted, use the instance setting
         return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
-    
-
 
     @property
     def _person_on_events_v2_querying_enabled(self) -> bool:
@@ -256,7 +251,7 @@ class Team(UUIDClassicModel):
 
         # on self-hosted, use the instance setting
         return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
-    
+
     @property
     def strict_caching_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
@@ -332,4 +327,3 @@ def get_available_features_for_team(team_id: int):
     )
 
     return available_features
-
