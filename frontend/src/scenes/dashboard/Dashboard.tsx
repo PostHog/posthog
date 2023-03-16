@@ -110,7 +110,7 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    <div className="flex space-x-4 justify-between mt-4">
+                    <div className="flex space-x-4 justify-between">
                         {![
                             DashboardPlacement.Public,
                             DashboardPlacement.Export,
