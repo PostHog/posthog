@@ -152,6 +152,9 @@ export function CodeInstructions({
         if (featureFlag?.filters.multivariate?.variants || !featureFlag?.filters.multivariate) {
             selectOption(selectedOption.value)
         }
+        if (featureFlag?.ensure_experience_continuity) {
+            setShowLocalEvalCode(false)
+        }
     }, [selectedLanguage, featureFlag])
 
     return (
@@ -238,7 +241,11 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <Tooltip title={'Local evaluation is only available in server side libraries.'}>
+                                <Tooltip
+                                    title={
+                                        'Local evaluation is only available in server side libraries and without flag persistence across authentication steps.'
+                                    }
+                                >
                                     <IconInfo className="text-xl text-muted-alt shrink-0" />
                                 </Tooltip>
                             </div>
