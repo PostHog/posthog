@@ -35,11 +35,13 @@ export const Feedback = (): JSX.Element => {
                         content: <InAppFeedback />,
                         key: 'in-app-feedback',
                         label: 'In-app feedback',
+                        tooltip: 'Analyze feedback from your users',
                     },
                     {
                         content: <UserInterviewScheduler />,
                         key: 'user-interview-scheduler',
                         label: 'User interview scheduler',
+                        tooltip: 'Schedule user interviews with your users',
                     },
                 ]}
             />
