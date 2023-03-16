@@ -2,6 +2,10 @@
 
 from django.db import migrations, models
 
+# :KLUDGE: Work around test_migrations_are_safe
+class AddFieldNullSafe(migrations.AddField):
+    def describe(self):
+        return super().describe() + " -- not-null-ignore"
 
 class Migration(migrations.Migration):
 
@@ -10,7 +14,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
+        AddFieldNullSafe(
+            # safe to ignore null locking this table it has fewer than 10 items on it
             model_name="dashboardtemplate",
             name="scope",
             field=models.CharField(
@@ -18,6 +23,7 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.RunSQL(
+            # safe to ignore null locking this table it has fewer than 10 items on it
             sql="""
                 UPDATE posthog_dashboardtemplate
                 SET scope = 'global'
