@@ -521,7 +521,9 @@
              AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+             AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['test', 'control'])
+             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -579,7 +581,7 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
+           UNION ALL SELECT count(DISTINCT person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             breakdown_value
            FROM
@@ -587,24 +589,19 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id,
+                (SELECT e.person_id as person_id,
                         timestamp,
                         replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$feature_flag_called'
                    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
                         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
-                   AND replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') in (['control', 'test']) )
+                   AND notEmpty(e.person_id)
+                   AND replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') in (['control', 'test'])
+                   AND notEmpty(e.person_id) )
               GROUP BY person_id,
                        breakdown_value) AS pdi
            GROUP BY day_start,
@@ -720,7 +717,9 @@
              AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+             AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['control', 'test_1', 'test_2'])
+             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -863,7 +862,9 @@
              AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
              AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
              AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
+             AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['test', 'control'])
+             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -921,7 +922,7 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
+           UNION ALL SELECT count(DISTINCT person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as day_start,
                             breakdown_value
            FROM
@@ -929,24 +930,19 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id,
+                (SELECT e.person_id as person_id,
                         timestamp,
                         replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$feature_flag_called'
                    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
                         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
                    AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
                    AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
-                   AND replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') in (['control', 'test']) )
+                   AND notEmpty(e.person_id)
+                   AND replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') in (['control', 'test'])
+                   AND notEmpty(e.person_id) )
               GROUP BY person_id,
                        breakdown_value) AS pdi
            GROUP BY day_start,
