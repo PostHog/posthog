@@ -587,16 +587,16 @@ class InsightViewSet(
         """
         Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
         """
-        recently_viewed = [
-            rv.insight
-            for rv in (
-                InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
-                .select_related("insight")
-                .exclude(insight__deleted=True)
-                .only("insight")
-                .order_by("-last_viewed_at")[:5]
-            )
-        ]
+        insight_queryset = (
+            InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
+            .select_related("insight")
+            .exclude(insight__deleted=True)
+            .only("insight")
+        )
+        if self.request.query_params.get("include_query_insights", "false").lower() != "true":
+            insight_queryset = insight_queryset.exclude(Q(insight__filters={}) & Q(insight__query__isnull=False))
+
+        recently_viewed = [rv.insight for rv in (insight_queryset.order_by("-last_viewed_at")[:5])]
 
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)

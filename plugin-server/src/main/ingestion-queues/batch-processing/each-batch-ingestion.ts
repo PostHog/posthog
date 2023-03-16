@@ -61,9 +61,9 @@ export async function ingestEvent(
     checkAndPause?.()
 
     server.statsd?.increment('kafka_queue_ingest_event_hit', {
-        pipeline: 'runLightweightCaptureEndpointEventPipeline',
+        pipeline: 'runEventPipeline',
     })
-    await workerMethods.runLightweightCaptureEndpointEventPipeline(event)
+    await workerMethods.runEventPipeline(event)
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
 

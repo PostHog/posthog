@@ -40,7 +40,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { summariseInsight } from 'scenes/insights/utils'
+import { insightTypeURL, summariseInsight } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -56,7 +56,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
-import { examples } from '~/queries/examples'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -112,9 +111,9 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         icon: InsightSQLIcon,
         inMenu: true,
     },
-    [InsightType.QUERY]: {
-        name: 'Query',
-        description: 'Build custom insights with our powerful query language',
+    [InsightType.JSON]: {
+        name: 'JSON',
+        description: 'Build custom insights with our JSON query language',
         icon: InsightSQLIcon,
         inMenu: false, // until data exploration is released
     },
@@ -238,7 +237,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.HogQLQuery]: {
         name: 'HogQL',
         description: 'Direct HogQL query',
-        icon: IconCoffee,
+        icon: InsightSQLIcon,
         inMenu: true,
     },
 }
@@ -257,21 +256,10 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
 }
 
-const insightTypeURL: Record<InsightType, string> = {
-    TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
-    STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
-    LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
-    FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
-    RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
-    PATHS: urls.insightNew({ insight: InsightType.PATHS }),
-    QUERY: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
-    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
-}
-
 export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
     let insightType = insight?.filters?.insight || InsightType.TRENDS
     if (!!insight.query && !isInsightVizNode(insight.query)) {
-        insightType = InsightType.QUERY
+        insightType = InsightType.JSON
     }
     const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
     if (insightMetadata && insightMetadata.icon) {
@@ -286,7 +274,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
     let menuEntries = Object.entries(INSIGHT_TYPES_METADATA)
     if (!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]) {
         menuEntries = menuEntries.filter(
-            ([insightType]) => insightType !== InsightType.QUERY && insightType !== InsightType.SQL
+            ([insightType]) => insightType !== InsightType.JSON && insightType !== InsightType.SQL
         )
     }
 
@@ -358,6 +346,7 @@ function SavedInsightsGrid(): JSX.Element {
                                 callback: loadInsights,
                             })
                         }
+                        placement={'SavedInsightGrid'}
                     />
                 ))}
                 {insightsLoading && (
