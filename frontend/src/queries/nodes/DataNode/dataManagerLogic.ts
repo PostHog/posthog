@@ -1,4 +1,4 @@
-import { kea, path, selectors, reducers, actions, defaults, BuiltLogic } from 'kea'
+import { kea, path, selectors, reducers, actions, defaults, BuiltLogic, listeners, connect } from 'kea'
 import { loaders } from 'kea-loaders'
 import { AnyDataNode } from '~/queries/schema'
 import { dataNodeLogic } from './dataNodeLogic'
@@ -16,8 +16,15 @@ export type QueryStore = Record<QueryId, BuiltLogic<dataNodeLogicType>>
 
 export const dataManagerLogic = kea<dataManagerLogicType>([
     path(['queries', 'nodes', 'dataManagerLogic']),
+    // connect({
+    //     actions:
+    // }),
     actions({
-        // runQuery: (queryId: QueryId, queryObject: AnyDataNode) => ({ queryId, queryObject }),
+        runQuery: (queryId: QueryId, queryObject: AnyDataNode) => {
+            const logic = dataNodeLogic.build({ key: queryId, query: queryObject })
+            const unmount = logic.mount()
+            return { queryId, queryObject, logic, unmount }
+        },
         // cancelQuery: (queryId: QueryId) => ({ queryId }),
         // querySuccess: (queryId: QueryId, queryObject: AnyDataNode, results: Record<string, any>) => ({
         //     queryId,
@@ -26,43 +33,61 @@ export const dataManagerLogic = kea<dataManagerLogicType>([
         // }),
         // queryFailure: (queryId: QueryId, error: Error) => ({ queryId, error }),
     }),
-    defaults({
-        queries: {},
-    }),
-    loaders(({ values }) => ({
-        queries: {
-            runQuery: ({ queryId, queryObject }: { queryId: QueryId; queryObject: AnyDataNode }): QueryStore => {
-                // console.log('V: ', values.queries)
-                // console.log('queryId: ', queryId)
-                // console.log('queryObject: ', queryObject)
-                // const logic = dataNodeLogic.build({ key: queryId, query: queryObject })
-                // console.log('logic: ', logic.values.responseLoading)
-                // const queries = { ...values.queries, [queryId]: logic }
-                // // console.log('queries: ', queries)
-                // return queries
-                // values.queries[queryId].actions.
-            },
-        },
-    })),
+    // defaults({
+    //     queries: {},
+    // }),
+    // loaders(({ values }) => ({
+    //     queries: {
+    //         runQuery: ({ queryId, queryObject }: { queryId: QueryId; queryObject: AnyDataNode }): QueryStore => {
+    //             // console.log('V: ', values.queries)
+    //             // console.log('queryId: ', queryId)
+    //             // console.log('queryObject: ', queryObject)
+    //             // const logic = dataNodeLogic.build({ key: queryId, query: queryObject })
+    //             // console.log('logic: ', logic.values.responseLoading)
+    //             // const queries = { ...values.queries, [queryId]: logic }
+    //             // // console.log('queries: ', queries)
+    //             // return queries
+    //             // values.queries[queryId].actions.
+    //         },
+    //     },
+    // })),
     reducers({
-        queries: {
-            runQuery: (state, { queryId, queryObject }) => {
-                const logic = dataNodeLogic.build({ key: queryId, query: queryObject })
-                return { ...state, [queryId]: logic }
+        queries: [
+            {},
+            {
+                runQuery: (state, { queryId, queryObject, logic, unmount }) => {
+                    return { ...state, [queryId]: { logic, unmount } }
+                },
             },
-        },
-        //     - queries: Record<queryId, Record>
+        ],
+        // - queries: Record<queryId, Record>
         // - results: Record<queryId, any>
         // - lastUpdatedAt: Record<queryId, Date>
         // - isLoading: Record<queryId, bool>
     }),
     selectors({
+        logic: [(s) => [s.queries], (queries: QueryStore) => (queryId: QueryId) => queries[queryId]?.logic],
         isLoading: [
             (s) => [s.queries],
             (queries: QueryStore) => (queryId: QueryId) => {
-                const logic = queries[queryId]
+                const logic = queries[queryId]?.logic
                 return logic ? logic.values.responseLoading : null
             },
         ],
+        response: [
+            (s) => [s.queries],
+            (queries: QueryStore) => (queryId: QueryId) => {
+                const logic = queries[queryId]?.logic
+                return logic ? logic.values.response : null
+            },
+        ],
+        error: [
+            (s) => [s.queries],
+            (queries: QueryStore) => (queryId: QueryId) => {
+                const logic = queries[queryId]?.logic
+                return logic ? logic.values.responseError : null
+            },
+        ],
     }),
+    // listeners({}),
 ])
