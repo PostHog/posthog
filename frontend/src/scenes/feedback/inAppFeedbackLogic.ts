@@ -1,8 +1,8 @@
 import { EventsQuery } from '../../queries/schema'
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, path, reducers } from 'kea'
 import { DataTableNode, Node, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema'
 
-import type { inAppFeedbackLogicType } from './inAppFeedbackLogicType'
+import type { feedbackLogicType } from './inAppFeedbackLogicType'
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
 import { EventType } from '~/types'
@@ -43,34 +43,17 @@ const DEFAULT_TREND_QUERY: TrendsQuery = {
     },
 }
 
-export const feedbackLogic = kea<inAppFeedbackLogicType>([
+export const feedbackLogic = kea<feedbackLogicType>([
     path(['scenes', 'feedback', 'inAppFeedbackLogic']),
     actions({
-        setTab: (activeTab: string) => ({ activeTab }),
         toggleInAppFeedbackInstructions: true,
-        setExpandedSection: (idx: number, expanded: boolean) => ({ idx, expanded }),
         setDataTableQuery: (query: Node | QuerySchema) => ({ query }),
     }),
     reducers({
-        activeTab: [
-            'in-app-feedback' as string,
-            {
-                setTab: (_, { activeTab }) => activeTab,
-            },
-        ],
         inAppFeedbackInstructions: [
             false,
             {
                 toggleInAppFeedbackInstructions: (state) => !state,
-            },
-        ],
-        expandedSections: [
-            [true, false] as boolean[],
-            {
-                setExpandedSection: (state, { idx, expanded }) => {
-                    // set all to false apart from the one we're changing
-                    return state.map((_, i) => (i === idx ? expanded : false))
-                },
             },
         ],
         dataTableQuery: [
@@ -128,12 +111,6 @@ export const feedbackLogic = kea<inAppFeedbackLogicType>([
                     return response.results as unknown as EventType[]
                 },
             },
-        ],
-    }),
-    selectors({
-        expandedSection: [
-            (s) => [s.expandedSections],
-            (expandedSections: boolean[]) => (idx: number) => expandedSections[idx],
         ],
     }),
     afterMount(({ actions }) => {

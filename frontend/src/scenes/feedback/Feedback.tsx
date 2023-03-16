@@ -2,13 +2,17 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { feedbackLogic } from './inAppFeedbackLogic'
+import { feedbackLogic } from './feedbackLogic'
 
 import './Feedback.scss'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { InAppFeedback } from './InAppFeedback'
+import { UserInterviewScheduler } from './UserInterviewScheduler'
+import { useActions, useValues } from 'kea'
 
 export const Feedback = (): JSX.Element => {
+    const { activeTab } = useValues(feedbackLogic)
+    const { setActiveTab } = useActions(feedbackLogic)
     return (
         <div className="Feedback">
             <PageHeader
@@ -22,8 +26,11 @@ export const Feedback = (): JSX.Element => {
                 }
             />
             <LemonTabs
-                activeKey="in-app-feedback"
-                onChange={function noRefCheck() {}}
+                activeKey={activeTab}
+                onChange={(key) => {
+                    debugger
+                    setActiveTab(key)
+                }}
                 tabs={[
                     {
                         content: <InAppFeedback />,
@@ -31,7 +38,7 @@ export const Feedback = (): JSX.Element => {
                         label: 'In-app feedback',
                     },
                     {
-                        content: <div>Imagine some calculator here. 🔢</div>,
+                        content: <UserInterviewScheduler />,
                         key: 'user-interview-scheduler',
                         label: 'User interview scheduler',
                     },
