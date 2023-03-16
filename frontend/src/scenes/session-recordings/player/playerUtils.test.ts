@@ -152,7 +152,7 @@ describe('getPlayerPositionFromEpochTime', () => {
 
         expect(
             getPlayerPositionFromEpochTime(
-                999999999999999999,
+                999999999999999900,
                 '17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b',
                 metadata.startAndEndTimesByWindowId ?? {}
             )
