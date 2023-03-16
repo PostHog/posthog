@@ -28,7 +28,7 @@ export const userInterviewSchedulerLogic = kea<userInterviewSchedulerLogicType>(
             },
         ],
         interviewFlagModal: [
-            true as boolean,
+            false as boolean,
             {
                 toggleInterviewFlagModal: (state) => !state,
             },
@@ -57,9 +57,6 @@ export const userInterviewSchedulerLogic = kea<userInterviewSchedulerLogicType>(
             }),
             submit: async (formValues) => {
                 console.log('submitting', formValues)
-                // create the flag
-                // then redirect to the created flag so you can manage rollout
-                featureFlagLogic.mount()
                 const groups: FeatureFlagGroupType[] = [
                     {
                         variant: null,
@@ -87,6 +84,7 @@ export const userInterviewSchedulerLogic = kea<userInterviewSchedulerLogicType>(
                     deleted: false,
                 }
 
+                featureFlagLogic.mount()
                 featureFlagLogic.actions.saveFeatureFlag(flag)
             },
         },
