@@ -79,7 +79,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=True, using_person_on_events=True)
             self.assertEqual(
                 self._expr("person.properties.bla", context),
-                "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+                "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
             )
             context = HogQLContext(team_id=self.team.pk)
             self.assertEqual(
