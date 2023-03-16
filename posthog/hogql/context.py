@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
+
 from posthog.models.team import PersonOnEventsMode
+
 
 @dataclass
 class HogQLFieldAccess:
