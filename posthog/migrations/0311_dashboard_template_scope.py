@@ -23,6 +23,6 @@ class Migration(migrations.Migration):
                 SET scope = 'everyone'
                 WHERE team_id IS NULL;
             """,
-            reverse_sql="",
+            reverse_sql=migrations.RunSQL.noop,
         ),
     ]
