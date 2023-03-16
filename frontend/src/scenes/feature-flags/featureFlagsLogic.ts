@@ -24,7 +24,7 @@ interface FeatureFlagCreators {
     [id: string]: string
 }
 
-interface FlagLogicProps {
+export interface FlagLogicProps {
     flagPrefix?: string // used to filter flags by prefix e.g. for the user interview flags
 }
 
