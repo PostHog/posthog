@@ -102,6 +102,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             actions.abortQuery({ queryId })
                         }
                         breakpoint()
+                        e.queryId = queryId
                         throw e
                     }
                 },

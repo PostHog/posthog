@@ -63,7 +63,6 @@ export function InsightContainer({
         insightProps,
         canEditInsight,
         timedOutQueryId,
-        erroredQueryId,
         // isUsingSessionAnalysis,
     } = useValues(insightLogic)
 
@@ -86,6 +85,7 @@ export function InsightContainer({
         insightFilter,
         exportContext,
         insightDataLoading,
+        insightDataError,
     } = useValues(insightDataLogic(insightProps))
 
     // Empty states that completely replace the graph
@@ -114,8 +114,8 @@ export function InsightContainer({
         }
 
         // Insight agnostic empty states
-        if (!!erroredQueryId) {
-            return <InsightErrorState queryId={erroredQueryId} />
+        if (!!insightDataError) {
+            return <InsightErrorState queryId={insightDataError?.queryId} />
         }
         if (!!timedOutQueryId) {
             return (
@@ -134,7 +134,7 @@ export function InsightContainer({
     function renderTable(): JSX.Element | null {
         if (
             isFunnels &&
-            erroredQueryId === null &&
+            !insightDataError &&
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
