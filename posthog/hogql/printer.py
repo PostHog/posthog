@@ -392,13 +392,28 @@ class _Printer(Visitor):
                         )
                     )
 
-            field_sql = self._print_identifier(resolved_field.name)
+            # "SELECT timestamp, person_props, properties, uuid, event, distinct_id AS `--events.distinct_id`, window_id AS `--events.window_id`, session_id AS `--events.session_id`, start_time, session_recordings.distinct_id AS `--session_recordings.distinct_id`, urls AS `--session_recordings.urls`, session_recordings.session_id AS `--session_recordings.session_id`, click_count AS `--session_recordings.click_count`, end_time AS `--session_recordings.end_time`, start_time AS `--session_recordings.start_time`, duration AS `--session_recordings.duration`, keypress_count AS `--session_recordings.keypress_count` FROM (SELECT uuid, distinct_id, event, team_id, timestamp, `$session_id` AS session_id, `$window_id` AS window_id, events.properties AS properties FROM events WHERE (team_id = 1) AND (event IN ['$pageview']) AND (timestamp >= '2021-01-13 12:00:00') AND (timestamp <= '2021-01-22 08:00:00')) AS events ALL INNER JOIN (SELECT session_id, any(window_id) AS window_id, minIf(first_event_timestamp, first_event_timestamp != '1970-01-01 00:00:00') AS start_time, max(last_event_timestamp) AS end_time, sum(click_count) AS click_count, sum(keypress_count) AS keypress_count, groupArrayArray(urls) AS urls, dateDiff('second', start_time, end_time) AS duration, any(distinct_id) AS distinct_id, sum(has_full_snapshot) AS full_snapshots FROM session_recording_events PREWHERE (team_id = 1) AND (timestamp >= '2021-01-13 12:00:00') AND (timestamp <= '2021-01-22 08:00:00') GROUP BY session_id HAVING (full_snapshots > 0) AND (start_time >= '2021-01-14 00:00:00') AND (start_time <= '2021-01-21 20:00:00')) AS session_recordings ON `--session_recordings.distinct_id` = `--events.distinct_id`', required columns: 'timestamp' 'person_props' 'click_count' 'session_id' 'event' 'uuid' 'urls' 'distinct_id' 'window_id' 'start_time' 'properties' 'session_recordings.distinct_id' 'session_recordings.session_id' 'end_time' 'keypress_count' 'duration' 'timestamp' 'person_props' 'click_count' 'session_id' 'event' 'uuid' 'urls' 'distinct_id' 'window_id' 'start_time' 'properties' 'session_recordings.distinct_id' 'session_recordings.session_id' 'end_time' 'keypress_count' 'duration', joined columns: 'session_recordings.session_id' 'session_recordings.window_id' 'start_time' 'end_time' 'click_count' 'keypress_count' 'urls' 'duration' 'session_recordings.distinct_id' 'full_snapshots'. Stack trace:"
 
-            # If the field is called on a table that has an alias, prepend the table alias.
-            # If there's another field with the same name in the scope that's not this, prepend the full table name.
-            # Note: we don't prepend a table name for the special "person" fields.
-            if isinstance(ref.table, ast.TableAliasRef) or ref_with_name_in_scope != ref:
-                field_sql = f"{self.visit(ref.table)}.{field_sql}"
+            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
+            if (
+                self.context.within_non_hogql_query
+                and isinstance(ref.table, ast.VirtualTableRef)
+                and ref.name == "properties"
+                and ref.table.field == "poe"
+            ):
+                if self.context.using_person_on_events:
+                    field_sql = "person_properties"
+                else:
+                    field_sql = "person_props"
+
+            else:
+                field_sql = self._print_identifier(resolved_field.name)
+
+                # If the field is called on a table that has an alias, prepend the table alias.
+                # If there's another field with the same name in the scope that's not this, prepend the full table name.
+                # Note: we don't prepend a table name for the special "person" fields.
+                if isinstance(ref.table, ast.TableAliasRef) or ref_with_name_in_scope != ref:
+                    field_sql = f"{self.visit(ref.table)}.{field_sql}"
 
         elif isinstance(ref.table, ast.SelectQueryRef) or isinstance(ref.table, ast.SelectQueryAliasRef):
             field_sql = self._print_identifier(ref.name)
