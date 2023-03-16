@@ -425,6 +425,7 @@ class _Printer(Visitor):
         table = field_ref.table
         while isinstance(table, ast.TableAliasRef):
             table = table.table_ref
+
         if isinstance(table, ast.TableRef):
             table_name = table.table.clickhouse_table()
             if field is None:
@@ -433,14 +434,12 @@ class _Printer(Visitor):
 
             materialized_column = self._get_materialized_column(table_name, ref.name, field_name)
             if materialized_column:
-                property_sql = self._print_identifier(materialized_column)
-            else:
-                field_sql = self.visit(field_ref)
-                property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
+                return self._print_identifier(materialized_column)
+
         elif (
             self.context.within_non_hogql_query
-            and isinstance(table, ast.SelectQueryAliasRef)
-            and table.name == "events__pdi__person"
+            and (isinstance(table, ast.SelectQueryAliasRef) and table.name == "events__pdi__person")
+            or (isinstance(table, ast.VirtualTableRef) and table.field == "poe")
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.using_person_on_events:
@@ -448,15 +447,10 @@ class _Printer(Visitor):
             else:
                 materialized_column = self._get_materialized_column("person", ref.name, "properties")
             if materialized_column:
-                property_sql = self._print_identifier(materialized_column)
-            else:
-                field_sql = self.visit(field_ref)
-                property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
-        else:
-            field_sql = self.visit(field_ref)
-            property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
+                return self._print_identifier(materialized_column)
 
-        return property_sql
+        field_sql = self.visit(field_ref)
+        return trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
 
     def visit_select_query_alias_ref(self, ref: ast.SelectQueryAliasRef):
         return self._print_identifier(ref.name)
