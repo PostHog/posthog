@@ -62,7 +62,7 @@ class TrendsTotalVolume:
             if join_condition != ""
             or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
             else False,
-            using_person_on_events=team.person_on_events_querying_enabled,
+            person_on_events_mode=team.person_on_events_querying_enabled,
         )
         event_query_base, event_query_params = trend_event_query.get_query_base()
 

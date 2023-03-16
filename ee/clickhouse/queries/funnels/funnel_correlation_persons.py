@@ -11,9 +11,9 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.team import Team
-from posthog.queries.util import get_person_properties_mode
 from posthog.queries.actor_base_query import ActorBaseQuery, SerializedGroup, SerializedPerson
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
+from posthog.queries.util import get_person_properties_mode
 
 
 class FunnelCorrelationActors(ActorBaseQuery):

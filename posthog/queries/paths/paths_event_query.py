@@ -9,7 +9,7 @@ from posthog.constants import (
 )
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.util import get_property_string_expr
-from posthog.models.team import Team
+from posthog.models.team import Team, PersonOnEventsMode
 from posthog.queries.util import get_person_properties_mode
 from posthog.queries.event_query import EventQuery
 
@@ -25,7 +25,7 @@ class PathEventQuery(EventQuery):
         funnel_paths_filter = ""
 
         person_id = (
-            f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id"
+            f"{self.DISTINCT_ID_TABLE_ALIAS if not self._person_on_events_mode != PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id"
         )
 
         if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP or self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP:
@@ -102,7 +102,7 @@ class PathEventQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
-        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
+        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._person_on_events_mode != PersonOnEventsMode.DISABLED else ""
 
         sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})
@@ -129,7 +129,7 @@ class PathEventQuery(EventQuery):
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._using_person_on_events:
+        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
             self._should_join_distinct_ids = False
             self._should_join_persons = False
 

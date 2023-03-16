@@ -404,7 +404,7 @@ class _Printer(Visitor):
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.using_person_on_events:
+                if self.context.person_on_events_mode:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -446,7 +446,7 @@ class _Printer(Visitor):
             and table.name == "events__pdi__person"
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-            if self.context.using_person_on_events:
+            if self.context.person_on_events_mode:
                 materialized_column = self._get_materialized_column("events", ref.name, "person_properties")
             else:
                 materialized_column = self._get_materialized_column("person", ref.name, "properties")

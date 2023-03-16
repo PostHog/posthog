@@ -22,13 +22,13 @@ class GroupsJoinQuery:
         team_id: int,
         column_optimizer: Optional[ColumnOptimizer] = None,
         join_key: Optional[str] = None,
-        using_person_on_events: bool = False,
+        person_on_events_mode: bool = False,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
         self._join_key = join_key
-        self._using_person_on_events = using_person_on_events
+        self._person_on_events_mode = person_on_events_mode
 
     def get_join_query(self) -> Tuple[str, Dict]:
         return "", {}

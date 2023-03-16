@@ -69,7 +69,7 @@ class ClickhouseFunnelBase(ABC):
         self._include_preceding_timestamp = include_preceding_timestamp
         self._include_properties = include_properties or []
 
-        self._filter.hogql_context.using_person_on_events = team.person_on_events_querying_enabled
+        self._filter.hogql_context.person_on_events_mode = team.person_on_events_querying_enabled
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
@@ -426,7 +426,7 @@ class ClickhouseFunnelBase(ABC):
             team=self._team,
             extra_fields=[*self._extra_event_fields, *extra_fields],
             extra_event_properties=self._extra_event_properties,
-            using_person_on_events=self._team.person_on_events_querying_enabled,
+            person_on_events_mode=self._team.person_on_events_querying_enabled,
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)

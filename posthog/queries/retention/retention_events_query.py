@@ -11,7 +11,7 @@ from posthog.models import Entity
 from posthog.models.action.util import Action, format_action_filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.property.util import get_single_or_multi_property_string_expr
-from posthog.models.team import Team
+from posthog.models.team import Team, PersonOnEventsMode
 from posthog.queries.util import get_person_properties_mode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.query_date_range import QueryDateRange
@@ -29,14 +29,14 @@ class RetentionEventsQuery(EventQuery):
         event_query_type: RetentionQueryType,
         team: Team,
         aggregate_users_by_distinct_id: Optional[bool] = None,
-        using_person_on_events: bool = False,
+        person_on_events_mode: bool = False,
     ):
         self._event_query_type = event_query_type
         super().__init__(
             filter=filter,
             team=team,
             override_aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
-            using_person_on_events=using_person_on_events,
+            person_on_events_mode=person_on_events_mode,
         )
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
@@ -61,9 +61,9 @@ class RetentionEventsQuery(EventQuery):
             materalised_table_column = "properties"
 
             if breakdown_type == "person":
-                table = "person" if not self._using_person_on_events else "events"
-                column = "person_props" if not self._using_person_on_events else "person_properties"
-                materalised_table_column = "properties" if not self._using_person_on_events else "person_properties"
+                table = "person" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "events"
+                column = "person_props" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "person_properties"
+                materalised_table_column = "properties" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "person_properties"
 
             breakdown_values_expression = get_single_or_multi_property_string_expr(
                 breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
@@ -122,7 +122,7 @@ class RetentionEventsQuery(EventQuery):
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups,
             person_properties_mode=get_person_properties_mode(self._team),
-            person_id_joined_alias=f"{self.EVENT_TABLE_ALIAS if self._using_person_on_events else self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
         )
 
         self.params.update(prop_params)
@@ -141,7 +141,7 @@ class RetentionEventsQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
-        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
+        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._person_on_events_mode != PersonOnEventsMode.DISABLED else ""
 
         sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})
@@ -168,7 +168,7 @@ class RetentionEventsQuery(EventQuery):
             return f"{self.EVENT_TABLE_ALIAS}.distinct_id as target"
         else:
             return "{} as target".format(
-                f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id"
+                f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id"
             )
 
     def get_timestamp_field(self) -> str:
@@ -190,7 +190,7 @@ class RetentionEventsQuery(EventQuery):
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._using_person_on_events:
+        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
             self._should_join_distinct_ids = False
             self._should_join_persons = False
 
@@ -204,7 +204,7 @@ class RetentionEventsQuery(EventQuery):
                 prepend=prepend,
                 use_loop=False,
                 person_properties_mode=get_person_properties_mode(self._team),
-                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
+                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
                 hogql_context=self._filter.hogql_context,
             )
             condition = action_query
