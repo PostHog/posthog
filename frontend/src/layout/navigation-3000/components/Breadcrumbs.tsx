@@ -19,7 +19,7 @@ export function Breadcrumbs(): JSX.Element | null {
             {tailBreadcrumbs.map((breadcrumb, index) => (
                 <React.Fragment key={breadcrumb.name || '…'}>
                     <div className="Breadcrumbs3000__separator" />
-                    <Breadcrumb breadcrumb={breadcrumb} index={index + 1} />
+                    <Breadcrumb breadcrumb={breadcrumb} index={index + 1} here={index === tailBreadcrumbs.length - 1} />
                 </React.Fragment>
             ))}
             <LemonButton className="Breadcrumbs3000__more" icon={<IconEllipsisVertical />} size="small" />
@@ -30,14 +30,21 @@ export function Breadcrumbs(): JSX.Element | null {
     ) : null
 }
 
-function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: number }): JSX.Element {
+interface BreadcrumbProps {
+    breadcrumb: IBreadcrumb
+    index: number
+    here: boolean
+}
+
+function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
     const [popoverShown, setPopoverShown] = useState(false)
 
     let breadcrumbContent = (
         <div
             className={clsx(
                 'Breadcrumbs3000__breadcrumb',
-                (breadcrumb.path || breadcrumb.popover) && 'Breadcrumbs3000__breadcrumb--actionable'
+                (breadcrumb.path || breadcrumb.popover) && 'Breadcrumbs3000__breadcrumb--actionable',
+                here && 'Breadcrumbs3000__breadcrumb--here'
             )}
             onClick={() => {
                 breadcrumb.popover && setPopoverShown(!popoverShown)

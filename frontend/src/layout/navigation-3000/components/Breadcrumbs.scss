@@ -21,14 +21,14 @@
     white-space: pre;
     user-select: none;
 
-    &:last-child {
+    &.Breadcrumbs3000__breadcrumb--here {
         cursor: default;
         > span {
             opacity: 1;
         }
     }
 
-    &--actionable {
+    &.Breadcrumbs3000__breadcrumb--actionable {
         cursor: pointer;
     }
 
