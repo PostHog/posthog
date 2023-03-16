@@ -1,3 +1,5 @@
+from django.test import override_settings
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -20,6 +22,7 @@ class TestLazyTables(BaseTest):
         )
         self.assertEqual(printed, expected)
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_resolve_lazy_tables_traversed_fields(self):
         printed = self._print_select("select event, person_id from events")
         expected = (
@@ -52,6 +55,7 @@ class TestLazyTables(BaseTest):
         )
         self.assertEqual(printed, expected)
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_resolve_lazy_tables_two_levels_traversed(self):
         printed = self._print_select("select event, person.id from events")
         expected = (
@@ -69,6 +73,7 @@ class TestLazyTables(BaseTest):
         )
         self.assertEqual(printed, expected)
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_resolve_lazy_tables_one_level_properties(self):
         printed = self._print_select("select person.properties.$browser from person_distinct_ids")
         expected = (
@@ -101,6 +106,7 @@ class TestLazyTables(BaseTest):
         )
         self.assertEqual(printed, expected)
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_resolve_lazy_tables_two_levels_properties_duplicate(self):
         printed = self._print_select("select event, person.properties, person.properties.name from events")
         expected = (
