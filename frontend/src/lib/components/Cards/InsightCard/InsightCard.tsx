@@ -167,7 +167,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     moveToDashboard?: (dashboard: DashboardType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
-    placement?: DashboardPlacement | 'SavedInsightGrid' | null
+    placement: DashboardPlacement | 'SavedInsightGrid'
 }
 
 interface InsightMetaProps
