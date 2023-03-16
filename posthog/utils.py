@@ -13,7 +13,7 @@ import subprocess
 import time
 import uuid
 import zlib
-from enum import Enum, auto
+from enum import Enum
 from functools import lru_cache, wraps
 from typing import (
     TYPE_CHECKING,
@@ -1233,8 +1233,8 @@ def patchable(fn):
 
     return inner
 
-class PersonOnEventsMode(Enum):
-    DISABLED = auto()
-    V1_ENABLED = auto()
-    V2_ENABLED = auto()
+class PersonOnEventsMode:
+    DISABLED = "disabled"
+    V1_ENABLED = "v1_enabled"
+    V2_ENABLED = "v2_enabled"
 
