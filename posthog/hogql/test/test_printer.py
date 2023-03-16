@@ -1,5 +1,7 @@
 from typing import Literal, Optional
 
+from django.test import override_settings
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
@@ -61,30 +63,33 @@ class TestPrinter(BaseTest):
             "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
-        context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=True, using_person_on_events=False)
-        self.assertEqual(
-            self._expr("person.properties.bla", context),
-            "replaceRegexpAll(JSONExtractRaw(person_props, %(hogql_val_0)s), '^\"|\"$', '')",
-        )
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
+            context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=True, using_person_on_events=False)
+            self.assertEqual(
+                self._expr("person.properties.bla", context),
+                "replaceRegexpAll(JSONExtractRaw(person_props, %(hogql_val_0)s), '^\"|\"$', '')",
+            )
 
-        context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=True, using_person_on_events=True)
-        self.assertEqual(
-            self._expr("person.properties.bla", context),
-            "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
-        )
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
+            context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=True, using_person_on_events=True)
+            self.assertEqual(
+                self._expr("person.properties.bla", context),
+                "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            )
 
-        context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=False, using_person_on_events=False)
-        self.assertEqual(
-            self._expr("person.properties.bla", context),
-            "events__pdi__person.properties___bla",
-        )
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
+            context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=False, using_person_on_events=False)
+            self.assertEqual(
+                self._expr("person.properties.bla", context),
+                "events__pdi__person.properties___bla",
+            )
 
-        context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=False, using_person_on_events=True)
-        self.assertEqual(
-            # TODO: for now, explicitly writing "poe." to opt in. Automatic switching will come soon.
-            self._expr("poe.properties.bla", context),
-            "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
-        )
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
+            context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=False, using_person_on_events=True)
+            self.assertEqual(
+                self._expr("person.properties.bla", context),
+                "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            )
 
     def test_hogql_properties(self):
         self.assertEqual(
