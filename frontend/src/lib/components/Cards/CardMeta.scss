@@ -37,7 +37,7 @@
     flex-direction: column;
     width: 100%;
     max-height: calc(100% - 2rem);
-    background: #fff;
+    background: var(--bg-light);
     z-index: 101; // Elevate above viz
     overflow: hidden;
     border-radius: var(--radius);

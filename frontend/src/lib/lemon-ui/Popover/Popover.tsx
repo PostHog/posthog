@@ -208,6 +208,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                             )}
                             data-placement={effectivePlacement}
                             ref={floating}
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{ position: strategy, top, left, ...style }}
                             onClick={_onClickInside}
                         >
@@ -221,6 +222,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                             `Popover__arrow--${arrowStaticSide}`,
                                             actionable && 'Popover--actionable'
                                         )}
+                                        // eslint-disable-next-line react/forbid-dom-props
                                         style={arrowStyle}
                                     />
                                 )}

@@ -60,16 +60,29 @@ class TestPrinter(TestCase):
             "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
-        context = HogQLContext()
-        self.assertEqual(
-            self._expr("person.properties.bla", context),
-            "replaceRegexpAll(JSONExtractRaw(events__pdi__person.properties, %(hogql_val_0)s), '^\"|\"$', '')",
-        )
-
         context = HogQLContext(within_non_hogql_query=True, using_person_on_events=False)
         self.assertEqual(
             self._expr("person.properties.bla", context),
             "replaceRegexpAll(JSONExtractRaw(person_props, %(hogql_val_0)s), '^\"|\"$', '')",
+        )
+
+        context = HogQLContext(within_non_hogql_query=True, using_person_on_events=True)
+        self.assertEqual(
+            self._expr("person.properties.bla", context),
+            "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+        )
+
+        context = HogQLContext(within_non_hogql_query=False, using_person_on_events=False)
+        self.assertEqual(
+            self._expr("person.properties.bla", context),
+            "events__pdi__person.properties___bla",
+        )
+
+        context = HogQLContext(within_non_hogql_query=False, using_person_on_events=True)
+        self.assertEqual(
+            # TODO: for now, explicitly writing "poe." to opt in. Automatic switching will come soon.
+            self._expr("poe.properties.bla", context),
+            "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
     def test_hogql_properties(self):
@@ -368,4 +381,56 @@ class TestPrinter(TestCase):
         self.assertEqual(
             self._select("SELECT event from (select distinct event from events group by event, timestamp) e"),
             "SELECT e.event FROM (SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp) AS e LIMIT 65535",
+        )
+
+    def test_select_union_all(self):
+        self.assertEqual(
+            self._select("SELECT event FROM events UNION ALL SELECT event FROM events WHERE 1 = 2"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 65535 UNION ALL SELECT event FROM events WHERE and(equals(team_id, 42), equals(1, 2)) LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select(
+                "SELECT event FROM events UNION ALL SELECT event FROM events WHERE 1 = 2 UNION ALL SELECT event FROM events WHERE 1 = 2"
+            ),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 65535 UNION ALL SELECT event FROM events WHERE and(equals(team_id, 42), equals(1, 2)) LIMIT 65535 UNION ALL SELECT event FROM events WHERE and(equals(team_id, 42), equals(1, 2)) LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("SELECT 1 UNION ALL (SELECT 1 UNION ALL SELECT 1) UNION ALL SELECT 1"),
+            "SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1"),
+            "SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1)"),
+            "SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1) LIMIT 65535",
+        )
+
+    def test_select_sample(self):
+        self.assertEqual(
+            self._select("SELECT event FROM events SAMPLE 1"),
+            "SELECT event FROM events SAMPLE 1 WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+        self.assertEqual(
+            self._select("SELECT event FROM events SAMPLE 0.1 OFFSET 1/10"),
+            "SELECT event FROM events SAMPLE 0.1 OFFSET 1/10 WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+        self.assertEqual(
+            self._select("SELECT event FROM events SAMPLE 2/78 OFFSET 999"),
+            "SELECT event FROM events SAMPLE 2/78 OFFSET 999 WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+        self.assertEqual(
+            self._select("SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id"),
+            "SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN person ON equals(id, events__pdi.person_id) INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(person.team_id, 42), equals(events.team_id, 42)) LIMIT 65535",
+        )
+
+        self.assertEqual(
+            self._select(
+                "SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id"
+            ),
+            "SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN person SAMPLE 0.1 ON equals(id, events__pdi.person_id) INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(person.team_id, 42), equals(events.team_id, 42)) LIMIT 65535",
         )

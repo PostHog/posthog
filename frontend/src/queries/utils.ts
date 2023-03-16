@@ -24,11 +24,33 @@ import {
     TimeToSeeDataQuery,
     TimeToSeeDataSessionsQuery,
     InsightNodeKind,
+    TimeToSeeDataWaterfallNode,
+    TimeToSeeDataJSONNode,
+    NewEntityNode,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
 export function isDataNode(node?: Node): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
     return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node) || isHogQLQuery(node)
+}
+
+function isTimeToSeeDataJSONNode(node?: Node): node is TimeToSeeDataJSONNode {
+    return node?.kind === NodeKind.TimeToSeeDataSessionsJSONNode
+}
+
+function isTimeToSeeDataWaterfallNode(node?: Node): node is TimeToSeeDataWaterfallNode {
+    return node?.kind === NodeKind.TimeToSeeDataSessionsWaterfallNode
+}
+
+export function isNodeWithSource(
+    node?: Node
+): node is DataTableNode | InsightVizNode | TimeToSeeDataWaterfallNode | TimeToSeeDataJSONNode {
+    return (
+        isDataTableNode(node) ||
+        isInsightVizNode(node) ||
+        isTimeToSeeDataWaterfallNode(node) ||
+        isTimeToSeeDataJSONNode(node)
+    )
 }
 
 export function isEventsNode(node?: Node): node is EventsNode {
@@ -41,6 +63,10 @@ export function isEventsQuery(node?: Node): node is EventsQuery {
 
 export function isActionsNode(node?: Node): node is ActionsNode {
     return node?.kind === NodeKind.ActionsNode
+}
+
+export function isNewEntityNode(node?: Node): node is NewEntityNode {
+    return node?.kind === NodeKind.NewEntityNode
 }
 
 export function isPersonsNode(node?: Node): node is PersonsNode {
@@ -61,6 +87,13 @@ export function isLegacyQuery(node?: Node): node is LegacyQuery {
 
 export function isHogQLQuery(node?: Node): node is HogQLQuery {
     return node?.kind === NodeKind.HogQLQuery
+}
+
+export function containsHogQLQuery(node?: Node): boolean {
+    if (node === undefined) {
+        return false
+    }
+    return isHogQLQuery(node) || (isNodeWithSource(node) && isHogQLQuery(node.source))
 }
 
 /*

@@ -212,9 +212,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         instanceLevel: true,
         name: 'Instance status & settings',
     },
-    [Scene.Licenses]: {
-        instanceLevel: true,
-    },
     [Scene.AsyncMigrations]: {
         instanceLevel: true,
     },
@@ -230,23 +227,19 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         hideProjectNotice: true,
         organizationBased: true,
     },
-    [Scene.BillingSubscribed]: {
-        plain: true,
-        allowUnauthenticated: true,
-    },
-    [Scene.BillingLocked]: {
-        plain: true,
-        allowUnauthenticated: true,
-    },
     [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
     },
-    [Scene.Query]: {
+    [Scene.DebugQuery]: {
         projectBased: true,
     },
     [Scene.VerifyEmail]: {
         allowUnauthenticated: true,
         plain: true,
+    },
+    [Scene.Feedback]: {
+        projectBased: true,
+        name: 'Feedback',
     },
 }
 
@@ -335,11 +328,8 @@ export const routes: Record<string, Scene> = {
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
-    [urls.billingSubscribed()]: Scene.BillingSubscribed,
-    [urls.billingLocked()]: Scene.BillingLocked,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
-    [urls.instanceLicenses()]: Scene.Licenses,
     [urls.instanceStatus()]: Scene.SystemStatus,
     [urls.instanceSettings()]: Scene.SystemStatus,
     [urls.instanceStaffUsers()]: Scene.SystemStatus,
@@ -366,5 +356,7 @@ export const routes: Record<string, Scene> = {
     [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
-    [urls.query()]: Scene.Query,
+    [urls.debugQuery()]: Scene.DebugQuery,
+    [urls.feedback()]: Scene.Feedback,
+    [urls.feedback() + '/*']: Scene.Feedback,
 }

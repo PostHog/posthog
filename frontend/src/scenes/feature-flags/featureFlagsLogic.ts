@@ -40,7 +40,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         featureFlags: {
             __default: [] as FeatureFlagType[],
             loadFeatureFlags: async () => {
-                const response = await api.get(`api/projects/${values.currentTeamId}/feature_flags`)
+                const response = await api.get(`api/projects/${values.currentTeamId}/feature_flags/?limit=300`)
                 return response.results as FeatureFlagType[]
             },
             updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {

@@ -1,0 +1,254 @@
+.Navigation3000 {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-height: 100vh;
+    background: var(--bg-3000);
+
+    > main {
+        flex: 1;
+        min-width: 0;
+        padding: 0 1rem;
+        background: var(--accent-3000);
+    }
+}
+
+// Navbar
+
+.Navbar3000 {
+    flex: 0 0 3rem;
+    border-right: 1px solid transparent; // This is just for sizing, the visible border is on the content
+    box-sizing: content-box;
+    background: var(--bg-3000);
+    z-index: var(--z-main-nav);
+
+    .LemonButton {
+        min-height: 2.25rem;
+        padding: 0 0.375rem;
+    }
+
+    ul {
+        padding: 0.5rem 0;
+    }
+
+    ul + ul {
+        border-top-width: 1px;
+    }
+
+    li + li {
+        margin-top: 1px;
+    }
+}
+
+.Navbar3000__content {
+    position: fixed;
+    top: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100vh;
+    padding: 0 0.375rem;
+    border-right-width: 1px;
+}
+
+// Sidebar
+
+.Sidebar3000 {
+    --sidebar-slider-padding: 0.25rem;
+    --sidebar-horizontal-padding: 0.5rem;
+    --sidebar-row-height: 2rem;
+    transition: 100ms ease flex-basis;
+    position: relative;
+    // This border is just for sizing, the visible border is on the content and slider
+    // Hidden when the sidebar is closed
+    border-right: min(1px, var(--sidebar-width)) solid transparent;
+    flex: 0 0 var(--sidebar-width);
+    box-sizing: content-box;
+
+    &.Sidebar3000--resizing {
+        transition: none; // Increase responsiveness when resizing
+        will-change: flex-basis;
+    }
+
+    h4,
+    h5 {
+        color: var(--default);
+        font-weight: 600;
+        line-height: 2rem;
+        margin: 0;
+    }
+    h4 {
+        font-size: 0.75rem;
+    }
+    h5 {
+        font-size: 0.6875rem;
+        text-transform: none;
+        letter-spacing: normal;
+    }
+}
+
+.Sidebar3000__content {
+    transition: 100ms ease width;
+    position: fixed;
+    top: 0;
+    left: calc(3rem + 1px);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    height: 100vh;
+    width: var(--sidebar-width);
+    // This is so that the border goes beyond the viewport during overscroll
+    // Hidden when the sidebar is closed
+    border-right: min(1px, var(--sidebar-width)) solid transparent;
+    font-size: 0.75rem;
+    box-sizing: content-box;
+    white-space: nowrap;
+    overflow: hidden;
+
+    .Sidebar3000--resizing & {
+        transition: none; // Increase responsiveness when resizing
+        will-change: width;
+    }
+}
+
+.Sidebar3000__main {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    overflow-x: hidden;
+    flex-grow: 1;
+}
+
+.Sidebar3000__hint {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--sidebar-row-height);
+    padding: 0 var(--sidebar-horizontal-padding);
+    border-top-width: 1px;
+    font-weight: 500;
+    user-select: none;
+}
+
+.Sidebar3000__slider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: calc(
+        -1 * var(--sidebar-slider-padding) - min(1px, var(--sidebar-width))
+    ); // Center around the original sidebar border
+    width: calc(2 * var(--sidebar-slider-padding) + 1px); // The interactive area is enlarged for easier interaction
+    cursor: col-resize;
+    user-select: none; // Fixes inadvertent selection of scene text when resizing
+    z-index: var(
+        --z-notifications-popover
+    ); // A bit above navbar for a nicer slider experience when the sidebar is closed
+    &::before,
+    &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: var(--sidebar-slider-padding);
+        width: 1px;
+    }
+    &::before {
+        transition: 200ms ease transform, 200ms ease background-color;
+        background: var(--border);
+    }
+    &::after {
+        transition: 200ms ease opacity, 200ms ease transform, 200ms ease background-color;
+        background: var(--text-3000);
+        opacity: 0;
+    }
+    &:hover::after,
+    .Sidebar3000--resizing &::after {
+        opacity: 0.25;
+    }
+    .Sidebar3000--resizing &::before,
+    .Sidebar3000--resizing &::after {
+        transform: scaleX(3);
+    }
+    .Sidebar3000[aria-hidden='true'] & {
+        cursor: e-resize;
+    }
+}
+
+.Sidebar3000__header {
+    height: var(--sidebar-row-height);
+    padding: 0 var(--sidebar-horizontal-padding);
+    border-bottom-width: 1px;
+}
+
+// Accordion
+
+.Accordion {
+    --accordion-row-height: 1.75rem;
+    --accordion-arrow-size: 1rem;
+    --accordion-inset: 1.25rem;
+}
+
+.Accordion[aria-disabled='true'] {
+    .Accordion__header {
+        cursor: default;
+        &:hover {
+            background: var(--accent-3000);
+        }
+        .LemonIcon {
+            visibility: hidden;
+        }
+    }
+}
+
+.Accordion__header {
+    transition: 200ms ease background, 200ms ease border-color;
+    display: flex;
+    align-items: center;
+    background: var(--accent-3000);
+    height: var(--accordion-row-height);
+    padding: 0 var(--sidebar-horizontal-padding);
+    border-bottom-width: 1px;
+    cursor: pointer;
+    user-select: none;
+    &:hover {
+        background: var(--border-3000);
+    }
+    .LemonIcon {
+        transition: 200ms ease transform;
+        font-size: var(--accordion-arrow-size);
+        flex-shrink: 0;
+        .Accordion--expanded & {
+            transform: rotate(90deg);
+        }
+    }
+    h5 {
+        margin-left: calc(var(--accordion-inset) - var(--accordion-arrow-size));
+    }
+}
+
+.Accordion_content {
+    border-bottom-width: 1px;
+}
+
+.Accordion_meta {
+    opacity: 0.5;
+    padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--accordion-inset) + var(--sidebar-horizontal-padding));
+    line-height: var(--accordion-row-height);
+    user-select: none;
+}
+
+.Accordion_list {
+    li {
+        transition: 200ms ease background;
+        padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--accordion-inset) + var(--sidebar-horizontal-padding));
+        line-height: var(--accordion-row-height);
+        font-weight: 500;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        cursor: pointer;
+        &:hover {
+            background: var(--border-3000);
+        }
+    }
+}

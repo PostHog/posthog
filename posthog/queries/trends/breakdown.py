@@ -196,15 +196,24 @@ class TrendsBreakdown:
             # a "real" SELECT for this, we only include the below dummy SELECT.
             # It's a drop-in replacement for a "real" one, simply always returning 0 rows.
             # See https://github.com/PostHog/posthog/pull/5674 for context.
-            return ("SELECT [now()] AS date, [0] AS data, '' AS breakdown_value LIMIT 0", {}, lambda _: [])
+            return ("SELECT [now()] AS date, [0] AS total, '' AS breakdown_value LIMIT 0", {}, lambda _: [])
 
         person_join_condition, person_join_params = self._person_join_condition()
         groups_join_condition, groups_join_params = self._groups_join_condition()
         sessions_join_condition, sessions_join_params = self._sessions_join_condition()
-        self.params = {**self.params, **_params, **person_join_params, **groups_join_params, **sessions_join_params}
-        breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
-        sample_clause = f"SAMPLE {self.filter.sampling_factor}" if self.filter.sampling_factor else ""
+        sample_clause = "SAMPLE %(sampling_factor)s" if self.filter.sampling_factor else ""
+        sampling_params = {"sampling_factor": self.filter.sampling_factor}
+
+        self.params = {
+            **self.params,
+            **_params,
+            **person_join_params,
+            **groups_join_params,
+            **sessions_join_params,
+            **sampling_params,
+        }
+        breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
         if self.filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)

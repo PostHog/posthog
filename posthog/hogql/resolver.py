@@ -23,6 +23,12 @@ class Resolver(TraversingVisitor):
         # Each SELECT query creates a new scope. Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryRef] = [scope] if scope else []
 
+    def visit_select_union_query(self, node):
+        for expr in node.select_queries:
+            self.visit(expr)
+        node.ref = ast.SelectUnionQueryRef(refs=[expr.ref for expr in node.select_queries])
+        return node.ref
+
     def visit_select_query(self, node):
         """Visit each SELECT query or subquery."""
         if node.ref is not None:
@@ -93,11 +99,13 @@ class Resolver(TraversingVisitor):
             else:
                 raise ResolverException(f'Unknown table "{table_name}".')
 
-        elif isinstance(node.table, ast.SelectQuery):
+        elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectUnionQuery):
             node.table.ref = self.visit(node.table)
             if node.alias is not None:
                 if node.alias in scope.tables:
-                    raise ResolverException(f'Already have joined a table called "{node.alias}". Can\'t redefine.')
+                    raise ResolverException(
+                        f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
+                    )
                 node.ref = ast.SelectQueryAliasRef(name=node.alias, ref=node.table.ref)
                 scope.tables[node.alias] = node.ref
             else:

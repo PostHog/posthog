@@ -40,9 +40,9 @@ def print_ast(
     # modify the cloned tree as needed
     if dialect == "clickhouse":
         expand_asterisks(node)
-        resolve_lazy_tables(node, stack)
-        # TODO: add team_id checks (currently done in the printer)
+        resolve_lazy_tables(node, stack, context)
 
+    # _Printer also adds a team_id guard if printing clickhouse
     return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
 
 
@@ -69,9 +69,19 @@ class _Printer(Visitor):
         self.stack.pop()
         return response
 
+    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        query = " UNION ALL ".join([self.visit(expr) for expr in node.select_queries])
+        if len(self.stack) > 1:
+            return f"({query})"
+        return query
+
     def visit_select_query(self, node: ast.SelectQuery):
         if self.dialect == "clickhouse" and not self.context.select_team_id:
             raise ValueError("Full SELECT queries are disabled if context.select_team_id is not set")
+
+        # if we are the first parsed node in the tree, or a child of a SelectUnionQuery, mark us as a top level query
+        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectUnionQuery)
+        is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
 
         # We will add extra clauses onto this from the joined tables
         where = node.where
@@ -119,7 +129,7 @@ class _Printer(Visitor):
         ]
 
         limit = node.limit
-        if self.context.limit_top_select and len(self.stack) == 1:
+        if self.context.limit_top_select and is_top_level_query:
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
                     limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
@@ -140,7 +150,7 @@ class _Printer(Visitor):
         response = " ".join([clause for clause in clauses if clause])
 
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
-        if len(self.stack) > 1:
+        if not part_of_select_union and not is_top_level_query:
             response = f"({response})"
 
         return response
@@ -150,6 +160,7 @@ class _Printer(Visitor):
         extra_where: Optional[ast.Expr] = None
 
         join_strings = []
+
         if node.join_type is not None:
             join_strings.append(node.join_type)
 
@@ -160,6 +171,7 @@ class _Printer(Visitor):
             if not isinstance(table_ref, ast.TableRef):
                 raise ValueError(f"Table alias {node.ref.name} does not resolve to a table!")
             join_strings.append(self._print_identifier(table_ref.table.clickhouse_table()))
+
             if node.alias is not None:
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
@@ -170,11 +182,19 @@ class _Printer(Visitor):
         elif isinstance(node.ref, ast.TableRef):
             join_strings.append(self._print_identifier(node.ref.table.clickhouse_table()))
 
+            if node.sample is not None:
+                sample_clause = self.visit_sample_expr(node.sample)
+                if sample_clause is not None:
+                    join_strings.append(sample_clause)
+
             if self.dialect == "clickhouse":
                 # TODO: do this in a separate pass before printing, along with person joins and other transforms
                 extra_where = team_id_guard_for_table(node.ref, self.context)
 
         elif isinstance(node.ref, ast.SelectQueryRef):
+            join_strings.append(self.visit(node.table))
+
+        elif isinstance(node.ref, ast.SelectUnionQueryRef):
             join_strings.append(self.visit(node.table))
 
         elif isinstance(node.ref, ast.SelectQueryAliasRef) and node.alias is not None:
@@ -395,6 +415,9 @@ class _Printer(Visitor):
         return field_sql
 
     def visit_property_ref(self, ref: ast.PropertyRef):
+        if ref.joined_subquery is not None and ref.joined_subquery_field_name is not None:
+            return f"{self._print_identifier(ref.joined_subquery.name)}.{self._print_identifier(ref.joined_subquery_field_name)}"
+
         field_ref = ref.parent
         field = field_ref.resolve_database_field()
 
@@ -437,6 +460,18 @@ class _Printer(Visitor):
             property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
 
         return property_sql
+
+    def visit_sample_expr(self, node: ast.SampleExpr):
+        sample_value = self.visit_ratio_expr(node.sample_value)
+        offset_clause = ""
+        if node.offset_value:
+            offset_value = self.visit_ratio_expr(node.offset_value)
+            offset_clause = f" OFFSET {offset_value}"
+
+        return f"SAMPLE {sample_value}{offset_clause}"
+
+    def visit_ratio_expr(self, node: ast.RatioExpr):
+        return self.visit(node.left) if node.right is None else f"{self.visit(node.left)}/{self.visit(node.right)}"
 
     def visit_select_query_alias_ref(self, ref: ast.SelectQueryAliasRef):
         return self._print_identifier(ref.name)

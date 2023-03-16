@@ -12,7 +12,6 @@ import {
     FeatureFlagType,
     InsightModel,
     IntegrationType,
-    LicenseType,
     OrganizationType,
     PersonListParams,
     PersonProperty,
@@ -52,7 +51,6 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
-import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -311,10 +309,6 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('dashboard_templates')
     }
 
-    public dashboardTemplatesRepository(teamId?: TeamType['id']): ApiRequest {
-        return this.dashboardTemplates(teamId).addPathComponent('repository')
-    }
-
     public dashboardTemplatesDetail(
         dashboardTemplateId: DashboardTemplateType['id'],
         teamId?: TeamType['id']
@@ -387,15 +381,6 @@ class ApiRequest {
         return this.featureFlags(teamId).addPathComponent('activity')
     }
 
-    // # Licenses
-    public licenses(): ApiRequest {
-        return this.addPathComponent('license')
-    }
-
-    public license(id: LicenseType['id']): ApiRequest {
-        return this.licenses().addPathComponent(id)
-    }
-
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('subscriptions')
@@ -462,12 +447,12 @@ class ApiRequest {
         return await api.getResponse(this.assembleFullUrl(), options)
     }
 
-    public async update(options?: { data: any }): Promise<any> {
-        return await api.update(this.assembleFullUrl(), options?.data)
+    public async update(options?: ApiMethodOptions & { data: any }): Promise<any> {
+        return await api.update(this.assembleFullUrl(), options?.data, options)
     }
 
-    public async create(options?: { data: any }): Promise<any> {
-        return await api.create(this.assembleFullUrl(), options?.data)
+    public async create(options?: ApiMethodOptions & { data: any }): Promise<any> {
+        return await api.create(this.assembleFullUrl(), options?.data, options)
     }
 
     public async delete(): Promise<any> {
@@ -822,14 +807,6 @@ const api = {
         determineSchemaUrl(): string {
             return new ApiRequest().dashboardTemplateSchema().assembleFullUrl()
         },
-        async repository(): Promise<Record<string, DashboardTemplatesRepositoryEntry>> {
-            const results = await new ApiRequest().dashboardTemplatesRepository().get()
-            const repository: Record<string, DashboardTemplatesRepositoryEntry> = {}
-            for (const template of results as DashboardTemplatesRepositoryEntry[]) {
-                repository[template.name] = template
-            }
-            return repository
-        },
     },
 
     resourceAccessPermissions: {
@@ -1017,21 +994,6 @@ const api = {
         },
     },
 
-    licenses: {
-        async get(licenseId: LicenseType['id']): Promise<LicenseType> {
-            return await new ApiRequest().license(licenseId).get()
-        },
-        async list(): Promise<PaginatedResponse<LicenseType>> {
-            return await new ApiRequest().licenses().get()
-        },
-        async create(key: string): Promise<LicenseType> {
-            return await new ApiRequest().licenses().create({ data: { key } })
-        },
-        async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
-            return await new ApiRequest().license(licenseId).delete()
-        },
-    },
-
     recordings: {
         async list(params: string): Promise<SessionRecordingsResponse> {
             return await new ApiRequest().recordings().withQueryString(params).get()
@@ -1216,7 +1178,8 @@ const api = {
     },
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
-        options?: ApiMethodOptions
+        options?: ApiMethodOptions,
+        queryId?: string
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -1224,7 +1187,7 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        return await new ApiRequest().query().create({ ...options, data: query })
+        return await new ApiRequest().query().create({ ...options, data: { query, client_query_id: queryId } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

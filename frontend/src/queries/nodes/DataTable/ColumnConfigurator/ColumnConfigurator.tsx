@@ -13,7 +13,6 @@ import {
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useState } from 'react'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
@@ -24,7 +23,6 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyFilterType } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 let uniqueNode = 0
 
@@ -93,7 +91,6 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
     const { modalVisible, columns } = useValues(columnConfiguratorLogic)
     const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save } =
         useActions(columnConfiguratorLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const DragHandle = sortableHandle(() => (
         <span className="drag-handle">
@@ -228,8 +225,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.EventFeatureFlags,
                                             TaxonomicFilterGroupType.PersonProperties,
-                                            ...(featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS] &&
-                                            isEventsQuery(query.source)
+                                            ...(isEventsQuery(query.source)
                                                 ? [TaxonomicFilterGroupType.HogQLExpression]
                                                 : []),
                                         ]}

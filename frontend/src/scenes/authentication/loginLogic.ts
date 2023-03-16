@@ -5,7 +5,7 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import type { loginLogicType } from './loginLogicType'
 import { router } from 'kea-router'
-import { SSOProviders } from '~/types'
+import { SSOProvider } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,7 +18,7 @@ export interface AuthenticateResponseType {
 }
 
 export interface PrecheckResponseType {
-    sso_enforcement?: SSOProviders | null
+    sso_enforcement?: SSOProvider | null
     saml_available: boolean
     status: 'pending' | 'completed'
 }

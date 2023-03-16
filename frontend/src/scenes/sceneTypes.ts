@@ -37,14 +37,11 @@ export enum Scene {
     ProjectSettings = 'ProjectSettings',
     ProjectCreateFirst = 'ProjectCreate',
     SystemStatus = 'SystemStatus',
-    Licenses = 'Licenses',
     AsyncMigrations = 'AsyncMigrations',
     DeadLetterQueue = 'DeadLetterQueue',
     MySettings = 'MySettings',
     Annotations = 'Annotations',
     Billing = 'Billing',
-    BillingSubscribed = 'BillingSubscribed',
-    BillingLocked = 'BillingLocked',
     Plugins = 'Plugins',
     FrontendAppScene = 'FrontendAppScene',
     AppMetrics = 'AppMetrics',
@@ -63,8 +60,9 @@ export enum Scene {
     Ingestion = 'IngestionWizard',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
-    Query = 'Query',
+    DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
+    Feedback = 'Feedback',
 }
 
 export type SceneProps = Record<string, any>
