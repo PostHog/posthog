@@ -25,7 +25,7 @@ interface FeatureFlagCreators {
 }
 
 interface FlagLogicProps {
-    flagPrefix?: string
+    flagPrefix?: string // used to filter flags by prefix e.g. for the user interview flags
 }
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({

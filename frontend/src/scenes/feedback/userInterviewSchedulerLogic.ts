@@ -79,7 +79,8 @@ export const userInterviewSchedulerLogic = kea<userInterviewSchedulerLogicType>(
                 ]
                 const flag: Partial<FeatureFlagType> = {
                     key: formValues.key,
-                    name: formValues.title,
+                    tags: ['User Interview'],
+                    name: formValues.description,
                     rollout_percentage: 0,
                     active: true,
                     filters: {
