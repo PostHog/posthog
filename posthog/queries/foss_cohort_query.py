@@ -308,7 +308,7 @@ class FOSSCohortQuery(EventQuery):
             ]
             _fields.extend(self._fields)
 
-            if self.should_pushdown_persons and self._person_on_events_mode:
+            if self.should_pushdown_persons and self._person_on_events_mode != PersonOnEventsMode.DISABLED:
                 person_prop_query, person_prop_params = self._get_prop_groups(
                     self._inner_property_groups,
                     person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
