@@ -130,7 +130,7 @@ export function InAppFeedback(): JSX.Element {
                     }}
                     sideIcon={<IconHelpOutline />}
                 >
-                    Show instructions
+                    Set up instructions
                 </LemonButton>
             </div>
             {!eventsLoading && events.length === 0 && (
