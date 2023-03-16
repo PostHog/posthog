@@ -320,7 +320,6 @@ class _Printer(Visitor):
 
     def visit_call(self, node: ast.Call):
         if node.name in HOGQL_AGGREGATIONS:
-            self.context.found_aggregation = True
             required_arg_count = HOGQL_AGGREGATIONS[node.name]
 
             if required_arg_count != len(node.args):

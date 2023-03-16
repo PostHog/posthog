@@ -194,23 +194,6 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("1;2", "line 1, column 1: mismatched input ';' expecting")
         self._assert_expr_error("b.a(bla)", "SyntaxError: line 1, column 3: mismatched input '(' expecting '.'")
 
-    def test_returned_properties(self):
-        context = HogQLContext(team_id=self.team.pk)
-        self._expr("avg(properties.prop) + avg(uuid) + event", context)
-        self.assertEqual(context.found_aggregation, True)
-
-        context = HogQLContext(team_id=self.team.pk)
-        self._expr("coalesce(event, properties.event)", context)
-        self.assertEqual(context.found_aggregation, False)
-
-        context = HogQLContext(team_id=self.team.pk)
-        self._expr("count() + sum(timestamp)", context)
-        self.assertEqual(context.found_aggregation, True)
-
-        context = HogQLContext(team_id=self.team.pk)
-        self._expr("event + avg(event + properties.event) + avg(event + properties.event)", context)
-        self.assertEqual(context.found_aggregation, True)
-
     def test_logic(self):
         self.assertEqual(
             self._expr("event or timestamp"),

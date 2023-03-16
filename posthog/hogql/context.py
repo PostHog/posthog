@@ -30,5 +30,3 @@ class HogQLContext:
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=65535 to the topmost select query?
     limit_top_select: bool = True
-    # To be removed. Did the last calls to translate_hogql since setting this to False contain an aggregation?
-    found_aggregation: bool = False
