@@ -105,7 +105,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         querySource: [(s) => [s.query], (query) => (isNodeWithSource(query) ? query.source : null)],
-        isInsightQuerySource: [(s) => [s.querySource], (q) => isInsightQueryNode(q)],
 
         isTrends: [(s) => [s.querySource], (q) => isTrendsQuery(q)],
         isFunnels: [(s) => [s.querySource], (q) => isFunnelsQuery(q)],
