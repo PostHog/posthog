@@ -37,6 +37,7 @@ export const feedbackLogic = kea<feedbackLogicType>([
     }),
     loaders({
         events: {
+            __default: [] as EventType[],
             loadEvents: async ({ eventName }: { eventName: string }) => {
                 const response = await api.events.list({
                     properties: [],
@@ -44,8 +45,7 @@ export const feedbackLogic = kea<feedbackLogicType>([
                     orderBy: ['-timestamp'],
                 })
 
-                // TODO: fix this type
-                return response.results as unknown as EventType[]
+                return response.results
             },
         },
     }),
