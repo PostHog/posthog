@@ -1,10 +1,12 @@
+from typing import Any, Dict, List
+
 from flaky import flaky
 
 from ee.api.test.base import APILicensedTest
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
-DEFAULT_JOURNEYS_FOR_PAYLOAD = {
+DEFAULT_JOURNEYS_FOR_PAYLOAD: Dict[str, List[Dict[str, Any]]] = {
     # For a trend pageview metric
     "person1": [{"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}}],
     "person2": [

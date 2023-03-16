@@ -2212,14 +2212,26 @@ interface BaseExperimentResults {
     variants: ExperimentVariant[]
 }
 
-export interface TrendsExperimentResults extends BaseExperimentResults {
+
+interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
 }
 
-export interface FunnelExperimentResults extends BaseExperimentResults {
+interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
+}
+
+export interface TrendsExperimentResults {
+    result: _TrendsExperimentResults
+    is_cached?: boolean
+    last_refresh?: string | null
+}
+export interface FunnelExperimentResults {
+    result: _FunnelExperimentResults
+    is_cached?: boolean
+    last_refresh?: string | null
 }
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
