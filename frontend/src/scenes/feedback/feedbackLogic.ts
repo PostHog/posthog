@@ -1,8 +1,5 @@
 import { EventsQuery } from './../../queries/schema'
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
-import { EventType } from '~/types'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { DataTableNode, Node, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema'
 
 import type { feedbackLogicType } from './feedbackLogicType'
@@ -111,29 +108,10 @@ export const feedbackLogic = kea<feedbackLogicType>([
             },
         ],
     }),
-    loaders({
-        events: {
-            loadEvents: async ({ eventName }: { eventName: string }) => {
-                const response = await api.events.list({
-                    properties: [],
-                    event: eventName,
-                    orderBy: ['-timestamp'],
-                })
-
-                // TODO: fix this type
-                return response.results as unknown as EventType[]
-            },
-        },
-    }),
     selectors({
         expandedSection: [
             (s) => [s.expandedSections],
             (expandedSections: boolean[]) => (idx: number) => expandedSections[idx],
         ],
-    }),
-    afterMount(({ actions }) => {
-        actions.loadEvents({
-            eventName: 'Feedback Sent',
-        })
     }),
 ])

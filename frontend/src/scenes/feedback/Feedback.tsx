@@ -135,22 +135,6 @@ function InAppFeedback(): JSX.Element {
     )
 }
 
-function FeedbackWidgetTab(): JSX.Element {
-    const { eventsLoading } = useValues(feedbackLogic)
-
-    return (
-        <>
-            {eventsLoading ? (
-                <div>Loading...</div>
-            ) : (
-                <>
-                    <InAppFeedback />
-                </>
-            )}
-        </>
-    )
-}
-
 export const Feedback = (): JSX.Element => {
     return (
         <div className="Feedback">
@@ -169,7 +153,7 @@ export const Feedback = (): JSX.Element => {
                 onChange={function noRefCheck() {}}
                 tabs={[
                     {
-                        content: <FeedbackWidgetTab />,
+                        content: <InAppFeedback />,
                         key: 'in-app-feedback',
                         label: 'In-app feedback',
                     },
