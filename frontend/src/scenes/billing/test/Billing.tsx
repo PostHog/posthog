@@ -1,8 +1,7 @@
 import { useEffect } from 'react'
-import { billingLogic } from './billingLogic'
-import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { billingLogic } from '../billingLogic'
+import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { SceneExport } from 'scenes/sceneTypes'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -11,21 +10,15 @@ import clsx from 'clsx'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { PlanTable } from './PlanTable'
-import { BillingHero } from './BillingHero'
+import { PlanTable } from '../PlanTable'
+import { BillingHero } from '../BillingHero'
 import { PageHeader } from 'lib/components/PageHeader'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import BillingProduct from './BillingProduct'
-import { BillingProduct as BillingProductTest } from './test/BillingProduct'
+import BillingProduct from '../BillingProduct'
+import { BillingProduct as BillingProductTest } from './BillingProduct'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Billing as BillingTest } from './test/Billing'
-
-export const scene: SceneExport = {
-    component: Billing,
-    logic: billingLogic,
-}
 
 export function BillingPageHeader(): JSX.Element {
     return <PageHeader title="Billing &amp; usage" />
@@ -48,10 +41,6 @@ export function Billing(): JSX.Element {
         0: 'small',
         1000: 'medium',
     })
-
-    if (featureFlags[FEATURE_FLAGS.BILLING_BY_PRODUCTS] === 'test') {
-        return <BillingTest />
-    }
 
     if (!billing && billingLoading) {
         return (
@@ -79,7 +68,6 @@ export function Billing(): JSX.Element {
                     There was an issue retrieving your current billing information. If this message persists please
                     {supportLink}.
                 </AlertMessage>
-
                 {!cloudOrDev ? (
                     <AlertMessage type="info">
                         Please ensure your instance is able to reach <b>https://billing.posthog.com</b>
@@ -180,18 +168,6 @@ export function Billing(): JSX.Element {
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ width: size === 'medium' ? '20rem' : undefined }}
                 >
-                    {billing?.has_active_subscription ? (
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            to={billing.stripe_portal_url}
-                            disableClientSideRouting
-                            fullWidth
-                            center
-                        >
-                            Manage subscription
-                        </LemonButton>
-                    ) : null}
                     {!cloudOrDev && billing?.license?.plan ? (
                         <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
                             <div className="text-center font-bold">
@@ -212,6 +188,9 @@ export function Billing(): JSX.Element {
                     ) : null}
                 </div>
             </div>
+
+            <h2>Your products</h2>
+            <LemonDivider className="mt-2 mb-8" />
 
             {products?.map((x) => (
                 <div key={x.type}>
