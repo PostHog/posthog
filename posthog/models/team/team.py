@@ -23,7 +23,7 @@ from posthog.models.team.util import actor_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
-from enum import enum, auto
+from enum import Enum, auto
 
 from .team_caching import get_team_in_cache, set_team_in_cache
 
@@ -40,7 +40,7 @@ DEPRECATED_ATTRS = (
     "event_properties_numerical",
 )
 
-class PersonOnEventsMode:
+class PersonOnEventsMode(Enum):
     DISABLED = auto()
     V1_ENABLED = auto()
     V2_ENABLED = auto()
