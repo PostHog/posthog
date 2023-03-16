@@ -1,6 +1,6 @@
 from posthog.models.group.util import get_aggregation_target_field
-from posthog.utils import PersonOnEventsMode
 from posthog.queries.retention.retention_events_query import RetentionEventsQuery
+from posthog.utils import PersonOnEventsMode
 
 
 class ClickhouseRetentionEventsQuery(RetentionEventsQuery):

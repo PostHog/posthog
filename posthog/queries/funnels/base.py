@@ -24,7 +24,6 @@ from posthog.models.property.util import (
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
 )
-from posthog.utils import PersonOnEventsMode
 from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
@@ -34,7 +33,7 @@ from posthog.queries.breakdown_props import (
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.util import correct_result_for_sampling, get_person_properties_mode
-from posthog.utils import relative_date_parse
+from posthog.utils import PersonOnEventsMode, relative_date_parse
 
 
 class ClickhouseFunnelBase(ABC):

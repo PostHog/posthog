@@ -5,10 +5,10 @@ from posthog.models import Entity
 from posthog.models.action.util import format_action_filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.utils import PersonOnEventsMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_person_properties_mode, get_trunc_func_ch
+from posthog.utils import PersonOnEventsMode
 
 
 class StickinessEventsQuery(EventQuery):

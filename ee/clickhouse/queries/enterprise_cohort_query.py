@@ -4,7 +4,6 @@ from posthog.constants import PropertyOperatorType
 from posthog.models.cohort.util import get_count_operator
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.property import Property, PropertyGroup
-from posthog.utils import PersonOnEventsMode
 from posthog.queries.foss_cohort_query import (
     FOSSCohortQuery,
     parse_and_validate_positive_integer,
@@ -13,6 +12,7 @@ from posthog.queries.foss_cohort_query import (
     validate_seq_date_more_recent_than_date,
 )
 from posthog.queries.util import PersonPropertiesMode
+from posthog.utils import PersonOnEventsMode
 
 
 def check_negation_clause(prop: PropertyGroup) -> Tuple[bool, bool]:
