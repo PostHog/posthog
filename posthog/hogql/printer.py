@@ -302,6 +302,8 @@ class _Printer(Visitor):
             raise ValueError(f"Field {original_field} has no ref")
 
         if self.dialect == "hogql":
+            if node.chain == ["*"]:
+                return "*"
             # When printing HogQL, we print the properties out as a chain as they are.
             return ".".join([self._print_identifier(identifier) for identifier in node.chain])
 
@@ -319,9 +321,15 @@ class _Printer(Visitor):
             self.context.found_aggregation = True
             required_arg_count = HOGQL_AGGREGATIONS[node.name]
 
-            if required_arg_count != len(node.args):
+            if isinstance(required_arg_count, int) and required_arg_count != len(node.args):
                 raise ValueError(
                     f"Aggregation '{node.name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
+                )
+            if isinstance(required_arg_count, tuple) and (
+                len(node.args) < required_arg_count[0] or len(node.args) > required_arg_count[1]
+            ):
+                raise ValueError(
+                    f"Aggregation '{node.name}' requires between {required_arg_count[0]} and {required_arg_count[1]} arguments, found {len(node.args)}"
                 )
 
             # check that we're not running inside another aggregate
@@ -332,17 +340,10 @@ class _Printer(Visitor):
                     )
 
             translated_args = ", ".join([self.visit(arg) for arg in node.args])
-            if self.dialect == "hogql":
-                return f"{node.name}({translated_args})"
-            elif node.name == "count":
-                return "count(*)"
-            # TODO: rework these
-            elif node.name == "countDistinct":
-                return f"count(distinct {translated_args})"
-            elif node.name == "countDistinctIf":
-                return f"countIf(distinct {translated_args})"
-            else:
-                return f"{node.name}({translated_args})"
+            if node.distinct:
+                translated_args = f"DISTINCT {translated_args}"
+
+            return f"{node.name}({translated_args})"
 
         elif node.name in CLICKHOUSE_FUNCTIONS:
             return f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join([self.visit(arg) for arg in node.args])})"
@@ -483,7 +484,7 @@ class _Printer(Visitor):
         return self.visit(ref.table)
 
     def visit_asterisk_ref(self, ref: ast.AsteriskRef):
-        raise ValueError("Unexpected ast.AsteriskRef. Make sure AsteriskExpander has run on the AST.")
+        return "*"
 
     def visit_lazy_table_ref(self, ref: ast.LazyTableRef):
         raise ValueError("Unexpected ast.LazyTableRef. Make sure LazyTableResolver has run on the AST.")

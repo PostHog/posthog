@@ -294,11 +294,11 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
-         count(*)
+         count()
   FROM events
   WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   GROUP BY replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')
-  ORDER BY count(*) DESC
+  ORDER BY count() DESC
   LIMIT 101
   OFFSET 0
   '
@@ -307,12 +307,12 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
-         count(*)
+         count()
   FROM events
   WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   GROUP BY replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')
-  HAVING and(greater(count(*), 1))
-  ORDER BY count(*) DESC
+  HAVING and(greater(count(), 1))
+  ORDER BY count() DESC
   LIMIT 101
   OFFSET 0
   '
@@ -321,11 +321,11 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT mat_key,
-         count(*)
+         count()
   FROM events
   WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   GROUP BY mat_key
-  ORDER BY count(*) DESC
+  ORDER BY count() DESC
   LIMIT 101
   OFFSET 0
   '
@@ -334,12 +334,12 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT mat_key,
-         count(*)
+         count()
   FROM events
   WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   GROUP BY mat_key
-  HAVING and(greater(count(*), 1))
-  ORDER BY count(*) DESC
+  HAVING and(greater(count(), 1))
+  ORDER BY count() DESC
   LIMIT 101
   OFFSET 0
   '
@@ -386,12 +386,12 @@
 # name: TestQuery.test_select_hogql_expressions.2
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT count(*),
+  SELECT count(),
          event
   FROM events
   WHERE and(equals(team_id, 2), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   GROUP BY event
-  ORDER BY count(*) DESC
+  ORDER BY count() DESC
   LIMIT 101
   OFFSET 0
   '
@@ -399,12 +399,12 @@
 # name: TestQuery.test_select_hogql_expressions.3
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT count(*),
+  SELECT count(),
          event
   FROM events
   WHERE and(equals(team_id, 2), or(equals(event, 'sign up'), like(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), '%val2')), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   GROUP BY event
-  ORDER BY count(*) DESC, event ASC
+  ORDER BY count() DESC, event ASC
   LIMIT 101
   OFFSET 0
   '
