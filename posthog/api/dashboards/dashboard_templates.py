@@ -57,7 +57,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
 
         validated_data["team_id"] = self.context["team_id"]
         return super().create(validated_data, *args, **kwargs)
-    
+
     def update(self, instance: DashboardTemplate, validated_data: Dict, *args, **kwargs) -> DashboardTemplate:
         # if the original request was to make the template scope to team only, and the template is none then deny the request
         if validated_data.get("scope") == "team" and instance.scope == "global" and not instance.team_id:

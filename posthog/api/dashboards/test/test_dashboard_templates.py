@@ -364,7 +364,7 @@ class TestDashboardTemplates(APIBaseTest):
         And as they don't have a team_id, they can't be then be found to be made public again
         """
         assert DashboardTemplate.objects.count() == 1  # default template
-        
+
         dashboard_template = DashboardTemplate.objects.all()[0]
 
         assert dashboard_template.scope == "global"
@@ -381,4 +381,3 @@ class TestDashboardTemplates(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["scope"] == "global"
-
