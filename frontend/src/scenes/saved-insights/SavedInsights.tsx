@@ -40,7 +40,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { summariseInsight } from 'scenes/insights/utils'
+import { insightTypeURL, summariseInsight } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -56,7 +56,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
-import { examples } from '~/queries/examples'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -238,7 +237,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.HogQLQuery]: {
         name: 'HogQL',
         description: 'Direct HogQL query',
-        icon: IconCoffee,
+        icon: InsightSQLIcon,
         inMenu: true,
     },
 }
@@ -255,17 +254,6 @@ export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
 export const scene: SceneExport = {
     component: SavedInsights,
     logic: savedInsightsLogic,
-}
-
-const insightTypeURL: Record<InsightType, string> = {
-    TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
-    STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
-    LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
-    FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
-    RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
-    PATHS: urls.insightNew({ insight: InsightType.PATHS }),
-    QUERY: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
-    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
 }
 
 export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
