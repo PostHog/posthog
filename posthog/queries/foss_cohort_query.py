@@ -464,7 +464,7 @@ class FOSSCohortQuery(EventQuery):
         )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = not self._person_on_events_mode
+        self._should_join_distinct_ids = self._person_on_events_mode == PersonOnEventsMode.DISABLED
 
     def _determine_should_join_persons(self) -> None:
         # :TRICKY: This doesn't apply to joining inside events query, but to the
