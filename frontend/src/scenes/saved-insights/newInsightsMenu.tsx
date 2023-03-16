@@ -13,7 +13,7 @@ const insightTypeURL: Record<InsightType, string> = {
     FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
     RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
     PATHS: urls.insightNew({ insight: InsightType.PATHS }),
-    QUERY: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
+    JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
     SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
 }
 
@@ -21,7 +21,7 @@ function insightTypesForMenu(isUsingDataExplorationQueryTab: boolean): [string, 
     let menuEntries = Object.entries(INSIGHT_TYPES_METADATA)
     if (!isUsingDataExplorationQueryTab) {
         menuEntries = menuEntries.filter(
-            ([insightType]) => insightType !== InsightType.QUERY && insightType !== InsightType.SQL
+            ([insightType]) => insightType !== InsightType.JSON && insightType !== InsightType.SQL
         )
     }
     return menuEntries

@@ -111,9 +111,9 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         icon: InsightSQLIcon,
         inMenu: true,
     },
-    [InsightType.QUERY]: {
-        name: 'Query',
-        description: 'Build custom insights with our powerful query language',
+    [InsightType.JSON]: {
+        name: 'JSON',
+        description: 'Build custom insights with our JSON query language',
         icon: InsightSQLIcon,
         inMenu: false, // until data exploration is released
     },
@@ -259,7 +259,7 @@ export const scene: SceneExport = {
 export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
     let insightType = insight?.filters?.insight || InsightType.TRENDS
     if (!!insight.query && !isInsightVizNode(insight.query)) {
-        insightType = InsightType.QUERY
+        insightType = InsightType.JSON
     }
     const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
     if (insightMetadata && insightMetadata.icon) {
