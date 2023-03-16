@@ -186,7 +186,11 @@ class _Printer(Visitor):
                 raise ValueError(f"Table alias {node.ref.name} does not resolve!")
             if not isinstance(table_ref, ast.TableRef):
                 raise ValueError(f"Table alias {node.ref.name} does not resolve to a table!")
-            join_strings.append(self._print_identifier(table_ref.table.clickhouse_table()))
+
+            if self.dialect == "clickhouse":
+                join_strings.append(self._print_identifier(table_ref.table.clickhouse_table()))
+            else:
+                join_strings.append(self._print_identifier(table_ref.table.hogql_table()))
 
             if node.alias is not None:
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
@@ -196,7 +200,10 @@ class _Printer(Visitor):
                 extra_where = team_id_guard_for_table(node.ref, self.context)
 
         elif isinstance(node.ref, ast.TableRef):
-            join_strings.append(self._print_identifier(node.ref.table.clickhouse_table()))
+            if self.dialect == "clickhouse":
+                join_strings.append(self._print_identifier(node.ref.table.clickhouse_table()))
+            else:
+                join_strings.append(self._print_identifier(node.ref.table.hogql_table()))
 
             if node.sample is not None:
                 sample_clause = self.visit_sample_expr(node.sample)
@@ -376,7 +383,10 @@ class _Printer(Visitor):
         return f"{inside} AS {self._print_identifier(node.alias)}"
 
     def visit_table_ref(self, ref: ast.TableRef):
-        return self._print_identifier(ref.table.clickhouse_table())
+        if self.dialect == "clickhouse":
+            return self._print_identifier(ref.table.clickhouse_table())
+        else:
+            return self._print_identifier(ref.table.hogql_table())
 
     def visit_table_alias_ref(self, ref: ast.TableAliasRef):
         return self._print_identifier(ref.name)
@@ -446,7 +456,10 @@ class _Printer(Visitor):
         while isinstance(table, ast.TableAliasRef):
             table = table.table_ref
         if isinstance(table, ast.TableRef):
-            table_name = table.table.clickhouse_table()
+            if self.dialect == "clickhouse":
+                table_name = table.table.clickhouse_table()
+            else:
+                table_name = table.table.hogql_table()
             if field is None:
                 raise ValueError(f"Can't resolve field {field_ref.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)

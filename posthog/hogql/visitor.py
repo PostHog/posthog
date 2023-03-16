@@ -205,6 +205,7 @@ class CloningVisitor(Visitor):
         return ast.Call(
             name=node.name,
             args=[self.visit(arg) for arg in node.args],
+            distinct=node.distinct,
         )
 
     def visit_ratio_expr(self, node: ast.RatioExpr):

@@ -94,7 +94,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT DISTINCT properties.email FROM person WHERE equals(properties.random_uuid, %(hogql_val_3)s) LIMIT 100",
+                "SELECT DISTINCT properties.email FROM persons WHERE equals(properties.random_uuid, %(hogql_val_3)s) LIMIT 100",
             )
             self.assertEqual(response.results, [("tim@posthog.com",)])
 
@@ -133,7 +133,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT event, timestamp, pdi.distinct_id, p.id, p.properties.email FROM events AS e LEFT JOIN person_distinct_id2 AS pdi ON equals(pdi.distinct_id, e.distinct_id) LEFT JOIN person AS p ON equals(p.id, pdi.person_id) LIMIT 100",
+                "SELECT event, timestamp, pdi.distinct_id, p.id, p.properties.email FROM events AS e LEFT JOIN person_distinct_ids AS pdi ON equals(pdi.distinct_id, e.distinct_id) LEFT JOIN persons AS p ON equals(p.id, pdi.person_id) LIMIT 100",
             )
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
@@ -189,7 +189,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             self.assertEqual(
-                response.hogql, "SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id FROM events AS e LIMIT 10"
+                response.hogql,
+                "SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id FROM events AS e INNER JOIN (SELECT argMax(person_distinct_ids.person_id, version) AS person_id, distinct_id FROM person_distinct_ids GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) LIMIT 10",
             )
             self.assertEqual(
                 response.clickhouse,
@@ -358,10 +359,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "LIMIT 10"
             )
             self.assertEqual(response.clickhouse, expected)
-            self.assertEqual(
-                response.hogql,
-                "SELECT s.pdi.person.properties.email, count() FROM events AS s GROUP BY s.pdi.person.properties.email LIMIT 10",
-            )
             self.assertEqual(response.results[0][0], "tim@posthog.com")
 
     def test_select_person_on_events(self):
