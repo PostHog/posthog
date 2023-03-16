@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from functools import cached_property
 from typing import (
     Any,
     Dict,
@@ -18,7 +19,6 @@ from django.db.models.query import Prefetch, QuerySet
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
 from posthog.models import Entity, Filter, PersonDistinctId, SessionRecording, Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group

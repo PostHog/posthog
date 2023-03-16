@@ -1,7 +1,7 @@
+from functools import cached_property
 from typing import Dict, Optional, Tuple
 
 from posthog.models.entity import Entity
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery

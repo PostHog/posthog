@@ -1,4 +1,5 @@
 import json
+from functools import cached_property
 from typing import Dict, List, Optional, cast
 
 from django.core.cache import cache
@@ -10,7 +11,6 @@ from sentry_sdk.api import capture_exception
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver

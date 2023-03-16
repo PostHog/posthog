@@ -1,4 +1,5 @@
 import json
+from functools import cached_property
 from typing import Any, Dict, Optional, Tuple, Union
 
 from rest_framework.request import Request
@@ -20,7 +21,7 @@ from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.retention import EntitiesDerivedMixin, RetentionDateDerivedMixin, RetentionTypeMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict
+from posthog.models.filters.mixins.utils import include_dict
 
 RETENTION_DEFAULT_INTERVALS = 11
 

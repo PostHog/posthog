@@ -1,5 +1,6 @@
 import json
 from enum import Enum
+from functools import cached_property
 from typing import (
     Any,
     Dict,
@@ -12,7 +13,6 @@ from typing import (
 )
 
 from posthog.constants import PropertyOperatorType
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import str_to_bool
 

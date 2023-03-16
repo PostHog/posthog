@@ -1,4 +1,5 @@
 from collections import Counter
+from functools import cached_property
 from typing import Counter as TCounter
 from typing import Generator, List, Set, Union, cast
 
@@ -7,7 +8,6 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.action.util import get_action_tables_and_properties, uses_elements_chain
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter

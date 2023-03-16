@@ -1,5 +1,6 @@
 import urllib
 from datetime import datetime
+from functools import cached_property
 from typing import Any, Callable, Dict, List, Tuple
 
 from django.db.models.query import Prefetch
@@ -7,7 +8,6 @@ from django.db.models.query import Prefetch
 from posthog.models.entity import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters import Filter
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.util import get_persons_by_uuids
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode

@@ -1,6 +1,7 @@
 import hashlib
 from dataclasses import dataclass
 from enum import Enum
+from functools import cached_property
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.db import DatabaseError
@@ -10,7 +11,6 @@ from django.db.models.query import QuerySet
 from sentry_sdk.api import capture_exception
 
 from posthog.models.filters import Filter
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person, PersonDistinctId

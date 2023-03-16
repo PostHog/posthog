@@ -1,4 +1,5 @@
 import json
+from functools import cached_property
 from typing import Dict, List, Literal, Optional, Tuple, cast
 
 from posthog.constants import (
@@ -24,7 +25,7 @@ from posthog.constants import (
     STEP_LIMIT,
 )
 from posthog.models.filters.mixins.common import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict
+from posthog.models.filters.mixins.utils import include_dict
 
 PathType = Literal["$pageview", "$screen", "custom_event"]
 

@@ -1,8 +1,8 @@
+from functools import cached_property
 from typing import Any, Dict, List, Tuple, cast
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort.util import get_count_operator
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.foss_cohort_query import (

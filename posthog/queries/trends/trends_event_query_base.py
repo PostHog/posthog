@@ -1,10 +1,10 @@
+from functools import cached_property
 from typing import Any, Dict, Tuple
 
 from posthog.constants import MONTHLY_ACTIVE, UNIQUE_USERS, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery

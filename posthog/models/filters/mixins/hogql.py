@@ -1,7 +1,7 @@
+from functools import cached_property
 from typing import Dict
 
 from posthog.hogql.hogql import HogQLContext
-from posthog.models.filters.mixins.utils import cached_property
 
 
 class HogQLParamMixin:

@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import List, Optional, Tuple, Union
 
 from django.db.models.query import QuerySet
@@ -8,7 +9,6 @@ from posthog.constants import FUNNEL_CORRELATION_PERSON_LIMIT, FunnelCorrelation
 from posthog.models import Person
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode

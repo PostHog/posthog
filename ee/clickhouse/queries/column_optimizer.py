@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Counter as TCounter
 from typing import Set, cast
 
@@ -5,7 +6,6 @@ from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.hogql.parser import parse_expr
 from posthog.models.action.util import get_action_tables_and_properties
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex

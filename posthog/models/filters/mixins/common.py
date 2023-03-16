@@ -1,6 +1,7 @@
 import datetime
 import json
 import re
+from functools import cached_property
 from math import ceil
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
@@ -50,7 +51,7 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
-from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags, process_bool
+from posthog.models.filters.mixins.utils import include_dict, include_query_tags, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
 

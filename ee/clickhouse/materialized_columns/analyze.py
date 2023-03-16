@@ -1,6 +1,7 @@
 import re
 from collections import defaultdict
 from datetime import timedelta
+from functools import cached_property
 from typing import Dict, Generator, List, Optional, Set, Tuple
 
 import structlog
@@ -19,7 +20,6 @@ from ee.settings import (
 )
 from posthog.cache_utils import instance_memoize
 from posthog.client import sync_execute
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.sql import GET_EVENT_PROPERTIES_COUNT, GET_PERSON_PROPERTIES_COUNT
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition

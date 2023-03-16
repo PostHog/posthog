@@ -1,6 +1,7 @@
 import json
 import urllib.parse
 from datetime import datetime
+from functools import cached_property
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import pytz
@@ -19,7 +20,6 @@ from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import get_property_string_expr, normalize_url_breakdown, parse_prop_grouped_clauses
 from posthog.models.team import Team

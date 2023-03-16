@@ -1,5 +1,5 @@
 import re
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from typing import Any, List, Optional
 
 import posthoganalytics
@@ -15,7 +15,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.signals import mutable_receiver

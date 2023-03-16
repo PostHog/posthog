@@ -1,10 +1,10 @@
 from abc import ABCMeta, abstractmethod
+from functools import cached_property
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.models import Cohort, Filter, Property
 from posthog.models.cohort.util import is_precalculated_query
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter

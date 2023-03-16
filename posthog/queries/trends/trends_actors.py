@@ -1,12 +1,12 @@
 import datetime
 import json
+from functools import cached_property
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.sql import GET_ACTORS_FROM_EVENT_QUERY
 from posthog.models.property import Property
 from posthog.models.team import Team
