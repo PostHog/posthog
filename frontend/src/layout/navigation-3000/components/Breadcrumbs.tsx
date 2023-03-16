@@ -10,6 +10,11 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { LemonButton } from '@posthog/lemon-ui'
 import { NewInsightButton } from 'scenes/saved-insights/SavedInsights'
 
+/**
+ * In PostHog 3000 breadcrumbs also serve as the top bar. This is marked by theses two features:
+ * - The "More scene actions" button (vertical ellipsis)
+ * - The "Quick scene actions" buttons (zero or more buttons on the right)
+ */
 export function Breadcrumbs(): JSX.Element | null {
     const { firstBreadcrumb, tailBreadcrumbs } = useValues(breadcrumbsLogic)
 
@@ -22,6 +27,7 @@ export function Breadcrumbs(): JSX.Element | null {
                     <Breadcrumb breadcrumb={breadcrumb} index={index + 1} here={index === tailBreadcrumbs.length - 1} />
                 </React.Fragment>
             ))}
+            {/* TODO: These buttons below are hardcoded right now, scene-based system coming in the next PR */}
             <LemonButton className="Breadcrumbs3000__more" icon={<IconEllipsisVertical />} size="small" />
             <div className="Breadcrumbs3000__actions">
                 <NewInsightButton dataAttr="project-home-new-insight" />
