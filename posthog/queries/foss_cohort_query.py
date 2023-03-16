@@ -304,7 +304,7 @@ class FOSSCohortQuery(EventQuery):
         if self._should_join_behavioral_query:
 
             _fields = [
-                f"{self.DISTINCT_ID_TABLE_ALIAS if not self._person_on_events_mode else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
+                f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
             ]
             _fields.extend(self._fields)
 
