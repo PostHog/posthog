@@ -100,35 +100,35 @@ export function containsHogQLQuery(node?: Node): boolean {
  * Insight Queries
  */
 
-export function isTrendsQuery(node?: Node): node is TrendsQuery {
+export function isTrendsQuery(node?: Node | null): node is TrendsQuery {
     return node?.kind === NodeKind.TrendsQuery
 }
 
-export function isFunnelsQuery(node?: Node): node is FunnelsQuery {
+export function isFunnelsQuery(node?: Node | null): node is FunnelsQuery {
     return node?.kind === NodeKind.FunnelsQuery
 }
 
-export function isRetentionQuery(node?: Node): node is RetentionQuery {
+export function isRetentionQuery(node?: Node | null): node is RetentionQuery {
     return node?.kind === NodeKind.RetentionQuery
 }
 
-export function isPathsQuery(node?: Node): node is PathsQuery {
+export function isPathsQuery(node?: Node | null): node is PathsQuery {
     return node?.kind === NodeKind.PathsQuery
 }
 
-export function isStickinessQuery(node?: Node): node is StickinessQuery {
+export function isStickinessQuery(node?: Node | null): node is StickinessQuery {
     return node?.kind === NodeKind.StickinessQuery
 }
 
-export function isLifecycleQuery(node?: Node): node is LifecycleQuery {
+export function isLifecycleQuery(node?: Node | null): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
 }
 
-export function isInsightQueryWithDisplay(node?: Node): node is TrendsQuery | StickinessQuery {
+export function isInsightQueryWithDisplay(node?: Node | null): node is TrendsQuery | StickinessQuery {
     return isTrendsQuery(node) || isStickinessQuery(node)
 }
 
-export function isInsightQueryWithBreakdown(node?: Node): node is TrendsQuery | FunnelsQuery {
+export function isInsightQueryWithBreakdown(node?: Node | null): node is TrendsQuery | FunnelsQuery {
     return isTrendsQuery(node) || isFunnelsQuery(node)
 }
 
@@ -138,7 +138,7 @@ export function isInsightQueryWithSeries(
     return isTrendsQuery(node) || isFunnelsQuery(node) || isStickinessQuery(node) || isLifecycleQuery(node)
 }
 
-export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
+export function isInsightQueryNode(node?: Node | null): node is InsightQueryNode {
     return (
         isTrendsQuery(node) ||
         isFunnelsQuery(node) ||
@@ -149,22 +149,22 @@ export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
     )
 }
 
-export function isTimeToSeeDataSessionsQuery(node?: Node): node is TimeToSeeDataSessionsQuery {
+export function isTimeToSeeDataSessionsQuery(node?: Node | null): node is TimeToSeeDataSessionsQuery {
     return node?.kind === NodeKind.TimeToSeeDataSessionsQuery
 }
 
-export function isTimeToSeeDataQuery(node?: Node): node is TimeToSeeDataQuery {
+export function isTimeToSeeDataQuery(node?: Node | null): node is TimeToSeeDataQuery {
     return node?.kind === NodeKind.TimeToSeeDataQuery
 }
 
-export function isTimeToSeeDataSessionsNode(node?: Node): node is TimeToSeeDataNode {
+export function isTimeToSeeDataSessionsNode(node?: Node | null): node is TimeToSeeDataNode {
     return (
         !!node?.kind &&
         [NodeKind.TimeToSeeDataSessionsWaterfallNode, NodeKind.TimeToSeeDataSessionsJSONNode].includes(node?.kind)
     )
 }
 
-export function isRecentPerformancePageViewNode(node?: Node): node is RecentPerformancePageViewNode {
+export function isRecentPerformancePageViewNode(node?: Node | null): node is RecentPerformancePageViewNode {
     return node?.kind === NodeKind.RecentPerformancePageViewNode
 }
 

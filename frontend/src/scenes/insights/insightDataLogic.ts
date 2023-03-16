@@ -21,8 +21,10 @@ import {
     filterForQuery,
     filterPropertyForQuery,
     isFunnelsQuery,
+    isInsightQueryNode,
     isInsightVizNode,
     isLifecycleQuery,
+    isNodeWithSource,
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
@@ -85,7 +87,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     actions({
         setQuery: (query: Node) => ({ query }),
-        updateQuerySource: (query: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ query }),
+        updateQuerySource: (querySource: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ querySource }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
@@ -102,6 +104,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
     })),
 
     selectors({
+        querySource: [(s) => [s.query], (query) => (isNodeWithSource(query) ? query.source : null)],
+        isInsightQuerySource: [(s) => [s.querySource], (q) => isInsightQueryNode(q)],
+
         isTrends: [(s) => [s.querySource], (q) => isTrendsQuery(q)],
         isFunnels: [(s) => [s.querySource], (q) => isFunnelsQuery(q)],
         isRetention: [(s) => [s.querySource], (q) => isRetentionQuery(q)],
@@ -112,16 +117,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsCompare: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
 
-        querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
+        dateRange: [(s) => [s.querySource], (q) => (isInsightQueryNode(q) ? q.dateRange : null)],
+        breakdown: [(s) => [s.querySource], (q) => (isInsightQueryNode(q) ? getBreakdown(q) : null)],
+        display: [(s) => [s.querySource], (q) => (isInsightQueryNode(q) ? getDisplay(q) : null)],
+        compare: [(s) => [s.querySource], (q) => (isInsightQueryNode(q) ? getCompare(q) : null)],
+        series: [(s) => [s.querySource], (q) => (isInsightQueryNode(q) ? getSeries(q) : null)],
+        interval: [(s) => [s.querySource], (q) => (isInsightQueryNode(q) ? getInterval(q) : null)],
 
-        dateRange: [(s) => [s.querySource], (q) => q.dateRange],
-        breakdown: [(s) => [s.querySource], (q) => getBreakdown(q)],
-        display: [(s) => [s.querySource], (q) => getDisplay(q)],
-        compare: [(s) => [s.querySource], (q) => getCompare(q)],
-        series: [(s) => [s.querySource], (q) => getSeries(q)],
-        interval: [(s) => [s.querySource], (q) => getInterval(q)],
-
-        insightFilter: [(s) => [s.querySource], (q) => filterForQuery(q)],
+        insightFilter: [(s) => [s.querySource], (q) => (isInsightQueryNode(q) ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
         funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
         retentionFilter: [(s) => [s.querySource], (q) => (isRetentionQuery(q) ? q.retentionFilter : null)],
@@ -165,27 +168,36 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     listeners(({ actions, values }) => ({
         updateDateRange: ({ dateRange }) => {
-            const newQuerySource = { ...values.querySource, dateRange }
-            actions.updateQuerySource(newQuerySource)
+            if (isInsightQueryNode(values.querySource)) {
+                const newQuerySource = { ...values.querySource, dateRange }
+                actions.updateQuerySource(newQuerySource)
+            }
         },
         updateBreakdown: ({ breakdown }) => {
-            const newQuerySource = { ...values.querySource, breakdown }
-            actions.updateQuerySource(newQuerySource)
+            if (isInsightQueryNode(values.querySource)) {
+                const newQuerySource = { ...values.querySource, breakdown }
+                actions.updateQuerySource(newQuerySource)
+            }
         },
         updateInsightFilter: ({ insightFilter }) => {
-            const filterProperty = filterPropertyForQuery(values.querySource)
-            const newQuerySource = { ...values.querySource }
-            newQuerySource[filterProperty] = {
-                ...values.querySource[filterProperty],
-                ...insightFilter,
+            if (isInsightQueryNode(values.querySource)) {
+                const filterProperty = filterPropertyForQuery(values.querySource)
+                const newQuerySource = { ...values.querySource }
+                newQuerySource[filterProperty] = {
+                    ...values.querySource[filterProperty],
+                    ...insightFilter,
+                }
+                actions.updateQuerySource(newQuerySource)
             }
-            actions.updateQuerySource(newQuerySource)
         },
-        updateQuerySource: ({ query }) => {
-            actions.setQuery({
-                ...values.query,
-                source: { ...(values.query as InsightVizNode).source, ...query },
-            } as Node)
+        updateQuerySource: ({ querySource }) => {
+            // TODO this only receives insight query nodes, should it accept other nodes that can be sources?
+            if (isInsightVizNode(values.query)) {
+                actions.setQuery({
+                    ...values.query,
+                    source: { ...(values.query as InsightVizNode).source, ...querySource },
+                } as Node)
+            }
         },
         setQuery: ({ query }) => {
             // safeguard against accidentally overwriting filters for non-flagged users
@@ -259,7 +271,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     ...values.insight,
                     result: insightData?.result,
                     next: insightData?.next,
-                    filters: values.insight.query ? {} : queryNodeToFilter(values.querySource),
+                    filters: isInsightQueryNode(values.querySource) ? queryNodeToFilter(values.querySource) : {},
                 },
                 {}
             )
