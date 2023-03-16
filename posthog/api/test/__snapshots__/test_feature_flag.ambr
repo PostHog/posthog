@@ -314,6 +314,18 @@
      HAVING max(is_deleted) = 0)
   '
 ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.7
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
+  '
+---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort
   '
   /* user_id:0 request:_snapshot_ */
@@ -396,6 +408,18 @@
                  version
         HAVING sum(sign) > 0
         ORDER BY person_id) cohort_persons ON cohort_persons.person_id = person.id
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.5
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0)
