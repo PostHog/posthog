@@ -69,7 +69,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['featureFlags'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['response as insightData'],
+            ['response as insightData', 'dataLoading as insightDataLoading'],
         ],
         actions: [
             insightLogic,
