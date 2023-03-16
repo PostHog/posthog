@@ -22,6 +22,7 @@ class Migration(migrations.Migration):
                 UPDATE posthog_dashboardtemplate
                 SET scope = 'everyone'
                 WHERE team_id IS NULL;
-            """
+            """,
+            reverse_sql="",
         ),
     ]
