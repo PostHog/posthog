@@ -220,9 +220,9 @@ export function OverViewTab({
                 <div className="flex justify-between mb-4">
                     <LemonInput
                         type="search"
-                        placeholder={searchPlaceholder}
+                        placeholder={searchPlaceholder || ''}
                         onChange={setSearchTerm}
-                        value={searchTerm}
+                        value={searchTerm || ''}
                     />
                     <div className="flex items-center gap-2">
                         {hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (

@@ -111,6 +111,23 @@ export function FeedbackInstructions(): JSX.Element {
     )
 }
 
+export function InAppFeedbackHeaderButtons(): JSX.Element {
+    const { toggleInAppFeedbackInstructions } = useActions(inAppFeedbackLogic)
+    return (
+        <>
+            <LemonButton
+                onClick={() => {
+                    toggleInAppFeedbackInstructions()
+                }}
+                sideIcon={<IconHelpOutline />}
+            >
+                Feedback instructions
+            </LemonButton>
+            <FeedbackInstructions />
+        </>
+    )
+}
+
 export function InAppFeedback(): JSX.Element {
     const { dataTableQuery, trendQuery } = useValues(inAppFeedbackLogic)
     const { setDataTableQuery } = useActions(inAppFeedbackLogic)
@@ -118,21 +135,11 @@ export function InAppFeedback(): JSX.Element {
     const { toggleInAppFeedbackInstructions } = useActions(inAppFeedbackLogic)
 
     const { events, eventsLoading } = useValues(inAppFeedbackLogic)
+
     // TODO call the events endpoint to get the feedback events and allow adding new events
 
     return (
         <>
-            <div className="flex w-full justify-between">
-                <h3 className="text-lg">Feedback received</h3>
-                <LemonButton
-                    onClick={() => {
-                        toggleInAppFeedbackInstructions()
-                    }}
-                    sideIcon={<IconHelpOutline />}
-                >
-                    Set up instructions
-                </LemonButton>
-            </div>
             {!eventsLoading && events.length === 0 && (
                 <div>
                     No events found.{' '}
@@ -149,7 +156,6 @@ export function InAppFeedback(): JSX.Element {
             <Query query={trendQuery} />
             <LemonDivider className="my-6" />
             <Query query={dataTableQuery} setQuery={setDataTableQuery} />
-            <FeedbackInstructions />
         </>
     )
 }

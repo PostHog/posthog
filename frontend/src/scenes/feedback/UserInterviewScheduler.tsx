@@ -177,38 +177,39 @@ export function CreateInterviewFlag(): JSX.Element {
     )
 }
 
-export function UserInterviewScheduler(): JSX.Element {
+export function UserInterviewSchedulerHeaderButtons(): JSX.Element {
     const { toggleInterviewFlagModal, toggleSchedulerInstructions } = useActions(userInterviewSchedulerLogic)
-
     return (
-        <div>
-            <div className="flex w-full justify-between">
-                <div>
-                    <h3 className="text-lg">User Interview Scheduler</h3>
-                </div>
-                <div className="flex gap-2">
-                    <LemonButton
-                        onClick={() => {
-                            toggleSchedulerInstructions()
-                        }}
-                        sideIcon={<IconHelpOutline />}
-                    >
-                        Set up instructions
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={() => {
-                            toggleInterviewFlagModal()
-                        }}
-                    >
-                        Create interview invitation
-                    </LemonButton>
-                </div>
+        <>
+            <div className="flex gap-2">
+                <LemonButton
+                    onClick={() => {
+                        toggleSchedulerInstructions()
+                    }}
+                    sideIcon={<IconHelpOutline />}
+                >
+                    Scheduler instructions
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    onClick={() => {
+                        toggleInterviewFlagModal()
+                    }}
+                >
+                    Create interview invitation
+                </LemonButton>
             </div>
-            <div className="my-4" />
-            <OverViewTab flagPrefix={FLAG_PREFIX} searchPlaceholder="Search interview invitations" />
             <SchedulerInstructions />
             <CreateInterviewFlag />
+        </>
+    )
+}
+
+export function UserInterviewScheduler(): JSX.Element {
+    return (
+        <div>
+            <div className="my-4" />
+            <OverViewTab flagPrefix={FLAG_PREFIX} searchPlaceholder="Search interview invitations" />
         </div>
     )
 }

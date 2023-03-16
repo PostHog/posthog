@@ -6,13 +6,14 @@ import { feedbackLogic } from './feedbackLogic'
 
 import './Feedback.scss'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { InAppFeedback } from './InAppFeedback'
-import { UserInterviewScheduler } from './UserInterviewScheduler'
+import { InAppFeedback, InAppFeedbackHeaderButtons } from './InAppFeedback'
+import { UserInterviewScheduler, UserInterviewSchedulerHeaderButtons } from './UserInterviewScheduler'
 import { useActions, useValues } from 'kea'
 
 export const Feedback = (): JSX.Element => {
     const { activeTab } = useValues(feedbackLogic)
     const { setActiveTab } = useActions(feedbackLogic)
+
     return (
         <div className="Feedback">
             <PageHeader
@@ -23,6 +24,13 @@ export const Feedback = (): JSX.Element => {
                             Alpha
                         </LemonTag>
                     </div>
+                }
+                buttons={
+                    activeTab === 'in-app-feedback' ? (
+                        <InAppFeedbackHeaderButtons />
+                    ) : (
+                        <UserInterviewSchedulerHeaderButtons />
+                    )
                 }
             />
             <LemonTabs
@@ -35,13 +43,11 @@ export const Feedback = (): JSX.Element => {
                         content: <InAppFeedback />,
                         key: 'in-app-feedback',
                         label: 'In-app feedback',
-                        tooltip: 'Analyze feedback from your users',
                     },
                     {
                         content: <UserInterviewScheduler />,
                         key: 'user-interview-scheduler',
                         label: 'User interview scheduler',
-                        tooltip: 'Schedule user interviews with your users',
                     },
                 ]}
             />
