@@ -26,8 +26,9 @@ export function FeedbackInstructions(): JSX.Element {
             title="How to send in-app feedback to Posthog"
             isOpen={inAppFeedbackInstructions}
             onClose={toggleInAppFeedbackInstructions}
+            width={640}
         >
-            <div className="w-160">
+            <div>
                 <LemonCollapse
                     defaultActiveKey="1"
                     panels={[

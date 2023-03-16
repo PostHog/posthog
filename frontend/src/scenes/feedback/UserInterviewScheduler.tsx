@@ -24,8 +24,13 @@ export function SchedulerInstructions(): JSX.Element {
             title="How to set up the interview scheduler popup"
             isOpen={schedulerInstructions}
             onClose={toggleSchedulerInstructions}
+            width={640}
         >
-            <div className="w-160">
+            <div>
+                <p>
+                    The interview scheduler is powered by JSON feature flags. It requires setting up the interview
+                    scheduler app or building a custom popup:
+                </p>
                 <LemonCollapse
                     defaultActiveKey="1"
                     panels={[
