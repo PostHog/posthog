@@ -40,6 +40,8 @@ import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 import { displayTypesWithoutLegend } from 'lib/components/InsightLegend/utils'
 
+const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
+
 const defaultQuery = (insightProps: InsightLogicProps): Node => {
     const filters = insightProps.cachedInsight?.filters
     const query = insightProps.cachedInsight?.query
@@ -80,6 +82,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 'loadResultsSuccess',
                 'saveInsight as insightLogicSaveInsight',
             ],
+            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            ['loadData', 'loadDataSuccess', 'loadDataFailure'],
         ],
     })),
 
@@ -90,6 +94,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        setTimedOutQueryId: (id: string | null) => ({ id }),
     }),
 
     reducers(({ props }) => ({
@@ -97,6 +102,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             defaultQuery(props),
             {
                 setQuery: (_, { query }) => query,
+            },
+        ],
+        timedOutQueryId: [
+            null as null | string,
+            {
+                setTimedOutQueryId: (_, { id }) => id,
             },
         ],
     })),
@@ -242,6 +253,22 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 { overrideFilter: true, fromPersistentApi: false }
             )
             actions.insightLogicSaveInsight(redirectToViewMode)
+        },
+        loadData: async (_, breakpoint) => {
+            actions.setTimedOutQueryId(null)
+
+            await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
+
+            if (!!values.insightDataLoading) {
+                // TODO: get query id
+                actions.setTimedOutQueryId('myid')
+            }
+        },
+        loadDataSuccess: () => {
+            actions.setTimedOutQueryId(null)
+        },
+        loadDataFailure: () => {
+            actions.setTimedOutQueryId(null)
         },
     })),
     subscriptions(({ values, actions }) => ({

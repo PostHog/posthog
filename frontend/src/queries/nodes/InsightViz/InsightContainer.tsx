@@ -62,7 +62,6 @@ export function InsightContainer({
     const {
         insightProps,
         canEditInsight,
-        timedOutQueryId,
         // isUsingSessionAnalysis,
     } = useValues(insightLogic)
 
@@ -86,6 +85,7 @@ export function InsightContainer({
         exportContext,
         insightDataLoading,
         insightDataError,
+        timedOutQueryId,
     } = useValues(insightDataLogic(insightProps))
 
     // Empty states that completely replace the graph
