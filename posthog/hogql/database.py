@@ -338,5 +338,5 @@ def create_hogql_database(team_id: Optional[int]) -> Database:
     team = Team.objects.get(pk=team_id)
     if team.person_on_events_querying_enabled:
         database.events.person = FieldTraverser(chain=["poe"])
-        database.events.person_id = FieldTraverser(chain=["poe", "person_id"])
+        database.events.person_id = StringDatabaseField(name="person_id")
     return database
