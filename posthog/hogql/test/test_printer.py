@@ -135,21 +135,21 @@ class TestPrinter(TestCase):
             self.assertEqual(1 + 2, 3)
             return
         materialize("events", "$browser")
-        self.assertEqual(self._expr("properties['$browser']"), "`mat_$browser`")
+        self.assertEqual(self._expr("properties['$browser']"), "events.`mat_$browser`")
 
         materialize("events", "withoutdollar")
-        self.assertEqual(self._expr("properties['withoutdollar']"), "mat_withoutdollar")
+        self.assertEqual(self._expr("properties['withoutdollar']"), "events.mat_withoutdollar")
 
         materialize("events", "$browser and string")
-        self.assertEqual(self._expr("properties['$browser and string']"), "`mat_$browser_and_string`")
+        self.assertEqual(self._expr("properties['$browser and string']"), "events.`mat_$browser_and_string`")
 
         materialize("events", "$browser%%%#@!@")
-        self.assertEqual(self._expr("properties['$browser%%%#@!@']"), "`mat_$browser_______`")
+        self.assertEqual(self._expr("properties['$browser%%%#@!@']"), "events.`mat_$browser_______`")
 
     def test_methods(self):
-        self.assertEqual(self._expr("count()"), "count(*)")
-        self.assertEqual(self._expr("countDistinct(event)"), "count(distinct event)")
-        self.assertEqual(self._expr("countDistinctIf(event, 1 == 2)"), "countIf(distinct event, equals(1, 2))")
+        self.assertEqual(self._expr("count()"), "count()")
+        self.assertEqual(self._expr("count(distinct event)"), "count(DISTINCT event)")
+        self.assertEqual(self._expr("countIf(distinct event, 1 == 2)"), "countIf(DISTINCT event, equals(1, 2))")
         self.assertEqual(self._expr("sumIf(1, 1 == 2)"), "sumIf(1, equals(1, 2))")
 
     def test_functions(self):
@@ -162,10 +162,9 @@ class TestPrinter(TestCase):
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
-        self._assert_expr_error("count(2)", "Aggregation 'count' requires 0 arguments, found 1")
-        self._assert_expr_error("count(2,4)", "Aggregation 'count' requires 0 arguments, found 2")
-        self._assert_expr_error("countIf()", "Aggregation 'countIf' requires 1 argument, found 0")
-        self._assert_expr_error("countIf(2,4)", "Aggregation 'countIf' requires 1 argument, found 2")
+        self._assert_expr_error("count(1,2,3,4)", "Aggregation 'count' requires between 0 and 1 arguments, found 4")
+        self._assert_expr_error("countIf()", "Aggregation 'countIf' requires between 1 and 2 arguments, found 0")
+        self._assert_expr_error("countIf(2,3,4)", "Aggregation 'countIf' requires between 1 and 2 arguments, found 3")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
         self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")
         self._assert_expr_error("yeet.the.cloud", "Unable to resolve field: yeet")
@@ -216,7 +215,7 @@ class TestPrinter(TestCase):
         )
         self.assertEqual(
             self._expr("event or timestamp or true or count()"),
-            "or(event, timestamp, true, count(*))",
+            "or(event, timestamp, true, count())",
         )
         self.assertEqual(
             self._expr("event or not timestamp"),
@@ -405,4 +404,50 @@ class TestPrinter(TestCase):
         self.assertEqual(
             self._select("SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1)"),
             "SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1) LIMIT 65535",
+        )
+
+    def test_select_sample(self):
+        self.assertEqual(
+            self._select("SELECT event FROM events SAMPLE 1"),
+            "SELECT event FROM events SAMPLE 1 WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+        self.assertEqual(
+            self._select("SELECT event FROM events SAMPLE 0.1 OFFSET 1/10"),
+            "SELECT event FROM events SAMPLE 0.1 OFFSET 1/10 WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+        self.assertEqual(
+            self._select("SELECT event FROM events SAMPLE 2/78 OFFSET 999"),
+            "SELECT event FROM events SAMPLE 2/78 OFFSET 999 WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+        self.assertEqual(
+            self._select("SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id"),
+            "SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN person ON equals(id, events__pdi.person_id) INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(person.team_id, 42), equals(events.team_id, 42)) LIMIT 65535",
+        )
+
+        self.assertEqual(
+            self._select(
+                "SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id"
+            ),
+            "SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN person SAMPLE 0.1 ON equals(id, events__pdi.person_id) INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(person.team_id, 42), equals(events.team_id, 42)) LIMIT 65535",
+        )
+
+    def test_count_distinct(self):
+        self.assertEqual(
+            self._select("SELECT count(distinct event) FROM events"),
+            "SELECT count(DISTINCT event) FROM events WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+    def test_count_star(self):
+        self.assertEqual(
+            self._select("SELECT count(*) FROM events"),
+            "SELECT count(*) FROM events WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+    def test_count_if_distinct(self):
+        self.assertEqual(
+            self._select("SELECT countIf(distinct event, event like '%a%') FROM events"),
+            "SELECT countIf(DISTINCT event, like(event, %(hogql_val_0)s)) FROM events WHERE equals(team_id, 42) LIMIT 65535",
         )

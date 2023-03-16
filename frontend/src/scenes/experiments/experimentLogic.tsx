@@ -32,7 +32,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { IconInfo } from 'lib/lemon-ui/icons'
@@ -878,16 +878,6 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
     })),
-    afterMount(({ props, actions }) => {
-        const foundExperiment = experimentsLogic
-            .findMounted()
-            ?.values.experiments.find((experiment) => experiment.id === props.experimentId)
-        if (foundExperiment) {
-            actions.setExperiment(foundExperiment)
-        } else if (props.experimentId !== 'new') {
-            actions.loadExperiment()
-        }
-    }),
 ])
 
 function percentageDistribution(variantCount: number): number[] {

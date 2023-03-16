@@ -57,6 +57,14 @@ class TraversingVisitor(Visitor):
         for expr in node.args:
             self.visit(expr)
 
+    def visit_sample_expr(self, node: ast.SampleExpr):
+        self.visit(node.sample_value)
+        self.visit(node.offset_value)
+
+    def visit_ratio_expr(self, node: ast.RatioExpr):
+        self.visit(node.left)
+        self.visit(node.right)
+
     def visit_join_expr(self, node: ast.JoinExpr):
         self.visit(node.table)
         self.visit(node.constraint)
@@ -190,6 +198,12 @@ class CloningVisitor(Visitor):
             args=[self.visit(arg) for arg in node.args],
         )
 
+    def visit_ratio_expr(self, node: ast.RatioExpr):
+        return ast.RatioExpr(left=self.visit(node.left), right=self.visit(node.right))
+
+    def visit_sample_expr(self, node: ast.SampleExpr):
+        return ast.SampleExpr(sample_value=self.visit(node.sample_value), offset_value=self.visit(node.offset_value))
+
     def visit_join_expr(self, node: ast.JoinExpr):
         return ast.JoinExpr(
             table=self.visit(node.table),
@@ -198,6 +212,7 @@ class CloningVisitor(Visitor):
             alias=node.alias,
             join_type=node.join_type,
             constraint=self.visit(node.constraint),
+            sample=self.visit(node.sample),
         )
 
     def visit_select_query(self, node: ast.SelectQuery):
