@@ -149,16 +149,16 @@ export function CreateInterviewFlag(): JSX.Element {
                 <Field name="key" label="Key">
                     {({ value, onChange }) => <LemonInput value={value} onChange={onChange} />}
                 </Field>
-                <Field name="title" label="Title">
+                <Field name="title" label="Invitation Title">
                     <LemonInput />
                 </Field>
                 <Field name="bookingLink" label="Booking Link">
                     <LemonInput />
                 </Field>
-                <Field name="body" label="Body">
+                <Field name="body" label="Invitation Body">
                     <LemonInput />
                 </Field>
-                <Field name="description" label="Description (Internal only)">
+                <Field name="description" label="What is the purpose of the interview? (Internal only)">
                     <LemonTextArea placeholder="What are these interviews for?" />
                 </Field>
                 <div className="flex justify-end my-4">

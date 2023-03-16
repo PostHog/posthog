@@ -1,3 +1,4 @@
+import { isURL } from 'lib/utils'
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -53,7 +54,12 @@ export const userInterviewSchedulerLogic = kea<userInterviewSchedulerLogicType>(
                     : undefined,
                 title: !title ? 'Please enter a title' : undefined,
                 body: !body ? 'Please enter a body' : undefined,
-                bookingLink: !bookingLink ? 'Please enter a booking link' : undefined,
+                // check it's a valid url using regex
+                bookingLink: !bookingLink
+                    ? 'Please enter a booking link'
+                    : !isURL(bookingLink)
+                    ? 'Please enter a valid booking link'
+                    : undefined,
             }),
             submit: async (formValues) => {
                 console.log('submitting', formValues)
@@ -77,7 +83,7 @@ export const userInterviewSchedulerLogic = kea<userInterviewSchedulerLogicType>(
                     rollout_percentage: 0,
                     active: true,
                     filters: {
-                        payloads: values.interviewFlagPayload,
+                        payloads: { true: JSON.stringify(values.interviewFlagPayload, null, 4) },
                         groups,
                         multivariate: null,
                     },
