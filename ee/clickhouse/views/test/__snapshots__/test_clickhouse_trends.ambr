@@ -258,7 +258,7 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
+           UNION ALL SELECT count(DISTINCT person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             breakdown_value
            FROM
@@ -266,22 +266,17 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id,
+                (SELECT e.person_id as person_id,
                         timestamp,
                         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-                   AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']) )
+                   AND notEmpty(e.person_id)
+                   AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval'])
+                   AND notEmpty(e.person_id) )
               GROUP BY person_id,
                        breakdown_value) AS pdi
            GROUP BY day_start,
@@ -444,7 +439,9 @@
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+             AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval'])
+             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -492,33 +489,14 @@
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(DISTINCT pdi.person_id) as count
+            count(DISTINCT person_id) as count
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))
-                    AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
-        GROUP BY id
-        HAVING max(is_deleted) = 0
-        AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
-             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+       AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
+            AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -568,34 +546,17 @@
                  GROUP BY timestamp) d
               CROSS JOIN
                 (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
-                        pdi.person_id AS person_id,
+                        e.person_id AS person_id,
                         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS breakdown_value
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-                 INNER JOIN
-                   (SELECT id
-                    FROM person
-                    WHERE team_id = 2
-                      AND id IN
-                        (SELECT id
-                         FROM person
-                         WHERE team_id = 2
-                           AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))
-                                AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
-                    GROUP BY id
-                    HAVING max(is_deleted) = 0
-                    AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
-                         AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
+                   AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
+                        AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+                   AND notEmpty(e.person_id)
+                   AND notEmpty(e.person_id)
                  GROUP BY timestamp,
                           person_id,
                           breakdown_value) e
