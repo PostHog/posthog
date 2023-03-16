@@ -45,7 +45,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT count(*), event FROM events WHERE and(equals(team_id, {self.team.id}), equals(replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', ''), %(hogql_val_1)s)) GROUP BY event LIMIT 100",
+                f"SELECT count(), event FROM events WHERE and(equals(team_id, {self.team.id}), equals(replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', ''), %(hogql_val_1)s)) GROUP BY event LIMIT 100",
             )
             self.assertEqual(
                 response.hogql,
@@ -60,7 +60,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT count, event FROM (SELECT count(*) AS count, event FROM events WHERE and(equals(team_id, {self.team.id}), equals(replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', ''), %(hogql_val_1)s)) GROUP BY event) GROUP BY count, event LIMIT 100",
+                f"SELECT count, event FROM (SELECT count() AS count, event FROM events WHERE and(equals(team_id, {self.team.id}), equals(replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', ''), %(hogql_val_1)s)) GROUP BY event) GROUP BY count, event LIMIT 100",
             )
             self.assertEqual(
                 response.hogql,
@@ -69,7 +69,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [(2, "random event")])
 
             response = execute_hogql_query(
-                "select count, event from (select count() as count, event from events where properties.random_uuid = {random_uuid} group by event) as c group by count, event",
+                "select count, event from (select count(*) as count, event from events where properties.random_uuid = {random_uuid} group by event) as c group by count, event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
             )
@@ -79,7 +79,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT count, event FROM (SELECT count() AS count, event FROM events WHERE equals(properties.random_uuid, %(hogql_val_2)s) GROUP BY event) AS c GROUP BY count, event LIMIT 100",
+                "SELECT count, event FROM (SELECT count(*) AS count, event FROM events WHERE equals(properties.random_uuid, %(hogql_val_2)s) GROUP BY event) AS c GROUP BY count, event LIMIT 100",
             )
             self.assertEqual(response.results, [(2, "random event")])
 
@@ -378,7 +378,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             expected = (
-                "SELECT s__pdi__person.properties___email, count(*) "
+                "SELECT s__pdi__person.properties___email, count() "
                 "FROM events AS s "
                 "INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id "
                 f"FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) "
@@ -402,7 +402,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10"):
             self._create_random_events()
             response = execute_hogql_query(
-                "SELECT poe.properties.email, count() FROM events s GROUP BY poe.properties.email LIMIT 10",
+                "SELECT poe.properties.email, count(*) FROM events s GROUP BY poe.properties.email LIMIT 10",
                 self.team,
             )
             self.assertEqual(
@@ -413,7 +413,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT poe.properties.email, count() FROM events AS s GROUP BY poe.properties.email LIMIT 10",
+                "SELECT poe.properties.email, count(*) FROM events AS s GROUP BY poe.properties.email LIMIT 10",
             )
             self.assertEqual(response.results[0][0], "tim@posthog.com")
 
@@ -446,7 +446,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [("$pageview", 2)])
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT event, count(*) FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(team_id, {self.team.pk}), in(events__pdi.person_id, (SELECT person_id FROM cohortpeople WHERE and(equals(team_id, {self.team.pk}), equals(cohort_id, {cohort.pk})) GROUP BY person_id, cohort_id, version HAVING greater(sum(sign), 0)))) GROUP BY event LIMIT 100",
+                f"SELECT event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(team_id, {self.team.pk}), in(events__pdi.person_id, (SELECT person_id FROM cohortpeople WHERE and(equals(team_id, {self.team.pk}), equals(cohort_id, {cohort.pk})) GROUP BY person_id, cohort_id, version HAVING greater(sum(sign), 0)))) GROUP BY event LIMIT 100",
             )
 
     def test_prop_cohort_static(self):
@@ -474,7 +474,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [("$pageview", 1)])
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT event, count(*) FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(team_id, {self.team.pk}), in(events__pdi.person_id, (SELECT person_id FROM person_static_cohort WHERE and(equals(team_id, {self.team.pk}), equals(cohort_id, {cohort.pk}))))) GROUP BY event LIMIT 100",
+                f"SELECT event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(team_id, {self.team.pk}), in(events__pdi.person_id, (SELECT person_id FROM person_static_cohort WHERE and(equals(team_id, {self.team.pk}), equals(cohort_id, {cohort.pk}))))) GROUP BY event LIMIT 100",
             )
 
     def test_join_with_property_materialized_session_id(self):
