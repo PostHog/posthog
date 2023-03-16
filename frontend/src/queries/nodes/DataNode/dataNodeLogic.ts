@@ -54,6 +54,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
+        loadData: (refresh = false) => ({ refresh, queryId: uuid() }),
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
@@ -69,7 +70,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             props.cachedResults ?? null,
             {
                 clearResponse: () => null,
-                loadData: async (refresh: boolean = false, breakpoint) => {
+                loadData: async ({ refresh, queryId }, breakpoint) => {
                     if (props.cachedResults) {
                         return props.cachedResults
                     }
@@ -89,7 +90,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
                     }
-                    const queryId = uuid()
                     const now = performance.now()
                     try {
                         const data = (await query<DataNode>(props.query, methodOptions, refresh, queryId)) ?? null

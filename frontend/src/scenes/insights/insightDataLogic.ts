@@ -254,14 +254,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
             )
             actions.insightLogicSaveInsight(redirectToViewMode)
         },
-        loadData: async (_, breakpoint) => {
+        loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
 
             await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
 
             if (!!values.insightDataLoading) {
-                // TODO: get query id
-                actions.setTimedOutQueryId('myid')
+                actions.setTimedOutQueryId(queryId)
             }
         },
         loadDataSuccess: () => {
