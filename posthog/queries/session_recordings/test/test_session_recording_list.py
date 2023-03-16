@@ -354,8 +354,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
                         "name": "$pageview",
                         "properties": [
                             {"key": "properties.$browser == 'Chrome'", "type": "hogql"},
-                            # TODO: Person properties are not supported in the sessions list query.
-                            # {"key": "person.properties.email == 'bla'", "type": "hogql"},
+                            {"key": "person.properties.email == 'bla'", "type": "hogql"},
                         ],
                     }
                 ]
