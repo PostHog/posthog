@@ -167,6 +167,8 @@ export function CreateInterviewFlag(): JSX.Element {
                 <Field name="description" label="What is the purpose of the interview? (Internal only)">
                     <LemonTextArea placeholder="What are these interviews for?" />
                 </Field>
+                <p>On the feature flag you can control who the interview invitation is shown to.</p>
+
                 <div className="flex justify-end my-4">
                     <LemonButton loading={isInterviewFlagSubmitting} htmlType="submit" type="primary">
                         Create
