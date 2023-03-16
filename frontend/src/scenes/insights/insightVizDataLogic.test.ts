@@ -6,12 +6,15 @@ import { ChartDisplayType, InsightShortId } from '~/types'
 import { insightDataLogic } from './insightDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const Insight123 = '123' as InsightShortId
 
 describe('insightVizDataLogic', () => {
     let theInsightVizDataLogic: ReturnType<typeof insightVizDataLogic.build>
     let theInsightDataLogic: ReturnType<typeof insightDataLogic.build>
+    let theFeatureFlagLogic: ReturnType<typeof featureFlagLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -20,16 +23,23 @@ describe('insightVizDataLogic', () => {
             },
         })
         initKeaTests()
+
+        theFeatureFlagLogic = featureFlagLogic()
+        theFeatureFlagLogic.mount()
+        theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS], {
+            [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]: false,
+        })
+
+        const props = { dashboardItemId: Insight123 }
+
+        theInsightVizDataLogic = insightVizDataLogic(props)
+        theInsightDataLogic = insightDataLogic(props)
+
+        theInsightDataLogic.mount()
+        theInsightVizDataLogic.mount()
     })
 
     describe('manages query source state', () => {
-        const props = { dashboardItemId: Insight123 }
-        beforeEach(() => {
-            theInsightVizDataLogic = insightVizDataLogic(props)
-            theInsightDataLogic = insightDataLogic(props)
-            theInsightDataLogic.mount()
-        })
-
         it('updateQuerySource updates the query source', () => {
             expectLogic(theInsightDataLogic, () => {
                 theInsightVizDataLogic.actions.updateQuerySource({ filterTestAccounts: true })
@@ -46,12 +56,6 @@ describe('insightVizDataLogic', () => {
     })
 
     describe('manages insight filter state', () => {
-        const props = { dashboardItemId: Insight123 }
-        beforeEach(() => {
-            theInsightDataLogic = insightDataLogic(props)
-            theInsightDataLogic.mount()
-        })
-
         it('updateInsightFilter updates the insight filter', () => {
             expectLogic(theInsightDataLogic, () => {
                 theInsightVizDataLogic.actions.updateInsightFilter({ display: ChartDisplayType.ActionsAreaGraph })

@@ -108,23 +108,32 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
     listeners(({ actions, values }) => ({
         updateDateRange: ({ dateRange }) => {
-            if (isInsightQueryNode(values.querySource)) {
-                const newQuerySource = { ...values.querySource, dateRange }
+            const localQuerySource = values.querySource
+                ? values.querySource
+                : queryFromKind(NodeKind.TrendsQuery).source
+            if (isInsightQueryNode(localQuerySource)) {
+                const newQuerySource = { ...localQuerySource, dateRange }
                 actions.updateQuerySource(newQuerySource)
             }
         },
         updateBreakdown: ({ breakdown }) => {
-            if (isInsightQueryNode(values.querySource)) {
-                const newQuerySource = { ...values.querySource, breakdown }
+            const localQuerySource = values.querySource
+                ? values.querySource
+                : queryFromKind(NodeKind.TrendsQuery).source
+            if (isInsightQueryNode(localQuerySource)) {
+                const newQuerySource = { ...localQuerySource, breakdown }
                 actions.updateQuerySource(newQuerySource)
             }
         },
         updateInsightFilter: ({ insightFilter }) => {
-            if (isInsightQueryNode(values.querySource)) {
-                const filterProperty = filterPropertyForQuery(values.querySource)
-                const newQuerySource = { ...values.querySource }
+            const localQuerySource = values.querySource
+                ? values.querySource
+                : queryFromKind(NodeKind.TrendsQuery).source
+            if (isInsightQueryNode(localQuerySource)) {
+                const filterProperty = filterPropertyForQuery(localQuerySource)
+                const newQuerySource = { ...localQuerySource }
                 newQuerySource[filterProperty] = {
-                    ...values.querySource[filterProperty],
+                    ...localQuerySource[filterProperty],
                     ...insightFilter,
                 }
                 actions.updateQuerySource(newQuerySource)
@@ -146,7 +155,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
 
             if (isInsightVizNode(query)) {
-                const querySource = (query as InsightVizNode).source
+                const querySource = query.source
                 if (isLifecycleQuery(querySource)) {
                     const filters = queryNodeToFilter(querySource)
                     actions.setFilters(filters)

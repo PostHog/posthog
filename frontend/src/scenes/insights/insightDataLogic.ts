@@ -27,6 +27,12 @@ export const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
     source: nodeKindToDefaultQuery[kind],
 })
 
+const defaultQuery = (insightProps: InsightLogicProps): Node | null => {
+    const filters = insightProps.cachedInsight?.filters
+    const query = insightProps.cachedInsight?.query
+    return query ? query : filters ? queryFromFilters(filters) : null
+}
+
 export const insightDataLogic = kea<insightDataLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
@@ -53,9 +59,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
     }),
 
-    reducers(() => ({
+    reducers(({ props }) => ({
         query: [
-            null as Node | null,
+            defaultQuery(props) as Node | null,
             {
                 setQuery: (_, { query }) => query,
             },

@@ -37,7 +37,10 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                 actions.setFilters({ ...values.filters, interval })
             }
 
-            if ((values.querySource as FunnelsQuery | StickinessQuery | TrendsQuery).interval !== interval) {
+            if (
+                !values.querySource ||
+                (values.querySource as FunnelsQuery | StickinessQuery | TrendsQuery).interval !== interval
+            ) {
                 actions.updateQuerySource({ interval } as Partial<InsightQueryNode>)
             }
         },
