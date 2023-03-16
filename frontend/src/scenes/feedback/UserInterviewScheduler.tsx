@@ -150,7 +150,12 @@ export function CreateInterviewFlag(): JSX.Element {
 
     // TODO: fix form styling, errors don't seem to be the right color and the overal style looks off
     return (
-        <LemonModal title="Create a user interview flag" isOpen={interviewFlagModal} onClose={toggleInterviewFlagModal}>
+        <LemonModal
+            title="Create a user interview flag"
+            isOpen={interviewFlagModal}
+            onClose={toggleInterviewFlagModal}
+            width={600}
+        >
             <Form logic={userInterviewSchedulerLogic} formKey="interviewFlag" enableFormOnSubmit className="space-y-2">
                 <Field name="key" label="Key">
                     {({ value, onChange }) => <LemonInput value={value} onChange={onChange} />}
@@ -167,7 +172,10 @@ export function CreateInterviewFlag(): JSX.Element {
                 <Field name="description" label="What is the purpose of the interview? (Internal only)">
                     <LemonTextArea placeholder="What are these interviews for?" />
                 </Field>
-                <p>Use the rollout conditions on the feature flag to set who the interview invitation is shown to.</p>
+                <p>
+                    Use the rollout conditions on the feature flag to set who the interview invitation is shown to. By
+                    default, it is shown to no-one.
+                </p>
 
                 <div className="flex justify-end my-4">
                     <LemonButton loading={isInterviewFlagSubmitting} htmlType="submit" type="primary">
