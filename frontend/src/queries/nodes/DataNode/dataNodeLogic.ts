@@ -49,7 +49,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (!objectsEqual(props.query, oldProps.query) && !props.cachedResults) {
+        if (props.query?.kind && !objectsEqual(props.query, oldProps.query) && !props.cachedResults) {
             actions.loadData()
         }
     }),

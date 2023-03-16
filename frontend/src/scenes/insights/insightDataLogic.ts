@@ -13,7 +13,6 @@ import { cleanFilters } from './utils/cleanFilters'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { subscriptions } from 'kea-subscriptions'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 
@@ -144,35 +143,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.insightLogicSaveInsight(redirectToViewMode)
         },
     })),
-    subscriptions(
-        ({
-            values,
-            // actions
-        }) => ({
-            /**
-             * This subscription updates the insight for all visualizations
-             * that haven't been refactored to use the data exploration yet.
-             */
-            insightData: () =>
-                // insightData: Record<string, any> | null
-                {
-                    if (!values.isUsingDataExploration) {
-                        return
-                    }
-
-                    // actions.setInsight(
-                    //     {
-                    //         ...values.insight,
-                    //         result: insightData?.result,
-                    //         next: insightData?.next,
-                    //         filters: isInsightQueryNode(values.querySource) ? queryNodeToFilter(values.querySource) : {},
-                    //     },
-                    //     {}
-                    // )
-                    // TODO should anything happen here
-                },
-        })
-    ),
     propsChanged(({ actions, props, values }) => {
         if (props.cachedInsight?.query && !objectsEqual(props.cachedInsight.query, values.query)) {
             actions.setQuery(props.cachedInsight.query)

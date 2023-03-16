@@ -169,19 +169,19 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
          * that haven't been refactored to use the data exploration yet.
          */
         insightData: (insightData: Record<string, any> | null) => {
-            if (!values.isUsingDataExploration) {
+            if (!values.isUsingDataExploration || insightData === null) {
                 return
             }
 
-            actions.setInsight(
-                {
-                    ...values.insight,
-                    result: insightData?.result,
-                    next: insightData?.next,
-                    filters: values.querySource ? queryNodeToFilter(values.querySource) : {},
-                },
-                {}
-            )
+            const updatedInsight = {
+                ...values.insight,
+                result: insightData?.result,
+                next: insightData?.next,
+            }
+            if (values.querySource) {
+                updatedInsight.filters = queryNodeToFilter(values.querySource)
+            }
+            actions.setInsight(updatedInsight, {})
         },
     })),
 ])
