@@ -139,7 +139,9 @@ class TrendsBreakdown:
             self.entity,
             self.team,
             event_table_alias="e",
-            person_id_alias=f"person_id" if self.person_on_events_mode != PersonOnEventsMode.DISABLED else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            person_id_alias=f"person_id"
+            if self.person_on_events_mode != PersonOnEventsMode.DISABLED
+            else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
         action_query = ""
@@ -172,7 +174,9 @@ class TrendsBreakdown:
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
             "filters": prop_filters,
-            "null_person_filter": f"AND notEmpty(e.person_id)" if self.person_on_events_mode == PersonOnEventsMode.DISABLED else "",
+            "null_person_filter": f"AND notEmpty(e.person_id)"
+            if self.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else "",
         }
 
         _params, _breakdown_filter_params = {}, {}
@@ -229,7 +233,9 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if self.person_on_events_mode == PersonOnEventsMode.DISABLED else "e",
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS
+                    if self.person_on_events_mode == PersonOnEventsMode.DISABLED
+                    else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -298,7 +304,9 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if self.person_on_events_mode == PersonOnEventsMode.DISABLED else "e",
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS
+                    if self.person_on_events_mode == PersonOnEventsMode.DISABLED
+                    else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -314,7 +322,9 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if self.person_on_events_mode == PersonOnEventsMode.DISABLED else "e",
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS
+                    if self.person_on_events_mode == PersonOnEventsMode.DISABLED
+                    else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -420,7 +430,9 @@ class TrendsBreakdown:
                 raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
 
         elif (
-            self.person_on_events_mode != PersonOnEventsMode.DISABLED and self.filter.breakdown_type == "group" and groups_on_events_querying_enabled()
+            self.person_on_events_mode != PersonOnEventsMode.DISABLED
+            and self.filter.breakdown_type == "group"
+            and groups_on_events_querying_enabled()
         ):
             properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
             breakdown_value, _ = get_property_string_expr(
