@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
-import { feedbackLogic } from './feedbackLogic'
+import { feedbackLogic } from './inAppFeedbackLogic'
 
 export default {
     title: 'Scenes-App/Feedback',
