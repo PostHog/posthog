@@ -24,7 +24,12 @@ interface FeatureFlagCreators {
     [id: string]: string
 }
 
+interface FlagLogicProps {
+    flagPrefix?: string
+}
+
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
+    props: {} as FlagLogicProps,
     path: ['scenes', 'feature-flags', 'featureFlagsLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId']],
@@ -51,12 +56,23 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     }),
     selectors: {
         searchedFeatureFlags: [
-            (selectors) => [selectors.featureFlags, selectors.searchTerm, selectors.filters],
-            (featureFlags, searchTerm, filters) => {
-                if (!searchTerm && Object.keys(filters).length === 0) {
-                    return featureFlags
-                }
+            (selectors) => [
+                selectors.featureFlags,
+                selectors.searchTerm,
+                selectors.filters,
+                (_, props) => props.flagPrefix,
+            ],
+            (featureFlags, searchTerm, filters, flagPrefix) => {
                 let searchedFlags = featureFlags
+
+                if (flagPrefix) {
+                    searchedFlags = searchedFlags.filter((flag) => flag.key.startsWith(flagPrefix))
+                }
+
+                if (!searchTerm && Object.keys(filters).length === 0) {
+                    return searchedFlags
+                }
+
                 if (searchTerm) {
                     searchedFlags = new Fuse(featureFlags, {
                         keys: ['key', 'name'],
@@ -84,6 +100,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 if (type === 'experiment') {
                     searchedFlags = searchedFlags.filter((flag) => flag.experiment_set?.length ?? 0 > 0)
                 }
+
                 return searchedFlags
             },
         ],

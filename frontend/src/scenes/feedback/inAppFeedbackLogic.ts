@@ -2,7 +2,7 @@ import { EventsQuery } from '../../queries/schema'
 import { actions, afterMount, kea, path, reducers } from 'kea'
 import { DataTableNode, Node, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema'
 
-import type { feedbackLogicType } from './inAppFeedbackLogicType'
+import type { inAppFeedbackLogicType } from './inAppFeedbackLogicType'
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
 import { EventType } from '~/types'
@@ -43,7 +43,7 @@ const DEFAULT_TREND_QUERY: TrendsQuery = {
     },
 }
 
-export const feedbackLogic = kea<feedbackLogicType>([
+export const inAppFeedbackLogic = kea<inAppFeedbackLogicType>([
     path(['scenes', 'feedback', 'inAppFeedbackLogic']),
     actions({
         toggleInAppFeedbackInstructions: true,

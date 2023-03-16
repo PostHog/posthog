@@ -9,7 +9,7 @@ export const feedbackLogic = kea<feedbackLogicType>([
     }),
     reducers({
         activeTab: [
-            'in-app-feedback' as string,
+            'user-interview-scheduler' as string,
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
             },

@@ -30,11 +30,11 @@ export const scene: SceneExport = {
     logic: featureFlagsLogic,
 }
 
-function OverViewTab(): JSX.Element {
+export function OverViewTab({ flagPrefix = '' }: { flagPrefix?: string }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } =
-        useValues(featureFlagsLogic)
-    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(featureFlagsLogic)
+    const flagLogic = featureFlagsLogic({ flagPrefix })
+    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } = useValues(flagLogic)
+    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(flagLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const columns: LemonTableColumns<FeatureFlagType> = [

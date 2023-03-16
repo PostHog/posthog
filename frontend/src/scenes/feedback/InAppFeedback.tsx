@@ -2,7 +2,7 @@ import { LemonButton, LemonCollapse, LemonDivider, LemonModal } from '@posthog/l
 
 import { urls } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
-import { feedbackLogic } from './inAppFeedbackLogic'
+import { inAppFeedbackLogic } from './inAppFeedbackLogic'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import './Feedback.scss'
@@ -19,8 +19,8 @@ const SEND_FEEDBACK_SNIPPET = `posthog.capture('Feedback Sent', {
 })`
 
 export function FeedbackInstructions(): JSX.Element {
-    const { inAppFeedbackInstructions } = useValues(feedbackLogic)
-    const { toggleInAppFeedbackInstructions } = useActions(feedbackLogic)
+    const { inAppFeedbackInstructions } = useValues(inAppFeedbackLogic)
+    const { toggleInAppFeedbackInstructions } = useActions(inAppFeedbackLogic)
     return (
         <LemonModal
             title="How to send in-app feedback to Posthog"
@@ -111,12 +111,12 @@ export function FeedbackInstructions(): JSX.Element {
 }
 
 export function InAppFeedback(): JSX.Element {
-    const { dataTableQuery, trendQuery } = useValues(feedbackLogic)
-    const { setDataTableQuery } = useActions(feedbackLogic)
+    const { dataTableQuery, trendQuery } = useValues(inAppFeedbackLogic)
+    const { setDataTableQuery } = useActions(inAppFeedbackLogic)
 
-    const { toggleInAppFeedbackInstructions } = useActions(feedbackLogic)
+    const { toggleInAppFeedbackInstructions } = useActions(inAppFeedbackLogic)
 
-    const { events, eventsLoading } = useValues(feedbackLogic)
+    const { events, eventsLoading } = useValues(inAppFeedbackLogic)
     // TODO call the events endpoint to get the feedback events and allow adding new events
 
     return (

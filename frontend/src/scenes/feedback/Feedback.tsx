@@ -28,7 +28,6 @@ export const Feedback = (): JSX.Element => {
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(key) => {
-                    debugger
                     setActiveTab(key)
                 }}
                 tabs={[

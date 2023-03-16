@@ -1,13 +1,13 @@
-import { LemonButton, LemonCollapse, LemonDivider, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonModal } from '@posthog/lemon-ui'
 
 import { urls } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
-import { feedbackLogic } from './inAppFeedbackLogic'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import './Feedback.scss'
 import { IconHelpOutline } from 'lib/lemon-ui/icons'
-import { Query } from '~/queries/Query/Query'
+import { userInterviewSchedulerLogic } from './userInterviewSchedulerLogic'
+import { OverViewTab } from 'scenes/feature-flags/FeatureFlags'
 
 const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
     api_host: 'YOUR API HOST',
@@ -18,14 +18,14 @@ const SEND_FEEDBACK_SNIPPET = `posthog.capture('Feedback Sent', {
     '$feedback': 'Can you make the logo bigger?'
 })`
 
-export function FeedbackInstructions(): JSX.Element {
-    const { inAppFeedbackInstructions } = useValues(feedbackLogic)
-    const { toggleInAppFeedbackInstructions } = useActions(feedbackLogic)
+export function SchedulerInstructions(): JSX.Element {
+    const { schedulerInstructions } = useValues(userInterviewSchedulerLogic)
+    const { toggleSchedulerInstructions } = useActions(userInterviewSchedulerLogic)
     return (
         <LemonModal
-            title="How to send in-app feedback to Posthog"
-            isOpen={inAppFeedbackInstructions}
-            onClose={toggleInAppFeedbackInstructions}
+            title="How to set up the interview scheduler popup"
+            isOpen={schedulerInstructions}
+            onClose={toggleSchedulerInstructions}
         >
             <div className="w-160">
                 <LemonCollapse
@@ -33,13 +33,13 @@ export function FeedbackInstructions(): JSX.Element {
                     panels={[
                         {
                             key: '1',
-                            header: 'Install the feedback app',
+                            header: 'Install the interview scheduler app',
                             content: (
                                 <div>
                                     <div>
                                         <p>
-                                            PostHog's in-app widget is quickest way to get started managing customer
-                                            feedback.
+                                            PostHog's user interview scheduler app is the quickest way to start inviting
+                                            customers to interview.
                                         </p>
                                         <div>1. Turn on the feedback widget</div>
                                         <div className="ml-4 my-4">
@@ -83,11 +83,11 @@ export function FeedbackInstructions(): JSX.Element {
                         },
                         {
                             key: '2',
-                            header: 'Create a custom feedback form',
+                            header: 'Create a custom user interview scheduler',
                             content: (
                                 <div>
                                     <div>
-                                        <p>Build a custom feedback form to connect feedback styled to your brand.</p>
+                                        <p>Build a custom user interview scheduler to match your brand.</p>
                                         <div>
                                             <div>1. Create a custom form styled to your app</div>
                                         </div>
@@ -111,44 +111,34 @@ export function FeedbackInstructions(): JSX.Element {
 }
 
 export function UserInterviewScheduler(): JSX.Element {
-    const { dataTableQuery, trendQuery } = useValues(feedbackLogic)
-    const { setDataTableQuery } = useActions(feedbackLogic)
-
-    const { toggleInAppFeedbackInstructions } = useActions(feedbackLogic)
-
-    const { events, eventsLoading } = useValues(feedbackLogic)
-    // TODO call the events endpoint to get the feedback events and allow adding new events
+    const { toggleSchedulerInstructions } = useActions(userInterviewSchedulerLogic)
 
     return (
         <>
             <div className="flex w-full justify-between">
-                <h3 className="text-lg">Feedback received</h3>
-                <LemonButton
-                    onClick={() => {
-                        toggleInAppFeedbackInstructions()
-                    }}
-                    sideIcon={<IconHelpOutline />}
-                >
-                    Show instructions
-                </LemonButton>
-            </div>
-            {!eventsLoading && events.length === 0 && (
-                <div>
-                    No events found.{' '}
-                    <a
+                <h3 className="text-lg">User Interview Scheduler</h3>
+                <div className="flex gap-2">
+                    <LemonButton
                         onClick={() => {
-                            toggleInAppFeedbackInstructions()
+                            toggleSchedulerInstructions()
+                        }}
+                        sideIcon={<IconHelpOutline />}
+                    >
+                        Set up instructions
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => {
+                            // TODO create the interview invitation
                         }}
                     >
-                        Send feedback
-                    </a>{' '}
-                    to use this feature.
+                        Create interview invitation
+                    </LemonButton>
                 </div>
-            )}
-            <Query query={trendQuery} />
-            <LemonDivider className="my-6" />
-            <Query query={dataTableQuery} setQuery={setDataTableQuery} />
-            <FeedbackInstructions />
+            </div>
+            <div className="my-4" />
+            <OverViewTab flagPrefix="interview-" />
+            <SchedulerInstructions />
         </>
     )
 }
