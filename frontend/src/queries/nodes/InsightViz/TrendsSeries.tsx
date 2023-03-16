@@ -18,15 +18,15 @@ import {
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { getDisplay } from './utils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 type TrendsSeriesProps = {
     insightProps: InsightLogicProps
 }
 
 export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element | null {
-    const dataLogic = insightDataLogic(insightProps)
+    const dataLogic = insightVizDataLogic(insightProps)
     const { querySource } = useValues(dataLogic)
     const { updateQuerySource } = useActions(dataLogic)
     // TODO: implement isFormulaOn

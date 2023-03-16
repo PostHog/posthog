@@ -30,21 +30,25 @@ import {
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
-export function isDataNode(node?: Node): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
+export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
     return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node) || isHogQLQuery(node)
 }
 
-function isTimeToSeeDataJSONNode(node?: Node): node is TimeToSeeDataJSONNode {
+function isTimeToSeeDataJSONNode(node?: Node | null): node is TimeToSeeDataJSONNode {
     return node?.kind === NodeKind.TimeToSeeDataSessionsJSONNode
 }
 
-function isTimeToSeeDataWaterfallNode(node?: Node): node is TimeToSeeDataWaterfallNode {
+function isTimeToSeeDataWaterfallNode(node?: Node | null): node is TimeToSeeDataWaterfallNode {
     return node?.kind === NodeKind.TimeToSeeDataSessionsWaterfallNode
 }
 
 export function isNodeWithSource(
-    node?: Node
+    node?: Node | null
 ): node is DataTableNode | InsightVizNode | TimeToSeeDataWaterfallNode | TimeToSeeDataJSONNode {
+    if (!node) {
+        return false
+    }
+
     return (
         isDataTableNode(node) ||
         isInsightVizNode(node) ||
@@ -53,44 +57,44 @@ export function isNodeWithSource(
     )
 }
 
-export function isEventsNode(node?: Node): node is EventsNode {
+export function isEventsNode(node?: Node | null): node is EventsNode {
     return node?.kind === NodeKind.EventsNode
 }
 
-export function isEventsQuery(node?: Node): node is EventsQuery {
+export function isEventsQuery(node?: Node | null): node is EventsQuery {
     return node?.kind === NodeKind.EventsQuery
 }
 
-export function isActionsNode(node?: Node): node is ActionsNode {
+export function isActionsNode(node?: Node | null): node is ActionsNode {
     return node?.kind === NodeKind.ActionsNode
 }
 
-export function isNewEntityNode(node?: Node): node is NewEntityNode {
+export function isNewEntityNode(node?: Node | null): node is NewEntityNode {
     return node?.kind === NodeKind.NewEntityNode
 }
 
-export function isPersonsNode(node?: Node): node is PersonsNode {
+export function isPersonsNode(node?: Node | null): node is PersonsNode {
     return node?.kind === NodeKind.PersonsNode
 }
 
-export function isDataTableNode(node?: Node): node is DataTableNode {
+export function isDataTableNode(node?: Node | null): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
 }
 
-export function isInsightVizNode(node?: Node): node is InsightVizNode {
+export function isInsightVizNode(node?: Node | null): node is InsightVizNode {
     return node?.kind === NodeKind.InsightVizNode
 }
 
-export function isLegacyQuery(node?: Node): node is LegacyQuery {
+export function isLegacyQuery(node?: Node | null): node is LegacyQuery {
     return node?.kind === NodeKind.LegacyQuery
 }
 
-export function isHogQLQuery(node?: Node): node is HogQLQuery {
+export function isHogQLQuery(node?: Node | null): node is HogQLQuery {
     return node?.kind === NodeKind.HogQLQuery
 }
 
-export function containsHogQLQuery(node?: Node): boolean {
-    if (node === undefined) {
+export function containsHogQLQuery(node?: Node | null): boolean {
+    if (!node) {
         return false
     }
     return isHogQLQuery(node) || (isNodeWithSource(node) && isHogQLQuery(node.source))

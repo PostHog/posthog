@@ -5,9 +5,9 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { InsightLogicProps } from '~/types'
-import { insightDataLogic } from '../insightDataLogic'
 import { insightLogic } from '../insightLogic'
 import { isInsightQueryNode } from '~/queries/utils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
@@ -18,8 +18,8 @@ export function AggregationSelectDataExploration({
     insightProps,
     className,
 }: AggregationSelectProps): JSX.Element | null {
-    const { querySource } = useValues(insightDataLogic(insightProps))
-    const { updateQuerySource } = useActions(insightDataLogic(insightProps))
+    const { querySource } = useValues(insightVizDataLogic(insightProps))
+    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     if (!isInsightQueryNode(querySource)) {
         return null
