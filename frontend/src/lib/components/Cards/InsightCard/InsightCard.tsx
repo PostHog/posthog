@@ -167,7 +167,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     moveToDashboard?: (dashboard: DashboardType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
-    dashboardPlacement?: DashboardPlacement | null
+    placement?: DashboardPlacement | 'SavedInsightGrid' | null
 }
 
 interface InsightMetaProps
@@ -513,7 +513,7 @@ function InsightCardInternal(
         className,
         children,
         moreButtons,
-        dashboardPlacement,
+        placement,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -558,14 +558,14 @@ function InsightCardInternal(
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
     const [areDetailsShown, setAreDetailsShown] = useState(false)
 
-    const exportedAndCached = dashboardPlacement && dashboardPlacement == DashboardPlacement.Export && !!insight.result
-    const sharedAndCached = dashboardPlacement && dashboardPlacement == DashboardPlacement.Public && !!insight.result
+    const exportedAndCached = placement && placement == DashboardPlacement.Export && !!insight.result
+    const sharedAndCached = placement && placement == DashboardPlacement.Public && !!insight.result
     const canMakeQueryAPICalls =
-        (dashboardPlacement &&
+        placement === 'SavedInsightGrid' ||
+        (placement &&
             [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
-                dashboardPlacement
-            )) ||
-        dashboardPlacement === undefined // saved insights grid
+                placement
+            ))
 
     return (
         <div
