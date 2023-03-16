@@ -357,3 +357,28 @@ class TestDashboardTemplates(APIBaseTest):
 
         assert response.json() == dashboard_template_schema
         assert response.headers["Cache-Control"] == "max-age=120"
+
+    def test_cant_make_templates_without_teamid_private(self) -> None:
+        """
+        This test protects us from accidentally making the original default templates private
+        And as they don't have a team_id, they can't be then be found to be made public again
+        """
+        assert DashboardTemplate.objects.count() == 1  # default template
+        
+        dashboard_template = DashboardTemplate.objects.all()[0]
+
+        assert dashboard_template.scope == "global"
+        assert dashboard_template.team_id is None
+
+        # can't update the default template to be private
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{dashboard_template.id}", {"scope": "team"}
+        )
+        # unauthorized
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        # check it's still global
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["scope"] == "global"
+
