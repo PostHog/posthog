@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -18,4 +19,5 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        asyncio.run(execute_noop_workflow(options["temporal_host"], options["temporal_port"]))
+        output = asyncio.run(execute_noop_workflow(options["temporal_host"], options["temporal_port"]))
+        logging.warning(f"Workflow output: {output}")

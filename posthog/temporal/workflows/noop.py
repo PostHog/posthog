@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -12,7 +13,9 @@ class NoopActivityArgs:
 @activity.defn
 async def noop_activity(input: NoopActivityArgs) -> str:
     activity.logger.info(f"Running activity with parameter {input.time}")
-    return f"OK - {input.time}"
+    output = f"OK - {input.time}"
+    logging.warning(f"[Action] - Action executed on worker with output: {output}")
+    return output
 
 
 @workflow.defn
@@ -26,4 +29,5 @@ class NoOpWorkflow:
             start_to_close_timeout=timedelta(seconds=60),
             schedule_to_close_timeout=timedelta(minutes=5),
         )
+        logging.warning(f"[Workflow] - Workflow executed on worker with output: {result}")
         return result
