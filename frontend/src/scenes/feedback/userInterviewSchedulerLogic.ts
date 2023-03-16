@@ -3,7 +3,7 @@ import { actions, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagGroupType, FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
-import { userInterviewSchedulerLogicType } from './userInterviewSchedulerLogicType'
+import type { userInterviewSchedulerLogicType } from './userInterviewSchedulerLogicType'
 
 export const FLAG_PREFIX = 'interview-'
 
