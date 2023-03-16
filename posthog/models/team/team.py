@@ -193,6 +193,7 @@ class Team(UUIDClassicModel):
 
     @property
     def person_on_events_mode(self) -> PersonOnEventsMode:
+        # Persons on Events V2 always takes priority over Persons on Events V1
         if self._person_on_events_v2_querying_enabled:
             tag_queries(person_on_events_mode=PersonOnEventsMode.V2_ENABLED)
             return PersonOnEventsMode.V2_ENABLED
