@@ -226,6 +226,7 @@
     .posthog-3000 & {
         color: var(--muted);
         font-size: 0.8125rem;
+        border: none !important;
 
         .LemonButton__icon {
             color: var(--muted);
@@ -272,6 +273,10 @@
             &.LemonButton--active {
                 background: var(--accent-3000);
             }
+        }
+
+        &.LemonButton--status-stealth {
+            color: var(--default);
         }
     }
 }
