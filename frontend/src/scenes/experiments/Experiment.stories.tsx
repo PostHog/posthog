@@ -227,7 +227,7 @@ const MOCK_EXPERIMENT_RESULTS: FunnelExperimentResults = {
                 failure_count: 28,
             },
         ],
-    }
+    },
 }
 
 export default {

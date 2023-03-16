@@ -2212,7 +2212,6 @@ interface BaseExperimentResults {
     variants: ExperimentVariant[]
 }
 
-
 interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
