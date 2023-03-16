@@ -119,7 +119,7 @@ class TestTeam(BaseTest):
         with self.is_cloud(True):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V1_ENABLED)
+                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V2_ENABLED)
                 # called more than once when evaluating hogql
                 mock_feature_enabled.assert_called_with(
                     "person-on-events-enabled",
