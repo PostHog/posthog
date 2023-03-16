@@ -3,7 +3,6 @@ import { FilterType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
-    DataNode,
     DateRange,
     InsightFilter,
     InsightNodeKind,
@@ -33,12 +32,11 @@ import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
 import { getBreakdown, getCompare, getDisplay, getInterval, getSeries } from '~/queries/nodes/InsightViz/utils'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { subscriptions } from 'kea-subscriptions'
 import { queryExportContext } from '~/queries/query'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual, uuid } from 'lib/utils'
 import { displayTypesWithoutLegend } from 'lib/components/InsightLegend/utils'
+import { dataManagerLogic } from '~/queries/nodes/DataNode/dataManagerLogic'
 
 const defaultQuery = (insightProps: InsightLogicProps): Node => {
     const filters = insightProps.cachedInsight?.filters
@@ -67,9 +65,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['insight', 'isUsingDataExploration'],
             featureFlagLogic,
             ['featureFlags'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['response as insightData'],
+            dataManagerLogic,
+            ['getQueryLoading', 'getQueryResponse', 'getQueryError'],
         ],
         actions: [
             insightLogic,
@@ -80,6 +77,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 'loadResultsSuccess',
                 'saveInsight as insightLogicSaveInsight',
             ],
+            dataManagerLogic,
+            ['runQuery'],
         ],
     })),
 
@@ -90,6 +89,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        getInsightData: (queryId: QueryId) => ({ queryId }),
     }),
 
     reducers(({ props }) => ({
@@ -97,6 +97,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             defaultQuery(props),
             {
                 setQuery: (_, { query }) => query,
+            },
+        ],
+        queryId: [
+            null as QueryId | null,
+            {
+                getInsightData: (_, { queryId }) => queryId,
             },
         ],
     })),
@@ -161,6 +167,21 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return !objectsEqual(query, insight.query)
             },
         ],
+
+        response: [
+            (s) => [s.queryId, s.getQueryResponse],
+            (queryId, getQueryResponse) => {
+                return getQueryResponse(queryId)
+            },
+            { equalityCheck: () => false, resultEqualityCheck: () => false },
+        ],
+        insightData: [
+            (s) => [s.queryId, s.getQueryResponse],
+            (queryId, getQueryResponse) => {
+                return getQueryResponse(queryId)
+            },
+            { equalityCheck: () => false, resultEqualityCheck: () => false },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -195,6 +216,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
             if (isInsightVizNode(query)) {
                 const querySource = (query as InsightVizNode).source
+
+                actions.getInsightData(uuid())
+
                 if (isLifecycleQuery(querySource)) {
                     const filters = queryNodeToFilter(querySource)
                     actions.setFilters(filters)
@@ -243,26 +267,29 @@ export const insightDataLogic = kea<insightDataLogicType>([
             )
             actions.insightLogicSaveInsight(redirectToViewMode)
         },
-    })),
-    subscriptions(({ values, actions }) => ({
-        /**
-         * This subscription updates the insight for all visualizations
-         * that haven't been refactored to use the data exploration yet.
-         */
-        insightData: (insightData: Record<string, any> | null) => {
-            if (!values.isUsingDataExploration) {
-                return
-            }
-
-            actions.setInsight(
-                {
-                    ...values.insight,
-                    result: insightData?.result,
-                    next: insightData?.next,
-                    filters: values.insight.query ? {} : queryNodeToFilter(values.querySource),
-                },
-                {}
-            )
+        getInsightData: ({ queryId }) => {
+            actions.runQuery(queryId, values.querySource)
         },
     })),
+    // subscriptions(({ values, actions }) => ({
+    //     /**
+    //      * This subscription updates the insight for all visualizations
+    //      * that haven't been refactored to use the data exploration yet.
+    //      */
+    //     insightData: (insightData: Record<string, any> | null) => {
+    //         if (!values.isUsingDataExploration) {
+    //             return
+    //         }
+
+    //         actions.setInsight(
+    //             {
+    //                 ...values.insight,
+    //                 result: insightData?.result,
+    //                 next: insightData?.next,
+    //                 filters: values.insight.query ? {} : queryNodeToFilter(values.querySource),
+    //             },
+    //             {}
+    //         )
+    //     },
+    // })),
 ])

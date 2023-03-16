@@ -15,13 +15,16 @@ import { funnelDataLogic } from '../funnelDataLogic'
 
 export function FunnelBarChartDataExploration(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
+    const { visibleStepsWithConversionMetrics, insightData, results } = useValues(funnelDataLogic(insightProps))
     return (
-        <FunnelBarChartComponent
-            isUsingDataExploration
-            visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics}
-            {...props}
-        />
+        <>
+            <pre>{JSON.stringify(insightData, null, 2)}</pre>
+            <FunnelBarChartComponent
+                isUsingDataExploration
+                visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics}
+                {...props}
+            />
+        </>
     )
 }
 

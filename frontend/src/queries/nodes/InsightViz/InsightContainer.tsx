@@ -86,6 +86,8 @@ export function InsightContainer({
         supportsDisplay,
         insightFilter,
         exportContext,
+        response,
+        queryId,
     } = useValues(insightDataLogic(insightProps))
 
     // Empty states that completely replace the graph
@@ -208,6 +210,10 @@ export function InsightContainer({
                 data-attr="insights-graph"
                 className="insights-graph-container"
             >
+                <pre className="w-full min-h-20 p-2 text-white bg-primary">
+                    <p>QueryId: {queryId}</p>
+                    {response ? JSON.stringify(response, null, 2) : 'none'}
+                </pre>
                 <div>
                     <div
                         className={clsx('flex items-center justify-between insights-graph-header', {

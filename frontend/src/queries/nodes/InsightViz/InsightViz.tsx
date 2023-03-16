@@ -1,11 +1,9 @@
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import clsx from 'clsx'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFunnelsQuery } from '~/queries/utils'
 
-import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { InsightQueryNode, InsightVizNode } from '../../schema'
 
 import { InsightContainer } from './InsightContainer'
@@ -24,9 +22,6 @@ type InsightVizProps = {
 }
 
 export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key: insightVizDataNodeKey(insightProps) }
-
     const { insightMode } = useValues(insightSceneLogic)
 
     const isFunnels = isFunnelsQuery(query.source)
@@ -36,18 +31,16 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
     }
 
     return (
-        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            <div
-                className={clsx('insight-wrapper', {
-                    'insight-wrapper--singlecolumn': isFunnels,
-                })}
-            >
-                <EditorFilters query={query.source} setQuery={setQuerySource} showing={insightMode === ItemMode.Edit} />
+        <div
+            className={clsx('insight-wrapper', {
+                'insight-wrapper--singlecolumn': isFunnels,
+            })}
+        >
+            <EditorFilters query={query.source} setQuery={setQuerySource} showing={insightMode === ItemMode.Edit} />
 
-                <div className="insights-container" data-attr="insight-view">
-                    <InsightContainer insightMode={insightMode} />
-                </div>
+            <div className="insights-container" data-attr="insight-view">
+                <InsightContainer insightMode={insightMode} />
             </div>
-        </BindLogic>
+        </div>
     )
 }
