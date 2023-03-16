@@ -30,7 +30,13 @@ export const scene: SceneExport = {
     logic: featureFlagsLogic,
 }
 
-export function OverViewTab({ flagPrefix = '' }: { flagPrefix?: string }): JSX.Element {
+export function OverViewTab({
+    flagPrefix = '',
+    searchPlaceholder = 'Search for feature flags',
+}: {
+    flagPrefix?: string
+    searchPlaceholder?: string
+}): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const flagLogic = featureFlagsLogic({ flagPrefix })
     const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } = useValues(flagLogic)
@@ -214,7 +220,7 @@ export function OverViewTab({ flagPrefix = '' }: { flagPrefix?: string }): JSX.E
                 <div className="flex justify-between mb-4">
                     <LemonInput
                         type="search"
-                        placeholder="Search for feature flags"
+                        placeholder={searchPlaceholder}
                         onChange={setSearchTerm}
                         value={searchTerm}
                     />

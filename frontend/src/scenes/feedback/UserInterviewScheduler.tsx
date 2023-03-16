@@ -14,10 +14,6 @@ const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
     opt_in_site_apps: true // <--- Add this line
 })`
 
-const SEND_FEEDBACK_SNIPPET = `posthog.capture('Feedback Sent', {
-    '$feedback': 'Can you make the logo bigger?'
-})`
-
 export function SchedulerInstructions(): JSX.Element {
     const { schedulerInstructions } = useValues(userInterviewSchedulerLogic)
     const { toggleSchedulerInstructions } = useActions(userInterviewSchedulerLogic)
@@ -39,17 +35,23 @@ export function SchedulerInstructions(): JSX.Element {
                                     <div>
                                         <p>
                                             PostHog's user interview scheduler app is the quickest way to start inviting
-                                            customers to interview.
+                                            customers to interview. Here's what it looks like:
                                         </p>
-                                        <div>1. Turn on the feedback widget</div>
+                                        <div className="flex justify-center">
+                                            <img
+                                                src="https://posthog.com/static/user-interview-app-44f939731dce197547b675bb92942e7e.png"
+                                                className="w-80 m-auto"
+                                            />
+                                        </div>
+                                        <div className="mt-4">1. Turn on the user interview scheduler app</div>
                                         <div className="ml-4 my-4">
                                             <LemonButton
                                                 onClick={() => {
-                                                    window.open(urls.projectAppSearch('Feedback Widget'), '_blank')
+                                                    window.open(urls.projectAppSearch('User interview'), '_blank')
                                                 }}
                                                 type="primary"
                                             >
-                                                Feedback widget
+                                                User interview scheduler app
                                             </LemonButton>
                                         </div>
                                     </div>
@@ -62,18 +64,19 @@ export function SchedulerInstructions(): JSX.Element {
                                         </div>
                                     </div>
                                     <div>
-                                        <div>3. Configure the feedback widget one of the following ways:</div>
+                                        <div>3. Configure the User interview scheduler app:</div>
                                         <div className="ml-4 my-4">
                                             <ul className="list-disc ml-4">
                                                 <li>
-                                                    <strong>Floating feedback button:</strong> Select show feedback
-                                                    button on the page to have a floating feedback button on your
-                                                    website.
+                                                    <strong>Domains:</strong> Add the domains where you want it to show
                                                 </li>
                                                 <li>
-                                                    <strong>Custom button:</strong> Add a button with a corresponding
-                                                    data attribute e.g. data-attr='posthog-feedback-button'. When
-                                                    clicked this will open the feedback widget
+                                                    <strong>Invitation Title (default):</strong> Set a default title for
+                                                    the popup
+                                                </li>
+                                                <li>
+                                                    <strong>Invitation Body (default):</strong> Set a default body for
+                                                    the popup, you can include images and links
                                                 </li>
                                             </ul>
                                         </div>
@@ -89,14 +92,36 @@ export function SchedulerInstructions(): JSX.Element {
                                     <div>
                                         <p>Build a custom user interview scheduler to match your brand.</p>
                                         <div>
-                                            <div>1. Create a custom form styled to your app</div>
-                                        </div>
-                                        <div>
-                                            <div>2. Send the feedback to PostHog</div>
+                                            <div>
+                                                1. Create a custom popup based on{' '}
+                                                <a href="https://github.com/PostHog/user-interview-app/blob/main/site.ts">
+                                                    PostHog's open-source popup code
+                                                </a>
+                                            </div>
                                             <div className="ml-4 my-4">
-                                                <CodeSnippet language={Language.JavaScript} wrap>
-                                                    {SEND_FEEDBACK_SNIPPET}
-                                                </CodeSnippet>
+                                                <ul className="list-disc ml-4">
+                                                    <li>
+                                                        <strong>Show the popup</strong> The popup should show when a
+                                                        flag with the prefix <code>interview-</code> is enabled.
+                                                    </li>
+                                                    <li>
+                                                        <strong>Hide the popup</strong> Hide the popup when the user
+                                                        clicks <code>Close</code> or <code>Book</code>. Then use local
+                                                        storage to disable it from showing again and set the user
+                                                        properties to prevent is showing across devices. (See the code
+                                                        for an example)
+                                                    </li>
+                                                    <li>
+                                                        <strong>Send events</strong> Send events to PostHog when the
+                                                        user clicks the buttons. (See the code for the events)
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                            <div>
+                                                2. Create a user interview flag. The flag should have the prefix{' '}
+                                                <code>interview-</code> and be enabled for the users you want to show it
+                                                to. It should be disabled for the users with the property indicating
+                                                they've already seen it. (See the code for an example)
                                             </div>
                                         </div>
                                     </div>
@@ -116,7 +141,9 @@ export function UserInterviewScheduler(): JSX.Element {
     return (
         <>
             <div className="flex w-full justify-between">
-                <h3 className="text-lg">User Interview Scheduler</h3>
+                <div>
+                    <h3 className="text-lg">User Interview Scheduler</h3>
+                </div>
                 <div className="flex gap-2">
                     <LemonButton
                         onClick={() => {
@@ -137,7 +164,7 @@ export function UserInterviewScheduler(): JSX.Element {
                 </div>
             </div>
             <div className="my-4" />
-            <OverViewTab flagPrefix="interview-" />
+            <OverViewTab flagPrefix="interview-" searchPlaceholder="Search interview invitations" />
             <SchedulerInstructions />
         </>
     )
