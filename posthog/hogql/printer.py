@@ -454,8 +454,13 @@ class _Printer(Visitor):
 
             materialized_column = self._get_materialized_column(table_name, ref.name, field_name)
             if materialized_column:
-                return self._print_identifier(materialized_column)
-
+                property_sql = self._print_identifier(materialized_column)
+                if not self.context.within_non_hogql_query:
+                    property_sql = f"{self.visit(field_ref.table)}.{property_sql}"
+                return property_sql
+            else:
+                field_sql = self.visit(field_ref)
+                return trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
         elif (
             self.context.within_non_hogql_query
             and (isinstance(table, ast.SelectQueryAliasRef) and table.name == "events__pdi__person")
