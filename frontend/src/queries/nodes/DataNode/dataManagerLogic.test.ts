@@ -12,12 +12,12 @@ const TEST_QUERY_ID = 'test-id'
 
 const dummyLogic = kea([
     connect({
-        values: [dataManagerLogic, ['isLoading', 'response', 'error']],
+        values: [dataManagerLogic, ['getQueryLoading', 'getQueryResponse', 'getQueryError']],
     }),
     selectors({
-        dummyLoading: [(s) => [s.isLoading], (isLoading) => isLoading(TEST_QUERY_ID)],
-        dummyResponse: [(s) => [s.response], (response) => response(TEST_QUERY_ID)],
-        dummyError: [(s) => [s.error], (error) => error(TEST_QUERY_ID)],
+        dummyLoading: [(s) => [s.getQueryLoading], (getQueryLoading) => getQueryLoading(TEST_QUERY_ID)],
+        dummyResponse: [(s) => [s.getQueryResponse], (getQueryResponse) => getQueryResponse(TEST_QUERY_ID)],
+        dummyError: [(s) => [s.getQueryError], (getQueryError) => getQueryError(TEST_QUERY_ID)],
     }),
 ])
 

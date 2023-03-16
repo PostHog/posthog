@@ -66,22 +66,22 @@ export const dataManagerLogic = kea<dataManagerLogicType>([
         // - isLoading: Record<queryId, bool>
     }),
     selectors({
-        logic: [(s) => [s.queries], (queries: QueryStore) => (queryId: QueryId) => queries[queryId]?.logic],
-        isLoading: [
+        // logic: [(s) => [s.queries], (queries: QueryStore) => (queryId: QueryId) => queries[queryId]?.logic],
+        getQueryLoading: [
             (s) => [s.queries],
             (queries: QueryStore) => (queryId: QueryId) => {
                 const logic = queries[queryId]?.logic
                 return logic ? logic.values.responseLoading : null
             },
         ],
-        response: [
+        getQueryResponse: [
             (s) => [s.queries],
             (queries: QueryStore) => (queryId: QueryId) => {
                 const logic = queries[queryId]?.logic
                 return logic ? logic.values.response : null
             },
         ],
-        error: [
+        getQueryError: [
             (s) => [s.queries],
             (queries: QueryStore) => (queryId: QueryId) => {
                 const logic = queries[queryId]?.logic
