@@ -1,8 +1,9 @@
 from typing import Any, Dict, Tuple
 
 from posthog.models.property.util import get_property_string_expr
-from posthog.queries.trends.trends_event_query_base import TrendsEventQueryBase
 from posthog.models.team import PersonOnEventsMode
+from posthog.queries.trends.trends_event_query_base import TrendsEventQueryBase
+
 
 class TrendsEventQuery(TrendsEventQueryBase):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
@@ -36,7 +37,11 @@ class TrendsEventQuery(TrendsEventQueryBase):
                 else ""
             )
             + (f", {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id" if self._aggregate_users_by_distinct_id else "")
-            + (f", {self.EVENT_TABLE_ALIAS}.person_id as person_id" if self._person_on_events_mode != PersonOnEventsMode.DISABLED else "")
+            + (
+                f", {self.EVENT_TABLE_ALIAS}.person_id as person_id"
+                if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+                else ""
+            )
             + (
                 " ".join(
                     f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._extra_fields

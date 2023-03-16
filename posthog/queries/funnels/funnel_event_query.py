@@ -3,9 +3,10 @@ from typing import Any, Dict, Set, Tuple, Union
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import get_aggregation_target_field
-from posthog.queries.util import get_person_properties_mode
-from posthog.queries.event_query import EventQuery
 from posthog.models.team import PersonOnEventsMode
+from posthog.queries.event_query import EventQuery
+from posthog.queries.util import get_person_properties_mode
+
 
 class FunnelEventQuery(EventQuery):
     _filter: Filter
@@ -82,7 +83,11 @@ class FunnelEventQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
-        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._person_on_events_mode != PersonOnEventsMode.DISABLED else ""
+        null_person_filter = (
+            f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
+            if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+            else ""
+        )
 
         sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})

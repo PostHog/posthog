@@ -26,7 +26,7 @@ class GroupsJoinQuery:
         team_id: int,
         column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
         join_key: Optional[str] = None,
-        person_on_events_mode: bool = False,
+        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
     ) -> None:
         self._filter = filter
         self._team_id = team_id

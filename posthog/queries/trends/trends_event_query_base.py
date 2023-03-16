@@ -5,12 +5,13 @@ from posthog.models import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.queries.util import get_person_properties_mode
+from posthog.models.team import PersonOnEventsMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.util import get_active_user_params
-from posthog.models.team import PersonOnEventsMode
+from posthog.queries.util import get_person_properties_mode
+
 
 class TrendsEventQueryBase(EventQuery):
     _entity: Entity
@@ -84,7 +85,11 @@ class TrendsEventQueryBase(EventQuery):
     def _get_not_null_actor_condition(self) -> str:
         if self._entity.math_group_type_index is None:
             # If aggregating by person, exclude events with null/zero person IDs
-            return f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._person_on_events_mode != PersonOnEventsMode.DISABLED else ""
+            return (
+                f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
+                if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+                else ""
+            )
         else:
             # If aggregating by group, exclude events that aren't associated with a group
             return f"""AND "$group_{self._entity.math_group_type_index}" != ''"""

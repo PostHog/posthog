@@ -22,9 +22,8 @@ from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import get_property_string_expr, normalize_url_breakdown, parse_prop_grouped_clauses
-from posthog.models.team import Team
+from posthog.models.team import PersonOnEventsMode, Team
 from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.queries.util import PersonPropertiesMode
 from posthog.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
     format_breakdown_cohort_join_query,
@@ -63,6 +62,7 @@ from posthog.queries.trends.util import (
     parse_response,
     process_math,
 )
+from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import encode_get_request_params
 
 
@@ -75,7 +75,7 @@ class TrendsBreakdown:
         filter: Filter,
         team: Team,
         column_optimizer: Optional[ColumnOptimizer] = None,
-        person_on_events_mode: bool = False,
+        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
     ):
         self.entity = entity
         self.filter = filter
@@ -139,9 +139,7 @@ class TrendsBreakdown:
             self.entity,
             self.team,
             event_table_alias="e",
-            person_id_alias=f"person_id"
-            if self.person_on_events_mode
-            else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            person_id_alias=f"person_id" if self.person_on_events_mode else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
         action_query = ""
@@ -422,9 +420,7 @@ class TrendsBreakdown:
                 raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
 
         elif (
-            self.person_on_events_mode
-            and self.filter.breakdown_type == "group"
-            and groups_on_events_querying_enabled()
+            self.person_on_events_mode and self.filter.breakdown_type == "group" and groups_on_events_querying_enabled()
         ):
             properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
             breakdown_value, _ = get_property_string_expr(

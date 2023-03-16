@@ -9,9 +9,9 @@ from posthog.constants import (
 )
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.util import get_property_string_expr
-from posthog.models.team import Team, PersonOnEventsMode
-from posthog.queries.util import get_person_properties_mode
+from posthog.models.team import PersonOnEventsMode, Team
 from posthog.queries.event_query import EventQuery
+from posthog.queries.util import get_person_properties_mode
 
 
 class PathEventQuery(EventQuery):
@@ -24,9 +24,7 @@ class PathEventQuery(EventQuery):
         funnel_paths_join = ""
         funnel_paths_filter = ""
 
-        person_id = (
-            f"{self.DISTINCT_ID_TABLE_ALIAS if not self._person_on_events_mode != PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id"
-        )
+        person_id = f"{self.DISTINCT_ID_TABLE_ALIAS if not self._person_on_events_mode != PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id"
 
         if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP or self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP:
             # used when looking for paths up to a dropoff point to account for events happening between the latest even and when the person is deemed dropped off
@@ -102,7 +100,11 @@ class PathEventQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
-        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._person_on_events_mode != PersonOnEventsMode.DISABLED else ""
+        null_person_filter = (
+            f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
+            if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+            else ""
+        )
 
         sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})

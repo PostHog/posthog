@@ -25,7 +25,6 @@ from posthog.models.property.util import (
     parse_prop_grouped_clauses,
 )
 from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.queries.util import PersonPropertiesMode
 from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_cohort_name,
@@ -33,7 +32,7 @@ from posthog.queries.breakdown_props import (
 )
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.util import correct_result_for_sampling
+from posthog.queries.util import PersonPropertiesMode, correct_result_for_sampling
 from posthog.utils import relative_date_parse
 
 

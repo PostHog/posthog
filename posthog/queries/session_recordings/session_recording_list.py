@@ -7,9 +7,9 @@ from posthog.models import Entity
 from posthog.models.action.util import format_entity_filter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.queries.util import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.util import PersonPropertiesMode
 
 
 class EventFiltersSQL(NamedTuple):

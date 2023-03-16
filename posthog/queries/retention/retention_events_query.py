@@ -11,11 +11,10 @@ from posthog.models import Entity
 from posthog.models.action.util import Action, format_action_filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.property.util import get_single_or_multi_property_string_expr
-from posthog.models.team import Team, PersonOnEventsMode
-from posthog.queries.util import get_person_properties_mode
+from posthog.models.team import PersonOnEventsMode, Team
 from posthog.queries.event_query import EventQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.util import get_trunc_func_ch
+from posthog.queries.util import get_person_properties_mode, get_trunc_func_ch
 
 
 class RetentionEventsQuery(EventQuery):
@@ -29,7 +28,7 @@ class RetentionEventsQuery(EventQuery):
         event_query_type: RetentionQueryType,
         team: Team,
         aggregate_users_by_distinct_id: Optional[bool] = None,
-        person_on_events_mode: bool = False,
+        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
     ):
         self._event_query_type = event_query_type
         super().__init__(
@@ -62,8 +61,14 @@ class RetentionEventsQuery(EventQuery):
 
             if breakdown_type == "person":
                 table = "person" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "events"
-                column = "person_props" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "person_properties"
-                materalised_table_column = "properties" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "person_properties"
+                column = (
+                    "person_props"
+                    if self._person_on_events_mode == PersonOnEventsMode.DISABLED
+                    else "person_properties"
+                )
+                materalised_table_column = (
+                    "properties" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "person_properties"
+                )
 
             breakdown_values_expression = get_single_or_multi_property_string_expr(
                 breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
@@ -141,7 +146,11 @@ class RetentionEventsQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
-        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._person_on_events_mode != PersonOnEventsMode.DISABLED else ""
+        null_person_filter = (
+            f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
+            if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+            else ""
+        )
 
         sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})

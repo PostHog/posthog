@@ -9,14 +9,14 @@ from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.util import get_persons_by_uuids
-from posthog.models.team import Team, PersonOnEventsMode
-from posthog.queries.util import get_person_properties_mode
+from posthog.models.team import PersonOnEventsMode, Team
 from posthog.queries.event_query import EventQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.sql import LIFECYCLE_EVENTS_QUERY, LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.queries.trends.util import parse_response
+from posthog.queries.util import get_person_properties_mode
 from posthog.utils import encode_get_request_params
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
@@ -145,9 +145,15 @@ class LifecycleEventQuery(EventQuery):
 
         self.params.update(entity_prop_params)
 
-        created_at_clause = "person.created_at" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "person_created_at"
+        created_at_clause = (
+            "person.created_at" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "person_created_at"
+        )
 
-        null_person_filter = "" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
+        null_person_filter = (
+            ""
+            if self._person_on_events_mode == PersonOnEventsMode.DISABLED
+            else f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
+        )
 
         sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})

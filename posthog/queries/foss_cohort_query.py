@@ -9,9 +9,9 @@ from posthog.models.cohort.util import format_static_cohort_query, get_count_ope
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import BehavioralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
 from posthog.models.property.util import prop_filter_json_extract
-from posthog.queries.util import PersonPropertiesMode
-from posthog.queries.event_query import EventQuery
 from posthog.models.team import PersonOnEventsMode
+from posthog.queries.event_query import EventQuery
+from posthog.queries.util import PersonPropertiesMode
 
 Relative_Date = Tuple[int, OperatorInterval]
 Event = Tuple[str, Union[str, int]]

@@ -12,13 +12,13 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyGroup, PropertyName
 from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.models.team import Team
-from posthog.queries.util import PersonPropertiesMode
+from posthog.models.team import PersonOnEventsMode, Team
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.session_query import SessionQuery
+from posthog.queries.util import PersonPropertiesMode
 
 
 class EventQuery(metaclass=ABCMeta):
@@ -55,7 +55,7 @@ class EventQuery(metaclass=ABCMeta):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        person_on_events_mode: bool = False,
+        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
         **kwargs,
     ) -> None:
         self._filter = filter

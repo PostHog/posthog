@@ -18,7 +18,6 @@ from posthog.models.property.util import (
 )
 from posthog.models.team import Team
 from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.queries.util import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.insight import insight_sync_execute
@@ -27,6 +26,7 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_ELEMENTS_ARRAY_OF_KEY_SQL
+from posthog.queries.util import PersonPropertiesMode
 
 ALL_USERS_COHORT_ID = 0
 

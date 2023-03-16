@@ -1,6 +1,6 @@
-from enum import Enum, auto
 import json
 from datetime import datetime, timedelta
+from enum import Enum, auto
 from typing import Any, Dict, Optional, Union
 
 import pytz
@@ -9,8 +9,8 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
+from posthog.models.team import PersonOnEventsMode, Team
 from posthog.queries.insight import insight_sync_execute
-from posthog.models.team import Team, PersonOnEventsMode
 
 
 class PersonPropertiesMode(Enum):
@@ -20,6 +20,7 @@ class PersonPropertiesMode(Enum):
     DIRECT = auto()
     DIRECT_ON_EVENTS = auto()
     DIRECT_ON_PERSONS = auto()
+
 
 EARLIEST_TIMESTAMP = "2015-01-01"
 
@@ -131,8 +132,9 @@ def correct_result_for_sampling(
     result = round(value * (1 / sampling_factor))
     return result
 
+
 def get_person_properties_mode(team: Team) -> PersonPropertiesMode:
     if team.person_on_events_mode == PersonOnEventsMode.DISABLED:
         return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
-    
+
     return PersonPropertiesMode.DIRECT_ON_EVENTS
