@@ -3,7 +3,7 @@ from typing import Any, Dict, Set, Tuple, Union
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import get_aggregation_target_field
-from posthog.models.team import PersonOnEventsMode
+from posthog.utils import PersonOnEventsMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import get_person_properties_mode
 

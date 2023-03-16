@@ -23,13 +23,14 @@ from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
 from posthog.models.filters import Filter
 from posthog.models.property.util import get_property_string_expr
-from posthog.models.team import PersonOnEventsMode, Team
+from posthog.models.team import Team
 from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.funnels.utils import get_funnel_order_actor_class
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import correct_result_for_sampling
+from posthog.utils import PersonOnEventsMode
 
 
 class EventDefinition(TypedDict):

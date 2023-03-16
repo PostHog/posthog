@@ -7,7 +7,7 @@ from posthog.models import Dashboard, DashboardTile, Organization, PluginConfig,
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.team import get_team_in_cache, util
 from posthog.plugins.test.mock import mocked_plugin_requests_get
-from posthog.models.team import PersonOnEventsMode
+from posthog.utils import PersonOnEventsMode
 
 from .base import BaseTest
 

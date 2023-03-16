@@ -14,7 +14,7 @@ from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.models.team import PersonOnEventsMode, Team
+from posthog.models.team import Team
 from posthog.queries.util import PersonPropertiesMode
 from posthog.test.base import (
     BaseTest,
@@ -25,6 +25,7 @@ from posthog.test.base import (
     snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
 )
+from posthog.utils import PersonOnEventsMode
 
 
 def _create_action(**kwargs):

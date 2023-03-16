@@ -9,8 +9,9 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
-from posthog.models.team import PersonOnEventsMode, Team
+from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
+from posthog.utils import PersonOnEventsMode
 
 
 class PersonPropertiesMode(Enum):

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
-from posthog.models.team import PersonOnEventsMode
+from posthog.utils import PersonOnEventsMode
 
 
 @dataclass

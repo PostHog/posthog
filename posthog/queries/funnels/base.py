@@ -24,7 +24,7 @@ from posthog.models.property.util import (
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
 )
-from posthog.models.team import PersonOnEventsMode
+from posthog.utils import PersonOnEventsMode
 from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,

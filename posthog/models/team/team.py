@@ -23,7 +23,8 @@ from posthog.models.team.util import actor_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
-from enum import Enum, auto
+
+from posthog.utils import PersonOnEventsMode
 
 from .team_caching import get_team_in_cache, set_team_in_cache
 
@@ -39,11 +40,6 @@ DEPRECATED_ATTRS = (
     "event_properties_with_usage",
     "event_properties_numerical",
 )
-
-class PersonOnEventsMode(Enum):
-    DISABLED = auto()
-    V1_ENABLED = auto()
-    V2_ENABLED = auto()
 
 class TeamManager(models.Manager):
     def get_queryset(self):
@@ -336,3 +332,4 @@ def get_available_features_for_team(team_id: int):
     )
 
     return available_features
+

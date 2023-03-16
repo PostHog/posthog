@@ -16,8 +16,9 @@ from posthog.models.filters import Filter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
-from posthog.models.team import PersonOnEventsMode, Team
+from posthog.models.team import Team
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp
+from posthog.utils import PersonOnEventsMode
 
 logger = structlog.get_logger(__name__)
 

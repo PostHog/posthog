@@ -11,7 +11,7 @@ from posthog.hogql.resolver import ResolverException, lookup_field_by_name, reso
 from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
-from posthog.models.team import PersonOnEventsMode
+from posthog.utils import PersonOnEventsMode
 
 
 def team_id_guard_for_table(table_ref: Union[ast.TableRef, ast.TableAliasRef], context: HogQLContext) -> ast.Expr:

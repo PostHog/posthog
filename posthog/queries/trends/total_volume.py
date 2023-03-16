@@ -14,7 +14,7 @@ from posthog.constants import (
 from posthog.models.entity import Entity
 from posthog.models.event.sql import NULL_SQL
 from posthog.models.filters import Filter
-from posthog.models.team import PersonOnEventsMode, Team
+from posthog.models.team import Team
 from posthog.queries.trends.sql import (
     ACTIVE_USERS_AGGREGATE_SQL,
     ACTIVE_USERS_SQL,
@@ -39,7 +39,7 @@ from posthog.queries.trends.util import (
     process_math,
 )
 from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch
-from posthog.utils import encode_get_request_params
+from posthog.utils import PersonOnEventsMode, encode_get_request_params
 
 
 class TrendsTotalVolume:

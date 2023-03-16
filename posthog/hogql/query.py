@@ -10,8 +10,9 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
 from posthog.hogql.visitor import clone_expr
-from posthog.models.team import Team, PersonOnEventsMode
+from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
+from posthog.utils import PersonOnEventsMode
 
 
 class HogQLQueryResponse(BaseModel):

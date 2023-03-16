@@ -9,7 +9,7 @@ from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.util import get_persons_by_uuids
-from posthog.models.team import PersonOnEventsMode, Team
+from posthog.models.team import Team
 from posthog.queries.event_query import EventQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
@@ -17,7 +17,7 @@ from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.sql import LIFECYCLE_EVENTS_QUERY, LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.queries.trends.util import parse_response
 from posthog.queries.util import get_person_properties_mode
-from posthog.utils import encode_get_request_params
+from posthog.utils import PersonOnEventsMode, encode_get_request_params
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
 #

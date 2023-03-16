@@ -1,5 +1,5 @@
 from posthog.models.group.util import get_aggregation_target_field
-from posthog.models.team import PersonOnEventsMode
+from posthog.utils import PersonOnEventsMode
 from posthog.queries.stickiness.stickiness_event_query import StickinessEventsQuery
 
 

@@ -9,7 +9,7 @@ from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.sql import GET_ACTORS_FROM_EVENT_QUERY
 from posthog.models.property import Property
-from posthog.models.team import PersonOnEventsMode, Team
+from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import (
@@ -18,6 +18,7 @@ from posthog.queries.trends.util import (
     offset_time_series_date_by_interval,
     process_math,
 )
+from posthog.utils import PersonOnEventsMode
 
 
 class TrendsActors(ActorBaseQuery):

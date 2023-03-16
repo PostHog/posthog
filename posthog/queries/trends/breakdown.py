@@ -22,7 +22,7 @@ from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import get_property_string_expr, normalize_url_breakdown, parse_prop_grouped_clauses
-from posthog.models.team import PersonOnEventsMode, Team
+from posthog.models.team import Team
 from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
@@ -63,7 +63,7 @@ from posthog.queries.trends.util import (
     process_math,
 )
 from posthog.queries.util import PersonPropertiesMode
-from posthog.utils import encode_get_request_params
+from posthog.utils import PersonOnEventsMode, encode_get_request_params
 
 
 class TrendsBreakdown:

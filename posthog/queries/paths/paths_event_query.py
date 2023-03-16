@@ -9,9 +9,10 @@ from posthog.constants import (
 )
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.util import get_property_string_expr
-from posthog.models.team import PersonOnEventsMode, Team
+from posthog.models.team import Team
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import get_person_properties_mode
+from posthog.utils import PersonOnEventsMode
 
 
 class PathEventQuery(EventQuery):

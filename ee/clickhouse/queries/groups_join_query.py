@@ -7,8 +7,9 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.models.team.team import PersonOnEventsMode, groups_on_events_querying_enabled
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.util import PersonPropertiesMode
+from posthog.utils import PersonOnEventsMode
 
 
 class GroupsJoinQuery:

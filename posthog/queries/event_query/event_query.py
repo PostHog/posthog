@@ -12,13 +12,14 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyGroup, PropertyName
 from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.models.team import PersonOnEventsMode, Team
+from posthog.models.team import Team
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.session_query import SessionQuery
 from posthog.queries.util import PersonPropertiesMode
+from posthog.utils import PersonOnEventsMode
 
 
 class EventQuery(metaclass=ABCMeta):

@@ -4,7 +4,7 @@ from posthog.constants import PropertyOperatorType
 from posthog.models.cohort.util import get_count_operator
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.property import Property, PropertyGroup
-from posthog.models.team import PersonOnEventsMode
+from posthog.utils import PersonOnEventsMode
 from posthog.queries.foss_cohort_query import (
     FOSSCohortQuery,
     parse_and_validate_positive_integer,

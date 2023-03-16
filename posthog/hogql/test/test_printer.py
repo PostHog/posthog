@@ -6,7 +6,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
-from posthog.models.team import PersonOnEventsMode
+from posthog.utils import PersonOnEventsMode
 
 
 class TestPrinter(TestCase):

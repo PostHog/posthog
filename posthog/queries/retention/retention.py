@@ -5,13 +5,14 @@ import pytz
 
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.team import PersonOnEventsMode, Team
+from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.retention.actors_query import RetentionActorsByPeriod, build_actor_activity_query
 from posthog.queries.retention.retention_events_query import RetentionEventsQuery
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_SQL
 from posthog.queries.retention.types import BreakdownValues, CohortKey
 from posthog.queries.util import correct_result_for_sampling
+from posthog.utils import PersonOnEventsMode
 
 
 class Retention:

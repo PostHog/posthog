@@ -1,7 +1,7 @@
 from typing import Any, Dict, Tuple
 
 from posthog.models.property.util import get_property_string_expr
-from posthog.models.team import PersonOnEventsMode
+from posthog.utils import PersonOnEventsMode
 from posthog.queries.trends.trends_event_query_base import TrendsEventQueryBase
 
 

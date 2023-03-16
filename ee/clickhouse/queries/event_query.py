@@ -10,8 +10,9 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyName
-from posthog.models.team import PersonOnEventsMode, Team
+from posthog.models.team import Team
 from posthog.queries.event_query.event_query import EventQuery
+from posthog.utils import PersonOnEventsMode
 
 
 class EnterpriseEventQuery(EventQuery):
