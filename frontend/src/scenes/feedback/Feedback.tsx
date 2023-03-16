@@ -40,6 +40,10 @@ export function FeedbackInstructions(): JSX.Element {
                             content: (
                                 <div>
                                     <div>
+                                        <p>
+                                            PostHog's in-app widget is quickest way to get started managing customer
+                                            feedback.
+                                        </p>
                                         <div>1. Turn on the feedback widget</div>
                                         <div className="ml-4 my-4">
                                             <LemonButton
@@ -86,6 +90,7 @@ export function FeedbackInstructions(): JSX.Element {
                             content: (
                                 <div>
                                     <div>
+                                        <p>Build a custom feedback form to connect feedback styled to your brand.</p>
                                         <div>
                                             <div>1. Create a custom form styled to your app</div>
                                         </div>
@@ -113,6 +118,8 @@ function InAppFeedback(): JSX.Element {
     const { setDataTableQuery } = useActions(feedbackLogic)
 
     const { toggleInAppFeedbackInstructions } = useActions(feedbackLogic)
+
+    const { events, eventsLoading } = useValues(feedbackLogic)
     // TODO call the events endpoint to get the feedback events and allow adding new events
 
     return (
@@ -128,6 +135,19 @@ function InAppFeedback(): JSX.Element {
                     Show instructions
                 </LemonButton>
             </div>
+            {!eventsLoading && events.length === 0 && (
+                <div>
+                    No events found.{' '}
+                    <a
+                        onClick={() => {
+                            toggleInAppFeedbackInstructions()
+                        }}
+                    >
+                        Send feedback
+                    </a>{' '}
+                    to use this feature.
+                </div>
+            )}
             <Query query={trendQuery} />
             <LemonDivider className="my-6" />
             <Query query={dataTableQuery} setQuery={setDataTableQuery} />

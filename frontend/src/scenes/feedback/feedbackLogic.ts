@@ -1,19 +1,25 @@
 import { EventsQuery } from './../../queries/schema'
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { DataTableNode, Node, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema'
 
 import type { feedbackLogicType } from './feedbackLogicType'
+import api from 'lib/api'
+import { loaders } from 'kea-loaders'
+import { EventType } from '~/types'
+
+const EVENT_NAME = 'Feedback Sent'
+const FEEDBACK_PROPERTY = '$feedback'
 
 const DEFAULT_DATATABLE_QUERY: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
     source: {
         kind: NodeKind.EventsQuery,
-        select: ['*', 'properties.$feedback', 'timestamp', 'person'],
+        select: ['*', `properties.${FEEDBACK_PROPERTY}`, 'timestamp', 'person'],
         orderBy: ['timestamp DESC'],
         after: '-30d',
         limit: 100,
-        event: 'Feedback Sent',
+        event: EVENT_NAME,
     },
     propertiesViaUrl: true,
     showExport: true,
@@ -28,8 +34,8 @@ const DEFAULT_TREND_QUERY: TrendsQuery = {
     series: [
         {
             kind: NodeKind.EventsNode,
-            event: 'Feedback Sent',
-            name: 'Feedback Sent',
+            event: EVENT_NAME,
+            name: EVENT_NAME,
         },
     ],
     dateRange: {
@@ -108,10 +114,29 @@ export const feedbackLogic = kea<feedbackLogicType>([
             },
         ],
     }),
+    loaders({
+        events: [
+            [] as EventType[],
+            {
+                loadEvents: async ({ eventName }: { eventName: string }) => {
+                    const response = await api.events.list({
+                        properties: [],
+                        event: eventName,
+                        orderBy: ['-timestamp'],
+                    })
+                    // TODO: fix this type
+                    return response.results as unknown as EventType[]
+                },
+            },
+        ],
+    }),
     selectors({
         expandedSection: [
             (s) => [s.expandedSections],
             (expandedSections: boolean[]) => (idx: number) => expandedSections[idx],
         ],
+    }),
+    afterMount(({ actions }) => {
+        actions.loadEvents({ eventName: EVENT_NAME })
     }),
 ])
