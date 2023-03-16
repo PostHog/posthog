@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog import datetime
@@ -9,6 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
+from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 
@@ -474,3 +476,77 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.clickhouse,
                 f"SELECT event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(team_id, {self.team.pk}), in(events__pdi.person_id, (SELECT person_id FROM person_static_cohort WHERE and(equals(team_id, {self.team.pk}), equals(cohort_id, {cohort.pk}))))) GROUP BY event LIMIT 100",
             )
+
+    def test_join_with_property_materialized_session_id(self):
+        with freeze_time("2020-01-10"):
+            _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="some_id",
+                properties={"attr": "some_val", "$session_id": "111"},
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="some_id",
+                properties={"attr": "some_val", "$session_id": "111"},
+            )
+            create_snapshot(distinct_id="some_id", session_id="111", timestamp=timezone.now(), team_id=self.team.pk)
+
+            response = execute_hogql_query(
+                "select e.event, s.session_id from events e left join session_recording_events s on s.session_id = e.properties.$session_id where e.properties.$session_id is not null limit 10",
+                team=self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT e.event, s.session_id FROM events AS e LEFT JOIN session_recording_events AS s ON equals(s.session_id, e.`$session_id`) WHERE and(equals(s.team_id, {self.team.pk}), equals(e.team_id, {self.team.pk}), isNotNull(e.`$session_id`)) LIMIT 10",
+            )
+            self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
+
+            response = execute_hogql_query(
+                "select e.event, s.session_id from session_recording_events s left join events e on e.properties.$session_id = s.session_id where e.properties.$session_id is not null limit 10",
+                team=self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT e.event, s.session_id FROM session_recording_events AS s LEFT JOIN events AS e ON equals(e.`$session_id`, s.session_id) WHERE and(equals(e.team_id, {self.team.pk}), equals(s.team_id, {self.team.pk}), isNotNull(e.`$session_id`)) LIMIT 10",
+            )
+            self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
+
+    def test_join_with_property_not_materialized(self):
+        with freeze_time("2020-01-10"):
+            _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="some_id",
+                properties={"attr": "some_val", "$$$session_id": "111"},
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="some_id",
+                properties={"attr": "some_val", "$$$session_id": "111"},
+            )
+            create_snapshot(distinct_id="some_id", session_id="111", timestamp=timezone.now(), team_id=self.team.pk)
+
+            response = execute_hogql_query(
+                "select e.event, s.session_id from events e left join session_recording_events s on s.session_id = e.properties.$$$session_id where e.properties.$$$session_id is not null limit 10",
+                team=self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT e.event, s.session_id FROM events AS e LEFT JOIN session_recording_events AS s ON equals(s.session_id, replaceRegexpAll(JSONExtractRaw(e.properties, %(hogql_val_0)s), '^\"|\"$', '')) WHERE and(equals(s.team_id, {self.team.pk}), equals(e.team_id, {self.team.pk}), isNotNull(replaceRegexpAll(JSONExtractRaw(e.properties, %(hogql_val_1)s), '^\"|\"$', ''))) LIMIT 10",
+            )
+            self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
+
+            response = execute_hogql_query(
+                "select e.event, s.session_id from session_recording_events s left join events e on e.properties.$$$session_id = s.session_id where e.properties.$$$session_id is not null limit 10",
+                team=self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT e.event, s.session_id FROM session_recording_events AS s LEFT JOIN events AS e ON equals(replaceRegexpAll(JSONExtractRaw(e.properties, %(hogql_val_0)s), '^\"|\"$', ''), s.session_id) WHERE and(equals(e.team_id, {self.team.pk}), equals(s.team_id, {self.team.pk}), isNotNull(replaceRegexpAll(JSONExtractRaw(e.properties, %(hogql_val_1)s), '^\"|\"$', ''))) LIMIT 10",
+            )
+            self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
