@@ -9,6 +9,7 @@ import {
     FunnelVizType,
     InsightModel,
     InsightShortId,
+    InsightType,
     PathsFilterType,
     PathType,
     StepOrderValue,
@@ -66,6 +67,8 @@ import {
     isTimeToSeeDataSessionsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
+import { urls } from 'scenes/urls'
+import { examples } from '~/queries/examples'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -616,4 +619,15 @@ export function sortDates(dates: Array<string | null>): Array<string | null> {
 // Gets content-length header from a fetch Response
 export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
+}
+
+export const insightTypeURL: Record<InsightType, string> = {
+    TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
+    STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
+    LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
+    FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
+    RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
+    PATHS: urls.insightNew({ insight: InsightType.PATHS }),
+    QUERY: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
+    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
 }
