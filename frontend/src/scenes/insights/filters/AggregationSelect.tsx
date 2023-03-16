@@ -7,15 +7,23 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { InsightLogicProps } from '~/types'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightLogic } from '../insightLogic'
+import { isInsightQueryNode } from '~/queries/utils'
 
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
     className?: string
 }
 
-export function AggregationSelectDataExploration({ insightProps, className }: AggregationSelectProps): JSX.Element {
+export function AggregationSelectDataExploration({
+    insightProps,
+    className,
+}: AggregationSelectProps): JSX.Element | null {
     const { querySource } = useValues(insightDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightDataLogic(insightProps))
+
+    if (!isInsightQueryNode(querySource)) {
+        return null
+    }
 
     return (
         <AggregationSelectComponent

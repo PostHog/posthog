@@ -7,7 +7,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { StickinessFilter, TrendsFilter } from '~/queries/schema'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { filterForQuery } from '~/queries/utils'
+import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
 
 export const compareFilterLogic = kea<compareFilterLogicType>({
     props: {} as InsightLogicProps,
@@ -57,10 +57,13 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
                 actions.setFilters(newFilters)
             }
 
-            const currentCompare = (filterForQuery(values.querySource) as TrendsFilter | StickinessFilter | undefined)
-                ?.compare
-            if (currentCompare !== compare) {
-                actions.updateInsightFilter({ compare })
+            if (isInsightQueryNode(values.querySource)) {
+                const currentCompare = (
+                    filterForQuery(values.querySource) as TrendsFilter | StickinessFilter | undefined
+                )?.compare
+                if (currentCompare !== compare) {
+                    actions.updateInsightFilter({ compare })
+                }
             }
         },
         toggleCompare: () => {
