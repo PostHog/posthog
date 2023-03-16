@@ -2212,12 +2212,12 @@ interface BaseExperimentResults {
     variants: ExperimentVariant[]
 }
 
-interface _TrendsExperimentResults extends BaseExperimentResults {
+export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
 }
 
-interface _FunnelExperimentResults extends BaseExperimentResults {
+export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
 }
