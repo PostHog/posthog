@@ -82,14 +82,12 @@ export function DatabaseScene(): JSX.Element {
                                         return <code>{(field as any).chain.join('.')}</code>
                                     } else if (table == 'events' && type == 'json' && field.key == 'properties') {
                                         return (
-                                            <Link to={urls.propertyDefinitions('event')}>
-                                                Edit event property types
-                                            </Link>
+                                            <Link to={urls.propertyDefinitions('event')}>Manage event properties</Link>
                                         )
                                     } else if (table == 'persons' && type == 'json' && field.key == 'properties') {
                                         return (
                                             <Link to={urls.propertyDefinitions('person')}>
-                                                Edit person property types
+                                                Manage person properties
                                             </Link>
                                         )
                                     }
