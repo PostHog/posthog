@@ -166,7 +166,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (queryId, getQueryResponse) => {
                 return getQueryResponse(queryId)
             },
-            { resultEqualityCheck: () => false },
+            { equalityCheck: () => false, resultEqualityCheck: () => false },
         ],
     }),
 
