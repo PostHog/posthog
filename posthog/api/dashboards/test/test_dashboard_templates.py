@@ -81,7 +81,10 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response
 
         dashboard_template = DashboardTemplate.objects.get(id=response.json()["id"])
+<<<<<<< HEAD
         assert dashboard_template.team_id == self.team.pk
+=======
+>>>>>>> master
 
         assert_template_equals(
             dashboard_template.__dict__,
@@ -93,6 +96,7 @@ class TestDashboardTemplates(APIBaseTest):
 
         assert_template_equals(
             get_template_from_response(response, dashboard_template.id),
+<<<<<<< HEAD
             variable_template,
         )
 
@@ -210,6 +214,8 @@ class TestDashboardTemplates(APIBaseTest):
         assert len(get_updated_response.json()["results"]) == 2
         assert_template_equals(
             get_template_from_response(get_updated_response, dashboard_template.id),
+=======
+>>>>>>> master
             variable_template,
         )
 

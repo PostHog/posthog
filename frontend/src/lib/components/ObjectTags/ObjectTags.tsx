@@ -78,7 +78,8 @@ export function ObjectTags({
     }
 
     return (
-        <div style={{ ...style }} className={clsx(className, 'flex flex-wrap gap-2 items-center')} data-attr={dataAttr}>
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={style} className={clsx(className, 'flex flex-wrap gap-2 items-center')} data-attr={dataAttr}>
             {showPlaceholder
                 ? '—'
                 : tags
@@ -111,7 +112,7 @@ export function ObjectTags({
                       })}
             {saving && <Spinner />}
             {!staticOnly && onChange && saving !== undefined && (
-                <span style={{ display: 'inline-flex', fontWeight: 400 }}>
+                <span className="inline-flex font-normal">
                     <Tag
                         onClick={() =>
                             onGuardClick(() => {

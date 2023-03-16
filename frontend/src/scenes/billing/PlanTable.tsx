@@ -5,7 +5,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { AvailableFeature, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
-import { billingV2Logic } from './billingV2Logic'
+import { billingLogic } from './billingLogic'
 import './PlanTable.scss'
 
 export function PlanIcon({
@@ -122,7 +122,7 @@ const getProductTiers = (plan: BillingV2PlanType, productType: BillingProductV2T
 }
 
 export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Element {
-    const { billing } = useValues(billingV2Logic)
+    const { billing } = useValues(billingLogic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
     const excludedFeatures: string[] = [AvailableFeature.DASHBOARD_COLLABORATION]

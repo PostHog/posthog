@@ -56,14 +56,6 @@ export class IngestionConsumer {
                 this.pluginsServer.lastActivityType = 'runEventPipeline'
                 return piscina.run({ task: 'runEventPipeline', args: { event } })
             },
-            runLightweightCaptureEndpointEventPipeline: (event: PipelineEvent) => {
-                this.pluginsServer.lastActivity = new Date().valueOf()
-                this.pluginsServer.lastActivityType = 'runLightweightCaptureEndpointEventPipeline'
-                return piscina.run({
-                    task: 'runLightweightCaptureEndpointEventPipeline',
-                    args: { event },
-                })
-            },
         }
         this.consumerGroupMemberId = null
         this.consumerReady = false

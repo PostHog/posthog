@@ -55,6 +55,35 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             ],
         )
 
+    def test_cohort_expansion_with_negation(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "value": ["@posthog.com"],
+                            "type": "person",
+                            "operator": "icontains",
+                            "negation": True,
+                        }
+                    ]
+                }
+            ],
+        )
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
+        )
+        self.assertEqual(
+            flag.transform_cohort_filters_for_easy_evaluation(),
+            [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}],
+        )
+
     def test_cohort_expansion_multiple_properties(self):
         cohort = Cohort.objects.create(
             team=self.team,
