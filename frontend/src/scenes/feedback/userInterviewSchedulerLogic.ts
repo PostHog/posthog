@@ -1,7 +1,7 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { FeatureFlagType } from '~/types'
+import { FeatureFlagGroupType, FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 import { userInterviewSchedulerLogicType } from './userInterviewSchedulerLogicType'
 
 export const FLAG_PREFIX = 'interview-'
@@ -60,6 +60,20 @@ export const userInterviewSchedulerLogic = kea<userInterviewSchedulerLogicType>(
                 // create the flag
                 // then redirect to the created flag so you can manage rollout
                 featureFlagLogic.mount()
+                const groups: FeatureFlagGroupType[] = [
+                    {
+                        variant: null,
+                        properties: [
+                            {
+                                key: `Seen User Interview Invitation - ${formValues.key}`,
+                                operator: PropertyOperator.IsNotSet,
+                                type: PropertyFilterType.Person,
+                                value: PropertyOperator.IsNotSet,
+                            },
+                        ],
+                        rollout_percentage: 0,
+                    },
+                ]
                 const flag: Partial<FeatureFlagType> = {
                     key: formValues.key,
                     name: formValues.title,
@@ -67,7 +81,7 @@ export const userInterviewSchedulerLogic = kea<userInterviewSchedulerLogicType>(
                     active: true,
                     filters: {
                         payloads: values.interviewFlagPayload,
-                        groups: [],
+                        groups,
                         multivariate: null,
                     },
                     deleted: false,
