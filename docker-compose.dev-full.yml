@@ -109,3 +109,8 @@ services:
             service: temporal-ui
         ports:
             - 8081:8080
+    temporal-django-worker:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-django-worker
+        build: .

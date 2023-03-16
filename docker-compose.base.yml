@@ -161,3 +161,14 @@ services:
         image: temporalio/ui:2.10.3
         ports:
             - 8081:8080
+    temporal-django-worker:
+        <<: *worker
+        command: /compose/django-temporal-worker
+        restart: on-failure
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
+            - temporal

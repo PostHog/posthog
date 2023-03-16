@@ -124,6 +124,16 @@ services:
             service: temporal-ui
         ports:
             - 8081:8080
+    temporal-django-worker:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-django-worker
+        volumes:
+            - ./compose:/compose
+        image: posthog/posthog:$POSTHOG_APP_TAG
+        environment:
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
 
 volumes:
     zookeeper-data:
