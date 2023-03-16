@@ -10,7 +10,7 @@ from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.util import get_persons_by_uuids
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.util import get_person_properties_mode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
@@ -115,9 +115,7 @@ class LifecycleEventQuery(EventQuery):
 
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=get_person_properties_mode(self._team),
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
         )
 
@@ -133,18 +131,14 @@ class LifecycleEventQuery(EventQuery):
             allowed_entities=[self._filter.entities[0]],
             team_id=self._team_id,
             table_name=self.EVENT_TABLE_ALIAS,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=get_person_properties_mode(self._team),
             hogql_context=self._filter.hogql_context,
         )
         self.params.update(entity_params)
 
         entity_prop_query, entity_prop_params = self._get_prop_groups(
             self._filter.entities[0].property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=get_person_properties_mode(self._team),
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
             prepend="entity_props",
         )

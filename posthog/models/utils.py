@@ -3,7 +3,6 @@ import string
 import uuid
 from collections import defaultdict, namedtuple
 from contextlib import contextmanager
-from enum import Enum, auto
 from random import Random, choice
 from time import time
 from typing import Any, Callable, Dict, Optional, Set, Type, TypeVar
@@ -18,16 +17,6 @@ from posthog.constants import MAX_SLUG_LENGTH
 T = TypeVar("T")
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
-
-
-class PersonPropertiesMode(Enum):
-    USING_SUBQUERY = auto()
-    USING_PERSON_PROPERTIES_COLUMN = auto()
-    # Used for generating query on Person table
-    DIRECT = auto()
-    DIRECT_ON_EVENTS = auto()
-    DIRECT_ON_PERSONS = auto()
-
 
 class UUIDT(uuid.UUID):
     """UUID (mostly) sortable by generation time.
@@ -276,3 +265,4 @@ def execute_with_timeout(timeout: int):
         with connection.cursor() as cursor:
             cursor.execute("SET LOCAL statement_timeout = %s", [timeout])
             yield
+

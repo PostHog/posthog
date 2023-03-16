@@ -23,6 +23,7 @@ from posthog.models.team.util import actor_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
+from enum import enum, auto
 
 from .team_caching import get_team_in_cache, set_team_in_cache
 
@@ -39,6 +40,10 @@ DEPRECATED_ATTRS = (
     "event_properties_numerical",
 )
 
+class PersonOnEventsMode:
+    DISABLED = auto()
+    V1_ENABLED = auto()
+    V2_ENABLED = auto()
 
 class TeamManager(models.Manager):
     def get_queryset(self):
@@ -187,10 +192,18 @@ class Team(UUIDClassicModel):
     objects: TeamManager = TeamManager()
 
     @property
-    def person_on_events_querying_enabled(self) -> bool:
-        result = self._person_on_events_querying_enabled
-        tag_queries(person_on_events_enabled=result)
-        return result
+    def person_on_events_mode(self) -> PersonOnEventsMode:
+        if self._person_on_events_v2_querying_enabled:
+            tag_queries(person_on_events_mode=PersonOnEventsMode.V2_ENABLED)
+            return PersonOnEventsMode.V2_ENABLED
+        
+        if self._person_on_events_querying_enabled:
+            # also tag person_on_events_enabled for legacy compatibility
+            tag_queries(person_on_events_enabled=True, person_on_events_mode=PersonOnEventsMode.V1_ENABLED)
+            return PersonOnEventsMode.V1_ENABLED
+        
+        return PersonOnEventsMode.DISABLED
+            
 
     @property
     def _person_on_events_querying_enabled(self) -> bool:
@@ -216,7 +229,30 @@ class Team(UUIDClassicModel):
 
         # on self-hosted, use the instance setting
         return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
+    
 
+
+    @property
+    def _person_on_events_v2_querying_enabled(self) -> bool:
+        if settings.PERSON_ON_EVENTS_V2_OVERRIDE is not None:
+            return settings.PERSON_ON_EVENTS_V2_OVERRIDE
+
+        # on PostHog Cloud, use the feature flag
+        if is_cloud():
+            return posthoganalytics.feature_enabled(
+                "persons-on-events-v2-reads-enabled",
+                str(self.uuid),
+                groups={"organization": str(self.organization_id)},
+                group_properties={
+                    "organization": {"id": str(self.organization_id), "created_at": self.organization.created_at}
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+
+        # on self-hosted, use the instance setting
+        return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
+    
     @property
     def strict_caching_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))

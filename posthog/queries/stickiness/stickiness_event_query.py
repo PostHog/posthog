@@ -5,7 +5,7 @@ from posthog.models import Entity
 from posthog.models.action.util import format_action_filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.util import get_person_properties_mode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_trunc_func_ch
@@ -23,9 +23,7 @@ class StickinessEventsQuery(EventQuery):
 
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups),
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=get_person_properties_mode(self._team),
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
         )
 
@@ -96,9 +94,7 @@ class StickinessEventsQuery(EventQuery):
             return format_action_filter(
                 team_id=self._team_id,
                 action=self._entity.get_action(),
-                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-                if self._using_person_on_events
-                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+                person_properties_mode=get_person_properties_mode(self._team),
                 person_id_joined_alias=f"{self.aggregation_target()}",
                 hogql_context=self._filter.hogql_context,
             )

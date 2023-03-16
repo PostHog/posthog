@@ -12,7 +12,7 @@ from posthog.models.action.util import Action, format_action_filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.property.util import get_single_or_multi_property_string_expr
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.util import get_person_properties_mode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.util import get_trunc_func_ch
@@ -121,9 +121,7 @@ class RetentionEventsQuery(EventQuery):
 
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=get_person_properties_mode(self._team),
             person_id_joined_alias=f"{self.EVENT_TABLE_ALIAS if self._using_person_on_events else self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
@@ -205,9 +203,7 @@ class RetentionEventsQuery(EventQuery):
                 action=action,
                 prepend=prepend,
                 use_loop=False,
-                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-                if self._using_person_on_events
-                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+                person_properties_mode=get_person_properties_mode(self._team),
                 person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
                 hogql_context=self._filter.hogql_context,
             )

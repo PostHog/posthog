@@ -11,7 +11,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.util import get_person_properties_mode
 from posthog.queries.actor_base_query import ActorBaseQuery, SerializedGroup, SerializedPerson
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 
@@ -80,9 +80,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
 
         prop_query, prop_params = event_query._get_prop_groups(
             prop_filters,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=get_person_properties_mode(self._team),
             person_id_joined_alias=f"""{
                 event_query.DISTINCT_ID_TABLE_ALIAS
                 if not self._team.person_on_events_querying_enabled

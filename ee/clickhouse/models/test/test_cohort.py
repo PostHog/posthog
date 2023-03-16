@@ -15,7 +15,7 @@ from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.util import PersonPropertiesMode
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,

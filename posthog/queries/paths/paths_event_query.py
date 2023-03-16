@@ -10,7 +10,7 @@ from posthog.constants import (
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.util import get_person_properties_mode
 from posthog.queries.event_query import EventQuery
 
 
@@ -87,9 +87,7 @@ class PathEventQuery(EventQuery):
 
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=get_person_properties_mode(self._team),
             person_id_joined_alias=f"{person_id}",
         )
 
