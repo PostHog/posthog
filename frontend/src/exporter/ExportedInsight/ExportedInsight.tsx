@@ -1,19 +1,18 @@
-import { ChartDisplayType, InsightLogicProps, InsightModel, InsightType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightViz } from 'lib/components/Cards/InsightCard/InsightCard'
 import './ExportedInsight.scss'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { dateFilterToText } from 'lib/utils'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { ExportOptions, ExportType } from '~/exporter/types'
 import clsx from 'clsx'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
-import { isDataTableNode, isInsightVizNode } from '~/queries/utils'
+import { isDataTableNode } from '~/queries/utils'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 import { Query } from '~/queries/Query/Query'
+import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 
 export function ExportedInsight({
     insight,
@@ -63,18 +62,7 @@ export function ExportedInsight({
                     <div className="ExportedInsight__header">
                         <div>
                             <h5>
-                                <span
-                                    title={INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.description}
-                                >
-                                    {
-                                        INSIGHT_TYPES_METADATA[
-                                            !!query && !isInsightVizNode(query)
-                                                ? InsightType.QUERY
-                                                : filters.insight || InsightType.TRENDS
-                                        ]?.name
-                                    }
-                                </span>{' '}
-                                • {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
+                                <TopHeading insight={insight} />
                             </h5>
                             <h4 title={name} className="ExportedInsight__header__title">
                                 {name || derived_name}
