@@ -25,7 +25,7 @@ export function InlineEditorButton({ query, setQuery }: InlineEditorButtonProps)
                 width="60vw"
                 title={
                     <>
-                        <LemonButton to={urls.query(JSON.stringify(query))}>Open in Query Builder</LemonButton>
+                        <LemonButton to={urls.debugQuery(JSON.stringify(query))}>Open in Query Builder</LemonButton>
                     </>
                 }
             >

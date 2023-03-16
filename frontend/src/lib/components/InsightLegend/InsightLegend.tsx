@@ -2,42 +2,14 @@ import './InsightLegend.scss'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { ChartDisplayType, FilterType, InsightType } from '~/types'
 import clsx from 'clsx'
-import { isFilterWithDisplay } from 'scenes/insights/sharedUtils'
 import { InsightLegendRow } from './InsightLegendRow'
+import { shouldShowLegend, shouldHighlightThisRow } from './utils'
 
 export interface InsightLegendProps {
     readOnly?: boolean
     horizontal?: boolean
     inCardView?: boolean
-}
-
-const trendTypeCanShowLegendDenyList = [
-    ChartDisplayType.WorldMap,
-    ChartDisplayType.ActionsTable,
-    ChartDisplayType.BoldNumber,
-    ChartDisplayType.ActionsBarValue,
-]
-
-const insightViewCanShowLegendAllowList = [InsightType.TRENDS, InsightType.STICKINESS]
-
-export const shouldShowLegend = (filters: Partial<FilterType>): boolean =>
-    insightViewCanShowLegendAllowList.includes(filters.insight || InsightType.TRENDS) &&
-    isFilterWithDisplay(filters) &&
-    !!filters.display &&
-    !trendTypeCanShowLegendDenyList.includes(filters.display)
-
-function shouldHighlightThisRow(
-    hiddenLegendKeys: Record<string, boolean | undefined>,
-    rowIndex: number,
-    highlightedSeries: number | null
-): boolean {
-    const numberOfSeriesToSkip = Object.entries(hiddenLegendKeys).filter(
-        ([key, isHidden]) => isHidden && Number(key) < rowIndex
-    ).length
-    const isSkipped = hiddenLegendKeys[rowIndex]
-    return highlightedSeries !== null && !isSkipped && highlightedSeries + numberOfSeriesToSkip === rowIndex
 }
 
 export function InsightLegend({ horizontal, inCardView, readOnly = false }: InsightLegendProps): JSX.Element | null {

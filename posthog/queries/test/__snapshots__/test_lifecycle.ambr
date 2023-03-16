@@ -4,8 +4,8 @@
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
      FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC') + INTERVAL 1 day))))
-  SELECT groupArray(start_of_period) as date,
-         groupArray(counts) as data,
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(counts) AS total,
          status
   FROM
     (SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts,
@@ -77,8 +77,8 @@
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
      FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC') + INTERVAL 1 day))))
-  SELECT groupArray(start_of_period) as date,
-         groupArray(counts) as data,
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(counts) AS total,
          status
   FROM
     (SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts,
@@ -150,8 +150,8 @@
        periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'US/Pacific'))) AS start_of_period
      FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific') + INTERVAL 1 day))))
-  SELECT groupArray(start_of_period) as date,
-         groupArray(counts) as data,
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(counts) AS total,
          status
   FROM
     (SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts,

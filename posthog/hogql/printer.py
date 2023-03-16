@@ -69,9 +69,19 @@ class _Printer(Visitor):
         self.stack.pop()
         return response
 
+    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        query = " UNION ALL ".join([self.visit(expr) for expr in node.select_queries])
+        if len(self.stack) > 1:
+            return f"({query})"
+        return query
+
     def visit_select_query(self, node: ast.SelectQuery):
         if self.dialect == "clickhouse" and not self.context.select_team_id:
             raise ValueError("Full SELECT queries are disabled if context.select_team_id is not set")
+
+        # if we are the first parsed node in the tree, or a child of a SelectUnionQuery, mark us as a top level query
+        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectUnionQuery)
+        is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
 
         # We will add extra clauses onto this from the joined tables
         where = node.where
@@ -119,7 +129,7 @@ class _Printer(Visitor):
         ]
 
         limit = node.limit
-        if self.context.limit_top_select and len(self.stack) == 1:
+        if self.context.limit_top_select and is_top_level_query:
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
                     limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
@@ -140,7 +150,7 @@ class _Printer(Visitor):
         response = " ".join([clause for clause in clauses if clause])
 
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
-        if len(self.stack) > 1:
+        if not part_of_select_union and not is_top_level_query:
             response = f"({response})"
 
         return response
@@ -150,6 +160,7 @@ class _Printer(Visitor):
         extra_where: Optional[ast.Expr] = None
 
         join_strings = []
+
         if node.join_type is not None:
             join_strings.append(node.join_type)
 
@@ -160,6 +171,7 @@ class _Printer(Visitor):
             if not isinstance(table_ref, ast.TableRef):
                 raise ValueError(f"Table alias {node.ref.name} does not resolve to a table!")
             join_strings.append(self._print_identifier(table_ref.table.clickhouse_table()))
+
             if node.alias is not None:
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
@@ -170,11 +182,19 @@ class _Printer(Visitor):
         elif isinstance(node.ref, ast.TableRef):
             join_strings.append(self._print_identifier(node.ref.table.clickhouse_table()))
 
+            if node.sample is not None:
+                sample_clause = self.visit_sample_expr(node.sample)
+                if sample_clause is not None:
+                    join_strings.append(sample_clause)
+
             if self.dialect == "clickhouse":
                 # TODO: do this in a separate pass before printing, along with person joins and other transforms
                 extra_where = team_id_guard_for_table(node.ref, self.context)
 
         elif isinstance(node.ref, ast.SelectQueryRef):
+            join_strings.append(self.visit(node.table))
+
+        elif isinstance(node.ref, ast.SelectUnionQueryRef):
             join_strings.append(self.visit(node.table))
 
         elif isinstance(node.ref, ast.SelectQueryAliasRef) and node.alias is not None:
@@ -282,6 +302,8 @@ class _Printer(Visitor):
             raise ValueError(f"Field {original_field} has no ref")
 
         if self.dialect == "hogql":
+            if node.chain == ["*"]:
+                return "*"
             # When printing HogQL, we print the properties out as a chain as they are.
             return ".".join([self._print_identifier(identifier) for identifier in node.chain])
 
@@ -299,9 +321,15 @@ class _Printer(Visitor):
             self.context.found_aggregation = True
             required_arg_count = HOGQL_AGGREGATIONS[node.name]
 
-            if required_arg_count != len(node.args):
+            if isinstance(required_arg_count, int) and required_arg_count != len(node.args):
                 raise ValueError(
                     f"Aggregation '{node.name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
+                )
+            if isinstance(required_arg_count, tuple) and (
+                len(node.args) < required_arg_count[0] or len(node.args) > required_arg_count[1]
+            ):
+                raise ValueError(
+                    f"Aggregation '{node.name}' requires between {required_arg_count[0]} and {required_arg_count[1]} arguments, found {len(node.args)}"
                 )
 
             # check that we're not running inside another aggregate
@@ -312,17 +340,10 @@ class _Printer(Visitor):
                     )
 
             translated_args = ", ".join([self.visit(arg) for arg in node.args])
-            if self.dialect == "hogql":
-                return f"{node.name}({translated_args})"
-            elif node.name == "count":
-                return "count(*)"
-            # TODO: rework these
-            elif node.name == "countDistinct":
-                return f"count(distinct {translated_args})"
-            elif node.name == "countDistinctIf":
-                return f"countIf(distinct {translated_args})"
-            else:
-                return f"{node.name}({translated_args})"
+            if node.distinct:
+                translated_args = f"DISTINCT {translated_args}"
+
+            return f"{node.name}({translated_args})"
 
         elif node.name in CLICKHOUSE_FUNCTIONS:
             return f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join([self.visit(arg) for arg in node.args])})"
@@ -417,6 +438,8 @@ class _Printer(Visitor):
             materialized_column = self._get_materialized_column(table_name, ref.name, field_name)
             if materialized_column:
                 property_sql = self._print_identifier(materialized_column)
+                if not self.context.within_non_hogql_query:
+                    property_sql = f"{self.visit(field_ref.table)}.{property_sql}"
             else:
                 field_sql = self.visit(field_ref)
                 property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
@@ -441,6 +464,18 @@ class _Printer(Visitor):
 
         return property_sql
 
+    def visit_sample_expr(self, node: ast.SampleExpr):
+        sample_value = self.visit_ratio_expr(node.sample_value)
+        offset_clause = ""
+        if node.offset_value:
+            offset_value = self.visit_ratio_expr(node.offset_value)
+            offset_clause = f" OFFSET {offset_value}"
+
+        return f"SAMPLE {sample_value}{offset_clause}"
+
+    def visit_ratio_expr(self, node: ast.RatioExpr):
+        return self.visit(node.left) if node.right is None else f"{self.visit(node.left)}/{self.visit(node.right)}"
+
     def visit_select_query_alias_ref(self, ref: ast.SelectQueryAliasRef):
         return self._print_identifier(ref.name)
 
@@ -451,7 +486,7 @@ class _Printer(Visitor):
         return self.visit(ref.table)
 
     def visit_asterisk_ref(self, ref: ast.AsteriskRef):
-        raise ValueError("Unexpected ast.AsteriskRef. Make sure AsteriskExpander has run on the AST.")
+        return "*"
 
     def visit_lazy_table_ref(self, ref: ast.LazyTableRef):
         raise ValueError("Unexpected ast.LazyTableRef. Make sure LazyTableResolver has run on the AST.")

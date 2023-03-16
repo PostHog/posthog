@@ -4,6 +4,7 @@ import { getEventNamesForAction, objectsEqual, sum, toParams, uuid } from 'lib/u
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import type { insightLogicType } from './insightLogicType'
+import { captureException, withScope } from '@sentry/react'
 import {
     ActionType,
     FilterType,
@@ -14,7 +15,6 @@ import {
     ItemMode,
     SetInsightOptions,
     TrendsFilterType,
-    UserType,
 } from '~/types'
 import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
 import { router } from 'kea-router'
@@ -47,7 +47,7 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
-import * as Sentry from '@sentry/react'
+
 import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -64,9 +64,10 @@ import { dayjs, now } from 'lib/dayjs'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
 import { globalInsightLogic } from './globalInsightLogic'
+import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
+const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
 export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {
@@ -178,10 +179,8 @@ export const insightLogic = kea<insightLogicType>([
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
-        setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
         abortAnyRunningQuery: true,
-        acknowledgeRefreshButtonChanged: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         insight: [
@@ -193,7 +192,7 @@ export const insightLogic = kea<insightLogicType>([
             {
                 loadInsight: async ({ shortId }) => {
                     const load_query_insight_query_params = !!values.featureFlags[
-                        FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS
+                        FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB
                     ]
                         ? '&include_query_insights=true'
                         : ''
@@ -214,7 +213,7 @@ export const insightLogic = kea<insightLogicType>([
 
                     if ('filters' in insight && !insight.query && emptyFilters(insight.filters)) {
                         const error = new Error('Will not override empty filters in updateInsight.')
-                        Sentry.captureException(error, {
+                        captureException(error, {
                             extra: {
                                 filters: JSON.stringify(insight.filters),
                                 insight: JSON.stringify(insight),
@@ -253,7 +252,7 @@ export const insightLogic = kea<insightLogicType>([
 
                     if (metadata.filters) {
                         const error = new Error(`Will not override filters in setInsightMetadata`)
-                        Sentry.captureException(error, {
+                        captureException(error, {
                             extra: {
                                 filters: JSON.stringify(values.insight.filters),
                                 insight: JSON.stringify(values.insight),
@@ -599,13 +598,6 @@ export const insightLogic = kea<insightLogicType>([
                 saveInsightFailure: () => false,
             },
         ],
-        acknowledgedRefreshButtonChanged: [
-            false,
-            { persist: true, storageKey: 'acknowledgedRefreshButtonChanged' },
-            {
-                acknowledgeRefreshButtonChanged: () => true,
-            },
-        ],
     })),
     selectors({
         /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
@@ -671,27 +663,11 @@ export const insightLogic = kea<insightLogicType>([
         hiddenLegendKeys: [
             (s) => [s.filters],
             (filters) => {
-                const hiddenLegendKeys: TrendsFilterType['hidden_legend_keys'] = {}
                 if (isFilterWithHiddenLegendKeys(filters) && filters.hidden_legend_keys) {
-                    for (const [key, value] of Object.entries(filters.hidden_legend_keys)) {
-                        // Transform pre-#12113 funnel series keys to the current more reliable format.
-                        // Old: `${step.type}/${step.action_id}/${step.order}/${breakdownValues.join('_')}`
-                        // New: breakdownValues.join('::')
-                        // If you squint you'll notice this doesn't actually handle the .join() part, but that's fine,
-                        // because that's only relevant for funnels with multiple breakdowns, and that hasn't been
-                        // released to users at the point of the format change.
-                        const oldFormatMatch = key.match(/\w+\/.+\/\d+\/(.+)/)
-                        if (oldFormatMatch) {
-                            // Don't override values for series if already set from a previously-seen old-format key
-                            if (!(oldFormatMatch[1] in hiddenLegendKeys)) {
-                                hiddenLegendKeys[oldFormatMatch[1]] = value
-                            }
-                        } else {
-                            hiddenLegendKeys[key] = value
-                        }
-                    }
+                    return transformLegacyHiddenLegendKeys(filters.hidden_legend_keys)
                 }
-                return hiddenLegendKeys
+
+                return {}
             },
         ],
         filtersKnown: [
@@ -807,13 +783,7 @@ export const insightLogic = kea<insightLogicType>([
         isUsingDashboardQueryTiles: [
             (s) => [s.featureFlags, s.isUsingDataExploration],
             (featureFlags: FeatureFlagsSet, isUsingDataExploration: boolean): boolean => {
-                return isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS]
-            },
-        ],
-        displayRefreshButtonChangedNotice: [
-            (s) => [s.acknowledgedRefreshButtonChanged, s.user],
-            (acknowledgedRefreshButtonChanged: boolean, user: UserType): boolean => {
-                return dayjs(user.date_joined).isBefore('2023-02-13') && !acknowledgedRefreshButtonChanged
+                return isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
             },
         ],
         insightRefreshButtonDisabledReason: [
@@ -842,7 +812,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
     }),
-    listeners(({ actions, selectors, values, cache }) => ({
+    listeners(({ actions, selectors, values, cache, props }) => ({
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
         },
@@ -941,23 +911,45 @@ export const insightLogic = kea<insightLogicType>([
                 )
             }
         },
-        startQuery: ({ queryId }) => {
+        startQuery: ({ queryId }, breakpoint) => {
             actions.markInsightTimedOut(null)
             actions.markInsightErrored(null)
             values.timeout && clearTimeout(values.timeout || undefined)
             const view = values.filters.insight
+            const capturedProps = props
             actions.setTimeout(
                 window.setTimeout(() => {
                     try {
-                        if (values && view == values.filters.insight) {
-                            actions.markInsightTimedOut(queryId)
+                        breakpoint()
+                    } catch (e) {
+                        // logic was either unmounted or `startQuery` was called again, abort timeout
+                        return
+                    }
+
+                    try {
+                        const mountedLogic = insightLogic.findMounted(capturedProps)
+                        if (!mountedLogic) {
+                            return
+                        }
+                        if (view == mountedLogic.values.filters.insight) {
+                            mountedLogic.actions.markInsightTimedOut(queryId)
                             const tags = {
-                                insight: values.filters.insight,
+                                insight: mountedLogic.values.filters.insight,
                                 scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
                             }
                             posthog.capture('insight timeout message shown', tags)
                         }
                     } catch (e) {
+                        withScope(function (scope) {
+                            scope.setTag('logic', 'insightLogic')
+                            // TODO if this tombstone isn't triggered, we can remove this entire tombstone try catch block
+                            // because the breakpoint above is working
+                            scope.setTag(
+                                'tombstone',
+                                'insight timeout message shown - https://posthog.sentry.io/issues/3972299454'
+                            )
+                            captureException(e)
+                        })
                         console.warn('Error setting insight timeout', e)
                     }
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
@@ -1146,28 +1138,12 @@ export const insightLogic = kea<insightLogicType>([
             }
             actions.setFilters(newFilters)
         },
-        setHiddenById: ({ entry }) => {
-            const nextEntries = Object.fromEntries(
-                Object.entries(entry).map(([index, hiddenState]) => [index, hiddenState ? true : undefined])
-            )
-            const newFilters: Partial<TrendsFilterType> = {
-                ...values.filters,
-                hidden_legend_keys: {
-                    ...values.hiddenLegendKeys,
-                    ...nextEntries,
-                },
-            }
-            actions.setFilters(newFilters)
-        },
         cancelChanges: ({ goToViewMode }) => {
             actions.setFilters(values.savedInsight.filters || {})
             if (goToViewMode) {
                 insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 eventUsageLogic.actions.reportInsightsTabReset()
             }
-        },
-        acknowledgeRefreshButtonChanged: () => {
-            localStorage.setItem('acknowledged_refresh_button_changed', 'true')
         },
     })),
     events(({ props, values, actions }) => ({

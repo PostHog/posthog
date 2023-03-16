@@ -37,8 +37,9 @@ export const insight = {
         // wait for save to complete and URL to change and include short id
         cy.url().should('not.include', '/new')
     },
-    create: (insightName: string): void => {
-        cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
+    create: (insightName: string, insightType: string = 'TRENDS'): void => {
+        cy.get('[data-attr=menu-item-insight]').click() // Open the new insight menu in the sidebar
+        cy.get(`[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="${insightType}"]`).click()
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
         cy.url().should('not.include', '/new') // wait for insight to complete and update URL
         cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
@@ -66,18 +67,19 @@ export const insight = {
 export const dashboards = {
     createDashboardFromDefaultTemplate: (dashboardName: string): void => {
         cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
-        cy.get('[data-attr=copy-from-template]').click()
-        cy.get('[data-attr=dashboard-select-default-app]').click()
-
-        cy.get('[data-attr=dashboard-submit-and-go]').click()
-
+        cy.get('[data-attr="create-dashboard-from-template"]').click()
+        cy.get('[data-attr="dashboard-name"]').contains('Product analytics').should('exist')
+        cy.get('[data-attr="dashboard-name"] button').click()
+        cy.get('[data-attr="dashboard-name"] input').clear().type(dashboardName).blur()
         cy.contains(dashboardName).should('exist')
     },
     createAndGoToEmptyDashboard: (dashboardName: string): void => {
         cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
-        cy.get('button[data-attr="dashboard-submit-and-go"]').click()
+        cy.get('[data-attr="create-dashboard-blank"]').click()
+        cy.get('[data-attr="dashboard-name"]').should('exist')
+        cy.get('[data-attr="dashboard-name"] button').click()
+        cy.get('[data-attr="dashboard-name"] input').clear().type(dashboardName).blur()
+        cy.contains(dashboardName).should('exist')
     },
     visitDashboard: (dashboardName: string): void => {
         cy.get('[placeholder="Search for dashboards"]').clear().type(dashboardName)

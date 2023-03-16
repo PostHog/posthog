@@ -524,3 +524,23 @@ class TestResolver(BaseTest):
         self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.ref, expected.ref)
         self.assertEqual(expr, expected)
+
+    def test_resolve_union_all(self):
+        node = parse_select("select event, timestamp from events union all select event, timestamp from events")
+        resolve_refs(node)
+
+        events_table_ref = ast.TableRef(table=database.events)
+        self.assertEqual(
+            node.select_queries[0].select,
+            [
+                ast.Field(chain=["event"], ref=ast.FieldRef(name="event", table=events_table_ref)),
+                ast.Field(chain=["timestamp"], ref=ast.FieldRef(name="timestamp", table=events_table_ref)),
+            ],
+        )
+        self.assertEqual(
+            node.select_queries[1].select,
+            [
+                ast.Field(chain=["event"], ref=ast.FieldRef(name="event", table=events_table_ref)),
+                ast.Field(chain=["timestamp"], ref=ast.FieldRef(name="timestamp", table=events_table_ref)),
+            ],
+        )

@@ -17,6 +17,7 @@ import {
     formatBreakdownLabel,
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
+    summariseInsight,
     summarizeInsightFilters,
     summarizeInsightQuery,
 } from 'scenes/insights/utils'
@@ -31,17 +32,48 @@ import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { Noun } from '~/models/groupsModel'
 import {
-    EventsNode,
     ActionsNode,
-    NodeKind,
-    LifecycleQuery,
-    StickinessQuery,
-    TrendsQuery,
-    PathsQuery,
+    DataTableNode,
+    EventsNode,
     FunnelsQuery,
+    HogQLQuery,
+    LifecycleQuery,
+    NodeKind,
+    PathsQuery,
+    RecentPerformancePageViewNode,
     RetentionQuery,
+    StickinessQuery,
+    TimeToSeeDataWaterfallNode,
+    TrendsQuery,
 } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
+
+const aggregationLabel = (groupTypeIndex: number | null | undefined): Noun =>
+    groupTypeIndex != undefined
+        ? {
+              singular: 'organization',
+              plural: 'organizations',
+          }
+        : { singular: 'user', plural: 'users' }
+const cohortIdsMapped: Partial<Record<CohortType['id'], CohortType>> = {
+    1: {
+        id: 1,
+        name: 'Poles',
+        filters: { properties: { id: '1', type: FilterLogicalOperator.Or, values: [] } },
+        groups: [],
+    },
+}
+const mathDefinitions: Record<string, MathDefinition> = {
+    ...BASE_MATH_DEFINITIONS,
+    'unique_group::0': {
+        name: 'Unique organizations',
+        shortName: 'unique organizations',
+        description: 'Foo.',
+        category: MathCategory.ActorCount,
+    },
+    ...PROPERTY_MATH_DEFINITIONS,
+    ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
+}
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -612,33 +644,6 @@ describe('summarizeInsightFilters()', () => {
 })
 
 describe('summarizeInsightQuery()', () => {
-    const aggregationLabel = (groupTypeIndex: number | null | undefined): Noun =>
-        groupTypeIndex != undefined
-            ? {
-                  singular: 'organization',
-                  plural: 'organizations',
-              }
-            : { singular: 'user', plural: 'users' }
-    const cohortIdsMapped: Partial<Record<CohortType['id'], CohortType>> = {
-        1: {
-            id: 1,
-            name: 'Poles',
-            filters: { properties: { id: '1', type: FilterLogicalOperator.Or, values: [] } },
-            groups: [],
-        },
-    }
-    const mathDefinitions: Record<string, MathDefinition> = {
-        ...BASE_MATH_DEFINITIONS,
-        'unique_group::0': {
-            name: 'Unique organizations',
-            shortName: 'unique organizations',
-            description: 'Foo.',
-            category: MathCategory.ActorCount,
-        },
-        ...PROPERTY_MATH_DEFINITIONS,
-        ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
-    }
-
     it('summarizes a Trends insight with four event and actor count series', () => {
         const query: TrendsQuery = {
             kind: NodeKind.TrendsQuery,
@@ -1025,5 +1030,145 @@ describe('formatBreakdownLabel()', () => {
     it('handles cohort breakdowns with all users', () => {
         expect(formatBreakdownLabel([], identity, 'all', ['all'], 'cohort')).toEqual('All Users')
         expect(formatBreakdownLabel([], identity, 0, [0], 'cohort')).toEqual('All Users')
+    })
+})
+
+describe('summarize data table query', () => {
+    it('summarizes a simple query', () => {
+        const query: DataTableNode = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: ['event'],
+            },
+        }
+
+        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+
+        expect(result).toEqual('event from events into a data table.')
+    })
+
+    it('summarizes a two column events query', () => {
+        const query: DataTableNode = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: ['event', 'timestamp'],
+            },
+        }
+
+        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+
+        expect(result).toEqual('event, timestamp from events into a data table.')
+    })
+
+    it('summarizes using columns from top-level query', () => {
+        const query: DataTableNode = {
+            kind: NodeKind.DataTableNode,
+            columns: ['event'],
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: ['event', 'timestamp'],
+            },
+        }
+
+        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+
+        expect(result).toEqual('event from events into a data table.')
+    })
+
+    it('summarizes using hiddencolumns from top-level query', () => {
+        const query: DataTableNode = {
+            kind: NodeKind.DataTableNode,
+            hiddenColumns: ['event'],
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: ['event', 'timestamp'],
+            },
+        }
+
+        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+
+        expect(result).toEqual('timestamp from events into a data table.')
+    })
+
+    it('summarizes time to see data sessions listing', () => {
+        const query: DataTableNode = {
+            kind: NodeKind.DataTableNode,
+            columns: ['session_id', 'session_start', 'session_end', 'duration_ms'],
+            source: {
+                kind: NodeKind.TimeToSeeDataSessionsQuery,
+            },
+        }
+
+        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+
+        expect(result).toEqual(
+            'session_id, session_start, session_end, duration_ms from Time to See Data into a data table.'
+        )
+    })
+
+    it('summarizes a single time to see data sessions listing', () => {
+        const query: TimeToSeeDataWaterfallNode = {
+            kind: NodeKind.TimeToSeeDataSessionsWaterfallNode,
+            source: {
+                kind: NodeKind.TimeToSeeDataQuery,
+                sessionId: 'complete_me',
+                sessionStart: 'iso_date',
+                sessionEnd: 'iso_date',
+            },
+        }
+
+        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+
+        expect(result).toEqual('Waterfall chart for time to see session complete_me.')
+    })
+
+    it('summarizes a count table', () => {
+        const query: DataTableNode = {
+            kind: NodeKind.DataTableNode,
+            full: true,
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: ['count()'],
+            },
+        }
+        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+
+        expect(result).toEqual('count() from events into a data table.')
+    })
+
+    it('avoids summarizing hogql', () => {
+        const query: HogQLQuery = {
+            kind: NodeKind.HogQLQuery,
+            query: 'select event,\n          person.properties.email from events\n  where timestamp > now() - interval 1 day',
+        }
+
+        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+
+        expect(result).toEqual('HogQL data table.')
+    })
+
+    it('summarizes a person query', () => {
+        const query: DataTableNode = {
+            kind: NodeKind.DataTableNode,
+            columns: ['person', 'id', 'created_at', 'person.$delete'],
+            source: {
+                kind: NodeKind.PersonsNode,
+            },
+        }
+        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+
+        expect(result).toEqual('person, id, created_at, person.$delete from persons into a data table.')
+    })
+
+    it('summarizes a recent page views for performance query', () => {
+        const query: RecentPerformancePageViewNode = {
+            kind: NodeKind.RecentPerformancePageViewNode,
+            dateRange: { date_from: '-7d' },
+        }
+        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+
+        expect(result).toEqual('Recent page views with performance data.')
     })
 })

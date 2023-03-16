@@ -1,7 +1,15 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { summariseInsight } from 'scenes/insights/utils'
 import { IconLock } from 'lib/lemon-ui/icons'
-import { AvailableFeature, ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode } from '~/types'
+import {
+    AvailableFeature,
+    ExporterFormat,
+    FilterType,
+    InsightLogicProps,
+    InsightModel,
+    InsightShortId,
+    ItemMode,
+} from '~/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -35,6 +43,7 @@ import { ThunderboltFilled } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { globalInsightLogic } from './globalInsightLogic'
+import { posthog } from 'posthog-js'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -52,10 +61,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightSaving,
         exporterResourceParams,
         isUsingDataExploration,
-        displayRefreshButtonChangedNotice,
         insightRefreshButtonDisabledReason,
     } = useValues(logic)
-    const { saveInsight, setInsightMetadata, saveAs, loadResults, acknowledgeRefreshButtonChanged } = useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, loadResults } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
@@ -131,140 +139,115 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <div className="flex justify-between items-center gap-2">
                         {insightMode === ItemMode.Edit ? (
                             <>
-                                <Tooltip
-                                    title={
-                                        displayRefreshButtonChangedNotice ? `The 'Refresh' button has moved here.` : ''
+                                <More
+                                    overlay={
+                                        <>
+                                            <LemonButton
+                                                status="stealth"
+                                                onClick={() => loadResults(true)}
+                                                fullWidth
+                                                data-attr="refresh-insight-from-insight-view"
+                                                disabledReason={insightRefreshButtonDisabledReason}
+                                            >
+                                                Refresh
+                                            </LemonButton>
+                                        </>
                                     }
-                                    visible={displayRefreshButtonChangedNotice}
-                                    zIndex={940}
-                                >
-                                    <More
-                                        onClick={
-                                            displayRefreshButtonChangedNotice
-                                                ? acknowledgeRefreshButtonChanged
-                                                : undefined
-                                        }
-                                        overlay={
-                                            <>
-                                                <LemonButton
-                                                    status="stealth"
-                                                    onClick={() => loadResults(true)}
-                                                    fullWidth
-                                                    data-attr="refresh-insight-from-insight-view"
-                                                    disabledReason={insightRefreshButtonDisabledReason}
-                                                >
-                                                    Refresh
-                                                </LemonButton>
-                                            </>
-                                        }
-                                    />
-                                </Tooltip>
+                                />
                                 <LemonDivider vertical />
                             </>
                         ) : null}
                         {insightMode !== ItemMode.Edit && (
                             <>
-                                <Tooltip
-                                    title={
-                                        displayRefreshButtonChangedNotice ? `The 'Refresh' button has moved here.` : ''
+                                <More
+                                    overlay={
+                                        <>
+                                            <LemonButton
+                                                status="stealth"
+                                                onClick={() => loadResults(true)}
+                                                fullWidth
+                                                data-attr="refresh-insight-from-insight-view"
+                                                disabledReason={insightRefreshButtonDisabledReason}
+                                            >
+                                                Refresh
+                                            </LemonButton>
+                                            <LemonButton
+                                                status="stealth"
+                                                onClick={() => duplicateInsight(insight as InsightModel, true)}
+                                                fullWidth
+                                                data-attr="duplicate-insight-from-insight-view"
+                                            >
+                                                Duplicate
+                                            </LemonButton>
+                                            <LemonButton
+                                                status="stealth"
+                                                onClick={() =>
+                                                    setInsightMetadata({
+                                                        favorited: !insight.favorited,
+                                                    })
+                                                }
+                                                fullWidth
+                                            >
+                                                {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
+                                            </LemonButton>
+                                            <LemonDivider />
+
+                                            <LemonButton
+                                                status="stealth"
+                                                onClick={() =>
+                                                    insight.short_id
+                                                        ? push(urls.insightSharing(insight.short_id))
+                                                        : null
+                                                }
+                                                fullWidth
+                                            >
+                                                Share or embed
+                                            </LemonButton>
+                                            {insight.short_id && (
+                                                <>
+                                                    <SubscribeButton insightShortId={insight.short_id} />
+                                                    {exporterResourceParams ? (
+                                                        <ExportButton
+                                                            fullWidth
+                                                            items={[
+                                                                {
+                                                                    export_format: ExporterFormat.PNG,
+                                                                    insight: insight.id,
+                                                                },
+                                                                {
+                                                                    export_format: ExporterFormat.CSV,
+                                                                    export_context: exporterResourceParams,
+                                                                },
+                                                            ]}
+                                                        />
+                                                    ) : null}
+                                                    <LemonDivider />
+                                                </>
+                                            )}
+
+                                            <LemonButton
+                                                status="danger"
+                                                onClick={() =>
+                                                    deleteWithUndo({
+                                                        object: insight,
+                                                        endpoint: `projects/${currentTeamId}/insights`,
+                                                        callback: () => {
+                                                            loadInsights()
+                                                            push(urls.savedInsights())
+                                                        },
+                                                    })
+                                                }
+                                                fullWidth
+                                            >
+                                                Delete insight
+                                            </LemonButton>
+                                        </>
                                     }
-                                    visible={displayRefreshButtonChangedNotice}
-                                >
-                                    <More
-                                        onClick={
-                                            displayRefreshButtonChangedNotice
-                                                ? acknowledgeRefreshButtonChanged
-                                                : undefined
-                                        }
-                                        overlay={
-                                            <>
-                                                <LemonButton
-                                                    status="stealth"
-                                                    onClick={() => loadResults(true)}
-                                                    fullWidth
-                                                    data-attr="refresh-insight-from-insight-view"
-                                                    disabledReason={insightRefreshButtonDisabledReason}
-                                                >
-                                                    Refresh
-                                                </LemonButton>
-                                                <LemonButton
-                                                    status="stealth"
-                                                    onClick={() => duplicateInsight(insight as InsightModel, true)}
-                                                    fullWidth
-                                                    data-attr="duplicate-insight-from-insight-view"
-                                                >
-                                                    Duplicate
-                                                </LemonButton>
-                                                <LemonButton
-                                                    status="stealth"
-                                                    onClick={() =>
-                                                        setInsightMetadata({
-                                                            favorited: !insight.favorited,
-                                                        })
-                                                    }
-                                                    fullWidth
-                                                >
-                                                    {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
-                                                </LemonButton>
-                                                <LemonDivider />
-
-                                                <LemonButton
-                                                    status="stealth"
-                                                    onClick={() =>
-                                                        insight.short_id
-                                                            ? push(urls.insightSharing(insight.short_id))
-                                                            : null
-                                                    }
-                                                    fullWidth
-                                                >
-                                                    Share or embed
-                                                </LemonButton>
-                                                {insight.short_id && (
-                                                    <>
-                                                        <SubscribeButton insightShortId={insight.short_id} />
-                                                        {exporterResourceParams ? (
-                                                            <ExportButton
-                                                                fullWidth
-                                                                items={[
-                                                                    {
-                                                                        export_format: ExporterFormat.PNG,
-                                                                        insight: insight.id,
-                                                                    },
-                                                                    {
-                                                                        export_format: ExporterFormat.CSV,
-                                                                        export_context: exporterResourceParams,
-                                                                    },
-                                                                ]}
-                                                            />
-                                                        ) : null}
-                                                        <LemonDivider />
-                                                    </>
-                                                )}
-
-                                                <LemonButton
-                                                    status="danger"
-                                                    onClick={() =>
-                                                        deleteWithUndo({
-                                                            object: insight,
-                                                            endpoint: `projects/${currentTeamId}/insights`,
-                                                            callback: () => {
-                                                                loadInsights()
-                                                                push(urls.savedInsights())
-                                                            },
-                                                        })
-                                                    }
-                                                    fullWidth
-                                                >
-                                                    Delete insight
-                                                </LemonButton>
-                                            </>
-                                        }
-                                    />
-                                </Tooltip>
+                                />
                                 <LemonDivider vertical />
                             </>
                         )}
-                        {featureFlags[FEATURE_FLAGS.SAMPLING] ? (
+                        {!!featureFlags[FEATURE_FLAGS.SAMPLING] ? (
                             <>
                                 <Tooltip
                                     title={
@@ -277,9 +260,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     <div>
                                         <LemonSwitch
                                             onChange={(checked) => {
-                                                const samplingFilter = checked
-                                                    ? { sampling_factor: 0.1 }
-                                                    : { sampling_factor: null }
+                                                let samplingFilter: { sampling_factor: FilterType['sampling_factor'] } =
+                                                    { sampling_factor: null }
+                                                if (checked) {
+                                                    samplingFilter = { sampling_factor: 0.1 }
+                                                    posthog.capture('sampling_fast_mode_enabled')
+                                                } else {
+                                                    posthog.capture('sampling_fast_mode_disabled')
+                                                }
                                                 setGlobalInsightFilters({ ...globalInsightFilters, ...samplingFilter })
                                             }}
                                             checked={!!globalInsightFilters.sampling_factor}

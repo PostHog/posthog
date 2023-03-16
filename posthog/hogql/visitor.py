@@ -57,6 +57,14 @@ class TraversingVisitor(Visitor):
         for expr in node.args:
             self.visit(expr)
 
+    def visit_sample_expr(self, node: ast.SampleExpr):
+        self.visit(node.sample_value)
+        self.visit(node.offset_value)
+
+    def visit_ratio_expr(self, node: ast.RatioExpr):
+        self.visit(node.left)
+        self.visit(node.right)
+
     def visit_join_expr(self, node: ast.JoinExpr):
         self.visit(node.table)
         self.visit(node.constraint)
@@ -78,6 +86,10 @@ class TraversingVisitor(Visitor):
         self.visit(node.limit),
         self.visit(node.offset),
 
+    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        for expr in node.select_queries:
+            self.visit(expr)
+
     def visit_field_alias_ref(self, node: ast.FieldAliasRef):
         self.visit(node.ref)
 
@@ -93,6 +105,10 @@ class TraversingVisitor(Visitor):
             self.visit(expr)
         for expr in node.columns.values():
             self.visit(expr)
+
+    def visit_select_union_query_ref(self, node: ast.SelectUnionQueryRef):
+        for ref in node.refs:
+            self.visit(ref)
 
     def visit_table_ref(self, node: ast.TableRef):
         pass
@@ -182,6 +198,12 @@ class CloningVisitor(Visitor):
             args=[self.visit(arg) for arg in node.args],
         )
 
+    def visit_ratio_expr(self, node: ast.RatioExpr):
+        return ast.RatioExpr(left=self.visit(node.left), right=self.visit(node.right))
+
+    def visit_sample_expr(self, node: ast.SampleExpr):
+        return ast.SampleExpr(sample_value=self.visit(node.sample_value), offset_value=self.visit(node.offset_value))
+
     def visit_join_expr(self, node: ast.JoinExpr):
         return ast.JoinExpr(
             table=self.visit(node.table),
@@ -190,6 +212,7 @@ class CloningVisitor(Visitor):
             alias=node.alias,
             join_type=node.join_type,
             constraint=self.visit(node.constraint),
+            sample=self.visit(node.sample),
         )
 
     def visit_select_query(self, node: ast.SelectQuery):
@@ -207,3 +230,6 @@ class CloningVisitor(Visitor):
             offset=self.visit(node.offset),
             distinct=node.distinct,
         )
+
+    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        return ast.SelectUnionQuery(select_queries=[self.visit(expr) for expr in node.select_queries])

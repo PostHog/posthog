@@ -49,6 +49,7 @@ function TableRowRaw<T extends Record<string, any>>({
                 {rowRibbonColorDetermined !== undefined && (
                     <td
                         className="LemonTable__ribbon"
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{ backgroundColor: rowRibbonColorDetermined || 'transparent' }}
                     />
                 )}

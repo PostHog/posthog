@@ -5,7 +5,6 @@ import type { dashboardsLogicType } from './dashboardsLogicType'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export enum DashboardsTab {
     All = 'all',
@@ -43,23 +42,13 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
             router.actions.push(router.values.location.pathname, { ...router.values.searchParams, tab })
         },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions }) => ({
         '/dashboard': (_, searchParams) => {
             const tab = searchParams['tab'] || DashboardsTab.All
-            if (!values.templatesTabIsVisible && tab === DashboardsTab.Templates) {
-                actions.setCurrentTab(DashboardsTab.All)
-            } else {
-                actions.setCurrentTab(tab)
-            }
+            actions.setCurrentTab(tab)
         },
     }),
     selectors: {
-        templatesTabIsVisible: [
-            (selectors) => [selectors.user, selectors.featureFlags],
-            (user, featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.TEMPLUKES] && !!user?.is_staff
-            },
-        ],
         dashboards: [
             (selectors) => [
                 dashboardsModel.selectors.nameSortedDashboards,
