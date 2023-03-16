@@ -19,6 +19,7 @@ import structlog
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
+from django.test import override_settings
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
@@ -835,6 +836,30 @@ class TestCapture(BaseTest):
             ),
         )
 
+    @override_settings(LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL=True)
+    def test_batch_incorrect_token_with_lightweight_capture(self):
+        # With lightweight capture, we are performing additional checks on the
+        # token. We want to make sure this path works as expected. It could be
+        # more extensively tested, but this is a good start.
+        # TODO: switch all tests to use `LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL=True`
+        response = self.client.post(
+            "/batch/",
+            data={
+                "api_key": {"some": "object"},
+                "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "whatever"}],
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(
+            response.json(),
+            self.unauthenticated_response(
+                "Provided API key is not valid: not_string",
+                code="not_string",
+            ),
+        )
+
     def test_batch_token_not_set(self):
         response = self.client.post(
             "/batch/",
@@ -1224,6 +1249,36 @@ class TestCapture(BaseTest):
             response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
         )
 
+    def test_azure_app_insights_tracing_headers(self):
+        # Azure App Insights sends the same tracing headers as Sentry
+        # _and_ a request-context header
+
+        response = self.client.generic(
+            "OPTIONS",
+            "/e/?ip=1&_=1651741927805",
+            HTTP_ORIGIN="https://localhost",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        )
+        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(
+            response.headers["Access-Control-Allow-Headers"],
+            "X-Requested-With,Content-Type,traceparent,request-id,request-context",
+        )
+
+        response = self.client.generic(
+            "OPTIONS",
+            "/decide/",
+            HTTP_ORIGIN="https://localhost",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        )
+        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(
+            response.headers["Access-Control-Allow-Headers"],
+            "X-Requested-With,Content-Type,traceparent,request-id,request-context",
+        )
+
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_recording_data_sent_to_kafka(self, kafka_produce) -> None:
         self._send_session_recording_event()
@@ -1360,7 +1415,6 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_database_unavailable(self, kafka_produce):
-
         with simulate_postgres_error():
             # currently we send events to the dead letter queue if Postgres is unavailable
             data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}

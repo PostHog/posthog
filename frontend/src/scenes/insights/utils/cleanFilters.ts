@@ -168,6 +168,7 @@ export function cleanFilters(
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
+            ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
         }
         return cleanedParams
     } else if (isFunnelsFilter(filters)) {
@@ -265,6 +266,7 @@ export function cleanFilters(
             edge_limit: filters.edge_limit || undefined,
             min_edge_weight: filters.min_edge_weight || undefined,
             max_edge_weight: filters.max_edge_weight || undefined,
+            ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
         }
         return cleanFilters
     } else if (isTrendsFilter(filters) || isLifecycleFilter(filters) || isStickinessFilter(filters)) {

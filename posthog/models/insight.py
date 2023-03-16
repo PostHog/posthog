@@ -99,7 +99,8 @@ class Insight(models.Model):
         unique_together = ("team", "short_id")
 
     def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
-        if dashboard:
+        # TODO dashboard filtering needs to know how to override query date ranges😱
+        if dashboard and not self.query:
             dashboard_filters = {**dashboard.filters}
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
 
@@ -159,6 +160,14 @@ class InsightViewed(models.Model):
 @timed("generate_insight_cache_key")
 def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     try:
+        if insight.query is not None:
+            # TODO: dashboard filtering needs to know how to override queries and date ranges 😱
+            q = insight.query
+            if q.get("source"):
+                q = q["source"]
+
+            return generate_cache_key("{}_{}".format(q, insight.team_id))
+
         dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
         candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
         return candidate_filters_hash

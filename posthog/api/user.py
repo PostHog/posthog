@@ -32,7 +32,6 @@ from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
-from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_updated, report_user_verified_email
 from posthog.models import Team, User
@@ -59,6 +58,7 @@ class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
+    has_social_auth = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
@@ -94,6 +94,7 @@ class UserSerializer(serializers.ModelSerializer):
             "current_password",  # used when changing current password
             "events_column_config",
             "is_2fa_enabled",
+            "has_social_auth",
         ]
         extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
 
@@ -104,6 +105,9 @@ class UserSerializer(serializers.ModelSerializer):
         if "request" not in self.context:
             return None
         return is_impersonated_session(self.context["request"])
+
+    def get_has_social_auth(self, instance: User) -> bool:
+        return instance.social_auth.exists()  # type: ignore
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
@@ -185,7 +189,10 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_organization"] = current_team.organization
 
         require_verification_feature = (
-            posthoganalytics.feature_enabled("require-email-verification", str(instance.distinct_id)) and is_cloud()
+            posthoganalytics.get_feature_flag(
+                "require-email-verification", str(instance.distinct_id), person_properties={"email": instance.email}
+            )
+            == "test"
         )
 
         if (

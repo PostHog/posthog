@@ -13,6 +13,7 @@ from posthog.models.filters.mixins.common import (
     InsightMixin,
     LimitMixin,
     OffsetMixin,
+    SampleMixin,
 )
 from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin
 from posthog.models.filters.mixins.groups import GroupsAggregationMixin
@@ -40,6 +41,7 @@ class RetentionFilter(
     # TODO: proper fix for EventQuery abstraction, make filters uniform
     ClientQueryIdMixin,
     SimplifyFilterMixin,
+    SampleMixin,
     BaseFilter,
 ):
     def __init__(self, data: Dict[str, Any] = {}, request: Optional[Request] = None, **kwargs) -> None:

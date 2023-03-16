@@ -12,7 +12,6 @@ import {
     FeatureFlagType,
     InsightModel,
     IntegrationType,
-    LicenseType,
     OrganizationType,
     PersonListParams,
     PersonProperty,
@@ -37,6 +36,8 @@ import {
     SessionRecordingType,
     PerformanceEvent,
     RecentPerformancePageView,
+    DashboardTemplateType,
+    DashboardTemplateEditorType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -303,8 +304,23 @@ class ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
     }
 
-    // # Roles
+    // # Dashboard templates
+    public dashboardTemplates(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('dashboard_templates')
+    }
 
+    public dashboardTemplatesDetail(
+        dashboardTemplateId: DashboardTemplateType['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.dashboardTemplates(teamId).addPathComponent(dashboardTemplateId)
+    }
+
+    public dashboardTemplateSchema(): ApiRequest {
+        return this.dashboardTemplates().addPathComponent('json_schema')
+    }
+
+    // # Roles
     public roles(): ApiRequest {
         return this.organizations().current().addPathComponent('roles')
     }
@@ -363,15 +379,6 @@ class ApiRequest {
             return this.featureFlag(id, teamId).addPathComponent('activity')
         }
         return this.featureFlags(teamId).addPathComponent('activity')
-    }
-
-    // # Licenses
-    public licenses(): ApiRequest {
-        return this.addPathComponent('license')
-    }
-
-    public license(id: LicenseType['id']): ApiRequest {
-        return this.licenses().addPathComponent(id)
     }
 
     // # Subscriptions
@@ -440,12 +447,12 @@ class ApiRequest {
         return await api.getResponse(this.assembleFullUrl(), options)
     }
 
-    public async update(options?: { data: any }): Promise<any> {
-        return await api.update(this.assembleFullUrl(), options?.data)
+    public async update(options?: ApiMethodOptions & { data: any }): Promise<any> {
+        return await api.update(this.assembleFullUrl(), options?.data, options)
     }
 
-    public async create(options?: { data: any }): Promise<any> {
-        return await api.create(this.assembleFullUrl(), options?.data)
+    public async create(options?: ApiMethodOptions & { data: any }): Promise<any> {
+        return await api.create(this.assembleFullUrl(), options?.data, options)
     }
 
     public async delete(): Promise<any> {
@@ -764,6 +771,44 @@ const api = {
         },
     },
 
+    dashboardTemplates: {
+        async list(): Promise<PaginatedResponse<DashboardTemplateType>> {
+            return await new ApiRequest().dashboardTemplates().get()
+        },
+
+        async get(dashboardTemplateId: DashboardTemplateType['id']): Promise<DashboardTemplateType> {
+            return await new ApiRequest().dashboardTemplatesDetail(dashboardTemplateId).get()
+        },
+
+        async create(dashboardTemplateData: DashboardTemplateEditorType): Promise<DashboardTemplateType> {
+            return await new ApiRequest().dashboardTemplates().create({ data: dashboardTemplateData })
+        },
+
+        async update(
+            dashboardTemplateId: string,
+            dashboardTemplateData: DashboardTemplateEditorType
+        ): Promise<DashboardTemplateType> {
+            return await new ApiRequest()
+                .dashboardTemplatesDetail(dashboardTemplateId)
+                .update({ data: dashboardTemplateData })
+        },
+
+        async delete(dashboardTemplateId: string): Promise<void> {
+            // soft delete
+            return await new ApiRequest().dashboardTemplatesDetail(dashboardTemplateId).update({
+                data: {
+                    deleted: true,
+                },
+            })
+        },
+        async getSchema(): Promise<Record<string, any>> {
+            return await new ApiRequest().dashboardTemplateSchema().get()
+        },
+        determineSchemaUrl(): string {
+            return new ApiRequest().dashboardTemplateSchema().assembleFullUrl()
+        },
+    },
+
     resourceAccessPermissions: {
         featureFlags: {
             async create(featureFlagId: number, roleId: RoleType['id']): Promise<FeatureFlagAssociatedRoleType> {
@@ -949,21 +994,6 @@ const api = {
         },
     },
 
-    licenses: {
-        async get(licenseId: LicenseType['id']): Promise<LicenseType> {
-            return await new ApiRequest().license(licenseId).get()
-        },
-        async list(): Promise<PaginatedResponse<LicenseType>> {
-            return await new ApiRequest().licenses().get()
-        },
-        async create(key: string): Promise<LicenseType> {
-            return await new ApiRequest().licenses().create({ data: { key } })
-        },
-        async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
-            return await new ApiRequest().license(licenseId).delete()
-        },
-    },
-
     recordings: {
         async list(params: string): Promise<SessionRecordingsResponse> {
             return await new ApiRequest().recordings().withQueryString(params).get()
@@ -1144,11 +1174,12 @@ const api = {
     },
 
     queryURL: (): string => {
-        return new ApiRequest().query().assembleEndpointUrl()
+        return new ApiRequest().query().assembleFullUrl(true)
     },
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
-        options?: ApiMethodOptions
+        options?: ApiMethodOptions,
+        queryId?: string
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -1156,7 +1187,7 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        return await new ApiRequest().query().create({ ...options, data: query })
+        return await new ApiRequest().query().create({ ...options, data: { query, client_query_id: queryId } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

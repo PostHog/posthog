@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 from django.test.testcases import TestCase
 
-from posthog.hogql.context import HogQLContext, HogQLFieldAccess
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -59,67 +59,30 @@ class TestPrinter(TestCase):
             self._expr("properties.$bla", context),
             "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
+
+        context = HogQLContext(within_non_hogql_query=True, using_person_on_events=False)
         self.assertEqual(
-            context.field_access_logs,
-            [
-                HogQLFieldAccess(
-                    ["properties", "$bla"],
-                    "event.properties",
-                    "$bla",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
-                )
-            ],
+            self._expr("person.properties.bla", context),
+            "replaceRegexpAll(JSONExtractRaw(person_props, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
-        context = HogQLContext()
+        context = HogQLContext(within_non_hogql_query=True, using_person_on_events=True)
         self.assertEqual(
             self._expr("person.properties.bla", context),
             "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
+
+        context = HogQLContext(within_non_hogql_query=False, using_person_on_events=False)
         self.assertEqual(
-            context.field_access_logs,
-            [
-                HogQLFieldAccess(
-                    ["person", "properties", "bla"],
-                    "person.properties",
-                    "bla",
-                    "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
-                )
-            ],
+            self._expr("person.properties.bla", context),
+            "events__pdi__person.properties___bla",
         )
 
-        context = HogQLContext()
-        self.assertEqual(self._expr("uuid", context), "uuid")
-        self.assertEqual(context.field_access_logs, [HogQLFieldAccess(["uuid"], "event", "uuid", "uuid")])
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("event", context), "event")
-        self.assertEqual(context.field_access_logs, [HogQLFieldAccess(["event"], "event", "event", "event")])
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("timestamp", context), "timestamp")
+        context = HogQLContext(within_non_hogql_query=False, using_person_on_events=True)
         self.assertEqual(
-            context.field_access_logs, [HogQLFieldAccess(["timestamp"], "event", "timestamp", "timestamp")]
-        )
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("distinct_id", context), "distinct_id")
-        self.assertEqual(
-            context.field_access_logs, [HogQLFieldAccess(["distinct_id"], "event", "distinct_id", "distinct_id")]
-        )
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("person.id", context), "events.person_id")
-        self.assertEqual(
-            context.field_access_logs,
-            [HogQLFieldAccess(["person", "id"], "person", "id", "events.person_id")],
-        )
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("person.created_at", context), "events.person_created_at")
-        self.assertEqual(
-            context.field_access_logs,
-            [HogQLFieldAccess(["person", "created_at"], "person", "created_at", "events.person_created_at")],
+            # TODO: for now, explicitly writing "poe." to opt in. Automatic switching will come soon.
+            self._expr("poe.properties.bla", context),
+            "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
     def test_hogql_properties(self):
@@ -183,9 +146,6 @@ class TestPrinter(TestCase):
         materialize("events", "$browser%%%#@!@")
         self.assertEqual(self._expr("properties['$browser%%%#@!@']"), "`mat_$browser_______`")
 
-        materialize("events", "$initial_waffle", table_column="person_properties")
-        self.assertEqual(self._expr("person.properties['$initial_waffle']"), "`mat_pp_$initial_waffle`")
-
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count(*)")
         self.assertEqual(self._expr("countDistinct(event)"), "count(distinct event)")
@@ -213,7 +173,8 @@ class TestPrinter(TestCase):
         self._assert_expr_error(
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
-        self._assert_expr_error("person.chipotle", 'Field "chipotle" not found on table EventsPersonSubTable')
+        self._assert_expr_error("person.chipotle", "Field not found: chipotle")
+        self._assert_expr_error("properties.no.json.yet", "JSON property traversal is not yet supported")
 
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")
@@ -230,66 +191,18 @@ class TestPrinter(TestCase):
     def test_returned_properties(self):
         context = HogQLContext()
         self._expr("avg(properties.prop) + avg(uuid) + event", context)
-        self.assertEqual(
-            context.field_access_logs,
-            [
-                HogQLFieldAccess(
-                    ["properties", "prop"],
-                    "event.properties",
-                    "prop",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
-                ),
-                HogQLFieldAccess(["uuid"], "event", "uuid", "uuid"),
-                HogQLFieldAccess(["event"], "event", "event", "event"),
-            ],
-        )
         self.assertEqual(context.found_aggregation, True)
 
         context = HogQLContext()
         self._expr("coalesce(event, properties.event)", context)
-        self.assertEqual(
-            context.field_access_logs,
-            [
-                HogQLFieldAccess(["event"], "event", "event", "event"),
-                HogQLFieldAccess(
-                    ["properties", "event"],
-                    "event.properties",
-                    "event",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
-                ),
-            ],
-        )
         self.assertEqual(context.found_aggregation, False)
 
         context = HogQLContext()
         self._expr("count() + sum(timestamp)", context)
-        self.assertEqual(
-            context.field_access_logs, [HogQLFieldAccess(["timestamp"], "event", "timestamp", "timestamp")]
-        )
         self.assertEqual(context.found_aggregation, True)
 
         context = HogQLContext()
         self._expr("event + avg(event + properties.event) + avg(event + properties.event)", context)
-        self.assertEqual(
-            context.field_access_logs,
-            [
-                HogQLFieldAccess(["event"], "event", "event", "event"),
-                HogQLFieldAccess(["event"], "event", "event", "event"),
-                HogQLFieldAccess(
-                    ["properties", "event"],
-                    "event.properties",
-                    "event",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
-                ),
-                HogQLFieldAccess(["event"], "event", "event", "event"),
-                HogQLFieldAccess(
-                    ["properties", "event"],
-                    "event.properties",
-                    "event",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_1)s), '^\"|\"$', '')",
-                ),
-            ],
-        )
         self.assertEqual(context.found_aggregation, True)
 
     def test_logic(self):
@@ -468,4 +381,56 @@ class TestPrinter(TestCase):
         self.assertEqual(
             self._select("SELECT event from (select distinct event from events group by event, timestamp) e"),
             "SELECT e.event FROM (SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp) AS e LIMIT 65535",
+        )
+
+    def test_select_union_all(self):
+        self.assertEqual(
+            self._select("SELECT event FROM events UNION ALL SELECT event FROM events WHERE 1 = 2"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 65535 UNION ALL SELECT event FROM events WHERE and(equals(team_id, 42), equals(1, 2)) LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select(
+                "SELECT event FROM events UNION ALL SELECT event FROM events WHERE 1 = 2 UNION ALL SELECT event FROM events WHERE 1 = 2"
+            ),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 65535 UNION ALL SELECT event FROM events WHERE and(equals(team_id, 42), equals(1, 2)) LIMIT 65535 UNION ALL SELECT event FROM events WHERE and(equals(team_id, 42), equals(1, 2)) LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("SELECT 1 UNION ALL (SELECT 1 UNION ALL SELECT 1) UNION ALL SELECT 1"),
+            "SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1"),
+            "SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535 UNION ALL SELECT 1 LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1)"),
+            "SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1) LIMIT 65535",
+        )
+
+    def test_select_sample(self):
+        self.assertEqual(
+            self._select("SELECT event FROM events SAMPLE 1"),
+            "SELECT event FROM events SAMPLE 1 WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+        self.assertEqual(
+            self._select("SELECT event FROM events SAMPLE 0.1 OFFSET 1/10"),
+            "SELECT event FROM events SAMPLE 0.1 OFFSET 1/10 WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+        self.assertEqual(
+            self._select("SELECT event FROM events SAMPLE 2/78 OFFSET 999"),
+            "SELECT event FROM events SAMPLE 2/78 OFFSET 999 WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+        self.assertEqual(
+            self._select("SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id"),
+            "SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN person ON equals(id, events__pdi.person_id) INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(person.team_id, 42), equals(events.team_id, 42)) LIMIT 65535",
+        )
+
+        self.assertEqual(
+            self._select(
+                "SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id"
+            ),
+            "SELECT event FROM events SAMPLE 2/78 OFFSET 999 JOIN person SAMPLE 0.1 ON equals(id, events__pdi.person_id) INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(person.team_id, 42), equals(events.team_id, 42)) LIMIT 65535",
         )

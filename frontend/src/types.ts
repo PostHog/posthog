@@ -96,7 +96,7 @@ export enum Region {
     EU = 'EU',
 }
 
-export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
@@ -142,6 +142,7 @@ export interface UserType extends UserBaseType {
     is_email_verified?: boolean | null
     pending_email?: string | null
     is_2fa_enabled: boolean
+    has_social_auth: boolean
 }
 
 export interface NotificationSettings {
@@ -196,7 +197,7 @@ export interface OrganizationDomainType {
     verified_at: string // Datetime
     verification_challenge: string
     jit_provisioning_enabled: boolean
-    sso_enforcement: SSOProviders | ''
+    sso_enforcement: SSOProvider | ''
     has_saml: boolean
     saml_entity_id: string
     saml_acs_url: string
@@ -210,12 +211,14 @@ export interface BaseMemberType {
     joined_at: string
     updated_at: string
     is_2fa_enabled: boolean
+    has_social_auth: boolean
 }
 
 export interface OrganizationMemberType extends BaseMemberType {
     /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
     is_2fa_enabled: boolean
+    has_social_auth: boolean
 }
 
 export interface ExplicitTeamMemberType extends BaseMemberType {
@@ -290,6 +293,7 @@ export interface TeamType extends TeamBasicType {
     app_urls: string[]
     recording_domains: string[]
     slack_incoming_webhook: string
+    autocapture_opt_out: boolean
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
@@ -1033,23 +1037,6 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export interface BillingType {
-    should_setup_billing: boolean
-    is_billing_active: boolean
-    plan: PlanInterface | null
-    billing_period_ends: string | null
-    event_allocation: number | null
-    current_usage: number | null
-    subscription_url: string
-    current_bill_amount: number | null
-    current_bill_usage: number | null
-    should_display_current_bill: boolean
-    billing_limit: number | null
-    billing_limit_exceeded: boolean | null
-    current_bill_cycle: CurrentBillCycleType | null
-    tiers: BillingTierType[] | null
-}
-
 export type BillingVersion = 'v1' | 'v2'
 
 export interface BillingV2FeatureType {
@@ -1097,6 +1084,7 @@ export interface BillingV2Type {
     stripe_portal_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string
+    current_total_amount_usd_after_discount?: string
     products: BillingProductV2Type[]
     products_enterprise?: BillingProductV2Type[]
 
@@ -1106,11 +1094,14 @@ export interface BillingV2Type {
     billing_period?: {
         current_period_start: Dayjs
         current_period_end: Dayjs
+        interval: 'month' | 'year'
     }
     license?: {
         plan: LicensePlan
     }
     available_plans?: BillingV2PlanType[]
+    discount_percent?: number
+    discount_amount_usd?: string
 }
 
 export interface BillingV2PlanType {
@@ -1119,14 +1110,6 @@ export interface BillingV2PlanType {
     description: string
     is_free?: boolean
     products: BillingProductV2Type[]
-}
-
-export interface BillingTierType {
-    name: string
-    price_per_event: number
-    number_of_events: number
-    subtotal: number
-    running_total: number
 }
 
 export interface PlanInterface {
@@ -1238,6 +1221,37 @@ export interface DashboardType {
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+}
+
+export interface DashboardTemplateType {
+    id: string
+    team_id?: number
+    created_at?: string
+    template_name: string
+    dashboard_description?: string
+    dashboard_filters?: Record<string, JsonType>
+    tiles: DashboardTile[]
+    variables?: DashboardTemplateVariableType[]
+    tags?: string[]
+    image_url?: string
+}
+
+export interface MonacoMarker {
+    message: string
+}
+
+// makes the DashboardTemplateType properties optional and the tiles properties optional
+export type DashboardTemplateEditorType = Partial<Omit<DashboardTemplateType, 'tiles'>> & {
+    tiles: Partial<DashboardTile>[]
+}
+
+export interface DashboardTemplateVariableType {
+    id: string
+    name: string
+    description: string
+    type: 'event'
+    default: Record<string, JsonType> | null | undefined
+    required: boolean
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
@@ -1413,7 +1427,8 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
-    QUERY = 'QUERY',
+    JSON = 'JSON',
+    SQL = 'SQL',
 }
 
 export enum PathType {
@@ -1582,6 +1597,7 @@ export interface RetentionFilterType extends FilterType {
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
     show_values_on_series?: boolean
+    toggledLifecycles?: LifecycleToggle[]
 }
 
 export type LifecycleToggle = 'new' | 'resurrecting' | 'returning' | 'dormant'
@@ -1709,6 +1725,14 @@ export interface ActionFilter extends EntityFilter {
     properties?: AnyPropertyFilter[]
     type: EntityType
 }
+export interface TrendAPIResponse<ResultType = TrendResult[]> {
+    type: 'Trends'
+    is_cached: boolean
+    last_refresh: string | null
+    result: ResultType
+    timezone: string
+    next: string | null
+}
 
 export interface TrendResult {
     action: ActionFilter
@@ -1761,12 +1785,12 @@ export interface FunnelStep {
 
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
-    average_conversion_time: number
+    average_conversion_time: number | null
 }
 
 export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
 
-export interface FunnelResult<ResultType = FunnelResultType> {
+export interface FunnelAPIResponse<ResultType = FunnelResultType> {
     is_cached: boolean
     last_refresh: string | null
     result: ResultType
@@ -1790,6 +1814,7 @@ export interface FunnelConversionWindow {
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
 export enum FunnelConversionWindowTimeUnit {
+    Second = 'second',
     Minute = 'minute',
     Hour = 'hour',
     Day = 'day',
@@ -1938,6 +1963,7 @@ export interface FeatureFlagType {
     performed_rollback: boolean
     can_edit: boolean
     tags: string[]
+    usage_dashboard?: number
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -2019,6 +2045,7 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
+    FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
@@ -2030,7 +2057,7 @@ export enum DashboardMode { // Default mode is null
 }
 
 // Hotkeys for local (component) actions
-export type HotKeys =
+export type HotKey =
     | 'a'
     | 'b'
     | 'c'
@@ -2064,12 +2091,7 @@ export type HotKeys =
     | 'arrowdown'
     | 'arrowup'
 
-export interface LicenseType {
-    id: number
-    plan: LicensePlan
-    valid_until: string
-    created_at: string
-}
+export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export interface EventDefinition {
     id: string
@@ -2304,6 +2326,7 @@ export enum HelpType {
     GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
+    Updates = 'updates',
 }
 
 export interface VersionType {
@@ -2666,3 +2689,25 @@ export interface RecordingReportLoadTimes {
 }
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
+
+export type PromptButtonType = 'primary' | 'secondary'
+export type PromptType = 'modal' | 'popup'
+
+export type PromptPayload = {
+    title: string
+    body: string
+    type: PromptType
+    image?: string
+    url_match?: string
+    primaryButtonText?: string
+    secondaryButtonText?: string
+    primaryButtonURL?: string
+}
+
+export type PromptFlag = {
+    flag: string
+    payload: PromptPayload
+    showingPrompt: boolean
+    locationCSS?: Partial<CSSStyleDeclaration>
+    tooltipCSS?: Partial<CSSStyleDeclaration>
+}

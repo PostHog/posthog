@@ -123,7 +123,7 @@ describe('insightNavLogic', () => {
 
         it('can ignore set active view to QUERY when data exploration off', async () => {
             await expectLogic(theInsightNavLogic, () => {
-                theInsightNavLogic.actions.setActiveView(InsightType.QUERY)
+                theInsightNavLogic.actions.setActiveView(InsightType.JSON)
             }).toMatchValues({
                 activeView: InsightType.TRENDS,
             })
@@ -135,9 +135,9 @@ describe('insightNavLogic', () => {
             })
 
             await expectLogic(theInsightNavLogic, () => {
-                theInsightNavLogic.actions.setActiveView(InsightType.QUERY)
+                theInsightNavLogic.actions.setActiveView(InsightType.JSON)
             }).toMatchValues({
-                activeView: InsightType.QUERY,
+                activeView: InsightType.JSON,
             })
         })
 
@@ -231,7 +231,7 @@ describe('insightNavLogic', () => {
                         query: { kind: NodeKind.DataTableNode } as DataTableNode,
                     })
                 }).toMatchValues({
-                    activeView: InsightType.QUERY,
+                    activeView: InsightType.JSON,
                 })
             })
 

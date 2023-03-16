@@ -30,7 +30,6 @@ export function TopBar(): JSX.Element {
     const { hideInviteModal } = useActions(inviteLogic)
     const { groupNamesTaxonomicTypes } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
-
     return (
         <>
             <Announcement />

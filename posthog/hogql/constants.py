@@ -59,6 +59,7 @@ CLICKHOUSE_FUNCTIONS = {
     "trimLeft": "trimLeft",
     "trimRight": "trimRight",
     "extractTextFromHTML": "extractTextFromHTML",
+    "match": "match",
     "like": "like",
     "ilike": "ilike",
     "notLike": "notLike",
@@ -67,7 +68,8 @@ CLICKHOUSE_FUNCTIONS = {
     # array functions
     "tuple": "tuple",
     # conditional
-    "ifElse": "if",
+    "if": "if",
+    "not": "not",
     "multiIf": "multiIf",
     # rounding
     "round": "round",
@@ -100,17 +102,6 @@ KEYWORDS = ["true", "false", "null"]
 # Keywords you can't alias to
 RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
 
-# Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
-SELECT_STAR_FROM_EVENTS_FIELDS = [
-    "uuid",
-    "event",
-    "properties",
-    "timestamp",
-    "team_id",
-    "distinct_id",
-    "elements_chain",
-    "created_at",
-]
-
 # Never return more rows than this in top level HogQL SELECT statements
+DEFAULT_RETURNED_ROWS = 100
 MAX_SELECT_RETURNED_ROWS = 65535

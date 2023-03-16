@@ -13,7 +13,7 @@ import { AvailableFeature, DashboardMode, DashboardType, ExporterFormat } from '
 import { dashboardLogic } from './dashboardLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
-import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
+import { privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/lemon-ui/icons'
@@ -29,7 +29,8 @@ import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { tagsModel } from '~/models/tagsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DashboardTemplateEditor } from './DashboardTemplateEditor'
+import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
@@ -50,13 +51,12 @@ export function DashboardHeader(): JSX.Element | null {
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
 
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
+
+    const { hasAvailableFeature, user } = useValues(userLogic)
 
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const allowSaveAsTemplate = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
 
     const { tags } = useValues(tagsModel)
 
@@ -71,16 +71,17 @@ export function DashboardHeader(): JSX.Element | null {
             },
         },
     ]
-    if (allowSaveAsTemplate) {
+    if (user?.is_staff) {
         exportOptions.push({
             export_format: ExporterFormat.JSON,
             export_context: {
-                localData: asDashboardTemplate,
+                localData: JSON.stringify(asDashboardTemplate),
                 filename: `dashboard-${slugify(dashboard?.name || 'nameless dashboard')}.json`,
                 mediaType: ExporterFormat.JSON,
             },
         })
     }
+
     return dashboard || dashboardLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
@@ -136,6 +137,7 @@ export function DashboardHeader(): JSX.Element | null {
                                       }
                                     : undefined
                             }
+                            data-attr="dashboard-name"
                         />
                     </div>
                 }
@@ -234,6 +236,20 @@ export function DashboardHeader(): JSX.Element | null {
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
                                             <ExportButton fullWidth status="stealth" items={exportOptions} />
+                                            {user?.is_staff && (
+                                                <LemonButton
+                                                    onClick={() => {
+                                                        if (asDashboardTemplate) {
+                                                            setDashboardTemplate(asDashboardTemplate)
+                                                            openDashboardTemplateEditor()
+                                                        }
+                                                    }}
+                                                    fullWidth
+                                                    status="stealth"
+                                                >
+                                                    Save as template
+                                                </LemonButton>
+                                            )}
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() => {
@@ -350,6 +366,7 @@ export function DashboardHeader(): JSX.Element | null {
                 }
                 delimited
             />
+            <DashboardTemplateEditor />
         </>
     ) : null
 }

@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 
-import clsx from 'clsx'
 import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useActions, useValues } from 'kea'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { SPRITE_SHEET_WIDTH, SPRITE_SIZE, standardAnimations } from './sprites/sprites'
+import { SHADOW_HEIGHT, SPRITE_SHEET_WIDTH, SPRITE_SIZE, standardAnimations } from './sprites/sprites'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20
 const FPS = 24
 const GRAVITY_PIXELS = 10
 const MAX_JUMP_COUNT = 2
+const COLLISION_DETECTION_DISTANCE_INCREMENT = SPRITE_SIZE / 2
 
 const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: string[], key: string) => {
     return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
@@ -31,7 +31,7 @@ class HedgehogActor {
     isDragging = false
     yVelocity = -30
     xVelocity = 0
-    onGround = false
+    ground: Element | null = null
     jumpCount = 0
 
     animationName: string = 'fall'
@@ -139,7 +139,7 @@ class HedgehogActor {
     }
 
     jump(): void {
-        if (this.jumpCount > MAX_JUMP_COUNT) {
+        if (this.jumpCount >= MAX_JUMP_COUNT) {
             return
         }
         this.jumpCount += 1
@@ -150,7 +150,7 @@ class HedgehogActor {
         this.applyGravity()
 
         // Ensure we are falling or not
-        if (this.animationName === 'fall' && this.onGround) {
+        if (this.animationName === 'fall' && this.ground) {
             this.setAnimation('stop')
         }
 
@@ -187,17 +187,20 @@ class HedgehogActor {
     }
 
     private applyGravity(): void {
-        this.onGround = false
         if (this.isDragging) {
             return
         }
 
         this.yVelocity += GRAVITY_PIXELS
-        this.y -= this.yVelocity
 
-        if (this.y <= 0) {
-            this.y = 0
-            this.onGround = true
+        const groundBoundingRect = this.detectCollision()
+
+        if (this.ground) {
+            if (!groundBoundingRect) {
+                this.y = 0
+            } else {
+                this.y = window.innerHeight - groundBoundingRect.top
+            }
             this.jumpCount = 0
 
             // Apply bounce with friction
@@ -210,10 +213,66 @@ class HedgehogActor {
         }
     }
 
+    private detectCollision(): DOMRect | null {
+        this.ground = null
+        if (this.yVelocity < 0) {
+            // Don't detect collisions when jumping
+            this.y -= this.yVelocity
+            return null
+        }
+        // Apply a granular approach to collision detection to prevent clipping at high speed
+        const velocityDirection = Math.sign(this.yVelocity)
+        let velocityLeftToApply = Math.abs(this.yVelocity)
+        let groundBoundingRect: DOMRect | null = null
+        while (velocityLeftToApply > 0) {
+            let blocksWithBoundingRects: [Element, DOMRect][] | undefined
+            const velocityToApplyInIteration = Math.min(velocityLeftToApply, COLLISION_DETECTION_DISTANCE_INCREMENT)
+            velocityLeftToApply -= velocityToApplyInIteration
+            this.y -= velocityToApplyInIteration * velocityDirection
+            if (this.y <= 0) {
+                this.ground = document.body
+            } else {
+                const hedgehogBoundingRect = {
+                    left: this.x,
+                    right: this.x + SPRITE_SIZE,
+                    top: window.innerHeight - this.y,
+                    bottom: window.innerHeight - this.y + SPRITE_SIZE,
+                }
+                if (!blocksWithBoundingRects) {
+                    // Only calculate block bounding rects once we need to
+                    blocksWithBoundingRects = Array.from(
+                        document.querySelectorAll(
+                            '.border, .border-t, .LemonButton--primary, .LemonButton--secondary, .LemonInput, .LemonSelect, .LemonTable'
+                        )
+                    ).map((block) => [block, block.getBoundingClientRect()])
+                }
+                for (const [block, blockBoundingRect] of blocksWithBoundingRects) {
+                    if (
+                        // Only allow standing on reasonably wide blocks
+                        blockBoundingRect.width > SPRITE_SIZE / 2 &&
+                        // Use block as ground when the hedgehog intersects the top border, but not the bottom
+                        hedgehogBoundingRect.top < blockBoundingRect.top + SPRITE_SIZE &&
+                        hedgehogBoundingRect.bottom > blockBoundingRect.top + SPRITE_SIZE &&
+                        // Ensure alignment in the X axis too
+                        hedgehogBoundingRect.left < blockBoundingRect.right &&
+                        hedgehogBoundingRect.right > blockBoundingRect.left
+                    ) {
+                        this.ground = block
+                        groundBoundingRect = blockBoundingRect
+                    }
+                }
+            }
+        }
+        // Adjust bounce basis velocity appropriately based on where collusion occurred
+        // (i.e. if collision happened earlier in acceleration, bounce should be reduced)
+        this.yVelocity -= velocityLeftToApply * velocityDirection
+        return groundBoundingRect
+    }
+
     render({ onClick }: { onClick: () => void }): JSX.Element {
         return (
             <div
-                className={clsx('Hedgehog', {})}
+                id="hedgehog"
                 onMouseDown={() => {
                     let moved = false
                     const onMouseMove = (e: any): void => {
@@ -240,11 +299,12 @@ class HedgehogActor {
                 style={{
                     position: 'fixed',
                     left: this.x,
-                    bottom: this.y,
+                    bottom: this.y - SHADOW_HEIGHT / 2,
                     transition: !this.isDragging ? `all ${1000 / FPS}ms` : undefined,
                     transform: `scaleX(${this.direction === 'right' ? 1 : -1})`,
                     cursor: 'pointer',
                     zIndex: 1001,
+                    margin: 0,
                 }}
             >
                 <div

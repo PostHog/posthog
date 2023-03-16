@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, props, key, connect, selectors } from 'kea'
 import {
     FilterType,
     FunnelResultType,
@@ -9,10 +9,15 @@ import {
     FunnelStepWithNestedBreakdown,
     InsightLogicProps,
     StepOrderValue,
-    InsightType,
-    FunnelsFilterType,
     FunnelStepWithConversionMetrics,
     FlattenedFunnelStepByBreakdown,
+    FunnelsTimeConversionBins,
+    HistogramGraphDatum,
+    FunnelAPIResponse,
+    FunnelTimeConversionMetrics,
+    TrendResult,
+    FunnelConversionWindowTimeUnit,
+    FunnelConversionWindow,
 } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -20,35 +25,38 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { groupsModel, Noun } from '~/models/groupsModel'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { isFunnelsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isNewEntityNode } from '~/queries/utils'
+import { percentage, sum, average } from 'lib/utils'
+import { dayjs } from 'lib/dayjs'
 import {
     aggregateBreakdownResult,
     flattenedStepsByBreakdown,
+    getIncompleteConversionWindowStartDate,
+    getLastFilledStep,
+    getReferenceStep,
+    getVisibilityKey,
     isBreakdownFunnelResults,
     stepsWithConversionMetrics,
 } from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
-export const funnelDataLogic = kea<funnelDataLogicType>({
-    path: (key) => ['scenes', 'funnels', 'funnelDataLogic', key],
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps(DEFAULT_FUNNEL_LOGIC_KEY),
+export const funnelDataLogic = kea<funnelDataLogicType>([
+    path((key) => ['scenes', 'funnels', 'funnelDataLogic', key]),
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps(DEFAULT_FUNNEL_LOGIC_KEY)),
 
-    connect: (props: InsightLogicProps) => ({
+    connect((props: InsightLogicProps) => ({
         values: [
             insightDataLogic(props),
-            ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown'],
+            ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series', 'interval', 'insightData'],
             groupsModel,
             ['aggregationLabel'],
-            insightLogic(props),
-            ['insight'],
         ],
         actions: [insightDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
-    }),
+    })),
 
-    selectors: ({ props }) => ({
+    selectors(({ props }) => ({
         isStepsFunnel: [
             (s) => [s.funnelsFilter],
             (funnelsFilter): boolean | null => {
@@ -94,19 +102,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
         ],
 
         results: [
-            (s) => [s.insight],
-            ({
-                filters,
-                result,
-            }: {
-                filters: Partial<FunnelsFilterType>
-                result: FunnelResultType
-            }): FunnelResultType => {
-                if (filters?.insight === InsightType.FUNNELS) {
-                    if (isBreakdownFunnelResults(result) && result[0][0].breakdowns) {
+            (s) => [s.insightData],
+            (insightData: FunnelAPIResponse | null): FunnelResultType => {
+                // TODO: after hooking up data manager, check that we have a funnels result here
+                if (insightData?.result) {
+                    if (isBreakdownFunnelResults(insightData.result) && insightData.result?.[0]?.[0]?.breakdowns) {
                         // in order to stop the UI having to check breakdowns and breakdown
                         // this collapses breakdowns onto the breakdown property
-                        return result.map((series) =>
+                        return insightData.result.map((series) =>
                             series.map((step) => {
                                 const { breakdowns, ...clone } = step
                                 clone.breakdown = breakdowns as (string | number)[]
@@ -114,16 +117,24 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                             })
                         )
                     }
-                    return result
+                    return insightData.result
                 } else {
                     return []
                 }
             },
         ],
+        isFunnelWithEnoughSteps: [
+            (s) => [s.series],
+            (series) => {
+                return (series?.filter((node) => !isNewEntityNode(node)).length || 0) > 1
+            },
+        ],
         steps: [
             (s) => [s.breakdown, s.results, s.isTimeToConvertFunnel],
             (breakdown, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
-                if (!isTimeToConvertFunnel) {
+                // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
+                // while still having "time-to-convert" results in insightData
+                if (!isTimeToConvertFunnel && Array.isArray(results)) {
                     if (isBreakdownFunnelResults(results)) {
                         const breakdownProperty = breakdown?.breakdowns
                             ? breakdown?.breakdowns.map((b) => b.property).join('::')
@@ -143,17 +154,159 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 return stepsWithConversionMetrics(steps, stepReference)
             },
         ],
-        flattenedStepsByBreakdown: [
+        flattenedBreakdowns: [
             (s) => [s.stepsWithConversionMetrics, s.funnelsFilter],
             (steps, funnelsFilter): FlattenedFunnelStepByBreakdown[] => {
                 const disableBaseline = !!props.cachedInsight?.disable_baseline
-                return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline)
+                return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
             },
         ],
-        flattenedBreakdowns: [
-            (s) => [s.flattenedStepsByBreakdown],
-            (flattenedStepsByBreakdown): FlattenedFunnelStepByBreakdown[] => {
-                return flattenedStepsByBreakdown.filter((b) => b.breakdown)
+        visibleStepsWithConversionMetrics: [
+            (s) => [s.stepsWithConversionMetrics, s.funnelsFilter, s.flattenedBreakdowns],
+            (steps, funnelsFilter, flattenedBreakdowns): FunnelStepWithConversionMetrics[] => {
+                const isOnlySeries = flattenedBreakdowns.length <= 1
+                const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
+                return steps.map((step, stepIndex) => ({
+                    ...step,
+                    nested_breakdown: (!!baseLineSteps?.steps
+                        ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
+                        : step?.nested_breakdown
+                    )
+                        ?.map((b, breakdownIndex) => ({
+                            ...b,
+                            order: breakdownIndex,
+                        }))
+                        ?.filter(
+                            (b) =>
+                                isOnlySeries ||
+                                !funnelsFilter?.hidden_legend_breakdowns?.includes(getVisibilityKey(b.breakdown_value))
+                        ),
+                }))
+            },
+        ],
+
+        /*
+         * Time-to-convert funnels
+         */
+        timeConversionResults: [
+            (s) => [s.results, s.funnelsFilter],
+            (results, funnelsFilter): FunnelsTimeConversionBins | null => {
+                return funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert
+                    ? (results as FunnelsTimeConversionBins)
+                    : null
+            },
+        ],
+        histogramGraphData: [
+            (s) => [s.timeConversionResults],
+            (timeConversionResults: FunnelsTimeConversionBins): HistogramGraphDatum[] | null => {
+                if ((timeConversionResults?.bins?.length ?? 0) < 2) {
+                    return null // There are no results
+                }
+
+                const totalCount = sum(timeConversionResults.bins.map(([, count]) => count))
+                if (totalCount === 0) {
+                    return [] // Nobody has converted in the time period
+                }
+
+                const binSize = timeConversionResults.bins[1][0] - timeConversionResults.bins[0][0]
+                return timeConversionResults.bins.map(([id, count]: [id: number, count: number]) => {
+                    const value = Math.max(0, id)
+                    const percent = count / totalCount
+                    return {
+                        id: value,
+                        bin0: value,
+                        bin1: value + binSize,
+                        count,
+                        label: percent === 0 ? '' : percentage(percent, 1, true),
+                    }
+                })
+            },
+        ],
+        hasFunnelResults: [
+            (s) => [s.funnelsFilter, s.steps, s.histogramGraphData],
+            (funnelsFilter, steps, histogramGraphData) => {
+                if (funnelsFilter?.funnel_viz_type === FunnelVizType.Steps || !funnelsFilter?.funnel_viz_type) {
+                    return !!(steps && steps[0] && steps[0].count > -1)
+                } else if (funnelsFilter.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                    return (histogramGraphData?.length ?? 0) > 0
+                } else if (funnelsFilter.funnel_viz_type === FunnelVizType.Trends) {
+                    return (steps?.length ?? 0) > 0 && !!steps?.[0]?.labels
+                } else {
+                    return false
+                }
+            },
+        ],
+
+        conversionMetrics: [
+            (s) => [s.steps, s.funnelsFilter, s.timeConversionResults],
+            (steps, funnelsFilter, timeConversionResults): FunnelTimeConversionMetrics => {
+                // steps should be empty in time conversion view. Return metrics precalculated on backend
+                if (funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                    return {
+                        averageTime: timeConversionResults?.average_conversion_time ?? 0,
+                        stepRate: 0,
+                        totalRate: 0,
+                    }
+                }
+
+                // Handle metrics for trends
+                if (funnelsFilter?.funnel_viz_type === FunnelVizType.Trends) {
+                    return {
+                        averageTime: 0,
+                        stepRate: 0,
+                        totalRate: average((steps?.[0] as unknown as TrendResult)?.data ?? []) / 100,
+                    }
+                }
+
+                // Handle metrics for steps
+                // no concept of funnel_from_step and funnel_to_step here
+                if (steps.length <= 1) {
+                    return {
+                        averageTime: 0,
+                        stepRate: 0,
+                        totalRate: 0,
+                    }
+                }
+
+                const toStep = getLastFilledStep(steps)
+                const fromStep = getReferenceStep(steps, FunnelStepReference.total)
+
+                return {
+                    averageTime: steps.reduce(
+                        (conversion_time, step) => conversion_time + (step.average_conversion_time || 0),
+                        0
+                    ),
+                    stepRate: toStep.count / fromStep.count,
+                    totalRate: steps[steps.length - 1].count / steps[0].count,
+                }
+            },
+        ],
+        conversionWindow: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): FunnelConversionWindow => {
+                const { funnel_window_interval, funnel_window_interval_unit } = funnelsFilter || {}
+                return {
+                    funnel_window_interval: funnel_window_interval || 14,
+                    funnel_window_interval_unit: funnel_window_interval_unit || FunnelConversionWindowTimeUnit.Day,
+                }
+            },
+        ],
+        incompletenessOffsetFromEnd: [
+            (s) => [s.steps, s.conversionWindow],
+            (steps, conversionWindow) => {
+                if (steps?.[0]?.days === undefined) {
+                    return 0
+                }
+
+                // subtract conversion window from today and look for a matching day
+                const startDate = getIncompleteConversionWindowStartDate(conversionWindow)
+                const startIndex = steps[0].days.findIndex((day) => dayjs(day) >= startDate)
+
+                if (startIndex !== undefined && startIndex !== -1) {
+                    return startIndex - steps[0].days.length
+                } else {
+                    return 0
+                }
             },
         ],
 
@@ -194,5 +347,5 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 events: funnelsFilter?.exclusions,
             }),
         ],
-    }),
-})
+    })),
+])

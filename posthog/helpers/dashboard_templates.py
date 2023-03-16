@@ -7,6 +7,7 @@ from posthog.constants import (
     BREAKDOWN_TYPE,
     DATE_FROM,
     DISPLAY,
+    FILTER_TEST_ACCOUNTS,
     INSIGHT,
     INSIGHT_TRENDS,
     INTERVAL,
@@ -14,13 +15,15 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_BAR_VALUE,
     TRENDS_BOLD_NUMBER,
+    TRENDS_LINEAR,
+    TRENDS_TABLE,
     TRENDS_WORLD_MAP,
     UNIQUE_USERS,
     AvailableFeature,
 )
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_templates import DashboardTemplate
-from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.dashboard_tile import DashboardTile, Text
 from posthog.models.insight import Insight
 from posthog.models.tag import Tag
 
@@ -380,7 +383,7 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
 
 def _create_default_app_items(dashboard: Dashboard) -> None:
     template = DashboardTemplate.original_template()
-    _create_from_template(dashboard, template)
+    create_from_template(dashboard, template)
 
 
 DASHBOARD_TEMPLATES: Dict[str, Callable] = {
@@ -391,43 +394,73 @@ DASHBOARD_TEMPLATES: Dict[str, Callable] = {
 # end of area to be removed
 
 
-def _create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> None:
+def create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> None:
+    if not dashboard.name or dashboard.name == "":
+        dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
     dashboard.description = template.dashboard_description
     if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
-        for template_tag in template.tags:
+        for template_tag in template.tags or []:
             tag, _ = Tag.objects.get_or_create(
                 name=template_tag, team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
             )
             dashboard.tagged_items.create(tag_id=tag.id)
-    dashboard.save(update_fields=["filters", "description"])
+    dashboard.save()
 
     for template_tile in template.tiles:
         if template_tile["type"] == "INSIGHT":
+            query = template_tile.get("query", None)
+            filters = template_tile.get("filters") if not query else {}
             _create_tile_for_insight(
                 dashboard,
                 name=template_tile.get("name"),
-                filters=template_tile.get("filters"),
+                filters=filters,
+                query=query,
                 description=template_tile.get("description"),
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
             )
         elif template_tile["type"] == "TEXT":
-            # TODO support text tiles
-            pass
+            _create_tile_for_text(
+                dashboard,
+                color=template_tile.get("color"),
+                layouts=template_tile.get("layouts"),
+                body=template_tile.get("body"),
+            )
         else:
             logger.error("dashboard_templates.creation.unknown_type", template=template)
 
 
+def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: Dict, color: Optional[str]) -> None:
+    text = Text.objects.create(
+        team=dashboard.team,
+        body=body,
+    )
+    DashboardTile.objects.create(
+        text=text,
+        dashboard=dashboard,
+        layouts=layouts,
+        color=color,
+    )
+
+
 def _create_tile_for_insight(
-    dashboard: Dashboard, name: str, filters: Dict, description: str, layouts: Dict, color: Optional[str]
+    dashboard: Dashboard,
+    name: str,
+    filters: Dict,
+    description: str,
+    layouts: Dict,
+    color: Optional[str],
+    query: Optional[Dict] = None,
 ) -> None:
+    filter_test_accounts = filters.get("filter_test_accounts", True)
     insight = Insight.objects.create(
         team=dashboard.team,
         name=name,
         description=description,
-        filters={**filters, "filter_test_accounts": True},
+        filters={**filters, "filter_test_accounts": filter_test_accounts},
         is_sample=True,
+        query=query,
     )
     DashboardTile.objects.create(
         insight=insight,
@@ -449,4 +482,103 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
         else:
             raise AttributeError(f"Invalid template key `{template_key}` provided.")
 
-    _create_from_template(dashboard, template)
+    create_from_template(dashboard, template)
+
+
+def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
+    dashboard.filters = {DATE_FROM: "-30d"}
+    if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
+        tag, _ = Tag.objects.get_or_create(
+            name="feature flags", team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
+        )
+        dashboard.tagged_items.create(tag_id=tag.id)
+    dashboard.save(update_fields=["filters"])
+
+    # 1 row
+    _create_tile_for_insight(
+        dashboard,
+        name="Feature Flag Called Total Volume",
+        description="Shows the number of total calls made on feature flag with key: " + feature_flag.key,
+        filters={
+            TREND_FILTER_TYPE_EVENTS: [
+                {"id": "$feature_flag_called", "name": "$feature_flag_called", "type": TREND_FILTER_TYPE_EVENTS}
+            ],
+            INTERVAL: "day",
+            INSIGHT: INSIGHT_TRENDS,
+            DATE_FROM: "-30d",
+            DISPLAY: TRENDS_LINEAR,
+            PROPERTIES: {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$feature_flag", "type": "event", "value": feature_flag.key},
+                        ],
+                    }
+                ],
+            },
+            BREAKDOWN: "$feature_flag_response",
+            FILTER_TEST_ACCOUNTS: False,
+        },
+        layouts={
+            "sm": {"i": "21", "x": 0, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
+            "xs": {
+                "w": 1,
+                "h": 5,
+                "x": 0,
+                "y": 0,
+                "i": "21",
+                "minW": 1,
+                "minH": 5,
+            },
+        },
+        color="blue",
+    )
+
+    _create_tile_for_insight(
+        dashboard,
+        name="Feature Flag calls made by unique users per variant",
+        description="Shows the number of unique user calls made on feature flag per variant with key: "
+        + feature_flag.key,
+        filters={
+            TREND_FILTER_TYPE_EVENTS: [
+                {
+                    "id": "$feature_flag_called",
+                    "name": "$feature_flag_called",
+                    "math": UNIQUE_USERS,
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                }
+            ],
+            INTERVAL: "day",
+            INSIGHT: INSIGHT_TRENDS,
+            DATE_FROM: "-30d",
+            DISPLAY: TRENDS_TABLE,
+            PROPERTIES: {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$feature_flag", "type": "event", "value": feature_flag.key},
+                        ],
+                    }
+                ],
+            },
+            BREAKDOWN: "$feature_flag_response",
+            FILTER_TEST_ACCOUNTS: False,
+        },
+        layouts={
+            "sm": {"i": "22", "x": 6, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
+            "xs": {
+                "w": 1,
+                "h": 5,
+                "x": 0,
+                "y": 5,
+                "i": "22",
+                "minW": 1,
+                "minH": 5,
+            },
+        },
+        color="green",
+    )

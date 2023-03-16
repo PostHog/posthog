@@ -27,6 +27,7 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     metaDetails?: JSX.Element | null
     moreButtons?: JSX.Element | null
     topHeading?: JSX.Element | null
+    samplingNotice?: JSX.Element | null
 }
 
 export function CardMeta({
@@ -41,6 +42,7 @@ export function CardMeta({
     areDetailsShown,
     setAreDetailsShown,
     className,
+    samplingNotice,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -73,13 +75,13 @@ export function CardMeta({
     return (
         <CSSTransition in={areDetailsShown} timeout={200} classNames="CardMeta--expansion">
             {(transitionState) => (
-                // eslint-disable-next-line react/forbid-dom-props
                 <div
                     className={clsx(
                         'CardMeta',
                         className,
                         showDetailsControls ? 'CardMeta--WithDetails' : 'CardMeta--WithoutDetails'
                     )}
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={transitionStyles[transitionState]}
                 >
                     <div className="CardMeta__primary" ref={primaryRef}>
@@ -103,6 +105,7 @@ export function CardMeta({
                                             {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                         </LemonButton>
                                     )}
+                                    {samplingNotice ? samplingNotice : null}
                                     {showEditingControls && <More overlay={moreButtons} />}
                                 </div>
                             </div>

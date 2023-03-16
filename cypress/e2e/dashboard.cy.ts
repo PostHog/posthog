@@ -99,11 +99,15 @@ describe('Dashboard', () => {
     })
 
     it('Create an empty dashboard', () => {
-        cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type('New Dashboard')
-        cy.get('[data-attr="dashboard-submit-and-go"]').contains('Create and go to dashboard').click()
+        const dashboardName = 'New Dashboard 2'
 
-        cy.contains('New Dashboard').should('exist')
+        cy.get('[data-attr="new-dashboard"]').click()
+        cy.get('[data-attr="create-dashboard-blank"]').click()
+        cy.get('[data-attr="dashboard-name"]').should('exist')
+        cy.get('[data-attr="dashboard-name"] button').click()
+        cy.get('[data-attr="dashboard-name"] input').clear().type(dashboardName).blur()
+
+        cy.contains(dashboardName).should('exist')
         cy.get('.EmptyDashboard').should('exist')
 
         // Check that dashboard is not pinned by default

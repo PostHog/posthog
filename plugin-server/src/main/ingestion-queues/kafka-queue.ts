@@ -22,8 +22,8 @@ export class IngestionConsumer {
     public topic: string
     public consumerGroupId: string
     public eachBatch: EachBatchFunction
+    public consumer: Consumer
     private kafka: Kafka
-    private consumer: Consumer
     private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
 
@@ -55,14 +55,6 @@ export class IngestionConsumer {
                 this.pluginsServer.lastActivity = new Date().valueOf()
                 this.pluginsServer.lastActivityType = 'runEventPipeline'
                 return piscina.run({ task: 'runEventPipeline', args: { event } })
-            },
-            runLightweightCaptureEndpointEventPipeline: (event: PipelineEvent) => {
-                this.pluginsServer.lastActivity = new Date().valueOf()
-                this.pluginsServer.lastActivityType = 'runLightweightCaptureEndpointEventPipeline'
-                return piscina.run({
-                    task: 'runLightweightCaptureEndpointEventPipeline',
-                    args: { event },
-                })
             },
         }
         this.consumerGroupMemberId = null

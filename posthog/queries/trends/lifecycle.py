@@ -48,7 +48,7 @@ class Lifecycle:
             for val in result:
                 label = "{} - {}".format(entity.name, val[2])
                 additional_values = {"label": label, "status": val[2]}
-                parsed_result = parse_response(val, filter, additional_values=additional_values)
+                parsed_result = parse_response(val, filter, additional_values=additional_values, entity=entity)
                 parsed_result.update(
                     {"persons_urls": self._get_persons_urls(filter, entity, parsed_result["days"], val[2])}
                 )
@@ -155,7 +155,8 @@ class LifecycleEventQuery(EventQuery):
 
         null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
 
-        sample_clause = f"SAMPLE {self._filter.sampling_factor}" if self._filter.sampling_factor else ""
+        sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
+        self.params.update({"sampling_factor": self._filter.sampling_factor})
 
         return (
             LIFECYCLE_EVENTS_QUERY.format(

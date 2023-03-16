@@ -4,6 +4,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import type { dashboardsLogicType } from './dashboardsLogicType'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export enum DashboardsTab {
     All = 'all',
@@ -15,7 +16,7 @@ export enum DashboardsTab {
 
 export const dashboardsLogic = kea<dashboardsLogicType>({
     path: ['scenes', 'dashboard', 'dashboardsLogic'],
-    connect: { values: [userLogic, ['user']] },
+    connect: { values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']] },
     actions: {
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),

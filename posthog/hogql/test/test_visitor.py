@@ -80,6 +80,10 @@ class TestVisitor(BaseTest):
                                 right=ast.Field(chain=["e"]),
                             ),
                         ),
+                        sample=ast.SampleExpr(
+                            sample_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=2)),
+                            offset_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=2)),
+                        ),
                     ),
                     where=ast.Constant(value=True),
                     prewhere=ast.Constant(value=True),

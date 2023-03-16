@@ -1,6 +1,13 @@
 import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
-import { AnyDataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema'
+import {
+    AnyDataNode,
+    DataTableNode,
+    EventsQuery,
+    HogQLExpression,
+    NodeKind,
+    TimeToSeeDataSessionsQuery,
+} from '~/queries/schema'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
 import { objectsEqual, sortedKeys } from 'lib/utils'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
@@ -53,7 +60,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         orderBy: [
             (_, p) => [p.query],
-            (query): string[] | null => (isEventsQuery(query.source) ? query.source.orderBy || ['-timestamp'] : null),
+            (query): string[] | null =>
+                isEventsQuery(query.source) ? query.source.orderBy || ['timestamp DESC'] : null,
             { resultEqualityCheck: objectsEqual },
         ],
         columnsInResponse: [
@@ -79,7 +87,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         }
 
                         const { results } = eventsQueryResponse
-                        const orderKey = orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]
+                        const orderKey = orderBy?.[0]?.endsWith(' DESC')
+                            ? orderBy[0].replace(/ DESC$/, '')
+                            : orderBy?.[0]
                         const orderKeyIndex =
                             columnsInResponse?.findIndex(
                                 (column) =>
@@ -110,6 +120,13 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         }
                     }
                 }
+
+                if (response && sourceKind === NodeKind.TimeToSeeDataSessionsQuery) {
+                    return (response as NonNullable<TimeToSeeDataSessionsQuery['response']>).results.map((row) => ({
+                        result: row,
+                    }))
+                }
+
                 return response && 'results' in response && Array.isArray(response.results)
                     ? response.results.map((result: any) => ({ result })) ?? null
                     : null

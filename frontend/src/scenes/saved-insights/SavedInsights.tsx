@@ -25,7 +25,7 @@ import {
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
-    InsightsQueryIcon,
+    InsightSQLIcon,
     InsightsRetentionIcon,
     InsightsStickinessIcon,
     InsightsTrendsIcon,
@@ -40,7 +40,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { summariseInsight } from 'scenes/insights/utils'
+import { insightTypeURL, summariseInsight } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -105,10 +105,16 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         icon: InsightsLifecycleIcon,
         inMenu: true,
     },
-    [InsightType.QUERY]: {
-        name: 'Query',
-        description: 'Build custom insights with our powerful query language',
-        icon: InsightsQueryIcon,
+    [InsightType.SQL]: {
+        name: 'SQL',
+        description: 'Use SQL to query your data',
+        icon: InsightSQLIcon,
+        inMenu: true,
+    },
+    [InsightType.JSON]: {
+        name: 'JSON',
+        description: 'Build custom insights with our JSON query language',
+        icon: InsightSQLIcon,
         inMenu: false, // until data exploration is released
     },
 }
@@ -231,7 +237,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.HogQLQuery]: {
         name: 'HogQL',
         description: 'Direct HogQL query',
-        icon: IconCoffee,
+        icon: InsightSQLIcon,
         inMenu: true,
     },
 }
@@ -253,7 +259,7 @@ export const scene: SceneExport = {
 export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
     let insightType = insight?.filters?.insight || InsightType.TRENDS
     if (!!insight.query && !isInsightVizNode(insight.query)) {
-        insightType = InsightType.QUERY
+        insightType = InsightType.JSON
     }
     const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
     if (insightMetadata && insightMetadata.icon) {
@@ -263,6 +269,15 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    let menuEntries = Object.entries(INSIGHT_TYPES_METADATA)
+    if (!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]) {
+        menuEntries = menuEntries.filter(
+            ([insightType]) => insightType !== InsightType.JSON && insightType !== InsightType.SQL
+        )
+    }
+
     return (
         <LemonButtonWithSideAction
             type="primary"
@@ -272,7 +287,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
-                    overlay: Object.entries(INSIGHT_TYPES_METADATA).map(
+                    overlay: menuEntries.map(
                         ([listedInsightType, listedInsightTypeMetadata]) =>
                             listedInsightTypeMetadata.inMenu && (
                                 <LemonButton
@@ -283,7 +298,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                                             <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
                                         )
                                     }
-                                    to={urls.insightNew({ insight: listedInsightType as InsightType })}
+                                    to={insightTypeURL[listedInsightType as InsightType]}
                                     data-attr={dataAttr}
                                     data-attr-insight-type={listedInsightType}
                                     onClick={() => {

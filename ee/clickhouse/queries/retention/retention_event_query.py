@@ -1,5 +1,5 @@
 from posthog.models.group.util import get_aggregation_target_field
-from posthog.queries.retention.event_query import RetentionEventsQuery
+from posthog.queries.retention.retention_events_query import RetentionEventsQuery
 
 
 class ClickhouseRetentionEventsQuery(RetentionEventsQuery):

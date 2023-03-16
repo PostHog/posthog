@@ -81,7 +81,7 @@ export function CorrelationConfig(): JSX.Element {
                             <IconSelectEvents className="text-lg" />
                             Excluded event properties
                         </h3>
-                        <div style={{ maxWidth: '40rem' }}>
+                        <div className="max-w-160">
                             <LemonSelectMultiple
                                 mode="multiple-custom"
                                 onChange={(properties) => handleChange(undefined, undefined, properties)}

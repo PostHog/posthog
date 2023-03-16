@@ -1,4 +1,4 @@
-from typing import Dict, Literal, Optional, cast
+from typing import Dict, List, Literal, Optional, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
@@ -22,9 +22,22 @@ def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no
     return node
 
 
+def parse_order_expr(
+    order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
+) -> ast.Expr:
+    parse_tree = get_parser(order_expr).orderExpr()
+    node = HogQLParseTreeConverter().visit(parse_tree)
+    if placeholders:
+        return replace_placeholders(node, placeholders)
+    elif no_placeholders:
+        assert_no_placeholders(node)
+
+    return node
+
+
 def parse_select(
     statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
-) -> ast.SelectQuery:
+) -> ast.SelectQuery | ast.SelectUnionQuery:
     parse_tree = get_parser(statement).select()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
@@ -45,7 +58,7 @@ def get_parser(query: str) -> HogQLParser:
 
 
 class HogQLErrorListener(ErrorListener):
-    def syntaxError(self, recognizer, offendingSymbol, line, column, msg, e):
+    def syntaxError(self, recognizer, offendingRef, line, column, msg, e):
         raise SyntaxError(f"line {line}, column {column}: {msg}")
 
 
@@ -54,10 +67,20 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
-        selects = ctx.selectStmtWithParens()
-        if len(selects) != 1:
-            raise NotImplementedError(f"Unsupported: UNION ALL")
-        return self.visit(selects[0])
+        select_queries: List[ast.SelectQuery | ast.SelectUnionQuery] = [
+            self.visit(select) for select in ctx.selectStmtWithParens()
+        ]
+        flattened_queries: List[ast.SelectQuery] = []
+        for query in select_queries:
+            if isinstance(query, ast.SelectQuery):
+                flattened_queries.append(query)
+            elif isinstance(query, ast.SelectUnionQuery):
+                flattened_queries.extend(query.select_queries)
+            else:
+                raise Exception(f"Unexpected query node type {type(query).__name__}")
+        if len(flattened_queries) == 1:
+            return flattened_queries[0]
+        return ast.SelectUnionQuery(select_queries=flattened_queries)
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
         return self.visit(ctx.selectStmt() or ctx.selectUnionStmt())
@@ -161,15 +184,17 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return join1
 
     def visitJoinExprTable(self, ctx: HogQLParser.JoinExprTableContext):
+        sample = None
         if ctx.sampleClause():
-            raise NotImplementedError(f"Unsupported: SAMPLE (JoinExprTable.sampleClause)")
+            sample = self.visit(ctx.sampleClause())
         table = self.visit(ctx.tableExpr())
         table_final = True if ctx.FINAL() else None
         if isinstance(table, ast.JoinExpr):
             # visitTableExprAlias returns a JoinExpr to pass the alias
             table.table_final = table_final
+            table.sample = sample
             return table
-        return ast.JoinExpr(table=table, table_final=table_final)
+        return ast.JoinExpr(table=table, table_final=table_final, sample=sample)
 
     def visitJoinExprParens(self, ctx: HogQLParser.JoinExprParensContext):
         return self.visit(ctx.joinExpr())
@@ -232,7 +257,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return column_expr_list[0]
 
     def visitSampleClause(self, ctx: HogQLParser.SampleClauseContext):
-        raise NotImplementedError(f"Unsupported node: SampleClause")
+        ratio_expressions = ctx.ratioExpr()
+
+        sample_ratio_expr = self.visit(ratio_expressions[0])
+        offset_ratio_expr = self.visit(ratio_expressions[1]) if len(ratio_expressions) > 1 and ctx.OFFSET() else None
+
+        return ast.SampleExpr(sample_value=sample_ratio_expr, offset_value=offset_ratio_expr)
 
     def visitLimitExpr(self, ctx: HogQLParser.LimitExprContext):
         raise NotImplementedError(f"Unsupported node: LimitExpr")
@@ -245,7 +275,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.OrderExpr(expr=self.visit(ctx.columnExpr()), order=cast(Literal["ASC", "DESC"], order))
 
     def visitRatioExpr(self, ctx: HogQLParser.RatioExprContext):
-        raise NotImplementedError(f"Unsupported node: RatioExpr")
+        number_literals = ctx.numberLiteral()
+
+        left = number_literals[0]
+        right = number_literals[1] if ctx.SLASH() and len(number_literals) > 1 else None
+
+        return ast.RatioExpr(
+            left=self.visitNumberLiteral(left), right=self.visitNumberLiteral(right) if right else None
+        )
 
     def visitSettingExprList(self, ctx: HogQLParser.SettingExprListContext):
         raise NotImplementedError(f"Unsupported node: SettingExprList")
@@ -330,7 +367,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnExprExtract")
 
     def visitColumnExprNegate(self, ctx: HogQLParser.ColumnExprNegateContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprNegate")
+        return ast.BinaryOperation(
+            op=ast.BinaryOperationType.Sub, left=ast.Constant(value=0), right=self.visit(ctx.columnExpr())
+        )
 
     def visitColumnExprSubquery(self, ctx: HogQLParser.ColumnExprSubqueryContext):
         return self.visit(ctx.selectUnionStmt())

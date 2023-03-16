@@ -50,8 +50,12 @@ class TrendsEventQueryBase(EventQuery):
         session_query, session_params = self._get_sessions_query()
         self.params.update(session_params)
 
+        sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
+        self.params.update({"sampling_factor": self._filter.sampling_factor})
+
         query = f"""
             FROM events {self.EVENT_TABLE_ALIAS}
+            {sample_clause}
             {self._get_distinct_id_query()}
             {person_query}
             {groups_query}

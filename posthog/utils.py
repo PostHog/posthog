@@ -333,6 +333,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
+    context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: Dict[str, Any] = {
@@ -552,8 +553,9 @@ def cors_response(request, response):
 
     # Handle headers that sentry randomly sends for every request.
     # Would cause a CORS failure otherwise.
+    # specified here to override the default added by the cors headers package in web.py
     allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
-    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id"]]
+    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id", "request-context"]]
 
     response["Access-Control-Allow-Headers"] = "X-Requested-With,Content-Type" + (
         "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""

@@ -161,13 +161,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 excludedProperties,
                 featureFlags
             ): TaxonomicFilterGroup[] => {
-                const hogQl: TaxonomicFilterGroup = {
-                    name: 'HogQL',
-                    searchPlaceholder: 'HogQL',
-                    type: TaxonomicFilterGroupType.HogQLExpression,
-                    render: InlineHogQLEditor,
-                    getPopoverHeader: () => 'HogQL',
-                }
                 return [
                     {
                         name: 'Events',
@@ -429,7 +422,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getValue: (option) => option.value,
                         getPopoverHeader: () => 'Session',
                     },
-                    ...(featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS] ? [hogQl] : []),
+                    {
+                        name: 'HogQL',
+                        searchPlaceholder: 'HogQL',
+                        type: TaxonomicFilterGroupType.HogQLExpression,
+                        render: InlineHogQLEditor,
+                        getPopoverHeader: () => 'HogQL',
+                    },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
                 ]
@@ -440,14 +439,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
         ],
         taxonomicGroupTypes: [
-            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.featureFlags],
-            (groupTypes, taxonomicGroups, featureFlags): TaxonomicFilterGroupType[] =>
-                (groupTypes || taxonomicGroups.map((g) => g.type)).filter((type) => {
-                    return (
-                        type !== TaxonomicFilterGroupType.HogQLExpression ||
-                        !!featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS]
-                    )
-                }),
+            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups],
+            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
+                groupTypes || taxonomicGroups.map((g) => g.type),
         ],
         groupAnalyticsTaxonomicGroupNames: [
             (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],

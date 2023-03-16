@@ -1,5 +1,5 @@
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.test.base import BaseTest
 
 
@@ -621,6 +621,20 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_order_by(self):
+        self.assertEqual(
+            parse_order_expr("1 ASC"),
+            ast.OrderExpr(expr=ast.Constant(value=1), order="ASC"),
+        )
+        self.assertEqual(
+            parse_order_expr("event"),
+            ast.OrderExpr(expr=ast.Field(chain=["event"]), order="ASC"),
+        )
+        self.assertEqual(
+            parse_order_expr("timestamp DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC"),
+        )
+
     def test_select_order_by(self):
         self.assertEqual(
             parse_select("select 1 from events ORDER BY 1 ASC, event, timestamp DESC"),
@@ -694,6 +708,80 @@ class TestParser(BaseTest):
                     op=ast.CompareOperationType.Eq,
                     left=ast.Constant(value=1),
                     right=ast.Constant(value="bar"),
+                ),
+            ),
+        )
+
+    def test_select_union_all(self):
+        self.assertEqual(
+            parse_select("select 1 union all select 2 union all select 3"),
+            ast.SelectUnionQuery(
+                select_queries=[
+                    ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    ast.SelectQuery(select=[ast.Constant(value=2)]),
+                    ast.SelectQuery(select=[ast.Constant(value=3)]),
+                ]
+            ),
+        )
+
+    def test_sample_clause(self):
+        self.assertEqual(
+            parse_select("select 1 from events sample 1/10 offset 999"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    sample=ast.SampleExpr(
+                        offset_value=ast.RatioExpr(left=ast.Constant(value=999)),
+                        sample_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=10)),
+                    ),
+                ),
+            ),
+        )
+
+        self.assertEqual(
+            parse_select("select 1 from events sample 0.1 offset 999"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    sample=ast.SampleExpr(
+                        offset_value=ast.RatioExpr(left=ast.Constant(value=999)),
+                        sample_value=ast.RatioExpr(
+                            left=ast.Constant(value=0.1),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        self.assertEqual(
+            parse_select("select 1 from events sample 10 offset 1/2"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    sample=ast.SampleExpr(
+                        offset_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=2)),
+                        sample_value=ast.RatioExpr(
+                            left=ast.Constant(value=10),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        self.assertEqual(
+            parse_select("select 1 from events sample 10"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    sample=ast.SampleExpr(
+                        sample_value=ast.RatioExpr(
+                            left=ast.Constant(value=10),
+                        ),
+                    ),
                 ),
             ),
         )

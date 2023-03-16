@@ -13,8 +13,6 @@ import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { NoDashboards } from 'scenes/dashboard/dashboards/NoDashboards'
 import { DashboardsTable } from 'scenes/dashboard/dashboards/DashboardsTable'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
@@ -29,7 +27,6 @@ export function Dashboards(): JSX.Element {
     const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div>
@@ -71,7 +68,7 @@ export function Dashboards(): JSX.Element {
                         key: DashboardsTab.Shared,
                         label: 'Shared',
                     },
-                    !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] && {
+                    {
                         key: DashboardsTab.Templates,
                         label: 'Templates',
                     },

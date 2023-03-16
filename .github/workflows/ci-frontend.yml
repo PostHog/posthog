@@ -47,48 +47,15 @@ jobs:
             - name: Check if "schema.json" is up to date
               run: pnpm schema:build:json && git diff --exit-code
 
-    jest-setup:
-        # Split the tests into multiple chunks
-        runs-on: ubuntu-latest
-        outputs:
-            test-chunks: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
-            test-chunk-ids: ${{ steps['set-test-chunk-ids'].outputs['test-chunk-ids'] }}
-        steps:
-            - uses: actions/checkout@v3
-            - name: Install pnpm
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 7.x.x
-
-            - name: Set up Node.js
-              uses: actions/setup-node@v3
-              with:
-                  node-version: 18
-                  cache: pnpm
-
-            - run: pnpm install --frozen-lockfile
-            - id: set-test-chunks
-              name: Set Chunks
-              # Looks at the output of 'pnpm test:unit -- --listTests --json'
-              # Take the 5th line of the output (the first two are pnpm non-sense)
-              # Split the test into 3 parts. To increase the number split change the denominator in `length / 3`
-              run: echo "test-chunks=$(pnpm test:unit --listTests --json | sed -n 5p | jq -cM '[_nwise(length / 3 | ceil)]')" >> $GITHUB_OUTPUT
-            - id: set-test-chunk-ids
-              name: Set Chunk IDs
-              run: echo "test-chunk-ids=$(echo $CHUNKS | jq -cM 'to_entries | map(.key)')" >> $GITHUB_OUTPUT
-              env:
-                  CHUNKS: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
-
     jest:
         runs-on: ubuntu-20.04
         name: Jest test (${{ matrix.chunk }})
-        needs: [jest-setup]
 
         strategy:
             # If one test fails, still run the others
             fail-fast: false
             matrix:
-                chunk: ${{fromJson(needs.jest-setup.outputs['test-chunk-ids'])}}
+                chunk: [1, 2, 3]
 
         steps:
             - uses: actions/checkout@v3
@@ -109,7 +76,6 @@ jobs:
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
-              run: pnpm test:unit --maxWorkers=2 $(echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text')
+              run: pnpm test:unit --maxWorkers=2 --shard=${{ matrix.chunk }}/3
               env:
                   NODE_OPTIONS: --max-old-space-size=6144
-                  CHUNKS: ${{ needs.jest-setup.outputs['test-chunks'] }}
