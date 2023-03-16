@@ -141,7 +141,7 @@ export function DashboardItems(): JSX.Element {
                                         </LemonButton>
                                     ) : null
                                 }
-                                dashboardPlacement={placement}
+                                placement={placement}
                             />
                         )
                     }
