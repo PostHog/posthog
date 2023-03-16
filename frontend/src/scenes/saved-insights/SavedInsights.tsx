@@ -240,6 +240,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: InsightSQLIcon,
         inMenu: true,
     },
+    [NodeKind.DatabaseSchemaQuery]: {
+        name: 'Database Schema',
+        description: 'Introspect the PostHog database schema',
+        icon: InsightSQLIcon,
+        inMenu: true,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
