@@ -163,7 +163,6 @@ function Pages(): JSX.Element {
                             tooltip: 'Choose an insight type to create',
                             onClick: () => setIsNewInsightMenuShown((state) => !state),
                             dropdown: {
-                                maxWidth: '21rem',
                                 visible: isNewInsightMenuShown,
                                 onClickOutside: () => setIsNewInsightMenuShown(false),
                                 onClickInside: hideSideBarMobile,

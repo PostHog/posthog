@@ -102,6 +102,10 @@
     max-height: calc(100vh - 20rem);
     max-width: calc(100vw - 14rem);
 
+    &[data-attr='sidebar-new-insights'] {
+        max-width: 21rem;
+    }
+
     .LaunchToolbarButton {
         padding-left: 0.5em;
         padding-right: 0.5em;

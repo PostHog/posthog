@@ -45,8 +45,6 @@ export interface PopoverProps {
     /** Whether the popover's width should be synced with the children's width. */
     sameWidth?: boolean
     maxContentWidth?: boolean
-    /** the popover sets its maxWidth to a calculated value of pixels, use this to override that to for e.g. '18rem'  */
-    maxWidth?: string
     className?: string
     middleware?: Middleware[]
     /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popovers.
@@ -83,7 +81,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         placement = 'bottom-start',
         fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
         className,
-        maxWidth,
         actionable = false,
         middleware,
         sameWidth = false,
@@ -123,7 +120,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                 apply({ availableWidth, availableHeight, rects, elements: { floating } }) {
                     Object.assign(floating.style, {
                         maxHeight: `${availableHeight}px`,
-                        maxWidth: maxWidth || `${availableWidth}px`,
+                        maxWidth: `${availableWidth}px`,
                         width: sameWidth ? rects.reference.width : undefined,
                     })
                 },
