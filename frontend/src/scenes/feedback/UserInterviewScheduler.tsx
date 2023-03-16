@@ -158,10 +158,10 @@ export function CreateInterviewFlag(): JSX.Element {
                 <Field name="title" label="Invitation Title">
                     <LemonInput />
                 </Field>
-                <Field name="bookingLink" label="Booking Link">
+                <Field name="body" label="Invitation Body">
                     <LemonInput />
                 </Field>
-                <Field name="body" label="Invitation Body">
+                <Field name="bookingLink" label="Booking Link">
                     <LemonInput />
                 </Field>
                 <Field name="description" label="What is the purpose of the interview? (Internal only)">
