@@ -266,9 +266,7 @@ function InsightMeta({
             metaDetails={<InsightDetails insight={insight} />}
             samplingNotice={
                 insight.filters.sampling_factor && insight.filters.sampling_factor < 1 ? (
-                    <Tooltip
-                        title={`Insight contains data sampled at a ${100 * insight.filters.sampling_factor}% rate`}
-                    >
+                    <Tooltip title={`Results calculated from ${100 * insight.filters.sampling_factor}% of users`}>
                         <PieChartFilled className="mr-2" style={{ color: 'var(--primary-light)' }} />
                     </Tooltip>
                 ) : null
