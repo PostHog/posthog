@@ -101,7 +101,7 @@ export function SchedulerInstructions(): JSX.Element {
                                         <p>Build a custom user interview scheduler to match your brand.</p>
                                         <div>
                                             <div>
-                                                1. Create a custom popup based on{' '}
+                                                1. Create a custom popup in your webapp or mobile app based on{' '}
                                                 <a href="https://github.com/PostHog/user-interview-app/blob/main/site.ts">
                                                     PostHog's open-source popup code
                                                 </a>
