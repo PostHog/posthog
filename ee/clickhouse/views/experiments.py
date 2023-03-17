@@ -1,11 +1,13 @@
-from typing import Any, Type, Union
+from typing import Any, Callable, Type, Union
 
+from django.utils.timezone import now
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from statshog.defaults.django import statsd
 
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
 from ee.clickhouse.queries.experiments.secondary_experiment_result import ClickhouseSecondaryExperimentResult
@@ -14,6 +16,8 @@ from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.caching.insight_cache import update_cached_state
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
@@ -23,6 +27,64 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
+from posthog.utils import generate_cache_key, get_safe_cache
+
+EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes
+
+
+def _calculate_experiment_results(experiment: Experiment):
+    filter = Filter(experiment.filters)
+
+    experiment_class: Union[Type[ClickhouseTrendExperimentResult], Type[ClickhouseFunnelExperimentResult]] = (
+        ClickhouseTrendExperimentResult if filter.insight == INSIGHT_TRENDS else ClickhouseFunnelExperimentResult
+    )
+
+    calculate_func = lambda: experiment_class(
+        filter, experiment.team, experiment.feature_flag, experiment.start_date, experiment.end_date
+    ).get_results()
+
+    return _experiment_results_cached(experiment, "primary", filter, calculate_func)
+
+
+def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: int):
+    filter = Filter(experiment.secondary_metrics[parsed_id]["filters"])
+
+    # TODO: refactor such that ClickhouseSecondaryExperimentResult's get_results doesn't return a dict
+    calculate_func = lambda: ClickhouseSecondaryExperimentResult(
+        filter, experiment.team, experiment.feature_flag, experiment.start_date, experiment.end_date
+    ).get_results()["result"]
+
+    return _experiment_results_cached(experiment, "secondary", filter, calculate_func)
+
+
+def _experiment_results_cached(experiment: Experiment, results_type: str, filter: Filter, calculate_func: Callable):
+    cache_key = generate_cache_key(f"experiment_{results_type}_{filter.toJSON()}_{experiment.team.pk}_{experiment.pk}")
+
+    tag_queries(cache_key=cache_key)
+
+    cached_result_package = get_safe_cache(cache_key)
+
+    if cached_result_package and cached_result_package.get("result"):
+        cached_result_package["is_cached"] = True
+        statsd.incr(
+            "posthog_cached_function_cache_hit", tags={"route": "/projects/:id/experiments/:experiment_id/results"}
+        )
+        return cached_result_package
+
+    statsd.incr(
+        "posthog_cached_function_cache_miss", tags={"route": "/projects/:id/experiments/:experiment_id/results"}
+    )
+
+    result = calculate_func()
+
+    timestamp = now()
+    fresh_result_package = {"result": result, "last_refresh": now(), "is_cached": False}
+
+    update_cached_state(
+        experiment.team.pk, cache_key, timestamp, fresh_result_package, ttl=EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL
+    )
+
+    return fresh_result_package
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -212,14 +274,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         if not experiment.filters:
             raise ValidationError("Experiment has no target metric")
 
-        filter = Filter(experiment.filters)
-        experiment_class: Union[Type[ClickhouseTrendExperimentResult], Type[ClickhouseFunnelExperimentResult]] = (
-            ClickhouseTrendExperimentResult if filter.insight == INSIGHT_TRENDS else ClickhouseFunnelExperimentResult
-        )
-
-        result = experiment_class(
-            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date
-        ).get_results()
+        result = _calculate_experiment_results(experiment)
 
         return Response(result)
 
@@ -248,11 +303,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         if parsed_id > len(experiment.secondary_metrics):
             raise ValidationError("Invalid metric ID")
 
-        filter = Filter(experiment.secondary_metrics[parsed_id]["filters"])
-
-        result = ClickhouseSecondaryExperimentResult(
-            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date
-        ).get_results()
+        result = _calculate_secondary_experiment_results(experiment, parsed_id)
 
         return Response(result)
 

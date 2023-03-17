@@ -13,7 +13,7 @@ export function InsightQuery({ query }: { query: InsightQueryNode }): JSX.Elemen
 
     return (
         <BindLogic logic={insightLogic} props={insightProps} key={JSON.stringify(filters)}>
-            <AdHocInsight filters={filters} style={{ height: 500, border: '1px var(--primary) solid' }} />
+            <AdHocInsight filters={filters} style={{ height: 500 }} />
         </BindLogic>
     )
 }
