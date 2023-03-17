@@ -82,9 +82,7 @@ export function Query(props: QueryProps): JSX.Element {
             <ErrorBoundary>
                 <div className="relative">
                     <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS}>
-                        <span className="absolute top-0 right-0 -mr-9">
-                            <AddToNotebook node={NotebookNodeType.Query} properties={{ query: queryWithoutFull }} />
-                        </span>
+                        <AddToNotebook node={NotebookNodeType.Query} properties={{ query: queryWithoutFull }} />
                     </FlaggedFeature>
 
                     {component}

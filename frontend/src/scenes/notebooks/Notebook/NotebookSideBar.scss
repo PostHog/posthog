@@ -12,7 +12,7 @@ $sidebar-width: 40%;
     transition: 200ms ease width;
     flex-shrink: 0;
 
-    .NotebookSidebar__content {
+    .NotebookSidebar__floater {
         position: fixed;
         top: 3.5rem;
         right: 0;
@@ -20,20 +20,28 @@ $sidebar-width: 40%;
         height: calc(100vh - 3.5rem);
         transform: translateX(100%);
         transition: 200ms ease transform;
-        padding: 0.5rem;
+        display: flex;
+    }
+
+    .NotebookSidebar__content {
+        margin: 0.5rem;
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
     }
 
     &--show {
         width: $sidebar-width;
 
-        .NotebookSidebar__content {
+        .NotebookSidebar__floater {
             transform: translateX(0);
         }
 
         &.NotebookSidebar--full-screen {
             width: $sidebar-width;
 
-            .NotebookSidebar__content {
+            .NotebookSidebar__floater {
                 z-index: 10;
                 width: calc(100vw - 15.5rem - 1rem); // TODO: Unhardcode this value
 
@@ -44,23 +52,39 @@ $sidebar-width: 40%;
         }
     }
 
+    .NotebookSidebar__content {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background-color: var(--side);
+        box-shadow: var(--shadow--elevation);
+    }
+
     .Navigation3000 & {
         flex: 0;
         height: auto;
         transition: 200ms ease flex;
 
         .NotebookSidebar__content {
+            background-color: var(--accent-3000);
+            box-shadow: none;
+            margin: 0;
+            border: none;
+            border-radius: 0px;
+            border-left: 1px solid var(--border);
+        }
+
+        .NotebookSidebar__floater {
             height: calc(100vh - 3rem);
             top: 3rem;
-            padding: 1rem;
             background-color: var(--bg-3000);
+            width: calc(40% - 3rem);
         }
 
         &--show {
             flex: 0 0 $sidebar-width;
 
             &.NotebookSidebar--full-screen {
-                .NotebookSidebar__content {
+                .NotebookSidebar__floater {
                     width: calc(100vw - 3rem); // TODO: Unhardcode this value
                 }
             }

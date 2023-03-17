@@ -36,8 +36,8 @@ export function NotebookSideBar(): JSX.Element {
             )}
         >
             <CSSTransition in={notebookSideBarShown} timeout={200} mountOnEnter unmountOnExit>
-                <div className="NotebookSidebar__content">
-                    <div className="border rounded bg-side flex-1 shadow overflow-hidden flex flex-col h-full">
+                <div className="NotebookSidebar__floater">
+                    <div className="NotebookSidebar__content">
                         <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-2 border-b">
                             <span className="flex items-center gap-1 text-primary-alt">
                                 <LemonButtonWithDropdown
