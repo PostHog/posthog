@@ -221,7 +221,7 @@ export function UserInterviewScheduler(): JSX.Element {
             <OverViewTab
                 flagPrefix={FLAG_PREFIX}
                 searchPlaceholder="Search interview invitations"
-                nouns={['Invitation flag', 'Invitation flags']}
+                nouns={['invitation flag', 'invitation flags']}
             />
         </div>
     )
