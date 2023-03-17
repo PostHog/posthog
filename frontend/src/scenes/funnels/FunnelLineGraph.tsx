@@ -21,6 +21,7 @@ import { funnelDataLogic } from './funnelDataLogic'
 import { Noun } from '~/models/groupsModel'
 import { FunnelsFilter } from '~/queries/schema'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { isInsightQueryNode } from '~/queries/utils'
 
 export function FunnelLineGraphDataExploration(props: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -34,12 +35,16 @@ export function FunnelLineGraphDataExploration(props: Omit<ChartParams, 'filters
         insightData,
     } = useValues(funnelDataLogic(insightProps))
 
+    if (!isInsightQueryNode(querySource)) {
+        return null
+    }
+
     return (
         <FunnelLineGraphComponent
             steps={steps}
             aggregationTargetLabel={aggregationTargetLabel}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
-            interval={interval}
+            interval={interval ?? undefined}
             aggregationGroupTypeIndex={querySource.aggregation_group_type_index}
             funnelsFilter={funnelsFilter}
             insightData={insightData}

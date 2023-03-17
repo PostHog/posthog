@@ -36,6 +36,7 @@ import { InsightLegendButtonDataExploration } from 'lib/components/InsightLegend
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
 import { FunnelStepsTableDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsTable'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -76,17 +77,9 @@ export function InsightContainer({
     const { isFunnelWithEnoughSteps, hasFunnelResults } = useValues(funnelDataLogic(insightProps))
     // TODO: convert to data exploration with insightLogic
     const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
-    const {
-        isTrends,
-        isFunnels,
-        isPaths,
-        display,
-        trendsFilter,
-        funnelsFilter,
-        supportsDisplay,
-        insightFilter,
-        exportContext,
-    } = useValues(insightDataLogic(insightProps))
+    const { isTrends, isFunnels, isPaths, display, trendsFilter, funnelsFilter, supportsDisplay, insightFilter } =
+        useValues(insightVizDataLogic(insightProps))
+    const { exportContext } = useValues(insightDataLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
