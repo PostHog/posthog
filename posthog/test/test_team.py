@@ -122,7 +122,7 @@ class TestTeam(BaseTest):
                 self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V2_ENABLED)
                 # called more than once when evaluating hogql
                 mock_feature_enabled.assert_called_with(
-                    "person-on-events-enabled",
+                    "persons-on-events-v2-reads-enabled",
                     str(team.uuid),
                     groups={"organization": str(self.organization.id)},
                     group_properties={
