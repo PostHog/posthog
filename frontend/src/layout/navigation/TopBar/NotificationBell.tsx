@@ -7,9 +7,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import './NotificationsBell.scss'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function NotificationBell(): JSX.Element {
     const { unreadCount, hasNotifications, notifications, isNotificationPopoverOpen, hasUnread } =
@@ -28,17 +26,15 @@ export function NotificationBell(): JSX.Element {
                 <div className="activity-log notifications-menu">
                     <h5>
                         Notifications{' '}
-                        <LemonTag type="warning" className="ml-1">
-                            Beta
-                        </LemonTag>
+                        <Tooltip
+                            title={
+                                'Notifications shows you changes other users make to Insights and Feature Flags that you created.'
+                            }
+                            placement={'bottom'}
+                        >
+                            <IconInfo className="text-xl text-muted-alt shrink-0" />
+                        </Tooltip>
                     </h5>
-                    <p className={'mx-2 text-muted mt-2'}>
-                        <IconInfo /> Notifications is in beta. Right now it only shows you changes other users make to{' '}
-                        <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
-                        <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
-                        <Link to={'https://posthog.com/slack'}>our community slack</Link> and tell us what else should
-                        be here!
-                    </p>
                     <LemonDivider />
                     {hasNotifications ? (
                         notifications.map((logItem, index) => (
