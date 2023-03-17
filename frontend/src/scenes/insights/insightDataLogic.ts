@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { FilterType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { DataNode, InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
@@ -11,8 +11,6 @@ import { isInsightVizNode } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from './utils/cleanFilters'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 
@@ -37,21 +35,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightDataLogic', key]),
 
-    connect((props: InsightLogicProps) => ({
-        values: [
-            insightLogic,
-            ['insight', 'isUsingDataExploration'],
-            featureFlagLogic,
-            ['featureFlags'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['response as insightData'],
-        ],
+    connect({
+        values: [insightLogic, ['insight', 'isUsingDataExploration'], featureFlagLogic, ['featureFlags']],
         actions: [
             insightLogic,
             ['setInsight', 'loadInsightSuccess', 'loadResultsSuccess', 'saveInsight as insightLogicSaveInsight'],
         ],
-    })),
+    }),
 
     actions({
         setQuery: (query: Node) => ({ query }),
