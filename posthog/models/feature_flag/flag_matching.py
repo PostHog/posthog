@@ -489,22 +489,24 @@ def get_all_feature_flags(
         # with a small timeout
         try:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
-                if person_id is None:
-                    # :TRICKY: Some ingestion delays may mean that `$identify` hasn't yet created
-                    # the new person on which decide was called.
-                    # In this case, we can try finding the person_id for the old distinct id.
-                    # This is safe, since once `$identify` is processed, it would only add the distinct_id to this
-                    # existing person. If, because of race conditions, a person merge is called for later,
-                    # then https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
-                    # will take care of it^.
-                    person_id = (
-                        PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team_id)
-                        .values_list("person_id", flat=True)
-                        .first()
-                    )
-                    # If even this old person doesn't exist yet, we're facing severe ingestion delays
-                    # and there's not much we can do, since all person properties based feature flags
-                    # would fail server side anyway.
+                # :TRICKY: Some ingestion delays may mean that `$identify` hasn't yet created
+                # the new person on which decide was called.
+                # In this case, we can try finding the person_id for the old distinct id.
+                # This is safe, since once `$identify` is processed, it would only add the distinct_id to this
+                # existing person. If, because of race conditions, a person merge is called for later,
+                # then https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
+                # will take care of it^.
+
+                # Also, we disregard the person_id from L467 above because it's possible that this person_id was deleted
+                # before we get here.
+                person_id = (
+                    PersonDistinctId.objects.filter(distinct_id__in=[hash_key_override, distinct_id], team_id=team_id)
+                    .values_list("person_id", flat=True)
+                    .first()
+                )
+                # If even this old person doesn't exist yet, we're facing severe ingestion delays
+                # and there's not much we can do, since all person properties based feature flags
+                # would fail server side anyway.
 
                 if person_id is not None:
                     set_feature_flag_hash_key_overrides(all_feature_flags, team_id, person_id, hash_key_override)
