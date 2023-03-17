@@ -20,7 +20,7 @@
     display: flex;
     align-items: center;
     white-space: pre;
-    user-select: none;
+    cursor: default;
 
     &.Breadcrumbs3000__breadcrumb--here {
         cursor: default;

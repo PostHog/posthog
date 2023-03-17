@@ -183,7 +183,7 @@ export function LemonButtonWithSideAction({
     const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
 
     return (
-        <div className="LemonButtonWithSideAction">
+        <div className={clsx('LemonButtonWithSideAction', `LemonButtonWithSideAction--${buttonProps.size}`)}>
             {/* Bogus `sideIcon` div prevents overflow under the side button. */}
             <LemonButton
                 {...buttonProps}
@@ -198,7 +198,7 @@ export function LemonButtonWithSideAction({
             >
                 {children}
             </LemonButton>
-            <div className="LemonButtonWithSideAction--side-button">
+            <div className="LemonButtonWithSideAction__side-button">
                 <SideComponent
                     // We don't want secondary style as it creates double borders
                     type={buttonProps.type !== 'secondary' ? buttonProps.type : undefined}
