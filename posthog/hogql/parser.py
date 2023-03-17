@@ -558,7 +558,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedError(f"Functions that return functions are not supported")
         name = self.visit(ctx.identifier())
         args = self.visit(ctx.columnArgList()) if ctx.columnArgList() else []
-        return ast.Call(name=name, args=args)
+        distinct = True if ctx.DISTINCT() else None
+        return ast.Call(name=name, args=args, distinct=distinct)
 
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
         if ctx.tableIdentifier():

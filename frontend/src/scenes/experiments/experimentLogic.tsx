@@ -518,14 +518,14 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         },
         experimentResults: [
-            null as ExperimentResults | null,
+            null as ExperimentResults['result'] | null,
             {
                 loadExperimentResults: async () => {
                     try {
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
                         )
-                        return { ...response, fakeInsightId: Math.random().toString(36).substring(2, 15) }
+                        return { ...response.result, fakeInsightId: Math.random().toString(36).substring(2, 15) }
                     } catch (error: any) {
                         actions.setExperimentResultCalculationError(error.detail)
                         return null
@@ -752,7 +752,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (!experimentResults) {
                         return errorResult
                     }
-                    const variantResults = (experimentResults?.insight as TrendResult[]).find(
+                    const variantResults = (experimentResults.insight as TrendResult[]).find(
                         (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
                     )
                     if (!variantResults) {
@@ -763,7 +763,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         highestProbabilityVariant: [
             (s) => [s.experimentResults],
-            (experimentResults) => {
+            (experimentResults: ExperimentResults['result']) => {
                 if (experimentResults) {
                     const maxValue = Math.max(...Object.values(experimentResults.probability))
                     return Object.keys(experimentResults.probability).find(

@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union, cast
+from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, Extra
 
@@ -12,7 +12,6 @@ from posthog.hogql.printer import print_ast
 from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
-from posthog.utils import PersonOnEventsMode
 
 
 class HogQLQueryResponse(BaseModel):
@@ -49,12 +48,11 @@ def execute_hogql_query(
         select_query.limit = ast.Constant(value=DEFAULT_RETURNED_ROWS)
 
     # Make a copy for hogql printing later. we don't want it to contain joined SQL tables for example
-    select_query_hogql = cast(ast.SelectQuery, clone_expr(select_query))
-
-    # Make a copy for hogql printing later. we don't want it to contain joined SQL tables for example
     select_query_hogql = clone_expr(select_query)
 
-    hogql_context = HogQLContext(select_team_id=team.pk, person_on_events_mode=team.person_on_events_mode)
+    hogql_context = HogQLContext(
+        team_id=team.pk, enable_select_queries=True, person_on_events_mode=team.person_on_events_mode
+    )
     clickhouse = print_ast(select_query, hogql_context, "clickhouse")
 
     hogql = print_ast(select_query_hogql, hogql_context, "hogql")

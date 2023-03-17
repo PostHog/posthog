@@ -17,7 +17,7 @@ export function Sidebar(): JSX.Element {
         isSidebarShown: isShown,
         isResizeInProgress,
         sidebarOverslideDirection: overslideDirection,
-        isSidebarHotkeyHintAcknowledged,
+        isSidebarKeyboardShortcutAcknowledged,
     } = useValues(navigation3000Logic)
     const { beginResize } = useActions(navigation3000Logic)
     const { recentInsights, recentInsightsLoading } = useValues(projectHomepageLogic)
@@ -74,7 +74,7 @@ export function Sidebar(): JSX.Element {
                         }
                     />
                 </div>
-                {!isSidebarHotkeyHintAcknowledged && <SidebarHotkeyHint />}
+                {!isSidebarKeyboardShortcutAcknowledged && <SidebarKeyboardShortcut />}
             </div>
             <div
                 className="Sidebar3000__slider"
@@ -88,20 +88,15 @@ export function Sidebar(): JSX.Element {
     )
 }
 
-export function SidebarHotkeyHint(): JSX.Element {
-    const { acknowledgeSidebarHotkeyHint } = useActions(navigation3000Logic)
+export function SidebarKeyboardShortcut(): JSX.Element {
+    const { acknowledgeSidebarKeyboardShortcut } = useActions(navigation3000Logic)
 
     return (
         <div className="Sidebar3000__hint">
-            <span>
+            <span className="truncate">
                 <i>Tip:</i> Press <KeyboardShortcut command b /> to toggle this sidebar
             </span>
-            <LemonButton
-                status="3000"
-                icon={<IconClose />}
-                size="small"
-                onClick={() => acknowledgeSidebarHotkeyHint()}
-            />
+            <LemonButton icon={<IconClose />} size="small" onClick={() => acknowledgeSidebarKeyboardShortcut()} />
         </div>
     )
 }

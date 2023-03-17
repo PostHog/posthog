@@ -316,6 +316,7 @@ class Placeholder(Expr):
 class Call(Expr):
     name: str
     args: List[Expr]
+    distinct: Optional[bool] = None
 
 
 class JoinExpr(Expr):
