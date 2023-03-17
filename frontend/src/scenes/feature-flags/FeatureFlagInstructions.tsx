@@ -227,7 +227,11 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <Tooltip title={'Bootstrapping is only available in JavaScript and ReactNative.'}>
+                                <Tooltip
+                                    title={
+                                        'If you need your flags available immediately, you can initialize the PostHog library with a distinct user ID and their feature flag values. This avoids the delay between the library loading and feature flags becoming available to use. Bootstrapping is only available client side in our JavaScript and ReactNative libraries.'
+                                    }
+                                >
                                     <IconInfo className="text-xl text-muted-alt shrink-0" />
                                 </Tooltip>
                             </div>
@@ -243,7 +247,7 @@ export function CodeInstructions({
                                 />
                                 <Tooltip
                                     title={
-                                        'Local evaluation is only available in server side libraries and without flag persistence across authentication steps.'
+                                        'Improve performance by evaluating feature flags without making API requests each time. Local evaluation is only available in server side libraries and without flag persistence across authentication steps.'
                                     }
                                 >
                                     <IconInfo className="text-xl text-muted-alt shrink-0" />
