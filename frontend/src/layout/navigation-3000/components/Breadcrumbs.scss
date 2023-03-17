@@ -1,6 +1,6 @@
 .Breadcrumbs3000 {
     z-index: var(--z-main-nav);
-    position: sticky;
+    position: absolute;
     top: 0;
     backdrop-filter: blur(8px);
     display: flex;
@@ -67,4 +67,5 @@
     justify-content: flex-end;
     align-items: center;
     margin-left: 0.5rem;
+    gap: 0.5rem;
 }

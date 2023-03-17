@@ -49,6 +49,7 @@ import Typography from 'antd/lib/typography'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
+import { NotebookSideBar } from '~/scenes/notebooks/Notebook/NotebookSideBar'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 
 function Pages(): JSX.Element {
@@ -284,6 +285,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
             {children}
             <ActivationSidebar />
+            <NotebookSideBar />
         </div>
     )
 }

@@ -18,10 +18,10 @@ import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
+import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
-export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
     const {
         sessionPerson,
         resolution,
@@ -61,10 +61,10 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
             )}
 
             <div
-                className={clsx('PlayerMeta__top flex items-center gap-2 shrink-0', {
-                    'p-3 border-b': !isFullScreen,
-                    'px-3 p-1 text-xs': isFullScreen,
-                })}
+                className={clsx(
+                    'PlayerMeta__top flex items-center gap-2 shrink-0',
+                    isFullScreen ? 'px-3 p-1 text-xs' : 'p-3 border-b'
+                )}
             >
                 <div className="ph-no-capture">
                     {!sessionPerson ? (
@@ -144,23 +144,26 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                     </div>
                 </div>
 
-                <LemonButton
-                    className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
-                    status="stealth"
-                    active={isMetadataExpanded}
-                    onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
-                    tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
-                    tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
-                    size="small"
-                >
-                    {isMetadataExpanded ? (
-                        <IconUnfoldLess className="text-lg text-muted-alt" />
-                    ) : (
-                        <IconUnfoldMore className="text-lg text-muted-alt" />
-                    )}
-                </LemonButton>
-
-                {props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}
+                {!props.embedded && (
+                    <>
+                        <LemonButton
+                            className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
+                            status="stealth"
+                            active={isMetadataExpanded}
+                            onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
+                            tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
+                            tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
+                            size="small"
+                        >
+                            {isMetadataExpanded ? (
+                                <IconUnfoldLess className="text-lg text-muted-alt" />
+                            ) : (
+                                <IconUnfoldMore className="text-lg text-muted-alt" />
+                            )}
+                        </LemonButton>
+                        {props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}
+                    </>
+                )}
             </div>
             {sessionPerson && (
                 <CSSTransition

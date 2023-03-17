@@ -9,6 +9,7 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { NewInsightButton } from 'scenes/saved-insights/SavedInsights'
+import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
 
 /**
  * In PostHog 3000 breadcrumbs also serve as the top bar. This is marked by theses two features:
@@ -30,6 +31,7 @@ export function Breadcrumbs(): JSX.Element | null {
             {/* TODO: These buttons below are hardcoded right now, scene-based system coming in the next PR */}
             <LemonButton className="Breadcrumbs3000__more" icon={<IconEllipsisVertical />} size="small" />
             <div className="Breadcrumbs3000__actions">
+                <NotebookButton />
                 <NewInsightButton dataAttr="project-home-new-insight" />
             </div>
         </div>

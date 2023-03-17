@@ -1,0 +1,69 @@
+@import '../../../styles/mixins';
+
+$sidebar-width: 40%;
+
+.NotebookSidebar {
+    position: relative;
+    flex-grow: 1;
+    height: 100%;
+    min-height: calc(100vh - 3.5rem);
+    display: flex;
+    width: 0px;
+    transition: 200ms ease width;
+    flex-shrink: 0;
+
+    .NotebookSidebar__content {
+        position: fixed;
+        top: 3.5rem;
+        right: 0;
+        width: $sidebar-width;
+        height: calc(100vh - 3.5rem);
+        transform: translateX(100%);
+        transition: 200ms ease transform;
+        padding: 0.5rem;
+    }
+
+    &--show {
+        width: $sidebar-width;
+
+        .NotebookSidebar__content {
+            transform: translateX(0);
+        }
+
+        &.NotebookSidebar--full-screen {
+            width: $sidebar-width;
+
+            .NotebookSidebar__content {
+                z-index: 10;
+                width: calc(100vw - 15.5rem - 1rem); // TODO: Unhardcode this value
+
+                .SideBar--hidden & {
+                    width: calc(100vw - 1rem); // TODO: Unhardcode this value
+                }
+            }
+        }
+    }
+
+    .Navigation3000 & {
+        flex: 0;
+        height: auto;
+        transition: 200ms ease flex;
+
+        .NotebookSidebar__content {
+            height: calc(100vh - 3rem);
+            top: 3rem;
+            padding: 1rem;
+            background-color: var(--bg-3000);
+        }
+
+        &--show {
+            flex: 0 0 $sidebar-width;
+
+            &.NotebookSidebar--full-screen {
+                .NotebookSidebar__content {
+                    width: calc(100vw - 3rem); // TODO: Unhardcode this value
+                }
+            }
+        }
+    }
+}
