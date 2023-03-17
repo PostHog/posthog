@@ -75,6 +75,12 @@ export const startAnalyticsEventsIngestionConsumer = async ({
     // Subscribe to the heatbeat event to track when the consumer has last
     // successfully consumed a message. This is used to determine if the
     // consumer is healthy.
+    const isHealthy = makeHealthCheck(queue)
+
+    return { queue, isHealthy }
+}
+
+export function makeHealthCheck(queue: IngestionConsumer) {
     const sessionTimeout = 30000
     const { HEARTBEAT } = queue.consumer.events
     let lastHeartbeat: number = Date.now()
@@ -96,8 +102,7 @@ export const startAnalyticsEventsIngestionConsumer = async ({
             return false
         }
     }
-
-    return { queue, isHealthy }
+    return isHealthy
 }
 
 export async function eachBatchIngestionWithOverflow(
