@@ -8,8 +8,9 @@
 # capture endpoints.
 #
 # The script takes a distinct_id, the token used to ingest the events, a
-# start and end timestamp from which we will resolve to a pair of Kafka offsets,
-# and a broker list to connect to Kafka with.
+# start and max message from which we will resolve to a pair of Kafka offsets,
+# and a broker list to connect to Kafka with, and the Kafka security protocol
+# which defaults to PLAINTEXT.
 #
 # The script will then fetch all events within the offset range for the given
 # token and distinct_id, filtering on the token and distinct_id appearing in the
@@ -17,12 +18,18 @@
 # of the string "token:distinct_id", which is how at the time of writing the
 # capture endpoints partition events. Matching events are output to stdout.
 #
+# We use [kcat](https://github.com/edenhill/kcat) for Kafka operations over the
+# Kafka CLI tools, as it is much faster and more reliable. Note that we're using
+# kafkacat although rather than the more recent kcat, as the latter is not yet
+# available in the Debian package repository.
+#
 # Script arguments are passed in using the long form, e.g.:
-#   ./fetch_events_by_distinct_id.sh --distinct_id=123 --token=abc
-#   --start=2021-01-01 --end=2021-01-02 --brokers=kafka:9092
+#   ./fetch_events_by_distinct_id.sh --distinct-id=123 --token=abc
+#   --start=2021-01-01 --max-messages=100 --brokers=kafka:9092
+#   --consumer-property security.protocol=SSL_PLAINTEXT
 #
 
-set -euo pipefail
+set -euxo pipefail
 
 # Parse arguments
 while test $# -gt 0; do
@@ -33,24 +40,25 @@ while test $# -gt 0; do
         echo " "
         echo "FLAGS:"
         echo "    -h, --help           Print this help information."
-        echo "    --distinct_id        The distinct_id to fetch events for."
+        echo "    --distinct-id        The distinct-id to fetch events for."
         echo "    --token              The token used to ingest the events."
         echo "    --start              The start timestamp to fetch events from."
-        echo "    --end                The end timestamp to fetch events to."
+        echo "    --max-messages       The maximum number of messages to fetch."
         echo "    --brokers            The broker list to connect to Kafka with."
+        echo "    --consumer-property security.protocol  The security protocol to use when connecting to Kafka. Defaults to PLAINTEXT."
         exit 0
         ;;
-    --distinct_id)
+    --distinct-id)
         shift
         if test $# -gt 0; then
             export DISTINCT_ID=$1
         else
-            echo "ERROR: --distinct_id requires a non-empty option argument."
+            echo "ERROR: --distinct-id requires a non-empty option argument."
             exit 1
         fi
         shift
         ;;
-    --distinct_id=*)
+    --distinct-id=*)
         export DISTINCT_ID=$(echo $1 | sed -e 's/^[^=]*=//g')
         shift
         ;;
@@ -82,18 +90,18 @@ while test $# -gt 0; do
         export START=$(echo $1 | sed -e 's/^[^=]*=//g')
         shift
         ;;
-    --end)
+    --max-messages)
         shift
         if test $# -gt 0; then
-            export END=$1
+            export MAX_MESSAGES=$1
         else
-            echo "ERROR: --end requires a non-empty option argument."
+            echo "ERROR: --max-messages requires a non-empty option argument."
             exit 1
         fi
         shift
         ;;
-    --end=*)
-        export END=$(echo $1 | sed -e 's/^[^=]*=//g')
+    --max-messages=*)
+        export MAX_MESSAGES=$(echo $1 | sed -e 's/^[^=]*=//g')
         shift
         ;;
     --brokers)
@@ -110,6 +118,20 @@ while test $# -gt 0; do
         export BROKERS=$(echo $1 | sed -e 's/^[^=]*=//g')
         shift
         ;;
+    --security-protocol)
+        shift
+        if test $# -gt 0; then
+            export SECURITY_PROTOCOL=$1
+        else
+            echo "ERROR: --security-protocol requires a non-empty option argument."
+            exit 1
+        fi
+        shift
+        ;;
+    --security-protocol=*)
+        export SECURITY_PROTOCOL=$(echo $1 | sed -e 's/^[^=]*=//g')
+        shift
+        ;;
     *)
         break
         ;;
@@ -118,7 +140,7 @@ done
 
 # Validate arguments
 if [[ -z ${DISTINCT_ID:-} ]]; then
-    echo "ERROR: --distinct_id is required."
+    echo "ERROR: --distinct-id is required."
     exit 1
 fi
 if [[ -z ${TOKEN:-} ]]; then
@@ -129,18 +151,46 @@ if [[ -z ${START:-} ]]; then
     echo "ERROR: --start is required."
     exit 1
 fi
-if [[ -z ${END:-} ]]; then
-    echo "ERROR: --end is required."
+if [[ -z ${MAX_MESSAGES:-} ]]; then
+    echo "ERROR: --max-messages is required."
     exit 1
 fi
 if [[ -z ${BROKERS:-} ]]; then
     echo "ERROR: --brokers is required."
     exit 1
 fi
+if [[ -z ${SECURITY_PROTOCOL:-} ]]; then
+    export SECURITY_PROTOCOL=PLAINTEXT
+fi
 
-# Resolve start and end timestamps to Kafka offsets
-START_OFFSET=$(docker-compose exec kafka kafka-run-class kafka.tools.GetOffsetShell --broker-list $BROKERS --topic events_plugin_ingestion --time $START --offsets 1 | awk '{print $3}')
-END_OFFSET=$(docker-compose exec kafka kafka-run-class kafka.tools.GetOffsetShell --broker-list $BROKERS --topic events_plugin_ingestion --time $END --offsets 1 | awk '{print $3}')
+# Calculate the PARTITION as the sha256 hash of the string "token:distinct_id"
+# then take the murmur2 hash of this and mod it by the number of partitions in
+# the topic.
+# At the time of writing, capture endpoints perform this sha256 hash, and
+# kafka-python performs the murmur2 hash and mod, mimicking the behaviour of
+# Kafka Java clients. We use the JSON output of kafkacat to get the number of
+# partitions in the topic.
+# NUMBER_OF_PARTITIONS=$(kafkacat -b "$BROKERS" -L -t "events_plugin_ingestion" -X security.protocol="$SECURITY_PROTOCOL" -J | jq '.topics[].partitions | length')
+SHA256_HASH=$(echo -n "$TOKEN:$DISTINCT_ID" | sha256sum | cut -d' ' -f1)
+MURMUR2_HASH=$(echo -n "$SHA256_HASH" | python -c 'import sys, struct, murmurhash2; print(murmurhash2.murmurhash2(sys.stdin.read().strip().encode(), 0x9747b28c))')
+PARTITION=$((MURMUR2_HASH % NUMBER_OF_PARTITIONS))
 
-# Fetch events from Kafka
-docker-compose exec kafka kafka-console-consumer --bootstrap-server $BROKERS --topic events_plugin_ingestion --from-beginning --max-messages 1000000 --partition $(echo -n "token:$TOKEN distinct_id:$DISTINCT_ID" | sha256sum | cut -d' ' -f1 | cut -c-8 | xxd -r -p | od -An -t u4 | head -n1) --offset $START_OFFSET --max-offset $END_OFFSET | jq -c 'select(.token == env.TOKEN) | select(.distinct_id == env.DISTINCT_ID)'
+# echo "Fetching events for distinct_id $DISTINCT_ID with token $TOKEN from $START for $MAX_MESSAGES messages from partition $PARTITION"
+
+# Resolve start and end timestamps to Kafka offsets, just for the partition we
+# calculate as PARTITON above. We use the docker image
+# bitnami/kafka:2.8.1-debian-10-r99 for running Kafka commands.
+# We need to first convert the timestamp strings to milliseconds since epoch.
+START_TIMESTAMP=$(date -d "$START" +%s%3N)
+
+# Fetch events from Kafka the calculated partition starting from the offset
+# specified by the variable START_TIMESTAMP and ending at END_TIMESTAMP. We
+# filter by distinct_id and token using jq.
+kafkacat -b "$BROKERS" -C \
+    -t "events_plugin_ingestion" \
+    -p "$PARTITION" \
+    -o "s@$START_TIMESTAMP" \
+    -c "$MAX_MESSAGES" \
+    -X security.protocol="$SECURITY_PROTOCOL" |
+    jq -c --arg distinct_id "$DISTINCT_ID" --arg token "$TOKEN" \
+        'select(.distinct_id == $distinct_id and .token == $token)'
