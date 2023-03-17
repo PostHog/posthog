@@ -11,10 +11,10 @@ import { isInsightVizNode } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from './utils/cleanFilters'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { queryExportContext } from '~/queries/query'
-import { objectsEqual } from 'lib/utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { queryExportContext } from '~/queries/query'
+import { objectsEqual } from 'lib/utils'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
@@ -37,7 +37,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightDataLogic', key]),
 
-    connect((props) => ({
+    connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
             ['insight', 'isUsingDataExploration'],
