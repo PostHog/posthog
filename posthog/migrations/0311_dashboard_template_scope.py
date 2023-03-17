@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
             model_name="dashboardtemplate",
             name="scope",
             field=models.CharField(
-                choices=[("team", "Only team"), ("global", "Global")], default="team", max_length=24
+                choices=[("team", "Only team"), ("global", "Global")], max_length=24, null=True, blank=True
             ),
         ),
         migrations.RunSQL(
@@ -30,6 +30,16 @@ class Migration(migrations.Migration):
                 UPDATE posthog_dashboardtemplate
                 SET scope = 'global'
                 WHERE team_id IS NULL
+                -- not-null-ignore
+            """,
+            reverse_sql=migrations.RunSQL.noop,
+        ),
+        migrations.RunSQL(
+            # safe to ignore null locking this table it has fewer than 10 items on it
+            sql="""
+                UPDATE posthog_dashboardtemplate
+                SET scope = 'team'
+                WHERE team_id IS NOT NULL
                 -- not-null-ignore
             """,
             reverse_sql=migrations.RunSQL.noop,

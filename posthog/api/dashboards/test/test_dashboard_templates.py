@@ -193,6 +193,7 @@ class TestDashboardTemplates(APIBaseTest):
         new_team = Team.objects.create(name="Test Team 2", organization=new_org)
         dashboard_template = DashboardTemplate.objects.create(
             team_id=new_team.pk,
+            scope=DashboardTemplate.Scope.ONLY_TEAM,
             **variable_template,
         )
 

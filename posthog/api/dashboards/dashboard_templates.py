@@ -55,6 +55,10 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         if not validated_data["tiles"]:
             raise ValidationError(detail="You need to provide tiles for the template.")
 
+        # default scope is team
+        if not validated_data.get("scope"):
+            validated_data["scope"] = DashboardTemplate.Scope.ONLY_TEAM
+
         validated_data["team_id"] = self.context["team_id"]
         return super().create(validated_data, *args, **kwargs)
 
