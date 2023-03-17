@@ -101,7 +101,7 @@ export const userInterviewSchedulerLogic = kea<userInterviewSchedulerLogicType>(
             () => [selectors.interviewFlag],
             (interviewFlag: InterviewFlag) => {
                 const { title, body, bookingLink } = interviewFlag
-                return { title, body, bookingLink }
+                return { invitationTitle: title, invitationBody: body, bookingLink }
             },
         ],
     })),
