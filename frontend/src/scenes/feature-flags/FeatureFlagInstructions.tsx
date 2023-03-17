@@ -199,7 +199,7 @@ export function CodeInstructions({
                             <Tooltip
                                 title={
                                     <>
-                                        {`Feature flag payloads is only available in these libraries: ${PAYLOAD_OPTIONS.map(
+                                        {`Feature flag payloads are only available in these libraries: ${PAYLOAD_OPTIONS.map(
                                             (payloadOption) => ` ${payloadOption.value}`
                                         )}`}
                                     </>
