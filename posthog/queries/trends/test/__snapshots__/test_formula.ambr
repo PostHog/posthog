@@ -73,9 +73,7 @@
                 AND event = 'session start'
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                AND notEmpty(e.person_id)
                 AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Paris'])
-                AND notEmpty(e.person_id)
               GROUP BY day_start,
                        breakdown_value))
         GROUP BY day_start,
@@ -117,9 +115,7 @@
                 AND event = 'session start'
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                AND notEmpty(e.person_id)
                 AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Paris'])
-                AND notEmpty(e.person_id)
               GROUP BY day_start,
                        breakdown_value))
         GROUP BY day_start,
@@ -179,7 +175,6 @@
        AND event = 'session start'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-       AND notEmpty(e.person_id)
        AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Paris'])
      GROUP BY breakdown_value
      ORDER BY breakdown_value) as sub_A
@@ -191,7 +186,6 @@
        AND event = 'session start'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-       AND notEmpty(e.person_id)
        AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Paris'])
      GROUP BY breakdown_value
      ORDER BY breakdown_value) as sub_B ON sub_A.breakdown_value = sub_B.breakdown_value
@@ -264,8 +258,6 @@
                 AND event = 'session start'
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                AND notEmpty(e.person_id)
-                AND notEmpty(e.person_id)
               GROUP BY day_start,
                        breakdown_value))
         GROUP BY day_start,
@@ -335,8 +327,6 @@
                 AND event = 'session start'
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                AND notEmpty(e.person_id)
-                AND notEmpty(e.person_id)
               GROUP BY day_start,
                        breakdown_value))
         GROUP BY day_start,
@@ -422,9 +412,7 @@
                 AND event = 'session start'
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                AND notEmpty(e.person_id)
                 AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Paris'])
-                AND notEmpty(e.person_id)
               GROUP BY day_start,
                        breakdown_value))
         GROUP BY day_start,
@@ -466,9 +454,7 @@
                 AND event = 'session end'
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                AND notEmpty(e.person_id)
                 AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Belo Horizonte', ''])
-                AND notEmpty(e.person_id)
               GROUP BY day_start,
                        breakdown_value))
         GROUP BY day_start,
