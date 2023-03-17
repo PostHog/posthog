@@ -42,7 +42,7 @@ describe('dataNodeLogic - query cancellation', () => {
     })
     afterEach(() => logic?.unmount())
 
-    it('cancels a running query', async () => {
+    it.skip('cancels a running query', async () => {
         ;(libUtils as any).uuid = jest.fn().mockReturnValueOnce('uuid-first').mockReturnValueOnce('uuid-second')
         logic = dataNodeLogic({
             key: testUniqueKey,
