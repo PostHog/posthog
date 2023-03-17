@@ -36,7 +36,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
             userLogic,
             ['user'],
         ],
-        actions: [insightLogic(props), ['setFilters', 'resetNewInsight'], insightDataLogic(props), ['setQuery']],
+        actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuery']],
     })),
     actions({
         setActiveView: (view: InsightType) => ({ view }),
@@ -136,10 +136,6 @@ export const insightNavLogic = kea<insightNavLogicType>([
     listeners(({ values, actions }) => ({
         setActiveView: ({ view }) => {
             if (values.isUsingDataExploration) {
-                // setting insight tab is treated as if it is a navigation
-                // but, it's not (always), so, when setting the active view
-                // first clear the existing "new" insight
-                actions.resetNewInsight()
                 if (view === InsightType.TRENDS) {
                     actions.setQuery(queryFromKind(NodeKind.TrendsQuery))
                 } else if (view === InsightType.FUNNELS) {
