@@ -111,35 +111,27 @@ export function CodeInstructions({
             setSelectedOption(option)
         }
 
-        if (showPayloadCode) {
-            const payloadOption = PAYLOAD_OPTIONS.find((payloadOption) => payloadOption.value === selectedValue)
-            if (payloadOption) {
-                setPayloadOption(payloadOption)
-            } else {
-                setShowPayloadCode(false)
-            }
+        const payloadOption = PAYLOAD_OPTIONS.find((payloadOption) => payloadOption.value === selectedValue)
+        if (payloadOption) {
+            setPayloadOption(payloadOption)
+        } else {
+            setShowPayloadCode(false)
         }
 
-        if (showLocalEvalCode) {
-            const localEvalOption = LOCAL_EVALUATION_OPTIONS.find(
-                (localEvalOption) => localEvalOption.value === selectedValue
-            )
-            if (localEvalOption) {
-                setLocalEvalOption(localEvalOption)
-            } else {
-                setShowLocalEvalCode(false)
-            }
+        const localEvalOption = LOCAL_EVALUATION_OPTIONS.find(
+            (localEvalOption) => localEvalOption.value === selectedValue
+        )
+        if (localEvalOption) {
+            setLocalEvalOption(localEvalOption)
+        } else {
+            setShowLocalEvalCode(false)
         }
 
-        if (showBootstrapCode) {
-            const bootstrapOption = BOOTSTRAPPING_OPTIONS.find(
-                (bootstrapOption) => bootstrapOption.value === selectedValue
-            )
-            if (bootstrapOption) {
-                setBootstrapOption(bootstrapOption)
-            } else {
-                setShowBootstrapCode(false)
-            }
+        const bootstrapOption = BOOTSTRAPPING_OPTIONS.find((bootstrapOption) => bootstrapOption.value === selectedValue)
+        if (bootstrapOption) {
+            setBootstrapOption(bootstrapOption)
+        } else {
+            setShowBootstrapCode(false)
         }
     }
     useEffect(() => {
@@ -255,11 +247,13 @@ export function CodeInstructions({
                             </div>
                         </>
                     </div>
-                    <div className="mt mb">
-                        <selectedOption.Snippet
-                            data-attr="feature-flag-instructions-snippet"
-                            flagKey={featureFlagKey}
-                        />
+                    <div className="mt-4 mb">
+                        {!showLocalEvalCode && (
+                            <selectedOption.Snippet
+                                data-attr="feature-flag-instructions-snippet"
+                                flagKey={featureFlagKey}
+                            />
+                        )}
                         {showPayloadCode && (
                             <>
                                 <h3>Payloads</h3>
