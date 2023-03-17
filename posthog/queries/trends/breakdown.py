@@ -175,7 +175,7 @@ class TrendsBreakdown:
             "event_filter": "AND event = %(event)s" if not action_query else "",
             "filters": prop_filters,
             "null_person_filter": f"AND notEmpty(e.person_id)"
-            if self.person_on_events_mode == PersonOnEventsMode.DISABLED
+            if self.person_on_events_mode != PersonOnEventsMode.DISABLED
             else "",
         }
 
