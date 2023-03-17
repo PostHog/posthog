@@ -89,7 +89,7 @@ class StickinessEventsQuery(EventQuery):
             self._should_join_persons = False
 
     def aggregation_target(self):
-        return f"{self.DISTINCT_ID_TABLE_ALIAS if not self._person_on_events_mode != PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id"
+        return f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id"
 
     def get_actions_query(self) -> Tuple[str, Dict[str, Any]]:
         if self._entity.type == TREND_FILTER_TYPE_ACTIONS:
