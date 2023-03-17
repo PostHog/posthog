@@ -27,7 +27,7 @@ export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
 
 posthog.onFeatureFlags(function() {
     // feature flags should be available at this point
-    if (posthog.isFeatureEnabled('new-beta-feature')) {
+    if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
         // do something
     }
 })

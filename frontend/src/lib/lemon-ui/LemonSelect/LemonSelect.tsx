@@ -62,9 +62,11 @@ export interface LemonSelectProps<T>
     }
 }
 
-export const isLemonSelectSection = <T extends any>(
+export function isLemonSelectSection<T>(
     candidate: LemonSelectSection<T> | LemonSelectOption<T>
-): candidate is LemonSelectSection<T> => candidate && 'options' in candidate && !('label' in candidate)
+): candidate is LemonSelectSection<T> {
+    return candidate && 'options' in candidate && !('label' in candidate)
+}
 
 function extractLeafOptions<T>(targetArray: LemonSelectOptionLeaf<T>[], options: LemonSelectOption<T>[]): void {
     for (const option of options) {

@@ -79,7 +79,7 @@ def filter_event(
 ) -> Tuple[List[str], Dict]:
     from posthog.models.property.util import get_property_string_expr
 
-    params = {"{}_{}".format(prepend, index): step.event}
+    params = {}
     conditions = []
 
     if table_name != "":
@@ -98,7 +98,9 @@ def filter_event(
             conditions.append(f"{value_expr} LIKE %({prop_name})s")
             params.update({prop_name: f"%{step.url}%"})
 
-    conditions.append(f"event = %({prepend}_{index})s")
+    if step.event:
+        params.update({f"{prepend}_{index}": step.event})
+        conditions.append(f"event = %({prepend}_{index})s")
 
     return conditions, params
 

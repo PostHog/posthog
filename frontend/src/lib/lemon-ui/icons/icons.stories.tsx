@@ -4,6 +4,10 @@ import { Meta } from '@storybook/react'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { IconMagnifier } from './icons'
+import Fuse from 'fuse.js'
+import { useEffect } from 'react'
 
 const { IconGauge, IconWithCount } = icons
 
@@ -15,6 +19,12 @@ interface IconDefinition {
 const allIcons: IconDefinition[] = Object.entries(icons)
     .filter(([key]) => key !== 'IconWithCount')
     .map(([key, Icon]) => ({ name: key, icon: Icon }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+const fuse = new Fuse(allIcons, {
+    keys: ['name'],
+    threshold: 0.3,
+})
 
 export default {
     title: 'Lemon UI/Icons',
@@ -42,11 +52,28 @@ When adding new icons from Figma please make sure to:
 
 export function Library(): JSX.Element {
     const [showBorder, setShowBorder] = React.useState(true)
+    const [search, setSearch] = React.useState('')
+    const [filteredIcons, setFilteredIcons] = React.useState(allIcons)
+
+    useEffect(() => {
+        if (search.trim() !== '') {
+            setFilteredIcons(
+                fuse
+                    .search(search)
+                    .map((result) => result.item)
+                    .sort((a, b) => a.name.localeCompare(b.name))
+            )
+        }
+    }, [search])
+
     return (
         <div className="space-y-2">
-            <LemonCheckbox bordered checked={showBorder} onChange={setShowBorder} label="Show border" />
+            <div className={'flex flex-row justify-between'}>
+                <LemonCheckbox bordered checked={showBorder} onChange={setShowBorder} label="Show border" />
+                <LemonInput value={search} onChange={setSearch} placeholder="Filter" prefix={<IconMagnifier />} />
+            </div>
             <LemonTable
-                dataSource={allIcons}
+                dataSource={filteredIcons}
                 columns={[
                     {
                         title: 'Name',

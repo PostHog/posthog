@@ -1,27 +1,71 @@
-// This file contains funnel-related components that are used in the general insights scope
+import './FunnelCanvasLabel.scss'
+import React from 'react'
 import { useActions, useValues } from 'kea'
-import { humanFriendlyDuration, percentage } from 'lib/utils'
-import { Button, Row } from 'antd'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
-import './FunnelCanvasLabel.scss'
-import { FunnelVizType, InsightType } from '~/types'
+import { funnelDataLogic } from './funnelDataLogic'
+
+import { Link } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
-import React from 'react'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { InsightFilter } from '~/queries/schema'
+import { FunnelsFilterType, FunnelTimeConversionMetrics, FunnelVizType } from '~/types'
+import { humanFriendlyDuration, percentage } from 'lib/utils'
+import { FunnelStepsPicker, FunnelStepsPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
+import { Noun } from '~/models/groupsModel'
+
+export function FunnelCanvasLabelDataExploration(): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { conversionMetrics, aggregationTargetLabel, funnelsFilter } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+
+    return (
+        <FunnelCanvasLabelComponent
+            conversionMetrics={conversionMetrics}
+            aggregationTargetLabel={aggregationTargetLabel}
+            funnelsFilter={funnelsFilter}
+            updateInsightFilter={updateInsightFilter}
+            isUsingDataExploration
+        />
+    )
+}
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { conversionMetrics, filters, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { conversionMetrics, aggregationTargetLabel, filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
 
-    if (filters.insight !== InsightType.FUNNELS) {
-        return null
-    }
+    return (
+        <FunnelCanvasLabelComponent
+            conversionMetrics={conversionMetrics}
+            aggregationTargetLabel={aggregationTargetLabel}
+            funnelsFilter={filters}
+            updateInsightFilter={(filters: InsightFilter) => {
+                setFilters(filters as Partial<FunnelsFilterType>)
+            }}
+        />
+    )
+}
 
+type FunnelCanvasLabelComponentProps = {
+    aggregationTargetLabel: Noun
+    conversionMetrics: FunnelTimeConversionMetrics
+    funnelsFilter?: FunnelsFilterType | null
+    updateInsightFilter: (insightFilter: InsightFilter) => void
+    isUsingDataExploration?: boolean
+}
+
+function FunnelCanvasLabelComponent({
+    aggregationTargetLabel,
+    conversionMetrics,
+    funnelsFilter,
+    updateInsightFilter,
+    isUsingDataExploration,
+}: FunnelCanvasLabelComponentProps): JSX.Element | null {
+    const StepsPicker = isUsingDataExploration ? FunnelStepsPickerDataExploration : FunnelStepsPicker
     const labels = [
-        ...(filters.funnel_viz_type === FunnelVizType.Steps
+        ...(funnelsFilter?.funnel_viz_type === FunnelVizType.Steps
             ? [
                   <>
                       <span className="flex items-center text-muted-alt mr-1">
@@ -36,7 +80,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   </>,
               ]
             : []),
-        ...(filters.funnel_viz_type !== FunnelVizType.Trends
+        ...(funnelsFilter?.funnel_viz_type !== FunnelVizType.Trends
             ? [
                   <>
                       <span className="flex items-center text-muted-alt">
@@ -47,36 +91,39 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           </Tooltip>
                           <span>Average time to convert</span>
                       </span>
-                      {filters.funnel_viz_type === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
+                      {funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert && <StepsPicker />}
                       <span className="text-muted-alt mr-1">:</span>
-                      <Button
-                          type="link"
-                          onClick={() => setFilters({ funnel_viz_type: FunnelVizType.TimeToConvert })}
-                          disabled={filters.funnel_viz_type === FunnelVizType.TimeToConvert}
-                      >
-                          <span className="l4">{humanFriendlyDuration(conversionMetrics.averageTime)}</span>
-                      </Button>
+                      {funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert ? (
+                          <span className="font-bold">{humanFriendlyDuration(conversionMetrics.averageTime)}</span>
+                      ) : (
+                          <Link
+                              className="font-bold"
+                              onClick={() => updateInsightFilter({ funnel_viz_type: FunnelVizType.TimeToConvert })}
+                          >
+                              {humanFriendlyDuration(conversionMetrics.averageTime)}
+                          </Link>
+                      )}
                   </>,
               ]
             : []),
-        ...(filters.funnel_viz_type === FunnelVizType.Trends
+        ...(funnelsFilter?.funnel_viz_type === FunnelVizType.Trends
             ? [
                   <>
-                      <span className="text-muted-alt">Conversion rate </span>
-                      <FunnelStepsPicker />
+                      <span className="text-muted-alt">Conversion rate</span>
+                      <StepsPicker />
                   </>,
               ]
             : []),
     ]
 
     return (
-        <Row className="funnel-canvas-label" align="middle">
+        <div className="flex items-center">
             {labels.map((label, i) => (
                 <React.Fragment key={i}>
-                    {i > 0 && <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)', height: 14 }} />}
+                    {i > 0 && <span className="my-0.5 mx-2 border-l border-border h-3.5" />}
                     {label}
                 </React.Fragment>
             ))}
-        </Row>
+        </div>
     )
 }

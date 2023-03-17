@@ -3,9 +3,9 @@ import { kea, props, key, path, connect, actions, reducers, selectors } from 'ke
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import type { insightsTableDataLogicType } from './insightsTableDataLogicType'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export enum AggregationType {
     Total = 'total',
@@ -19,7 +19,7 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
     path((key) => ['scenes', 'insights', 'InsightsTable', 'insightsTableDataLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [insightDataLogic(props), ['isTrends', 'display', 'series']],
+        values: [insightVizDataLogic(props), ['isTrends', 'display', 'series']],
     })),
 
     actions({

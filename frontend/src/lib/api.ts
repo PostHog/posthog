@@ -12,7 +12,6 @@ import {
     FeatureFlagType,
     InsightModel,
     IntegrationType,
-    LicenseType,
     OrganizationType,
     PersonListParams,
     PersonProperty,
@@ -382,15 +381,6 @@ class ApiRequest {
         return this.featureFlags(teamId).addPathComponent('activity')
     }
 
-    // # Licenses
-    public licenses(): ApiRequest {
-        return this.addPathComponent('license')
-    }
-
-    public license(id: LicenseType['id']): ApiRequest {
-        return this.licenses().addPathComponent(id)
-    }
-
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('subscriptions')
@@ -594,7 +584,7 @@ const api = {
             filters: EventsListQueryParams,
             limit: number = 100,
             teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<PaginatedResponse<EventType[]>> {
+        ): Promise<PaginatedResponse<EventType>> {
             const params: EventsListQueryParams = { ...filters, limit, orderBy: filters.orderBy ?? ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
         },
@@ -1001,21 +991,6 @@ const api = {
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().annotations().assembleEndpointUrl()
-        },
-    },
-
-    licenses: {
-        async get(licenseId: LicenseType['id']): Promise<LicenseType> {
-            return await new ApiRequest().license(licenseId).get()
-        },
-        async list(): Promise<PaginatedResponse<LicenseType>> {
-            return await new ApiRequest().licenses().get()
-        },
-        async create(key: string): Promise<LicenseType> {
-            return await new ApiRequest().licenses().create({ data: { key } })
-        },
-        async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
-            return await new ApiRequest().license(licenseId).delete()
         },
     },
 

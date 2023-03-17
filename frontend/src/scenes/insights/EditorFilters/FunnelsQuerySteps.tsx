@@ -1,8 +1,7 @@
-import { useValues, useActions, useMountedLogic } from 'kea'
+import { useValues, useActions } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
 
 import { EditorFilterProps, FilterType, FunnelsFilterType, InsightLogicProps, QueryEditorFilterProps } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -19,14 +18,17 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { FunnelsQuery } from '~/queries/schema'
 import { isStepsEmpty } from 'scenes/funnels/funnelUtils'
+import { isInsightQueryNode } from '~/queries/utils'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
-export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
-    const { querySource } = useValues(funnelDataLogic(insightProps))
+export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element | null {
+    const { querySource, series } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
-    // TODO: Replicate command logic
-    // useMountedLogic(funnelCommandLogic)
+
+    if (!isInsightQueryNode(querySource)) {
+        return null
+    }
 
     const actionFilters = queryNodeToFilter(querySource)
     const setActionFilters = (payload: Partial<FilterType>): void => {
@@ -37,8 +39,8 @@ export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFi
         <FunnelsQueryStepsComponent
             actionFilters={actionFilters}
             setActionFilters={setActionFilters}
-            filterSteps={(querySource as FunnelsQuery).series || []}
-            showSeriesIndicator={((querySource as FunnelsQuery).series || []).length > 0}
+            filterSteps={series || []}
+            showSeriesIndicator={(series || []).length > 0}
             isDataExploration
             insightProps={insightProps}
         />
@@ -48,7 +50,6 @@ export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFi
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element {
     const { filterSteps, filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
-    useMountedLogic(funnelCommandLogic)
 
     return (
         <FunnelsQueryStepsComponent

@@ -137,7 +137,7 @@ class LazyTableResolver(TraversingVisitor):
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, scope in joins_to_add.items():
             next_join = scope.lazy_table.join_function(scope.from_table, scope.to_table, scope.fields_accessed)
-            resolve_refs(next_join, select_ref)
+            resolve_refs(next_join, self.context.database, select_ref)
             select_ref.tables[to_table] = next_join.ref
 
             # Link up the joins properly

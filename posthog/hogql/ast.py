@@ -316,6 +316,7 @@ class Placeholder(Expr):
 class Call(Expr):
     name: str
     args: List[Expr]
+    distinct: Optional[bool] = None
 
 
 class JoinExpr(Expr):
@@ -325,6 +326,7 @@ class JoinExpr(Expr):
     table_final: Optional[bool] = None
     constraint: Optional[Expr] = None
     next_join: Optional["JoinExpr"] = None
+    sample: Optional["SampleExpr"] = None
 
 
 class SelectQuery(Expr):
@@ -349,5 +351,17 @@ class SelectUnionQuery(Expr):
     select_queries: List[SelectQuery]
 
 
+class RatioExpr(Expr):
+    left: Constant
+    right: Optional[Constant] = None
+
+
+class SampleExpr(Expr):
+    # k or n
+    sample_value: RatioExpr
+    offset_value: Optional[RatioExpr]
+
+
+JoinExpr.update_forward_refs(SampleExpr=SampleExpr)
 JoinExpr.update_forward_refs(SelectUnionQuery=SelectUnionQuery)
 JoinExpr.update_forward_refs(SelectQuery=SelectQuery)

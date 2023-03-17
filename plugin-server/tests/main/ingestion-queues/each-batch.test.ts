@@ -113,7 +113,6 @@ describe('eachBatchX', () => {
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(),
-                runLightweightCaptureEndpointEventPipeline: jest.fn(),
                 runBufferEventPipeline: jest.fn(),
             },
         }
@@ -161,7 +160,7 @@ describe('eachBatchX', () => {
             const batch = createBatch(captureEndpointEvent)
             await eachBatchIngestion(batch, queue)
 
-            expect(queue.workerMethods.runLightweightCaptureEndpointEventPipeline).toHaveBeenCalledWith({
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith({
                 distinct_id: 'id',
                 event: 'event',
                 properties: {},
