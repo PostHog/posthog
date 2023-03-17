@@ -3,12 +3,6 @@
 from django.db import migrations, models
 
 
-# :KLUDGE: Work around test_migrations_are_safe
-class AddFieldNullSafe(migrations.AddField):
-    def describe(self):
-        return super().describe() + " -- not-null-ignore"
-
-
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -16,7 +10,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        AddFieldNullSafe(
+        migrations.AddField(
             # safe to ignore null locking this table it has fewer than 10 items on it
             model_name="dashboardtemplate",
             name="scope",
@@ -27,20 +21,14 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             # safe to ignore null locking this table it has fewer than 10 items on it
             sql="""
-                UPDATE posthog_dashboardtemplate
-                SET scope = 'global'
-                WHERE team_id IS NULL
-                -- not-null-ignore
+                UPDATE posthog_dashboardtemplate SET scope = 'global' WHERE team_id IS NULL -- not-null-ignore
             """,
             reverse_sql=migrations.RunSQL.noop,
         ),
         migrations.RunSQL(
             # safe to ignore null locking this table it has fewer than 10 items on it
             sql="""
-                UPDATE posthog_dashboardtemplate
-                SET scope = 'team'
-                WHERE team_id IS NOT NULL
-                -- not-null-ignore
+                UPDATE posthog_dashboardtemplate SET scope = 'team' WHERE team_id IS NOT NULL -- not-null-ignore
             """,
             reverse_sql=migrations.RunSQL.noop,
         ),
