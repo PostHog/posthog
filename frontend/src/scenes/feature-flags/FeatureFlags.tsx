@@ -33,9 +33,11 @@ export const scene: SceneExport = {
 export function OverViewTab({
     flagPrefix = '',
     searchPlaceholder = 'Search for feature flags',
+    nouns = ['feature flag', 'feature flags'],
 }: {
     flagPrefix?: string
     searchPlaceholder?: string
+    nouns?: [string, string]
 }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const flagLogic = featureFlagsLogic({ flagPrefix })
@@ -309,7 +311,7 @@ export function OverViewTab({
                 noSortingCancellation
                 loading={featureFlagsLoading}
                 pagination={{ pageSize: 100 }}
-                nouns={['feature flag', 'feature flags']}
+                nouns={nouns}
                 data-attr="feature-flag-table"
             />
         </>
