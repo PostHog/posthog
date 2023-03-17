@@ -1037,8 +1037,6 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export type BillingVersion = 'v1' | 'v2'
-
 export interface BillingV2FeatureType {
     key: string
     name: string

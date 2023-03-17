@@ -32,6 +32,7 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -242,6 +243,7 @@ export function SitePopoverOverlay(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { closeSitePopover } = useActions(navigationLogic)
+    const { billing } = useValues(billingLogic)
 
     return (
         <>
@@ -250,7 +252,7 @@ export function SitePopoverOverlay(): JSX.Element {
             </SitePopoverSection>
             <SitePopoverSection title="Current organization">
                 {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
-                {preflight?.cloud ? (
+                {preflight?.cloud || !!billing ? (
                     <LemonButton
                         onClick={closeSitePopover}
                         to={urls.organizationBilling()}

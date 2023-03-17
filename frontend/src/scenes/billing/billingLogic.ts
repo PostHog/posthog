@@ -1,7 +1,7 @@
 import { kea, path, actions, connect, afterMount, selectors, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { BillingProductV2Type, BillingV2Type, BillingVersion } from '~/types'
+import { BillingProductV2Type, BillingV2Type } from '~/types'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dayjs } from 'lib/dayjs'
@@ -42,7 +42,7 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
 }
 
 export const billingLogic = kea<billingLogicType>([
-    path(['scenes', 'billing', 'v2', 'billingLogic']),
+    path(['scenes', 'billing', 'billingLogic']),
     actions({
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingV2Shown: true,
@@ -82,11 +82,6 @@ export const billingLogic = kea<billingLogicType>([
     })),
     selectors({
         upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
-        billingVersion: [
-            (s) => [s.billing, s.billingLoading],
-            (billing, billingLoading): BillingVersion | undefined =>
-                !billingLoading || billing ? (billing ? 'v2' : 'v1') : undefined,
-        ],
         billingAlert: [
             (s) => [s.billing, s.preflight],
             (billing, preflight): BillingAlertConfig | undefined => {

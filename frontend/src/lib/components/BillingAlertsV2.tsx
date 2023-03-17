@@ -6,28 +6,22 @@ import { urls } from 'scenes/urls'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 
 export function BillingAlertsV2(): JSX.Element | null {
-    const { billingAlert, billingVersion } = useValues(billingLogic)
+    const { billingAlert } = useValues(billingLogic)
     const { reportBillingAlertShown } = useActions(billingLogic)
     const { currentLocation } = useValues(router)
     const [alertHidden, setAlertHidden] = useState(false)
 
-    const showAlert = billingAlert && billingVersion === 'v2'
-
     useEffect(() => {
-        if (showAlert) {
+        if (billingAlert) {
             reportBillingAlertShown(billingAlert)
         }
-    }, [showAlert])
+    }, [billingAlert])
 
-    if (!billingAlert || billingVersion !== 'v2' || alertHidden) {
+    if (!billingAlert || alertHidden) {
         return null
     }
 
     const showButton = currentLocation.pathname !== urls.organizationBilling()
-
-    if (!showAlert) {
-        return null
-    }
 
     const buttonProps = billingAlert.contactSupport
         ? {

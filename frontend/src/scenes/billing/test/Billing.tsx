@@ -10,11 +10,11 @@ import clsx from 'clsx'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { PlanTable } from '../PlanTable'
+// import { PlanTable } from '../PlanTable'
 import { BillingHero } from '../BillingHero'
 import { PageHeader } from 'lib/components/PageHeader'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+// import { router } from 'kea-router'
+// import { urls } from 'scenes/urls'
 import BillingProduct from '../BillingProduct'
 import { BillingProduct as BillingProductTest } from './BillingProduct'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -95,7 +95,7 @@ export function Billing(): JSX.Element {
                     <div className="my-8">
                         <BillingHero />
                     </div>
-                    <div className="mb-18 flex justify-center">
+                    {/* <div className="mb-18 flex justify-center">
                         <PlanTable
                             redirectPath={
                                 router.values.location.pathname.includes('/ingestion')
@@ -103,7 +103,7 @@ export function Billing(): JSX.Element {
                                     : ''
                             }
                         />
-                    </div>
+                    </div> */}
                 </>
             )}
             <div
@@ -112,8 +112,8 @@ export function Billing(): JSX.Element {
                     'items-center': size !== 'small',
                 })}
             >
-                <div className="flex-1">
-                    {billing?.billing_period ? (
+                {billing?.billing_period && (
+                    <div className="flex-1">
                         <div className="space-y-2">
                             <p>
                                 Your current {billing?.has_active_subscription ? 'billing period' : 'cycle'} is from{' '}
@@ -152,14 +152,8 @@ export function Billing(): JSX.Element {
                                     : 'cycle. Your free allocation will reset at the end of the cycle.'}
                             </p>
                         </div>
-                    ) : (
-                        <>
-                            <div>
-                                <h1 className="font-bold">Current usage</h1>
-                            </div>
-                        </>
-                    )}
-                </div>
+                    </div>
+                )}
 
                 <div
                     className={clsx('space-y-2', {

@@ -12,9 +12,9 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 export function BillingPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogic)
     const { reportIngestionContinueWithoutBilling } = useActions(eventUsageLogic)
-    const { billing: billingV2, billingVersion } = useValues(billingLogic)
+    const { billing } = useValues(billingLogic)
 
-    if (!billingVersion || billingVersion !== 'v2') {
+    if (!billing) {
         return (
             <CardContainer>
                 <div className="space-y-4" style={{ width: 800 }}>
@@ -32,7 +32,7 @@ export function BillingPanel(): JSX.Element {
 
     return (
         <CardContainer>
-            {billingV2?.has_active_subscription ? (
+            {billing?.has_active_subscription ? (
                 <div className="flex flex-col space-y-4">
                     <h1 className="ingestion-title">You're good to go!</h1>
 

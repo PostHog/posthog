@@ -37,7 +37,7 @@ const BillingGaugeItem = ({ width, className, tooltip, top, value }: BillingGaug
 
 export type BillingGaugeProps = {
     items: {
-        tooltip: string | JSX.Element
+        text: string | JSX.Element
         color: string
         value: number
         top: boolean
@@ -62,7 +62,7 @@ export function BillingGauge({ items }: BillingGaugeProps): JSX.Element {
                     key={i}
                     width={expanded ? `${(item.value / maxScale) * 100}%` : '0%'}
                     className={`bg-${item.color}`}
-                    tooltip={item.tooltip}
+                    tooltip={<b>{item.text}</b>}
                     top={item.top}
                     value={item.value}
                 />

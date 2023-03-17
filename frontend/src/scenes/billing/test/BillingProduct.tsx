@@ -1,159 +1,29 @@
-import { LemonSelectOptions, LemonButton, LemonInput, LemonTable } from '@posthog/lemon-ui'
+import { LemonSelectOptions, LemonButton, LemonTable } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { IconChevronRight, IconCheckmark, IconExpandMore } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useState, useEffect, useMemo } from 'react'
 import { BillingProductV2Type, BillingV2TierType } from '~/types'
-import { convertAmountToUsage, convertUsageToAmount, summarizeUsage } from '../billing-utils'
-import { BillingGaugeProps, BillingGauge } from '../BillingGauge'
+import { convertUsageToAmount, summarizeUsage } from '../billing-utils'
+import { BillingGauge } from './BillingGauge'
 import { billingLogic } from '../billingLogic'
-
-const DEFAULT_BILLING_LIMIT = 500
+import { BillingLimitInput } from './BillingLimitInput'
+import { billingProductLogic } from './billingProductLogic'
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { billing, billingLoading } = useValues(billingLogic)
-    const { updateBillingLimits } = useActions(billingLogic)
-
-    // The actual stored billing limit
-    const customLimitUsd = billing?.custom_limits_usd?.[product.type]
-    const [isEditingBillingLimit, setIsEditingBillingLimit] = useState(false)
-    const [showTierBreakdown, setShowTierBreakdown] = useState(false)
-    const [billingLimitInput, setBillingLimitInput] = useState<number | undefined>(DEFAULT_BILLING_LIMIT)
-
-    const billingLimitAsUsage = product.tiers
-        ? isEditingBillingLimit
-            ? convertAmountToUsage(`${billingLimitInput}`, product.tiers)
-            : convertAmountToUsage(customLimitUsd || '', product.tiers)
-        : 0
+    const { billing } = useValues(billingLogic)
+    const { customLimitUsd, showTierBreakdown, billingGaugeItems } = useValues(billingProductLogic({ product }))
+    const { setIsEditingBillingLimit, setShowTierBreakdown } = useActions(billingProductLogic({ product }))
 
     const productType = { plural: product.type, singular: product.type.slice(0, -1) }
-
-    const updateBillingLimit = (value: number | undefined): any => {
-        const actuallyUpdateLimit = (): void => {
-            updateBillingLimits({
-                [product.type]: typeof value === 'number' ? `${value}` : null,
-            })
-        }
-        if (value === undefined) {
-            return actuallyUpdateLimit()
-        }
-
-        const newAmountAsUsage = product.tiers ? convertAmountToUsage(`${value}`, product.tiers) : 0
-
-        if (product.current_usage && newAmountAsUsage < product.current_usage) {
-            LemonDialog.open({
-                title: 'Billing limit warning',
-                description:
-                    'Your new billing limit will be below your current usage. Your bill will not increase for this period but parts of the product will stop working and data may be lost.',
-                primaryButton: {
-                    status: 'danger',
-                    children: 'I understand',
-                    onClick: () => actuallyUpdateLimit(),
-                },
-                secondaryButton: {
-                    children: 'I changed my mind',
-                },
-            })
-            return
-        }
-
-        if (product.projected_usage && newAmountAsUsage < product.projected_usage) {
-            LemonDialog.open({
-                title: 'Billing limit warning',
-                description:
-                    'Your predicted usage is above your billing limit which is likely to result in usage being throttled.',
-                primaryButton: {
-                    children: 'I understand',
-                    onClick: () => actuallyUpdateLimit(),
-                },
-                secondaryButton: {
-                    children: 'I changed my mind',
-                },
-            })
-            return
-        }
-
-        return actuallyUpdateLimit()
-    }
-
-    useEffect(() => {
-        if (!billingLoading) {
-            setIsEditingBillingLimit(false)
-        }
-    }, [billingLoading])
-
-    useEffect(() => {
-        setBillingLimitInput(
-            parseInt(customLimitUsd || '0') ||
-                (product.tiers
-                    ? parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers))
-                    : 0) ||
-                DEFAULT_BILLING_LIMIT
-        )
-    }, [customLimitUsd])
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         700: 'medium',
     })
-
-    const freeTier = (billing?.has_active_subscription ? product.tiers?.[0]?.up_to : product.free_allocation) || 0
-
-    const billingGaugeItems: BillingGaugeProps['items'] = useMemo(
-        () =>
-            [
-                {
-                    tooltip: (
-                        <>
-                            <b>Free tier limit</b>
-                        </>
-                    ),
-                    color: 'success-light',
-                    value: freeTier,
-                    top: true,
-                },
-                {
-                    tooltip: (
-                        <>
-                            <b>Current</b>
-                        </>
-                    ),
-                    color: product.percentage_usage <= 1 ? 'success' : 'danger',
-                    value: product.current_usage || 0,
-                    top: false,
-                },
-                product.projected_usage && product.projected_usage > (product.current_usage || 0)
-                    ? {
-                          tooltip: (
-                              <>
-                                  <b>Projected</b>
-                              </>
-                          ),
-                          color: 'border',
-                          value: product.projected_usage || 0,
-                          top: false,
-                      }
-                    : undefined,
-                billingLimitAsUsage
-                    ? {
-                          tooltip: (
-                              <>
-                                  <b>Billing limit</b>
-                              </>
-                          ),
-                          color: 'primary-alt-light',
-                          top: true,
-                          value: billingLimitAsUsage || 0,
-                      }
-                    : (undefined as any),
-            ].filter(Boolean),
-        [product, billingLimitAsUsage, customLimitUsd]
-    )
 
     const tierDisplayOptions: LemonSelectOptions<string> = [
         { label: `Per ${productType.singular}`, value: 'individual' },
@@ -349,79 +219,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
                 </div>
-                {billing?.billing_period?.interval == 'month' && (customLimitUsd || isEditingBillingLimit) && (
-                    <div className="border-t border-border p-8">
-                        <div className="flex">
-                            <div className="flex items-center gap-1">
-                                {!isEditingBillingLimit ? (
-                                    <>
-                                        <div
-                                            className={clsx('cursor-pointer', customLimitUsd && 'text-primary')}
-                                            onClick={() => setIsEditingBillingLimit(true)}
-                                        >
-                                            ${customLimitUsd}
-                                        </div>
-                                        <Tooltip
-                                            title={
-                                                <>
-                                                    Set a billing limit to control your recurring costs. Some features
-                                                    may stop working if your usage exceeds your billing cap.
-                                                </>
-                                            }
-                                        >
-                                            {billing?.billing_period?.interval}ly billing limit
-                                        </Tooltip>
-                                    </>
-                                ) : (
-                                    <>
-                                        <div className="max-w-40">
-                                            <LemonInput
-                                                type="number"
-                                                fullWidth={false}
-                                                value={billingLimitInput}
-                                                onChange={setBillingLimitInput}
-                                                prefix={<b>$</b>}
-                                                disabled={billingLoading}
-                                                min={0}
-                                                step={10}
-                                                suffix={<>/month</>}
-                                                size="small"
-                                            />
-                                        </div>
-
-                                        <LemonButton
-                                            onClick={() => updateBillingLimit(billingLimitInput)}
-                                            loading={billingLoading}
-                                            type="primary"
-                                            size="small"
-                                        >
-                                            Save
-                                        </LemonButton>
-                                        <LemonButton
-                                            onClick={() => setIsEditingBillingLimit(false)}
-                                            disabled={billingLoading}
-                                            type="secondary"
-                                            size="small"
-                                        >
-                                            Cancel
-                                        </LemonButton>
-                                        {customLimitUsd ? (
-                                            <LemonButton
-                                                // icon={<IconDelete />}
-                                                status="danger"
-                                                size="small"
-                                                tooltip="Remove billing limit"
-                                                onClick={() => updateBillingLimit(undefined)}
-                                            >
-                                                Remove limit
-                                            </LemonButton>
-                                        ) : null}
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
+                <BillingLimitInput product={product} />
             </div>
         </div>
     )
