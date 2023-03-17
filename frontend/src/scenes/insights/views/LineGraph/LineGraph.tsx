@@ -17,7 +17,6 @@ import {
     ScriptableLineSegmentContext,
 } from 'lib/Chart'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
-import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
@@ -477,7 +476,7 @@ export function LineGraph_({
                           },
                       }
                     : {
-                          crosshair: false as CrosshairOptions,
+                          crosshair: false,
                       }),
             },
             hover: {

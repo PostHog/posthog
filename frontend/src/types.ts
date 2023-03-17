@@ -1428,7 +1428,7 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
-    QUERY = 'QUERY',
+    JSON = 'JSON',
     SQL = 'SQL',
 }
 
@@ -2213,14 +2213,25 @@ interface BaseExperimentResults {
     variants: ExperimentVariant[]
 }
 
-export interface TrendsExperimentResults extends BaseExperimentResults {
+export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
 }
 
-export interface FunnelExperimentResults extends BaseExperimentResults {
+export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
+}
+
+export interface TrendsExperimentResults {
+    result: _TrendsExperimentResults
+    is_cached?: boolean
+    last_refresh?: string | null
+}
+export interface FunnelExperimentResults {
+    result: _FunnelExperimentResults
+    is_cached?: boolean
+    last_refresh?: string | null
 }
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults

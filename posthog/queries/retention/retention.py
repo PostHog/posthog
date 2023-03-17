@@ -60,7 +60,7 @@ class Retention:
         self, filter: RetentionFilter, selected_interval: int, breakdown_values: BreakdownValues
     ):
         params = RetentionFilter(
-            {**filter._data, "breakdown_values": breakdown_values, "selected_interval": selected_interval}
+            {**filter._data, "breakdown_values": breakdown_values, "selected_interval": selected_interval},
         ).to_params()
         return f"{self._base_uri}api/person/retention/?{urlencode(params)}"
 
@@ -95,7 +95,7 @@ class Retention:
 
         def construct_url(first_day):
             params = RetentionFilter(
-                {**filter._data, "display": "ActionsTable", "breakdown_values": [first_day]}
+                {**filter._data, "display": "ActionsTable", "breakdown_values": [first_day]},
             ).to_params()
             return "/api/person/retention/?" f"{urlencode(params)}"
 

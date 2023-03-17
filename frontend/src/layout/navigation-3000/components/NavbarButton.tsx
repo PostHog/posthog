@@ -32,7 +32,6 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                 >
                     <LemonButton
                         ref={ref}
-                        status="3000"
                         active={isActive}
                         data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
                         onMouseEnter={() => setHasBeenClicked(false)}

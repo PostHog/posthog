@@ -2,10 +2,11 @@ import { kea, path, props, key, connect, selectors } from 'kea'
 import { InsightLogicProps, FilterType, PathType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+
 import { PathsFilter } from '~/queries/schema'
 
 import type { pathsDataLogicType } from './pathsDataLogicType'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -40,8 +41,8 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
     key(keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY)),
 
     connect((props: InsightLogicProps) => ({
-        values: [insightDataLogic(props), ['insightFilter']],
-        actions: [insightDataLogic(props), ['updateInsightFilter']],
+        values: [insightVizDataLogic(props), ['insightFilter']],
+        actions: [insightVizDataLogic(props), ['updateInsightFilter']],
     })),
 
     selectors({

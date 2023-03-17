@@ -9,6 +9,7 @@ import {
     FunnelVizType,
     InsightModel,
     InsightShortId,
+    InsightType,
     PathsFilterType,
     PathType,
     StepOrderValue,
@@ -66,6 +67,8 @@ import {
     isTimeToSeeDataSessionsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
+import { urls } from 'scenes/urls'
+import { examples } from '~/queries/examples'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -520,7 +523,7 @@ function summariseQuery(query: Node): string {
 
 export function summariseInsight(
     isUsingDataExploration: boolean,
-    query: Node | undefined,
+    query: Node | undefined | null,
     aggregationLabel: groupsModelType['values']['aggregationLabel'],
     cohortsById: cohortsModelType['values']['cohortsById'],
     mathDefinitions: mathsLogicType['values']['mathDefinitions'],
@@ -616,4 +619,15 @@ export function sortDates(dates: Array<string | null>): Array<string | null> {
 // Gets content-length header from a fetch Response
 export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
+}
+
+export const insightTypeURL: Record<InsightType, string> = {
+    TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
+    STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
+    LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
+    FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
+    RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
+    PATHS: urls.insightNew({ insight: InsightType.PATHS }),
+    JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
+    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
 }

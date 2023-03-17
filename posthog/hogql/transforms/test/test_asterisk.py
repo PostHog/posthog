@@ -1,5 +1,5 @@
 from posthog.hogql import ast
-from posthog.hogql.database import database
+from posthog.hogql.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import ResolverException, resolve_refs
 from posthog.hogql.transforms import expand_asterisks
@@ -7,11 +7,14 @@ from posthog.test.base import BaseTest
 
 
 class TestAsteriskExpander(BaseTest):
+    def setUp(self):
+        self.database = create_hogql_database(self.team.pk)
+
     def test_asterisk_expander_table(self):
         node = parse_select("select * from events")
-        resolve_refs(node)
+        resolve_refs(node, self.database)
         expand_asterisks(node)
-        events_table_ref = ast.TableRef(table=database.events)
+        events_table_ref = ast.TableRef(table=self.database.events)
         self.assertEqual(
             node.select,
             [
@@ -27,9 +30,9 @@ class TestAsteriskExpander(BaseTest):
 
     def test_asterisk_expander_table_alias(self):
         node = parse_select("select * from events e")
-        resolve_refs(node)
+        resolve_refs(node, self.database)
         expand_asterisks(node)
-        events_table_ref = ast.TableRef(table=database.events)
+        events_table_ref = ast.TableRef(table=self.database.events)
         events_table_alias_ref = ast.TableAliasRef(table_ref=events_table_ref, name="e")
         self.assertEqual(
             node.select,
@@ -49,7 +52,7 @@ class TestAsteriskExpander(BaseTest):
 
     def test_asterisk_expander_subquery(self):
         node = parse_select("select * from (select 1 as a, 2 as b)")
-        resolve_refs(node)
+        resolve_refs(node, self.database)
         expand_asterisks(node)
         select_subquery_ref = ast.SelectQueryRef(
             aliases={
@@ -73,7 +76,7 @@ class TestAsteriskExpander(BaseTest):
 
     def test_asterisk_expander_subquery_alias(self):
         node = parse_select("select x.* from (select 1 as a, 2 as b) x")
-        resolve_refs(node)
+        resolve_refs(node, self.database)
         expand_asterisks(node)
         select_subquery_ref = ast.SelectQueryAliasRef(
             name="x",
@@ -100,10 +103,10 @@ class TestAsteriskExpander(BaseTest):
 
     def test_asterisk_expander_from_subquery_table(self):
         node = parse_select("select * from (select * from events)")
-        resolve_refs(node)
+        resolve_refs(node, self.database)
         expand_asterisks(node)
 
-        events_table_ref = ast.TableRef(table=database.events)
+        events_table_ref = ast.TableRef(table=self.database.events)
         inner_select_ref = ast.SelectQueryRef(
             tables={"events": events_table_ref},
             anonymous_tables=[],
@@ -138,17 +141,17 @@ class TestAsteriskExpander(BaseTest):
     def test_asterisk_expander_multiple_table_error(self):
         node = parse_select("select * from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a")
         with self.assertRaises(ResolverException) as e:
-            resolve_refs(node)
+            resolve_refs(node, self.database)
         self.assertEqual(
             str(e.exception), "Cannot use '*' without table name when there are multiple tables in the query"
         )
 
     def test_asterisk_expander_select_union(self):
         node = parse_select("select * from (select * from events union all select * from events)")
-        resolve_refs(node)
+        resolve_refs(node, self.database)
         expand_asterisks(node)
 
-        events_table_ref = ast.TableRef(table=database.events)
+        events_table_ref = ast.TableRef(table=self.database.events)
         inner_select_ref = ast.SelectUnionQueryRef(
             refs=[
                 ast.SelectQueryRef(
