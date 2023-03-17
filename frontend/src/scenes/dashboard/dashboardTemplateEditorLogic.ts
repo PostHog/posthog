@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DashboardTemplateEditorType, DashboardTemplateType, MonacoMarker } from '~/types'
@@ -7,7 +7,6 @@ import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplat
 
 import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplateEditorLogic']),
@@ -108,14 +107,6 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             },
         ],
     })),
-    selectors({
-        isUsingDashboardTemplates: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.TEMPLUKES]
-            },
-        ],
-    }),
     listeners(({ values, actions }) => ({
         createDashboardTemplateSuccess: async () => {
             actions.closeDashboardTemplateEditor()
@@ -166,9 +157,7 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             }
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.isUsingDashboardTemplates) {
-            actions.getTemplateSchema()
-        }
+    afterMount(({ actions }) => {
+        actions.getTemplateSchema()
     }),
 ])

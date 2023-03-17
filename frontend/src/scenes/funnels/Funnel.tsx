@@ -1,14 +1,16 @@
 import './Funnel.scss'
 import { BindLogic, useValues } from 'kea'
-import { ChartParams, FunnelVizType } from '~/types'
-import { FunnelHistogram, FunnelHistogramDataExploration } from './FunnelHistogram'
-import { funnelLogic } from './funnelLogic'
-import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { FunnelLayout } from 'lib/constants'
-import { FunnelBarChart, FunnelBarChartDataExploration } from './FunnelBarChart/FunnelBarChart'
-import { FunnelBarGraph } from './FunnelBarGraph/FunnelBarGraph'
+import { funnelLogic } from './funnelLogic'
 import { funnelDataLogic } from './funnelDataLogic'
+
+import { ChartParams, FunnelVizType } from '~/types'
+import { FunnelLayout } from 'lib/constants'
+import { FunnelHistogram, FunnelHistogramDataExploration } from './FunnelHistogram'
+import { FunnelLineGraph, FunnelLineGraphDataExploration } from 'scenes/funnels/FunnelLineGraph'
+import { FunnelBarChart, FunnelBarChartDataExploration } from './FunnelBarChart/FunnelBarChart'
+import { FunnelBarGraph, FunnelBarGraphDataExploration } from './FunnelBarGraph/FunnelBarGraph'
 
 export function FunnelDataExploration(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -16,7 +18,7 @@ export function FunnelDataExploration(props: ChartParams): JSX.Element {
     const { funnel_viz_type, layout } = funnelsFilter || {}
 
     if (funnel_viz_type == FunnelVizType.Trends) {
-        return <FunnelLineGraph {...props} />
+        return <FunnelLineGraphDataExploration {...props} />
     }
 
     if (funnel_viz_type == FunnelVizType.TimeToConvert) {
@@ -28,7 +30,7 @@ export function FunnelDataExploration(props: ChartParams): JSX.Element {
             {(layout || FunnelLayout.vertical) === FunnelLayout.vertical ? (
                 <FunnelBarChartDataExploration {...props} />
             ) : (
-                <FunnelBarGraph {...props} />
+                <FunnelBarGraphDataExploration {...props} />
             )}
         </BindLogic>
     )

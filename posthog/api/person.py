@@ -203,7 +203,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
+        query, params = PersonQuery(filter, team.pk).get_query(paginate=True, filter_future_persons=True)
 
         raw_result = insight_sync_execute(
             query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"

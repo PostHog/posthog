@@ -166,11 +166,13 @@ function FeatureFlagInstructionsHeader({
     selectOption,
     headerPrompt,
     options,
+    dataAttr,
 }: {
     selectedOptionValue: string
     selectOption: (selectedValue: string) => void
     headerPrompt: string
     options: InstructionOption[]
+    dataAttr?: string
 }): JSX.Element {
     return (
         <Row className="FeatureFlagInstructionsHeader" justify="space-between" align="middle">
@@ -179,7 +181,7 @@ function FeatureFlagInstructionsHeader({
                 <b>{headerPrompt}</b>
             </div>
             <LemonSelect
-                data-attr="feature-flag-instructions-select"
+                data-attr={'feature-flag-instructions-select' + (dataAttr ? `-${dataAttr}` : '')}
                 options={[
                     {
                         title: 'Client libraries',
@@ -231,6 +233,7 @@ export function CodeInstructions({
     selectedLanguage,
     newCodeExample,
     featureFlag,
+    dataAttr = '',
 }: {
     featureFlagKey: string
     options: InstructionOption[]
@@ -238,6 +241,7 @@ export function CodeInstructions({
     selectedLanguage?: string
     newCodeExample?: boolean
     featureFlag?: FeatureFlagType
+    dataAttr?: string
 }): JSX.Element {
     const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
@@ -269,7 +273,7 @@ export function CodeInstructions({
                 <div>
                     <div className="flex flex-row gap-4">
                         <LemonSelect
-                            data-attr="feature-flag-instructions-select"
+                            data-attr={'feature-flag-instructions-select' + (dataAttr ? `-${dataAttr}` : '')}
                             options={[
                                 {
                                     title: 'Client libraries',
@@ -341,6 +345,7 @@ export function CodeInstructions({
             ) : (
                 <Card size="small">
                     <FeatureFlagInstructionsHeader
+                        dataAttr={dataAttr}
                         options={options}
                         headerPrompt={headerPrompt}
                         selectedOptionValue={selectedOption.value}
@@ -442,6 +447,7 @@ const PAYLOAD_OPTIONS: InstructionOption[] = [
 export function FeatureFlagPayloadInstructions({ featureFlagKey }: { featureFlagKey: string }): JSX.Element {
     return (
         <CodeInstructions
+            dataAttr="payload"
             featureFlagKey={featureFlagKey}
             headerPrompt="Using feature flag payloads in your code"
             options={PAYLOAD_OPTIONS}

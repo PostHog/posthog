@@ -48,13 +48,8 @@ export class EventPipelineRunner {
         this.poEEmbraceJoin = poEEmbraceJoin
     }
 
-    // KLUDGE: This is a temporary entry point for the pipeline while we transition away from
-    // hitting Postgres in the capture endpoint. Eventually the entire pipeline should
-    // follow this route and we can rename it to just be `runEventPipeline`.
-    async runLightweightCaptureEndpointEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
-        this.hub.statsd?.increment('kafka_queue.event_pipeline.start', {
-            pipeline: 'lightweight_capture',
-        })
+    async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
         try {
             let result: EventPipelineResult | null = null
@@ -65,24 +60,6 @@ export class EventPipelineRunner {
                 result = this.registerLastStep('populateTeamDataStep', null, [event])
             }
 
-            this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
-            return result
-        } catch (error) {
-            if (error instanceof DependencyUnavailableError) {
-                // If this is an error with a dependency that we control, we want to
-                // ensure that the caller knows that the event was not processed,
-                // for a reason that we control and that is transient.
-                throw error
-            }
-
-            return { lastStep: error.step, args: [], error: error.message }
-        }
-    }
-
-    async runEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
-        try {
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
-            const result = await this.runEventPipelineSteps(event)
             this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
             return result
         } catch (error) {

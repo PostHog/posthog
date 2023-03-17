@@ -7,7 +7,7 @@ import { Drawer } from 'lib/components/Drawer'
 import { urls } from 'scenes/urls'
 
 export interface InlineEditorButtonProps {
-    query: Node
+    query: Node | null
     setQuery?: (query: Node) => void
 }
 
@@ -25,7 +25,7 @@ export function InlineEditorButton({ query, setQuery }: InlineEditorButtonProps)
                 width="60vw"
                 title={
                     <>
-                        <LemonButton to={urls.query(JSON.stringify(query))}>Open in Query Builder</LemonButton>
+                        <LemonButton to={urls.debugQuery(JSON.stringify(query))}>Open in Query Builder</LemonButton>
                     </>
                 }
             >

@@ -34,8 +34,8 @@ import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/
 import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { RetentionSummaryDataExploration } from 'scenes/insights/EditorFilters/RetentionSummary'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
@@ -48,7 +48,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
 
     const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
     const { isTrends, isFunnels, isRetention, isPaths, isLifecycle, isTrendsLike, display, breakdown } = useValues(
-        insightDataLogic(insightProps)
+        insightVizDataLogic(insightProps)
     )
     const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
 

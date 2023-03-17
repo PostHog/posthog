@@ -1,6 +1,7 @@
+import { CommandPalette } from 'lib/components/CommandPalette'
 import { ReactNode, useEffect } from 'react'
 import { NotebookSideBar } from 'scenes/notebooks/Notebook/NotebookSideBar'
-import { Breadcrumbs } from '~/layout/navigation/Breadcrumbs/Breadcrumbs'
+import { Breadcrumbs } from './components/Breadcrumbs'
 import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
 import './Navigation.scss'
@@ -17,10 +18,11 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
             <Sidebar />
             <main>
                 <Breadcrumbs />
-                {children}
+                <div className="Navigation3000__scene">{children}</div>
             </main>
 
             <NotebookSideBar />
+            <CommandPalette />
         </div>
     )
 }

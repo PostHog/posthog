@@ -1,12 +1,21 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
+import timekeeper from 'timekeeper'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
-import { FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
-import { ActionsNode, DataNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
+import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
+import {
+    ActionsNode,
+    DataNode,
+    EventsNode,
+    FunnelsQuery,
+    InsightQueryNode,
+    NewEntityNode,
+    NodeKind,
+} from '~/queries/schema'
 import {
     funnelResult,
     funnelResultTimeToConvert,
@@ -45,7 +54,7 @@ describe('funnelDataLogic', () => {
     describe('funnel viz types', () => {
         it('with non-funnel insight', async () => {
             await expectLogic(logic).toMatchValues({
-                querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
+                querySource: null,
                 isStepsFunnel: null,
                 isTimeToConvertFunnel: null,
                 isTrendsFunnel: null,
@@ -129,7 +138,7 @@ describe('funnelDataLogic', () => {
     describe('empty funnel', () => {
         it('with non-funnel insight', async () => {
             await expectLogic(logic).toMatchValues({
-                querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
+                querySource: null,
                 isEmptyFunnel: null,
             })
         })
@@ -752,7 +761,7 @@ describe('funnelDataLogic', () => {
     })
 
     describe('isFunnelWithEnoughSteps', () => {
-        const queryWithSeries = (series: (ActionsNode | EventsNode)[]): FunnelsQuery => ({
+        const queryWithSeries = (series: (ActionsNode | EventsNode | NewEntityNode)[]): FunnelsQuery => ({
             kind: NodeKind.FunnelsQuery,
             series,
         })
@@ -767,7 +776,9 @@ describe('funnelDataLogic', () => {
             }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {
-                logic.actions.updateQuerySource(queryWithSeries([{ kind: NodeKind.EventsNode }]))
+                logic.actions.updateQuerySource(
+                    queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.NewEntityNode }])
+                )
             }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {
@@ -972,6 +983,173 @@ describe('funnelDataLogic', () => {
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
                 hasFunnelResults: true,
+            })
+        })
+    })
+
+    describe('conversionMetrics', () => {
+        it('for steps viz with multiple steps', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Steps,
+                },
+            }
+
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResult.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                conversionMetrics: {
+                    averageTime: 87098.67529697785,
+                    stepRate: 0.46048109965635736,
+                    totalRate: 0.46048109965635736,
+                },
+            })
+        })
+
+        it('for time to convert viz', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.TimeToConvert,
+                },
+            }
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTimeToConvert.result,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toMatchValues({
+                conversionMetrics: {
+                    averageTime: 86456.76, // from backend
+                    stepRate: 0,
+                    totalRate: 0,
+                },
+            })
+        })
+
+        it('for trends viz', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Trends,
+                },
+            }
+
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTrends.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                conversionMetrics: {
+                    averageTime: 0,
+                    stepRate: 0,
+                    totalRate: 0.7120000000000001, // avg(steps[0] / 100)
+                },
+            })
+        })
+    })
+
+    describe('conversionWindow', () => {
+        it('with defaults', async () => {
+            await expectLogic(logic).toMatchValues({
+                conversionWindow: {
+                    funnel_window_interval: 14,
+                    funnel_window_interval_unit: 'day',
+                },
+            })
+        })
+
+        it('with conversion window', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_window_interval: 3,
+                    funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Week,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                conversionWindow: {
+                    funnel_window_interval: 3,
+                    funnel_window_interval_unit: 'week',
+                },
+            })
+        })
+    })
+
+    describe('incompletenessOffsetFromEnd', () => {
+        beforeAll(() => {
+            const lastResponseDay = funnelResultTrends.result[0].days.slice(-1)[0]
+            timekeeper.freeze(new Date(lastResponseDay))
+        })
+
+        afterAll(() => {
+            timekeeper.reset()
+        })
+
+        it('with defaults', async () => {
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTrends.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toMatchValues({
+                incompletenessOffsetFromEnd: -7,
+            })
+        })
+
+        it('with conversion window', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_window_interval: 2,
+                    funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
+                },
+            }
+
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTrends.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                incompletenessOffsetFromEnd: -3,
             })
         })
     })

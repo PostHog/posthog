@@ -58,6 +58,7 @@ function renderDatumToTableCell(
         <div className="series-data-cell">
             {
                 color && (
+                    // eslint-disable-next-line react/forbid-dom-props
                     <span className="mr-2" style={{ color }}>
                         ●
                     </span>
