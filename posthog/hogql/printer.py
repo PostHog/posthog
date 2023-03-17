@@ -401,7 +401,7 @@ class _Printer(Visitor):
                 and ref.name == "properties"
                 and ref.table.field == "poe"
             ):
-                if self.context.using_person_on_events:
+                if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
