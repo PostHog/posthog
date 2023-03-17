@@ -49,7 +49,16 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series', 'interval', 'insightData'],
+            [
+                'querySource',
+                'insightFilter',
+                'funnelsFilter',
+                'breakdown',
+                'series',
+                'interval',
+                'insightData',
+                'insightDataError',
+            ],
             groupsModel,
             ['aggregationLabel'],
         ],
@@ -346,6 +355,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (funnelsFilter): FilterType => ({
                 events: funnelsFilter?.exclusions,
             }),
+        ],
+        areExclusionFiltersValid: [
+            (s) => [s.insightDataError],
+            (insightDataError): boolean => {
+                return !(insightDataError?.status === 400 && insightDataError?.type === 'validation_error')
+            },
         ],
     })),
 ])
