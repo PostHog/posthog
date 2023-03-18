@@ -116,7 +116,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         name: 'JSON',
         description: 'Build custom insights with our JSON query language',
         icon: InsightSQLIcon,
-        inMenu: false, // until data exploration is released
+        inMenu: true,
     },
 }
 

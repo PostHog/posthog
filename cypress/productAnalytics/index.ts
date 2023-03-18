@@ -38,12 +38,39 @@ export const insight = {
         cy.url().should('not.include', '/new')
     },
     newInsight: (insightType: string = 'TRENDS', expectDataExplorationChrome: boolean = false): void => {
-        cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as('loadTrendInsight')
+        let networkInterceptAlias: string = ''
+        if (insightType === 'TRENDS') {
+            networkInterceptAlias = 'loadNewTrendsInsight'
+            cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as(networkInterceptAlias)
+        } else if (insightType === 'FUNNELS') {
+            networkInterceptAlias = 'loadNewFunnelInsight'
+            cy.intercept('POST', /api\/projects\/\d+\/insights\/funnel\/?/).as(networkInterceptAlias)
+        } else if (insightType === 'RETENTION') {
+            networkInterceptAlias = 'loadNewRetentionInsight'
+            cy.intercept('GET', /api\/projects\/\d+\/insights\/retention\/\?.*/).as(networkInterceptAlias)
+        } else if (insightType === 'PATHS') {
+            networkInterceptAlias = 'loadNewPathsInsight'
+            cy.intercept('POST', /api\/projects\/\d+\/insights\/path\/?/).as(networkInterceptAlias)
+        } else if (insightType === 'STICKINESS') {
+            networkInterceptAlias = 'loadNewStickinessInsight'
+            cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as(networkInterceptAlias)
+        } else if (insightType === 'LIFECYCLE') {
+            networkInterceptAlias = 'loadNewLifecycleInsight'
+            cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as(networkInterceptAlias)
+        } else if (insightType === 'SQL') {
+            networkInterceptAlias = 'loadNewSqlInsight'
+            cy.intercept('POST', /api\/projects\/\d+\/query\//).as(networkInterceptAlias)
+        } else if (insightType === 'JSON') {
+            networkInterceptAlias = 'loadNewJSONInsight'
+            cy.intercept('POST', /api\/projects\/\d+\/query\//).as(networkInterceptAlias)
+        } else {
+            cy.log('WARNING: need to add a network intercept to wait on for insight type: ' + insightType)
+        }
 
         cy.get('[data-attr=menu-item-insight]').click() // Open the new insight menu in the sidebar
         cy.get(`[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="${insightType}"]`).click()
 
-        cy.wait('@loadTrendInsight').then(() => {
+        cy.wait(`@${networkInterceptAlias}`).then(() => {
             const expectExistence = expectDataExplorationChrome ? 'exist' : 'not.exist'
             cy.get('[aria-label="Edit code"]').should(expectExistence)
         })
