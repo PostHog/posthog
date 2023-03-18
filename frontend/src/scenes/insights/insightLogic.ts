@@ -176,7 +176,6 @@ export const insightLogic = kea<insightLogicType>([
         }),
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
-        setInsightResults: (resultData: Pick<InsightModel, 'result' | 'next'>) => ({ resultData }),
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
@@ -467,7 +466,6 @@ export const insightLogic = kea<insightLogicType>([
                     return state
                 }
             },
-            setInsightResults: (state, { resultData }) => ({ ...state, ...resultData }),
             [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
                 if (item.id === state.id) {
                     return { ...state, name: item.name }

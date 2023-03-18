@@ -49,13 +49,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            [
-                'setInsight',
-                'loadInsightSuccess',
-                'loadResultsSuccess',
-                'saveInsight as insightLogicSaveInsight',
-                'setInsightResults',
-            ],
+            ['setInsight', 'loadInsightSuccess', 'loadResultsSuccess', 'saveInsight as insightLogicSaveInsight'],
         ],
     })),
 
