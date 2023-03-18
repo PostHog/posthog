@@ -50,7 +50,7 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
     }
 
     const display = getDisplay(querySource)
-    const filters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : {}
+    const filters = queryNodeToFilter(querySource)
 
     return (
         <>
