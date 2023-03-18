@@ -138,8 +138,8 @@ def update_cache(caching_state_id: UUID):
         )
 
 
-def update_cached_state(team_id: int, cache_key: str, timestamp: datetime, result: Any):
-    cache.set(cache_key, result, settings.CACHED_RESULTS_TTL)
+def update_cached_state(team_id: int, cache_key: str, timestamp: datetime, result: Any, ttl: Optional[int] = None):
+    cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
 
     # :TRICKY: We update _all_ states with same cache_key to avoid needless re-calculations and
     #   handle race conditions around cache_key changing.

@@ -3,11 +3,11 @@ import { Node } from '~/queries/schema'
 import { urls } from 'scenes/urls'
 import { IconQueryEditor } from 'lib/lemon-ui/icons'
 
-export interface InlineEditorButtonProps {
+export interface OpenEditorButtonProps {
     query: Node
 }
 
-export function OpenEditorButton({ query }: InlineEditorButtonProps): JSX.Element {
+export function OpenEditorButton({ query }: OpenEditorButtonProps): JSX.Element {
     return (
         <>
             <LemonButton

@@ -3,11 +3,11 @@ import { ChartDisplayType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
 import type { insightDisplayConfigLogicType } from './insightDisplayConfigLogicType'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
     props({} as InsightLogicProps),
@@ -18,7 +18,7 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            insightDataLogic(props),
+            insightVizDataLogic(props),
             [
                 'isTrends',
                 'isFunnels',

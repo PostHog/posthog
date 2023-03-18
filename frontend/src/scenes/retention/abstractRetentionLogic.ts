@@ -3,12 +3,12 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTablePayload } from 'scenes/retention/types'
 import { InsightLogicProps } from '~/types'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import type { abstractRetentionLogicType } from './abstractRetentionLogicType'
 import { retentionLogic } from './retentionLogic'
 import { DateRange, BreakdownFilter, RetentionFilter } from '~/queries/schema'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -24,7 +24,7 @@ export const abstractRetentionLogic = kea<abstractRetentionLogicType>({
             ['isUsingDataExploration'],
             retentionLogic(props),
             ['filters', 'results as retentionResults', 'resultsLoading as retentionResultsLoading'],
-            insightDataLogic(props),
+            insightVizDataLogic(props),
             [
                 'querySource as dataExplorationQuerySource',
                 'retentionFilter as dataExplorationRetentionFilter',
@@ -37,7 +37,7 @@ export const abstractRetentionLogic = kea<abstractRetentionLogicType>({
         apiFilters: [
             (s) => [s.isUsingDataExploration, s.filters, s.dataExplorationQuerySource],
             (isUsingDataExploration, filters, dataExplorationQuerySource) => {
-                if (isUsingDataExploration) {
+                if (isUsingDataExploration && dataExplorationQuerySource) {
                     return queryNodeToFilter(dataExplorationQuerySource)
                 }
 
@@ -98,7 +98,7 @@ export const abstractRetentionLogic = kea<abstractRetentionLogicType>({
                 filters,
                 dataExplorationQuerySource
             ): { aggregation_group_type_index?: number } => {
-                if (isUsingDataExploration) {
+                if (isUsingDataExploration && dataExplorationQuerySource) {
                     return {
                         aggregation_group_type_index: dataExplorationQuerySource.aggregation_group_type_index,
                     }

@@ -107,7 +107,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     tabs.push({
                         label: (
                             <>
-                                SQL{' '}
+                                SQL
                                 <LemonTag type="warning" className="uppercase ml-2">
                                     Beta
                                 </LemonTag>

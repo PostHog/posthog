@@ -54,7 +54,7 @@ describe('funnelDataLogic', () => {
     describe('funnel viz types', () => {
         it('with non-funnel insight', async () => {
             await expectLogic(logic).toMatchValues({
-                querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
+                querySource: null,
                 isStepsFunnel: null,
                 isTimeToConvertFunnel: null,
                 isTrendsFunnel: null,
@@ -138,7 +138,7 @@ describe('funnelDataLogic', () => {
     describe('empty funnel', () => {
         it('with non-funnel insight', async () => {
             await expectLogic(logic).toMatchValues({
-                querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
+                querySource: null,
                 isEmptyFunnel: null,
             })
         })

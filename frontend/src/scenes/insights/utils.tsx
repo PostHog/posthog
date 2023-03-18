@@ -523,7 +523,7 @@ function summariseQuery(query: Node): string {
 
 export function summariseInsight(
     isUsingDataExploration: boolean,
-    query: Node | undefined,
+    query: Node | undefined | null,
     aggregationLabel: groupsModelType['values']['aggregationLabel'],
     cohortsById: cohortsModelType['values']['cohortsById'],
     mathDefinitions: mathsLogicType['values']['mathDefinitions'],
