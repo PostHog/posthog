@@ -20,7 +20,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
-    query: T | string
+    query: T | string | null
     /** Set this if you're controlling the query parameter */
     setQuery?: (query: T) => void
 
@@ -31,7 +31,7 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
     cachedResults?: AnyResponseType
 }
 
-export function Query(props: QueryProps): JSX.Element {
+export function Query(props: QueryProps): JSX.Element | null {
     const { query: propsQuery, setQuery: propsSetQuery } = props
     const readOnly = propsSetQuery === undefined
 
@@ -46,6 +46,10 @@ export function Query(props: QueryProps): JSX.Element {
     const setQuery = readOnly ? undefined : propsSetQuery ?? localSetQuery
 
     const queryContext = props.context || {}
+
+    if (query === null) {
+        return null
+    }
 
     if (typeof query === 'string') {
         try {
