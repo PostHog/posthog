@@ -16,6 +16,38 @@ export const savedInsights = {
     },
 }
 
+function interceptInsightLoad(insightType: string): string {
+    let networkInterceptAlias: string = ''
+    if (insightType === 'TRENDS') {
+        networkInterceptAlias = 'loadNewTrendsInsight'
+        cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as(networkInterceptAlias)
+    } else if (insightType === 'FUNNELS') {
+        networkInterceptAlias = 'loadNewFunnelInsight'
+        cy.intercept('POST', /api\/projects\/\d+\/insights\/funnel\/?/).as(networkInterceptAlias)
+    } else if (insightType === 'RETENTION') {
+        networkInterceptAlias = 'loadNewRetentionInsight'
+        cy.intercept('GET', /api\/projects\/\d+\/insights\/retention\/\?.*/).as(networkInterceptAlias)
+    } else if (insightType === 'PATHS') {
+        networkInterceptAlias = 'loadNewPathsInsight'
+        cy.intercept('POST', /api\/projects\/\d+\/insights\/path\/?/).as(networkInterceptAlias)
+    } else if (insightType === 'STICKINESS') {
+        networkInterceptAlias = 'loadNewStickinessInsight'
+        cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as(networkInterceptAlias)
+    } else if (insightType === 'LIFECYCLE') {
+        networkInterceptAlias = 'loadNewLifecycleInsight'
+        cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as(networkInterceptAlias)
+    } else if (insightType === 'SQL') {
+        networkInterceptAlias = 'loadNewSqlInsight'
+        cy.intercept('POST', /api\/projects\/\d+\/query\//).as(networkInterceptAlias)
+    } else if (insightType === 'JSON') {
+        networkInterceptAlias = 'loadNewJSONInsight'
+        cy.intercept('POST', /api\/projects\/\d+\/query\//).as(networkInterceptAlias)
+    } else {
+        cy.log('WARNING: need to add a network intercept to wait on for insight type: ' + insightType)
+    }
+    return networkInterceptAlias
+}
+
 export const insight = {
     applyFilter: (): void => {
         cy.get('[data-attr=insight-filters-add-filter-group]').click()
@@ -37,35 +69,14 @@ export const insight = {
         // wait for save to complete and URL to change and include short id
         cy.url().should('not.include', '/new')
     },
+    clickTab: (tabName: string): void => {
+        const networkInterceptAlias = interceptInsightLoad(tabName)
+
+        cy.get(`[data-attr="insight-${(tabName === 'PATHS' ? 'PATH' : tabName).toLowerCase()}-tab"]`).click()
+        cy.wait(`@${networkInterceptAlias}`)
+    },
     newInsight: (insightType: string = 'TRENDS', expectDataExplorationChrome: boolean = false): void => {
-        let networkInterceptAlias: string = ''
-        if (insightType === 'TRENDS') {
-            networkInterceptAlias = 'loadNewTrendsInsight'
-            cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as(networkInterceptAlias)
-        } else if (insightType === 'FUNNELS') {
-            networkInterceptAlias = 'loadNewFunnelInsight'
-            cy.intercept('POST', /api\/projects\/\d+\/insights\/funnel\/?/).as(networkInterceptAlias)
-        } else if (insightType === 'RETENTION') {
-            networkInterceptAlias = 'loadNewRetentionInsight'
-            cy.intercept('GET', /api\/projects\/\d+\/insights\/retention\/\?.*/).as(networkInterceptAlias)
-        } else if (insightType === 'PATHS') {
-            networkInterceptAlias = 'loadNewPathsInsight'
-            cy.intercept('POST', /api\/projects\/\d+\/insights\/path\/?/).as(networkInterceptAlias)
-        } else if (insightType === 'STICKINESS') {
-            networkInterceptAlias = 'loadNewStickinessInsight'
-            cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as(networkInterceptAlias)
-        } else if (insightType === 'LIFECYCLE') {
-            networkInterceptAlias = 'loadNewLifecycleInsight'
-            cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as(networkInterceptAlias)
-        } else if (insightType === 'SQL') {
-            networkInterceptAlias = 'loadNewSqlInsight'
-            cy.intercept('POST', /api\/projects\/\d+\/query\//).as(networkInterceptAlias)
-        } else if (insightType === 'JSON') {
-            networkInterceptAlias = 'loadNewJSONInsight'
-            cy.intercept('POST', /api\/projects\/\d+\/query\//).as(networkInterceptAlias)
-        } else {
-            cy.log('WARNING: need to add a network intercept to wait on for insight type: ' + insightType)
-        }
+        const networkInterceptAlias = interceptInsightLoad(insightType)
 
         cy.get('[data-attr=menu-item-insight]').click() // Open the new insight menu in the sidebar
         cy.get(`[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="${insightType}"]`).click()
@@ -107,6 +118,30 @@ export const insight = {
                 }
             })
         })
+    },
+    updateQueryEditorText(query: string): void {
+        // the default JSON query doesn't have any results, switch to one that does
+
+        // obviously we need to clear the text area multiple times
+        cy.get('[data-attr="query-editor"] textarea').type('{selectall}')
+        cy.get('[data-attr="query-editor"] textarea').type('{backspace}')
+        cy.get('[data-attr="query-editor"] textarea').type('{selectall}')
+        cy.get('[data-attr="query-editor"] textarea').type('{backspace}')
+        cy.get('[data-attr="query-editor"] textarea').type('{selectall}')
+        cy.get('[data-attr="query-editor"] textarea').type('{backspace}')
+        cy.get('[data-attr="query-editor"] textarea').type('{selectall}')
+        cy.get('[data-attr="query-editor"] textarea').type('{backspace}')
+
+        cy.get('[data-attr="query-editor"] textarea').type(query)
+
+        // monaco adds closing squares and curlies as we type,
+        // so, we need to delete any trailing characters to make valid JSON
+        // 😡
+        for (let i = 0; i < 10; i++) {
+            cy.get('[data-attr="query-editor"] textarea').type('{del}')
+        }
+
+        cy.get('[data-attr="query-editor"] button').click()
     },
 }
 

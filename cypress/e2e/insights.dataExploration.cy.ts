@@ -33,7 +33,7 @@ describe('Insights (with data exploration on)', () => {
         cy.get('[data-attr="query-editor"]').should('exist')
     })
 
-    describe('opening a new insight', () => {
+    describe('opening a new insight directly', () => {
         it('can open a new trends insight', () => {
             insight.newInsight('TRENDS', true)
             cy.get('.trends-insights-container canvas').should('exist')
@@ -80,17 +80,7 @@ describe('Insights (with data exploration on)', () => {
 
             // the default JSON query doesn't have any results, switch to one that does
 
-            // obviously we need to clear the text area multiple times
-            cy.get('[data-attr="query-editor"] textarea').type('{selectall}')
-            cy.get('[data-attr="query-editor"] textarea').type('{backspace}')
-            cy.get('[data-attr="query-editor"] textarea').type('{selectall}')
-            cy.get('[data-attr="query-editor"] textarea').type('{backspace}')
-            cy.get('[data-attr="query-editor"] textarea').type('{selectall}')
-            cy.get('[data-attr="query-editor"] textarea').type('{backspace}')
-            cy.get('[data-attr="query-editor"] textarea').type('{selectall}')
-            cy.get('[data-attr="query-editor"] textarea').type('{backspace}')
-
-            cy.get('[data-attr="query-editor"] textarea').type(`
+            insight.updateQueryEditorText(`
 {
   "kind": "DataTableNode",
   "full": true,
@@ -102,14 +92,80 @@ describe('Insights (with data exploration on)', () => {
   }
 }`)
 
-            // monaco adds closing squares and curlies as we type,
-            // so, we need to delete any trailing characters to make valid JSON
-            // 😡
-            for (let i = 0; i < 10; i++) {
-                cy.get('[data-attr="query-editor"] textarea').type('{del}')
-            }
+            cy.wait('@query').then(() => {
+                cy.get('tr.DataTable__row').should('have.length', 1)
+            })
+        })
+    })
 
-            cy.get('[data-attr="query-editor"] button').click()
+    describe('opening a new insight after opening a new SQL insight', () => {
+        // ugh, these tests have identical assertions to the ones above, but we need to open a SQL insight first
+        // and then click a different tab to switch to that insight.
+        // this is because we had a bug where doing that would mean after starting to load the new insight,
+        // the SQL insight would be unexpectedly re-selected and the page would switch back to it
+
+        beforeEach(() => {
+            insight.newInsight('SQL', true)
+            cy.get('[data-attr="hogql-query-editor"]').should('exist')
+            cy.get('tr.DataTable__row').should('have.length', 3)
+        })
+
+        it('can open a new trends insight', () => {
+            insight.clickTab('TRENDS')
+            cy.get('.trends-insights-container canvas').should('exist')
+            cy.get('tr').should('have.length', 2)
+            cy.contains('tr', 'No insight results').should('not.exist')
+        })
+
+        it('can open a new funnels insight', () => {
+            insight.clickTab('FUNNELS')
+            cy.get('.funnels-empty-state__title').should('exist')
+        })
+
+        it('can open a new retention insight', () => {
+            insight.clickTab('RETENTION')
+            cy.get('.RetentionContainer canvas').should('exist')
+            cy.get('.RetentionTable__Tab').should('have.length', 66)
+        })
+
+        it('can open a new paths insight', () => {
+            insight.clickTab('PATH')
+            cy.get('.Paths g').should('have.length', 36)
+        })
+
+        it('can open a new stickiness insight', () => {
+            insight.clickTab('STICKINESS')
+            cy.get('.trends-insights-container canvas').should('exist')
+        })
+
+        it('can open a new lifecycle insight', () => {
+            insight.clickTab('LIFECYCLE')
+            cy.get('.trends-insights-container canvas').should('exist')
+        })
+
+        it('can open a new SQL insight', () => {
+            insight.clickTab('SQL')
+            cy.get('[data-attr="hogql-query-editor"]').should('exist')
+            cy.get('tr.DataTable__row').should('have.length', 3)
+        })
+
+        it('can open a new JSON insight', () => {
+            cy.intercept('POST', /api\/projects\/\d+\/query\//).as('query')
+
+            insight.clickTab('JSON')
+            cy.get('[data-attr="query-editor"]').should('exist')
+
+            insight.updateQueryEditorText(`
+{
+  "kind": "DataTableNode",
+  "full": true,
+  "source": {
+    "kind": "EventsQuery",
+    "select": [
+      "count()"
+    ]
+  }
+}`)
 
             cy.wait('@query').then(() => {
                 cy.get('tr.DataTable__row').should('have.length', 1)
@@ -117,19 +173,29 @@ describe('Insights (with data exploration on)', () => {
         })
     })
 
-    it('can open a new SQL insight and navigate to a different one', () => {
+    it('can open a new SQL insight and navigate to a different one, then back to SQL, and back again', () => {
         /**
-         * This is here as a regression test. We had a bug where navigating to a new query based insight
-         * and then to a new filter based insight, would briefly start loading the filter based insight
-         * and then jump back to the query based insight.
+         * This is here as a regression test. We had a bug where navigating to a new query based insight,
+         * then clicking on the trends tab, then on SQL, and again on trends would mean that the trends
+         * tab would be selected, but no data loaded for it 🤷‍♀️
          */
+
         insight.newInsight('SQL', true)
         cy.get('[data-attr="hogql-query-editor"]').should('exist')
         cy.get('tr.DataTable__row').should('have.length', 3)
 
-        cy.get('a[data-attr="insight-retention-tab"]').click()
-        cy.get('[data-attr="hogql-query-editor"]').should('not.exist')
+        insight.clickTab('TRENDS')
+        cy.get('.trends-insights-container canvas').should('exist')
+        cy.get('tr').should('have.length', 2)
+        cy.contains('tr', 'No insight results').should('not.exist')
 
-        cy.get('[data-attr="retention-table"] .RetentionTable__Tab').should('have.length', 66)
+        insight.clickTab('SQL')
+        cy.get('[data-attr="hogql-query-editor"]').should('exist')
+        cy.get('tr.DataTable__row').should('have.length', 3)
+
+        insight.clickTab('TRENDS')
+        cy.get('.trends-insights-container canvas').should('exist')
+        cy.get('tr').should('have.length', 2)
+        cy.contains('tr', 'No insight results').should('not.exist')
     })
 })
