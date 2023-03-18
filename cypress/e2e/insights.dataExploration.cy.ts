@@ -1,5 +1,4 @@
 import { urls } from 'scenes/urls'
-import { randomString } from '../support/random'
 import { insight } from '../productAnalytics'
 import { decideResponse } from '../fixtures/api/decide'
 
@@ -18,7 +17,18 @@ describe('Insights (with data exploration on)', () => {
     })
 
     it('shows the edit as json button', () => {
-        const insightName = randomString('insight-name-')
-        insight.create(insightName, 'TRENDS', true)
+        insight.newInsight('TRENDS', true)
+    })
+
+    it('can shows the query editor', () => {
+        insight.newInsight('TRENDS', true)
+        cy.get('[aria-label="Edit code"]').click()
+        cy.get('[data-attr="query-editor"]').should('exist')
+    })
+
+    it('can edit an insight using the query editor', () => {
+        insight.newInsight('TRENDS', true)
+        cy.get('[aria-label="Edit code"]').click()
+        cy.get('[data-attr="query-editor"]').should('exist')
     })
 })

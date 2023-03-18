@@ -37,6 +37,17 @@ export const insight = {
         // wait for save to complete and URL to change and include short id
         cy.url().should('not.include', '/new')
     },
+    newInsight: (insightType: string = 'TRENDS', expectDataExplorationChrome: boolean = false): void => {
+        cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as('loadTrendInsight')
+
+        cy.get('[data-attr=menu-item-insight]').click() // Open the new insight menu in the sidebar
+        cy.get(`[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="${insightType}"]`).click()
+
+        cy.wait('@loadTrendInsight').then(() => {
+            const expectExistence = expectDataExplorationChrome ? 'exist' : 'not.exist'
+            cy.get('[aria-label="Edit code"]').should(expectExistence)
+        })
+    },
     create: (
         insightName: string,
         insightType: string = 'TRENDS',
