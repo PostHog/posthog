@@ -11,10 +11,10 @@ export function KeyboardShortcut(props: KeyboardShortcutProps): JSX.Element {
         <span className="KeyboardShortcut">
             {'shift' in props && props.shift && <span className="KeyboardShortcut__key">⇧</span>}
             {'command' in props && props.command && (
-                <span className="KeyboardShortcut__key">{useMacSymbols ? '⌘' : 'Ctrl'}</span>
+                <span className="KeyboardShortcut__key">{useMacSymbols ? '⌘' : 'ctrl'}</span>
             )}
             {'option' in props && props.option && (
-                <span className="KeyboardShortcut__key">{useMacSymbols ? '⌥' : 'Alt'}</span>
+                <span className="KeyboardShortcut__key">{useMacSymbols ? '⌥' : 'alt'}</span>
             )}
             {Object.keys(props)
                 .filter((key) => !['shift', 'command', 'option'].includes(key))
