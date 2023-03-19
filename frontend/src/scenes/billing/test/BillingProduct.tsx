@@ -1,9 +1,9 @@
-import { LemonSelectOptions, LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonSelectOptions, LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
-import { IconChevronRight, IconCheckmark, IconExpandMore } from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconCheckmark, IconExpandMore, IconPlus } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { BillingProductV2Type, BillingV2TierType } from '~/types'
@@ -221,6 +221,55 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             )}
                         </div>
                     )}
+                    <div className="pb-8">
+                        <h4 className="mb-4">Addons</h4>
+                        <div className="gap-y-4 flex flex-col">
+                            <div className="bg-side rounded p-6 flex justify-between gap-x-4">
+                                {product.image_url ? (
+                                    <img
+                                        className="w-10 h-10"
+                                        alt={`Logo for PostHog ${product.name}`}
+                                        src={product.image_url}
+                                    />
+                                ) : null}
+                                <div>
+                                    <h5 className="mt-0 mb-2 leading-5">Group Analytics</h5>
+                                    <p className="ml-0 mb-0">
+                                        Some descriptor text. Group your peeps into organizations, etc, so you can track
+                                        events for the group as a whole. Starting at $0.00003 per event.{' '}
+                                        <Link>Learn more</Link> or <Link>view pricing</Link>.
+                                    </p>
+                                </div>
+                                <div className="ml-4 mr-4 mt-2 self-center">
+                                    <LemonButton type="primary" icon={<IconPlus />} size="small">
+                                        Add
+                                    </LemonButton>
+                                </div>
+                            </div>
+                            <div className="bg-side rounded p-6 flex justify-between gap-x-4">
+                                {product.image_url ? (
+                                    <img
+                                        className="w-10 h-10"
+                                        alt={`Logo for PostHog ${product.name}`}
+                                        src={product.image_url}
+                                    />
+                                ) : null}
+                                <div>
+                                    <h5 className="mt-0 mb-2 leading-5">CDP</h5>
+                                    <p className="ml-0 mb-0">
+                                        Some descriptor text. Some descriptor text. Send your data wherever you need it,
+                                        however you need it. Starting at $0.00003 per event. <Link>Learn more</Link> or{' '}
+                                        <Link>view pricing</Link>.
+                                    </p>
+                                </div>
+                                <div className="ml-4 mr-4 mt-2 self-center">
+                                    <LemonButton type="primary" icon={<IconPlus />} size="small">
+                                        Add
+                                    </LemonButton>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <BillingLimitInput product={product} />
             </div>
