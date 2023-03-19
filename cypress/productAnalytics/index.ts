@@ -17,34 +17,34 @@ export const savedInsights = {
 }
 
 function interceptInsightLoad(insightType: string): string {
+    cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as('loadNewTrendsInsight')
+    cy.intercept('POST', /api\/projects\/\d+\/insights\/funnel\/?/).as('loadNewFunnelInsight')
+    cy.intercept('GET', /api\/projects\/\d+\/insights\/retention\/\?.*/).as('loadNewRetentionInsight')
+    cy.intercept('POST', /api\/projects\/\d+\/insights\/path\/?/).as('loadNewPathsInsight')
+    cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
+
     let networkInterceptAlias: string = ''
-    if (insightType === 'TRENDS') {
-        networkInterceptAlias = 'loadNewTrendsInsight'
-        cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as(networkInterceptAlias)
-    } else if (insightType === 'FUNNELS') {
-        networkInterceptAlias = 'loadNewFunnelInsight'
-        cy.intercept('POST', /api\/projects\/\d+\/insights\/funnel\/?/).as(networkInterceptAlias)
-    } else if (insightType === 'RETENTION') {
-        networkInterceptAlias = 'loadNewRetentionInsight'
-        cy.intercept('GET', /api\/projects\/\d+\/insights\/retention\/\?.*/).as(networkInterceptAlias)
-    } else if (insightType === 'PATHS') {
-        networkInterceptAlias = 'loadNewPathsInsight'
-        cy.intercept('POST', /api\/projects\/\d+\/insights\/path\/?/).as(networkInterceptAlias)
-    } else if (insightType === 'STICKINESS') {
-        networkInterceptAlias = 'loadNewStickinessInsight'
-        cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as(networkInterceptAlias)
-    } else if (insightType === 'LIFECYCLE') {
-        networkInterceptAlias = 'loadNewLifecycleInsight'
-        cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as(networkInterceptAlias)
-    } else if (insightType === 'SQL') {
-        networkInterceptAlias = 'loadNewSqlInsight'
-        cy.intercept('POST', /api\/projects\/\d+\/query\//).as(networkInterceptAlias)
-    } else if (insightType === 'JSON') {
-        networkInterceptAlias = 'loadNewJSONInsight'
-        cy.intercept('POST', /api\/projects\/\d+\/query\//).as(networkInterceptAlias)
-    } else {
-        cy.log('WARNING: need to add a network intercept to wait on for insight type: ' + insightType)
+    switch (insightType) {
+        case 'TRENDS':
+        case 'STICKINESS':
+        case 'LIFECYCLE':
+            networkInterceptAlias = 'loadNewTrendsInsight'
+            break
+        case 'FUNNELS':
+            networkInterceptAlias = 'loadNewFunnelInsight'
+            break
+        case 'RETENTION':
+            networkInterceptAlias = 'loadNewRetentionInsight'
+            break
+        case 'PATHS':
+            networkInterceptAlias = 'loadNewPathsInsight'
+            break
+        case 'SQL':
+        case 'JSON':
+            networkInterceptAlias = 'loadNewQueryInsight'
+            break
     }
+
     return networkInterceptAlias
 }
 
