@@ -80,6 +80,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     className?: string
     style?: React.CSSProperties
     'data-attr'?: string
+    display?: 'stealth' | 'default'
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -111,6 +112,7 @@ export function LemonTable<T extends Record<string, any>>({
     className,
     style,
     'data-attr': dataAttr,
+    display = 'default',
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -207,6 +209,7 @@ export function LemonTable<T extends Record<string, any>>({
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
                 !borderedRows && 'LemonTable--borderlessRows',
+                display === 'stealth' && 'LemonTable--stealth',
                 ...scrollableClassNames,
                 className
             )}

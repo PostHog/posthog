@@ -12,6 +12,7 @@ import { BillingGauge } from './BillingGauge'
 import { billingLogic } from '../billingLogic'
 import { BillingLimitInput } from './BillingLimitInput'
 import { billingProductLogic } from './billingProductLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { billing } = useValues(billingLogic)
@@ -150,7 +151,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 >
                                     <div className="font-bold text-3xl leading-7">${product.current_amount_usd}</div>
                                     <span className="text-xs text-muted">
-                                        {billing?.billing_period?.interval}-to-date
+                                        {capitalizeFirstLetter(billing?.billing_period?.interval || '')}-to-date
                                     </span>
                                 </Tooltip>
                                 {product.tiered && product.tiers && (
@@ -179,7 +180,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     ) : null}
                     {/* Table with tiers */}
                     {showTierBreakdown && (
-                        <div className="pl-12 pb-8">
+                        <div className="pl-16 pb-8">
                             {/* TODO: We actually want to show this table regardless if there is an active sub */}
                             {billing?.has_active_subscription && (
                                 <>
@@ -188,6 +189,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             borderedRows={false}
                                             size="xs"
                                             uppercaseHeader={false}
+                                            display="stealth"
                                             columns={[
                                                 { title: '', dataIndex: 'volume' },
                                                 { title: `Price / ${product.unit}`, dataIndex: 'price' },
@@ -201,6 +203,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <LemonTable
                                             borderedRows={false}
                                             size="xs"
+                                            display="stealth"
                                             uppercaseHeader={false}
                                             columns={[
                                                 { title: '', dataIndex: 'name' },

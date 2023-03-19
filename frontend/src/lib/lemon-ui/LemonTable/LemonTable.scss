@@ -27,6 +27,15 @@
             border: none !important;
         }
     }
+    &--stealth {
+        border: none;
+        border-radius: 0;
+        background: none;
+        .LemonTable__content > table > thead {
+            background: none;
+            border: none;
+        }
+    }
     .PaginationControl {
         height: var(--row-base-height);
         margin: 0;
