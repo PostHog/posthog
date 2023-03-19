@@ -1,12 +1,13 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { BillingProductV2Type } from '~/types'
 import { billingLogic } from '../billingLogic'
-import { billingProductLogicType } from './billingProductLogicType'
+import type { billingProductLogicType } from './billingProductLogicType'
 import { convertUsageToAmount, convertAmountToUsage } from '../billing-utils'
 
 const DEFAULT_BILLING_LIMIT = 500
 
 export const billingProductLogic = kea<billingProductLogicType>([
+    key((props) => props.product.type),
     path(['scenes', 'billing', 'billingProductLogic']),
     connect({
         values: [billingLogic, ['billing']],
