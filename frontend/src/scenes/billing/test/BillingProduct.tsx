@@ -185,7 +185,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 <>
                                     {product.tiered && tableTierData ? (
                                         <LemonTable
-                                            bordered={false}
+                                            borderedRows={false}
                                             size="xs"
                                             uppercaseHeader={false}
                                             columns={[
@@ -199,7 +199,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         />
                                     ) : (
                                         <LemonTable
-                                            bordered={false}
+                                            borderedRows={false}
                                             size="xs"
                                             uppercaseHeader={false}
                                             columns={[

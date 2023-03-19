@@ -108,7 +108,6 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
                 )}
             </div>
             <LemonTable
-                bordered
                 columns={columns}
                 loading={rolesLoading || organizationResourcePermissionsLoading}
                 dataSource={[{ name: 'organization_default' } as RoleType, ...roles]}
