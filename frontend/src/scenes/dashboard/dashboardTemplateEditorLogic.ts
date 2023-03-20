@@ -82,12 +82,22 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                     const response = await api.dashboardTemplates.get(id)
                     return response
                 },
-                updateDashboardTemplate: async (id: string): Promise<DashboardTemplateType | undefined> => {
-                    if (!values.dashboardTemplate) {
+                updateDashboardTemplate: async ({
+                    id,
+                    dashboardTemplateUpdates,
+                }: {
+                    id: string
+                    dashboardTemplateUpdates?: Partial<DashboardTemplateType>
+                }): Promise<DashboardTemplateEditorType | undefined> => {
+                    let response = null
+                    if (dashboardTemplateUpdates) {
+                        response = await api.dashboardTemplates.update(id, dashboardTemplateUpdates)
+                    } else if (values.dashboardTemplate) {
+                        response = await api.dashboardTemplates.update(id, values.dashboardTemplate)
+                    } else {
                         lemonToast.error('Unable to update dashboard template')
                         return
                     }
-                    const response = await api.dashboardTemplates.update(id, values.dashboardTemplate)
                     lemonToast.success('Dashboard template updated')
                     return response
                 },

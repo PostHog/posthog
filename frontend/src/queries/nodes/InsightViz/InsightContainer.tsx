@@ -4,7 +4,6 @@ import clsx from 'clsx'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
@@ -71,9 +70,9 @@ export function InsightContainer({
     // const {
     //     // correlationAnalysisAvailable
     // } = useValues(funnelLogic(insightProps))
-    const { isFunnelWithEnoughSteps, hasFunnelResults } = useValues(funnelDataLogic(insightProps))
-    // TODO: convert to data exploration with insightLogic
-    const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const {
         isTrends,
         isFunnels,
