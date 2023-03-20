@@ -3,9 +3,9 @@ from typing import Optional
 from posthog.hogql import ast
 
 
-def clone_expr(self: ast.Expr) -> ast.Expr:
-    """Clone an expression node. Removes all refs."""
-    return CloningVisitor().visit(self)
+def clone_expr(self: ast.Expr, clear_refs=False) -> ast.Expr:
+    """Clone an expression node."""
+    return CloningVisitor(clear_refs=clear_refs).visit(self)
 
 
 class Visitor(object):

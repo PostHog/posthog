@@ -33,7 +33,7 @@ def print_ast(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> str:
-    prepared_ast = prepare_ast_for_printing(node=node, context=context, stack=stack)
+    prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack)
     return print_prepared_ast(node=prepared_ast, context=context, dialect=dialect, stack=stack)
 
 
@@ -50,6 +50,7 @@ def print_prepared_ast(
 def prepare_ast_for_printing(
     node: ast.Expr,
     context: HogQLContext,
+    dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> ast.Expr:
     ref = stack[-1].ref if stack else None
@@ -59,7 +60,9 @@ def prepare_ast_for_printing(
     resolve_refs(node, context.database, ref)
     node = resolve_property_types(node, context)
     expand_asterisks(node)
-    resolve_lazy_tables(node, stack, context)
+    if dialect == "clickhouse":
+        # This makes printed "hogql" nicer.
+        resolve_lazy_tables(node, stack, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node

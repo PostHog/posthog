@@ -9,6 +9,7 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
+from posthog.hogql.visitor import clone_expr
 from posthog.models import Team
 from posthog.queries.insight import insight_sync_execute
 
@@ -46,29 +47,37 @@ def execute_hogql_query(
     if select_query.limit is None:
         select_query.limit = ast.Constant(value=DEFAULT_RETURNED_ROWS)
 
-    hogql_context = HogQLContext(
+    # Get printed HogQL query, and returned columns. Using a cloned query.
+    hogql_query_context = HogQLContext(
         team_id=team.pk, enable_select_queries=True, using_person_on_events=team.person_on_events_querying_enabled
     )
-    clickhouse = print_ast(select_query, hogql_context, "clickhouse")
-
-    select_query_hogql = cast(ast.SelectQuery, prepare_ast_for_printing(node=select_query, context=hogql_context))
-    hogql = print_prepared_ast(select_query_hogql, hogql_context, "hogql")
-
-    results, types = insight_sync_execute(
-        clickhouse,
-        hogql_context.values,
-        with_column_types=True,
-        query_type=query_type,
-        workload=workload,
+    select_query_hogql = cast(
+        ast.SelectQuery,
+        prepare_ast_for_printing(node=clone_expr(select_query, True), context=hogql_query_context, dialect="hogql"),
     )
+    hogql = print_prepared_ast(select_query_hogql, hogql_query_context, "hogql")
     print_columns = []
     for node in select_query_hogql.select:
         if isinstance(node, ast.Alias):
             print_columns.append(node.alias)
         else:
             print_columns.append(
-                print_ast(node=node, context=hogql_context, dialect="hogql", stack=[select_query_hogql])
+                print_ast(node=node, context=hogql_query_context, dialect="hogql", stack=[select_query_hogql])
             )
+
+    # Print the ClickHouse SQL query
+    clickhouse_context = HogQLContext(
+        team_id=team.pk, enable_select_queries=True, using_person_on_events=team.person_on_events_querying_enabled
+    )
+    clickhouse = print_ast(select_query, clickhouse_context, "clickhouse")
+
+    results, types = insight_sync_execute(
+        clickhouse,
+        clickhouse_context.values,
+        with_column_types=True,
+        query_type=query_type,
+        workload=workload,
+    )
 
     return HogQLQueryResponse(
         query=query,
