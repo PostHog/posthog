@@ -99,7 +99,7 @@ describe('Insights (with data exploration on)', () => {
     })
 
     describe('opening a new insight after opening a new SQL insight', () => {
-        // ugh, these tests have identical assertions to the ones above, but we need to open a SQL insight first
+        // TRICKY: these tests have identical assertions to the ones above, but we need to open a SQL insight first
         // and then click a different tab to switch to that insight.
         // this is because we had a bug where doing that would mean after starting to load the new insight,
         // the SQL insight would be unexpectedly re-selected and the page would switch back to it
