@@ -8,8 +8,9 @@ import type { groupLogicType } from './groupLogicType'
 import { urls } from 'scenes/urls'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { isDataTableNode } from '~/queries/utils'
 
 function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTableNode {
     return {
@@ -41,7 +42,7 @@ export const groupLogic = kea<groupLogicType>({
             groupTab,
         }),
         setGroupTab: (groupTab: string | null) => ({ groupTab }),
-        setGroupEventsQuery: (query: DataTableNode) => ({ query }),
+        setGroupEventsQuery: (query: Node) => ({ query }),
     }),
     loaders: ({ values }) => ({
         groupData: [
@@ -79,7 +80,7 @@ export const groupLogic = kea<groupLogicType>({
             null as DataTableNode | null,
             {
                 setGroup: (_, { groupTypeIndex, groupKey }) => getGroupEventsQuery(groupTypeIndex, groupKey),
-                setGroupEventsQuery: (_, { query }) => query,
+                setGroupEventsQuery: (_, { query }) => (isDataTableNode(query) ? query : null),
             },
         ],
     },
@@ -108,6 +109,10 @@ export const groupLogic = kea<groupLogicType>({
     },
     actionToUrl: ({ values }) => ({
         setGroup: () => {
+            const { groupTypeIndex, groupKey, groupTab } = values
+            return urls.group(String(groupTypeIndex), groupKey, true, groupTab)
+        },
+        setGroupTab: () => {
             const { groupTypeIndex, groupKey, groupTab } = values
             return urls.group(String(groupTypeIndex), groupKey, true, groupTab)
         },

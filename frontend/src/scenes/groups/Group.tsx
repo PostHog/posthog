@@ -5,7 +5,6 @@ import { groupLogic } from 'scenes/groups/groupLogic'
 import { EventsTable } from 'scenes/events/EventsTable'
 import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { Group as IGroup, PersonsTabType, PropertyFilterType, PropertyOperator } from '~/types'
@@ -17,7 +16,6 @@ import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { Query } from '~/queries/Query/Query'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
@@ -121,13 +119,9 @@ export function Group(): JSX.Element {
                         label: (
                             <div className="flex items-center" data-attr="group-related-tab">
                                 Related people & groups
-                                <Tooltip
-                                    title={`People and groups that have shared events with this ${groupTypeName} in the last 90 days.`}
-                                >
-                                    <IconInfo className="ml-1 text-base shrink-0" />
-                                </Tooltip>
                             </div>
                         ),
+                        tooltip: `People and groups that have shared events with this ${groupTypeName} in the last 90 days.`,
                         content: <RelatedGroups id={groupKey} groupTypeIndex={groupTypeIndex} />,
                     },
                     {
