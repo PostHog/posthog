@@ -41,7 +41,11 @@ export const getXPos = (event: ReactInteractEvent | InteractEvent): number => {
 }
 
 // Returns a positive number if a is greater than b, negative if b is greater than a, and 0 if they are equal
-export function comparePlayerPositions(a: PlayerPosition, b: PlayerPosition, segments: RecordingSegment[]): number {
+export function comparePlayerPositions(
+    a: PlayerPosition,
+    b: PlayerPosition,
+    segments: RecordingSegment[] = []
+): number {
     if (a.windowId === b.windowId) {
         return a.time - b.time
     }
@@ -65,7 +69,7 @@ export function comparePlayerPositions(a: PlayerPosition, b: PlayerPosition, seg
 
 export function getSegmentFromPlayerPosition(
     playerPosition: PlayerPosition,
-    segments: RecordingSegment[]
+    segments: RecordingSegment[] = []
 ): RecordingSegment | null {
     for (const segment of segments) {
         if (
@@ -81,7 +85,7 @@ export function getSegmentFromPlayerPosition(
 
 export function getPlayerTimeFromPlayerPosition(
     playerPosition: PlayerPosition,
-    segments: RecordingSegment[]
+    segments: RecordingSegment[] = []
 ): number | null {
     let time = 0
     for (const segment of segments) {
@@ -100,7 +104,7 @@ export function getPlayerTimeFromPlayerPosition(
 
 export function getPlayerPositionFromPlayerTime(
     playerTime: number,
-    segments: RecordingSegment[]
+    segments: RecordingSegment[] = []
 ): PlayerPosition | null {
     let currentTime = 0
     for (const segment of segments) {
@@ -176,7 +180,7 @@ export function getEpochTimeFromPlayerPosition(
 export const convertXToPlayerPosition = (
     xValue: number,
     containerWidth: number,
-    segments: RecordingSegment[],
+    segments: RecordingSegment[] = [],
     durationMs: number
 ): PlayerPosition | null => {
     const playerTime = (xValue / containerWidth) * durationMs
@@ -186,7 +190,7 @@ export const convertXToPlayerPosition = (
 export const convertPlayerPositionToX = (
     playerPosition: PlayerPosition,
     containerWidth: number,
-    segments: RecordingSegment[],
+    segments: RecordingSegment[] = [],
     durationMs: number
 ): number => {
     const playerTime = getPlayerTimeFromPlayerPosition(playerPosition, segments)

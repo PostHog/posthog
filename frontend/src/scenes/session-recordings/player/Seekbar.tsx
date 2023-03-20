@@ -116,6 +116,8 @@ export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
         }
     }, [sliderRef.current, thumbRef.current, props.sessionRecordingId])
 
+    console.log('SESSIONPLAYERDATA', sessionPlayerData)
+
     return (
         <div className="flex items-center h-8" data-attr="rrweb-controller">
             <Timestamp {...props} />

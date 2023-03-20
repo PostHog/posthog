@@ -214,8 +214,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         currentPlayerTime: [
             (selectors) => [selectors.currentPlayerPosition, selectors.sessionPlayerData],
             (currentPlayerPosition, sessionPlayerData) => {
-                if (sessionPlayerData?.metadata?.segments && currentPlayerPosition) {
-                    return getPlayerTimeFromPlayerPosition(currentPlayerPosition, sessionPlayerData?.metadata?.segments)
+                if (sessionPlayerData?.segments && currentPlayerPosition) {
+                    return getPlayerTimeFromPlayerPosition(currentPlayerPosition, sessionPlayerData?.segments)
                 }
                 return 0
             },
@@ -245,12 +245,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 !values.rootFrame ||
                 windowId === null ||
                 !values.sessionPlayerData.snapshotsByWindowId[windowId] ||
-                values.sessionPlayerData.snapshotsByWindowId[windowId].length < 2
+                values.sessionPlayerData.snapshotsByWindowId[windowId]['snapshot_data'].length < 2
             ) {
                 actions.setPlayer(null)
                 return
             }
-            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
+            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId]['snapshot_data'], {
                 root: values.rootFrame,
                 triggerFocus: false,
                 insertStyleRules: [
@@ -314,7 +314,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 comparePlayerPositions(
                     values.currentPlayerPosition,
                     values.sessionPlayerData.bufferedTo,
-                    values.sessionPlayerData.metadata.segments
+                    values.sessionPlayerData.segments ?? []
                 ) < 0
             ) {
                 actions.endBuffer()
@@ -322,7 +322,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         initializePlayerFromStart: () => {
-            const initialSegment = values.sessionPlayerData?.metadata?.segments[0]
+            const initialSegment = values.sessionPlayerData?.segments?.[0]
             if (initialSegment) {
                 actions.setCurrentSegment(initialSegment)
 
@@ -341,7 +341,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     if (searchParams.t) {
                         const newPosition = getPlayerPositionFromPlayerTime(
                             Number(searchParams.t) * 1000,
-                            values.sessionPlayerData?.metadata?.segments
+                            values.sessionPlayerData?.segments ?? []
                         )
                         actions.seek(newPosition)
                         cache.initializedFromUrl = true
@@ -355,9 +355,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const eventsToAdd = []
             if (values.currentSegment?.windowId !== undefined) {
                 eventsToAdd.push(
-                    ...(values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []).slice(
-                        currentEvents.length
-                    )
+                    ...(
+                        values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId][
+                            'snapshot_data'
+                        ] ?? []
+                    ).slice(currentEvents.length)
                 )
             }
 
@@ -398,7 +400,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             let nextPlayerPosition = values.currentPlayerPosition || values.currentSegment?.startPlayerPosition
 
             if (values.endReached) {
-                nextPlayerPosition = values.sessionPlayerData.metadata.segments[0].startPlayerPosition
+                nextPlayerPosition = values.sessionPlayerData.segments?.[0]?.startPlayerPosition
             }
 
             actions.setEndReached(false)
@@ -440,7 +442,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Check if we're seeking to a new segment
             let nextSegment = null
             if (playerPosition && values.sessionPlayerData?.metadata) {
-                nextSegment = getSegmentFromPlayerPosition(playerPosition, values.sessionPlayerData.metadata.segments)
+                console.log('BLAH1')
+                nextSegment = getSegmentFromPlayerPosition(playerPosition, values.sessionPlayerData?.segments)
                 if (
                     nextSegment &&
                     (nextSegment.windowId !== values.currentSegment?.windowId ||
@@ -460,9 +463,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     comparePlayerPositions(
                         playerPosition,
                         values.sessionPlayerData.bufferedTo,
-                        values.sessionPlayerData.metadata.segments
+                        values.sessionPlayerData.segments
                     ) > 0)
             ) {
+                console.log(
+                    'BLAH2',
+                    !values.sessionPlayerSnapshotDataLoading && !values.sessionPlayerData.bufferedTo,
+                    !values.sessionPlayerSnapshotDataLoading &&
+                        !!values.sessionPlayerData?.bufferedTo &&
+                        !!playerPosition &&
+                        !!values.currentSegment &&
+                        comparePlayerPositions(
+                            playerPosition,
+                            values.sessionPlayerData.bufferedTo,
+                            values.sessionPlayerData.segments
+                        ) > 0
+                )
                 values.player?.replayer?.pause()
                 actions.endBuffer()
                 console.error("Error: Player tried to seek to a position that hasn't loaded yet")
@@ -477,9 +493,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 comparePlayerPositions(
                     playerPosition,
                     values.sessionPlayerData.bufferedTo,
-                    values.sessionPlayerData.metadata.segments
+                    values.sessionPlayerData.segments
                 ) > 0
             ) {
+                console.log('BLAH3', !values.sessionPlayerData?.bufferedTo, !playerPosition, !values.currentSegment)
                 values.player?.replayer?.pause()
                 actions.startBuffer()
                 actions.setErrorPlayerState(false)
@@ -487,12 +504,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
+                console.log('BLAH4')
                 values.player?.replayer?.pause(playerPosition.time)
                 actions.endBuffer()
                 actions.setErrorPlayerState(false)
             }
             // Otherwise play
             else {
+                console.log('BLAH5')
                 values.player?.replayer?.play(playerPosition.time)
                 actions.updateAnimation()
                 actions.endBuffer()
@@ -516,17 +535,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             const currentPlayerTime = getPlayerTimeFromPlayerPosition(
                 values.currentPlayerPosition,
-                values.sessionPlayerData.metadata.segments
+                values.sessionPlayerData.segments
             )
             let nextPlayerPosition = getPlayerPositionFromPlayerTime(
                 Math.max(0, timeInMilliseconds),
-                values.sessionPlayerData.metadata.segments
+                values.sessionPlayerData.segments
             )
 
             if (!nextPlayerPosition) {
                 if ((currentPlayerTime || 0) < timeInMilliseconds) {
                     actions.setEndReached()
-                    nextPlayerPosition = values.sessionPlayerData.metadata.segments.slice(-1)[0].endPlayerPosition
+                    nextPlayerPosition = (values.sessionPlayerData.segments ?? []).slice(-1)[0].endPlayerPosition
                 }
             }
 
@@ -569,12 +588,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 comparePlayerPositions(
                     nextPlayerPosition,
                     values.currentSegment?.endPlayerPosition,
-                    values.sessionPlayerData.metadata.segments
+                    values.sessionPlayerData.segments
                 ) >= 0
             ) {
-                const nextSegmentIndex = values.sessionPlayerData.metadata.segments.indexOf(values.currentSegment) + 1
-                if (nextSegmentIndex < values.sessionPlayerData.metadata.segments.length) {
-                    const nextSegment = values.sessionPlayerData.metadata.segments[nextSegmentIndex]
+                console.log('BLAHBLAH1')
+                const nextSegmentIndex = (values.sessionPlayerData.segments ?? []).indexOf(values.currentSegment) + 1
+                if (nextSegmentIndex < (values.sessionPlayerData.segments ?? []).length) {
+                    const nextSegment = (values.sessionPlayerData.segments ?? [])[nextSegmentIndex]
                     actions.setCurrentPlayerPosition(nextSegment.startPlayerPosition)
                     actions.setCurrentSegment(nextSegment)
                 } else {
@@ -590,10 +610,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 comparePlayerPositions(
                     nextPlayerPosition,
                     values.sessionPlayerData.bufferedTo,
-                    values.sessionPlayerData.metadata.segments
+                    values.sessionPlayerData.segments
                 ) > 0 &&
                 !values.sessionPlayerSnapshotDataLoading
             ) {
+                console.log('BLAHBLAH2')
                 values.player?.replayer?.pause()
                 actions.endBuffer()
                 console.error('PostHog Recording Playback Error: Tried to access snapshot that is not loaded yet')
@@ -608,15 +629,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 comparePlayerPositions(
                     nextPlayerPosition,
                     values.sessionPlayerData.bufferedTo,
-                    values.sessionPlayerData.metadata.segments
+                    values.sessionPlayerData.segments
                 ) > 0
             ) {
+                console.log('BLAHBLAH3')
                 // Pause only the animation, not our player, so it will restart
                 // when the buffering progresses
                 values.player?.replayer?.pause()
                 actions.startBuffer()
                 actions.setErrorPlayerState(false)
             } else {
+                console.log('BLAHBLAH4')
                 // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentPlayerPosition(nextPlayerPosition)
                 cache.timer = requestAnimationFrame(actions.updateAnimation)
@@ -705,9 +728,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     ? values.sessionPlayerData.metadata.recordingDurationMs
                     : undefined,
                 recording_age_days:
-                    values.sessionPlayerData?.metadata && values.sessionPlayerData?.metadata.segments.length > 0
+                    (values.sessionPlayerData?.segments ?? []).length > 0
                         ? Math.floor(
-                              (Date.now() - values.sessionPlayerData.metadata.segments[0].startTimeEpochMs) /
+                              (Date.now() - (values.sessionPlayerData.segments ?? [])[0].startTimeEpochMs) /
                                   (1000 * 60 * 60 * 24)
                           )
                         : undefined,

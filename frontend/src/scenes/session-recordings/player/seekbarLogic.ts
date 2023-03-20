@@ -104,10 +104,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
                     sessionPlayerData?.metadata?.recordingDurationMs
                 ) {
                     const bufferedToPlayerTime =
-                        getPlayerTimeFromPlayerPosition(
-                            sessionPlayerData.bufferedTo,
-                            sessionPlayerData.metadata.segments
-                        ) ?? 0
+                        getPlayerTimeFromPlayerPosition(sessionPlayerData.bufferedTo, sessionPlayerData.segments) ?? 0
                     return (100 * bufferedToPlayerTime) / sessionPlayerData.metadata.recordingDurationMs
                 }
                 return 0
@@ -142,7 +139,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
                     ? convertPlayerPositionToX(
                           values.currentPlayerPosition,
                           values.slider.offsetWidth,
-                          values.sessionPlayerData.metadata.segments,
+                          values.sessionPlayerData.segments,
                           values.sessionPlayerData.metadata.recordingDurationMs
                       )
                     : 0
@@ -159,7 +156,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
                 const playerPosition = convertXToPlayerPosition(
                     thumbLeftPos + THUMB_OFFSET,
                     values.slider.offsetWidth,
-                    values.sessionPlayerData.metadata.segments,
+                    values.sessionPlayerData.segments,
                     values.sessionPlayerData.metadata.recordingDurationMs
                 )
                 actions.seek(playerPosition)
@@ -216,7 +213,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
                     convertPlayerPositionToX(
                         playerPosition,
                         values.slider.offsetWidth,
-                        values.sessionPlayerData.metadata.segments,
+                        values.sessionPlayerData.segments,
                         values.sessionPlayerData.metadata.recordingDurationMs
                     )
                 )

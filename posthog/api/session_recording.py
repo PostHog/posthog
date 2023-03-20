@@ -25,6 +25,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.session_recordings.session_recording_helpers import get_metadata_from_events_summary
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
@@ -161,14 +162,17 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         else:
             next_url = None
 
+        events_summary_by_window_id = {
+            window_id: data_summary["events_summary"]
+            for window_id, data_summary in recording.snapshot_data_by_window_id.items()
+        }
+        metadata = get_metadata_from_events_summary(events_summary_by_window_id)
+
         res = {
             "next": next_url,
             "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
-            # TODO: Remove this once the frontend is migrated to use the above values
-            "result": {
-                "next": next_url,
-                "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
-            },
+            "segments": metadata["segments"],
+            "start_and_end_times_by_window_id": metadata["start_and_end_times_by_window_id"],
         }
 
         # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details

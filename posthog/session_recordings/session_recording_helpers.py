@@ -4,19 +4,22 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, DefaultDict, Dict, Generator, List, Optional
+from typing import Any, DefaultDict, Dict, Generator, List, Optional, cast
 
 from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
 from posthog.models.session_recording.metadata import (
     DecompressedRecordingData,
+    DecompressedSnapshotDataEventsSummary,
+    RecordingMetadata,
     RecordingSegment,
     SessionRecordingEventSummary,
     SnapshotData,
     SnapshotDataTaggedWithWindowId,
     WindowId,
 )
+from posthog.utils import flatten
 
 FULL_SNAPSHOT = 2
 
@@ -191,20 +194,7 @@ def decompress_chunked_snapshot_data(
     if len(all_recording_events) == 0:
         return DecompressedRecordingData(has_next=False, snapshot_data_by_window_id={})
 
-    snapshot_data_by_window_id = defaultdict(list)
-
-    # Handle backward compatibility to the days of uncompressed and unchunked snapshots
-    if "chunk_id" not in all_recording_events[0]["snapshot_data"]:
-        paginated_list = paginate_list(all_recording_events, limit, offset)
-        for event in paginated_list.paginated_list:
-            snapshot_data_by_window_id[event["window_id"]].append(
-                get_events_summary_from_snapshot_data([event["snapshot_data"]])[0]
-                if return_only_activity_data
-                else event["snapshot_data"]
-            )
-        return DecompressedRecordingData(
-            has_next=paginated_list.has_next, snapshot_data_by_window_id=snapshot_data_by_window_id
-        )
+    snapshot_data_by_window_id: DecompressedSnapshotDataEventsSummary = {}
 
     # Split decompressed recording events into their chunks
     chunks_collector: DefaultDict[str, List[SnapshotDataTaggedWithWindowId]] = defaultdict(list)
@@ -236,13 +226,17 @@ def decompress_chunked_snapshot_data(
         )
         decompressed_data = json.loads(decompress(b64_compressed_data))
 
+        events_with_only_activity_data = get_events_summary_from_snapshot_data(decompressed_data)
+
         # Decompressed data can be large, and in metadata calculations, we only care if the event is "active"
         # This pares down the data returned, so we're not passing around a massive object
+        if chunks[0]["window_id"] not in snapshot_data_by_window_id:
+            snapshot_data_by_window_id[chunks[0]["window_id"]] = {"events_summary": [], "snapshot_data": []}
         if return_only_activity_data:
-            events_with_only_activity_data = get_events_summary_from_snapshot_data(decompressed_data)
-            snapshot_data_by_window_id[chunks[0]["window_id"]].extend(events_with_only_activity_data)
+            snapshot_data_by_window_id[chunks[0]["window_id"]]["events_summary"].extend(events_with_only_activity_data)
         else:
-            snapshot_data_by_window_id[chunks[0]["window_id"]].extend(decompressed_data)
+            snapshot_data_by_window_id[chunks[0]["window_id"]]["snapshot_data"].extend(decompressed_data)
+            snapshot_data_by_window_id[chunks[0]["window_id"]]["events_summary"].extend(events_with_only_activity_data)
     return DecompressedRecordingData(has_next=has_next, snapshot_data_by_window_id=snapshot_data_by_window_id)
 
 
@@ -420,3 +414,113 @@ def paginate_list(list_to_paginate: List, limit: Optional[int], offset: int) -> 
         has_next = False
         paginated_list = list_to_paginate[offset:]
     return PaginatedList(has_next=has_next, paginated_list=paginated_list)
+
+
+def get_metadata_from_events_summary(
+    events_summary_by_window_id: Dict[WindowId, List[SessionRecordingEventSummary]]
+) -> RecordingMetadata:
+    """
+    This function processes the recording events into metadata.
+
+    A recording can be composed of events from multiple windows/tabs. Recording events are seperated by
+    `window_id`, so the playback experience is consistent (changes in one tab don't impact the recording
+    of a different tab). However, we still want to playback the recording to the end user as the user interacted
+    with their product.
+
+    This function creates a "playlist" of recording segments that designates the order in which the front end
+    should flip between players of different windows/tabs. To create this playlist, this function does the following:
+
+    (1) For each recording event, we determine if it is "active" or not. An active event designates user
+    activity (e.g. mouse movement).
+
+    (2) We then generate "active segments" based on these lists of events. Active segments are segments
+    of recordings where the maximum time between events determined to be active is less than a threshold (set to 60 seconds).
+
+    (3) Next, we merge the active segments from all of the window_ids + sort them by start time. We now have the
+    list of active segments. (note, it's very possible that active segments overlap if a user is flipping back
+    and forth between tabs)
+
+    (4) To complete the recording, we fill in the gaps between active segments with "inactive segments". In
+    determining which window should be used for the inactive segment, we try to minimize the switching of windows.
+    """
+
+    start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment] = {}
+
+    # Get the active segments for each window_id
+    all_active_segments: List[RecordingSegment] = []
+
+    for window_id, events_summary in events_summary_by_window_id.items():
+        active_segments_for_window_id = get_active_segments_from_event_list(events_summary, window_id)
+
+        all_active_segments.extend(active_segments_for_window_id)
+
+        start_and_end_times_by_window_id[window_id] = RecordingSegment(
+            window_id=window_id,
+            start_time=parse_snapshot_timestamp(events_summary[0]["timestamp"]),
+            end_time=parse_snapshot_timestamp(events_summary[-1]["timestamp"]),
+            is_active=False,  # We don't know yet
+        )
+
+    # Sort the active segments by start time. This will interleave active segments
+    # from different windows
+    all_active_segments.sort(key=lambda segment: segment["start_time"])
+
+    # These start and end times are used to make sure the segments span the entire recording
+    first_start_time = min([cast(datetime, x["start_time"]) for x in start_and_end_times_by_window_id.values()])
+    last_end_time = max([cast(datetime, x["end_time"]) for x in start_and_end_times_by_window_id.values()])
+
+    # Now, we fill in the gaps between the active segments with inactive segments
+    all_segments: List[RecordingSegment] = []
+    current_timestamp = first_start_time
+    current_window_id: WindowId = sorted(
+        start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x]["start_time"]
+    )[0]
+
+    for index, segment in enumerate(all_active_segments):
+        # It's possible that segments overlap and we don't need to fill a gap
+        if segment["start_time"] > current_timestamp:
+            all_segments.extend(
+                generate_inactive_segments_for_range(
+                    current_timestamp,
+                    segment["start_time"],
+                    current_window_id,
+                    start_and_end_times_by_window_id,
+                    is_first_segment=index == 0,
+                )
+            )
+        all_segments.append(segment)
+        current_window_id = segment["window_id"]
+        current_timestamp = max(segment["end_time"], current_timestamp)
+
+    # If the last segment ends before the recording ends, we need to fill in the gap
+    if current_timestamp < last_end_time:
+        all_segments.extend(
+            generate_inactive_segments_for_range(
+                current_timestamp,
+                last_end_time,
+                current_window_id,
+                start_and_end_times_by_window_id,
+                is_last_segment=True,
+                is_first_segment=current_timestamp == first_start_time,
+            )
+        )
+
+    all_events_summary: List[SessionRecordingEventSummary] = list(flatten(list(events_summary_by_window_id.values())))
+
+    click_count = len([x for x in all_events_summary if x["type"] == 3 and x["data"]["source"] == 2])
+    keypress_count = len([x for x in all_events_summary if x["type"] == 3 and x["data"]["source"] == 5])
+    urls: List[str] = [
+        cast(str, x["data"]["href"]) for x in all_events_summary if isinstance(x.get("data", {}).get("href"), str)
+    ]
+
+    return RecordingMetadata(
+        distinct_id="",  # Will be added by the caller
+        segments=all_segments,
+        start_and_end_times_by_window_id=start_and_end_times_by_window_id,
+        start_time=first_start_time,
+        end_time=last_end_time,
+        duration=(last_end_time - first_start_time).seconds,
+        click_count=click_count,
+        keypress_count=keypress_count,
+        urls=urls,
+    )

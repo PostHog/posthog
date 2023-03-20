@@ -603,8 +603,15 @@ export interface SessionRecordingMeta {
     recordingDurationMs: number
 }
 
+export interface SessionSnapshotsByWindowId {
+    snapshot_data: eventWithTime[]
+    events_summary: eventWithTime[] // snapshot_data that is filtered in the backend
+}
+
 export interface SessionPlayerSnapshotData {
-    snapshotsByWindowId: Record<string, eventWithTime[]>
+    snapshotsByWindowId: Record<string, SessionSnapshotsByWindowId>
+    segments?: RecordingSegment[]
+    startAndEndTimesByWindowId?: Record<string, RecordingStartAndEndTime>
     next?: string
 }
 
@@ -946,7 +953,7 @@ export interface SessionRecordingType {
     // These values are only present when loaded as a full recording
     segments?: SessionRecordingSegmentType[]
     start_and_end_times_by_window_id?: Record<string, Record<string, string>>
-    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
+    snapshot_data_by_window_id?: Record<string, SessionSnapshotsByWindowId>
 }
 
 export interface SessionRecordingPropertiesType {

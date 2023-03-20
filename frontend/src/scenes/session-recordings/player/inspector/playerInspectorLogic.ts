@@ -168,39 +168,43 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const logs: RecordingConsoleLogV2[] = []
                 const seenCache = new Set<string>()
 
-                sessionPlayerData.metadata.segments.forEach((segment: RecordingSegment) => {
-                    sessionPlayerData.snapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {
-                        if (
-                            snapshot.type === 6 && // RRWeb plugin event type
-                            snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME
-                        ) {
-                            const data = snapshot.data.payload as RRWebRecordingConsoleLogPayload
-                            const { level, payload, trace } = data
-                            const lines = (Array.isArray(payload) ? payload : [payload]).filter((x) => !!x) as string[]
-                            const content = lines.join('\n')
-                            const cacheKey = `${snapshot.timestamp}::${content}`
+                ;(sessionPlayerData.segments ?? []).forEach((segment: RecordingSegment) => {
+                    sessionPlayerData.snapshotsByWindowId[segment.windowId]?.['snapshot_data']?.forEach(
+                        (snapshot: eventWithTime) => {
+                            if (
+                                snapshot.type === 6 && // RRWeb plugin event type
+                                snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME
+                            ) {
+                                const data = snapshot.data.payload as RRWebRecordingConsoleLogPayload
+                                const { level, payload, trace } = data
+                                const lines = (Array.isArray(payload) ? payload : [payload]).filter(
+                                    (x) => !!x
+                                ) as string[]
+                                const content = lines.join('\n')
+                                const cacheKey = `${snapshot.timestamp}::${content}`
 
-                            if (seenCache.has(cacheKey)) {
-                                return
+                                if (seenCache.has(cacheKey)) {
+                                    return
+                                }
+                                seenCache.add(cacheKey)
+
+                                if (logs[logs.length - 1]?.content === content) {
+                                    logs[logs.length - 1].count += 1
+                                    return
+                                }
+
+                                logs.push({
+                                    timestamp: snapshot.timestamp,
+                                    windowId: segment.windowId,
+                                    content,
+                                    lines,
+                                    level,
+                                    trace,
+                                    count: 1,
+                                })
                             }
-                            seenCache.add(cacheKey)
-
-                            if (logs[logs.length - 1]?.content === content) {
-                                logs[logs.length - 1].count += 1
-                                return
-                            }
-
-                            logs.push({
-                                timestamp: snapshot.timestamp,
-                                windowId: segment.windowId,
-                                content,
-                                lines,
-                                level,
-                                trace,
-                                count: 1,
-                            })
                         }
-                    })
+                    )
                 })
 
                 return logs
