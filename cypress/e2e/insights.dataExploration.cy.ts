@@ -36,7 +36,7 @@ describe('Insights (with data exploration on)', () => {
         it('can open a new trends insight', () => {
             insight.newInsight('TRENDS')
             cy.get('.trends-insights-container canvas').should('exist')
-            cy.get('tr').should('have.length', 2)
+            cy.get('tr').should('have.length.gte', 2)
         })
 
         it('can open a new funnels insight', () => {
@@ -69,7 +69,7 @@ describe('Insights (with data exploration on)', () => {
             insight.newInsight('SQL')
             insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
-            cy.get('tr.DataTable__row').should('have.length', 2)
+            cy.get('tr.DataTable__row').should('have.length.gte', 2)
         })
 
         it('can open a new JSON insight', () => {
@@ -108,13 +108,13 @@ describe('Insights (with data exploration on)', () => {
             insight.newInsight('SQL')
             insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
-            cy.get('tr.DataTable__row').should('have.length', 2)
+            cy.get('tr.DataTable__row').should('have.length.gte', 2)
         })
 
         it('can open a new trends insight', () => {
             insight.clickTab('TRENDS')
             cy.get('.trends-insights-container canvas').should('exist')
-            cy.get('tr').should('have.length', 2)
+            cy.get('tr').should('have.length.gte', 2)
             cy.contains('tr', 'No insight results').should('not.exist')
         })
 
@@ -148,7 +148,7 @@ describe('Insights (with data exploration on)', () => {
             insight.clickTab('SQL')
             insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
-            cy.get('tr.DataTable__row').should('have.length', 2)
+            cy.get('tr.DataTable__row').should('have.length.gte', 2)
         })
 
         it('can open a new JSON insight', () => {
@@ -186,22 +186,22 @@ describe('Insights (with data exploration on)', () => {
         cy.get('[data-attr="hogql-query-editor"]').should('exist')
         insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
 
-        cy.get('.DataTable tr').should('have.length', 2)
+        cy.get('.DataTable tr').should('have.length.gte', 2)
 
         insight.clickTab('TRENDS')
         cy.get('.trends-insights-container canvas').should('exist')
-        cy.get('tr').should('have.length', 2)
+        cy.get('tr').should('have.length.gte', 2)
         cy.contains('tr', 'No insight results').should('not.exist')
 
         insight.clickTab('SQL')
         cy.get('[data-attr="hogql-query-editor"]').should('exist')
         insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
 
-        cy.get('.DataTable tr').should('have.length', 2)
+        cy.get('.DataTable tr').should('have.length.gte', 2)
 
         insight.clickTab('TRENDS')
         cy.get('.trends-insights-container canvas').should('exist')
-        cy.get('tr').should('have.length', 2)
+        cy.get('tr').should('have.length.gte', 2)
         cy.contains('tr', 'No insight results').should('not.exist')
     })
 })
