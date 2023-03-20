@@ -24,7 +24,6 @@ import clsx from 'clsx'
 import api, { ApiMethodOptions } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -41,7 +40,7 @@ const AUTOLOAD_INTERVAL = 30000
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
     connect({
-        values: [featureFlagsLogic, ['featureFlags'], userLogic, ['user'], teamLogic, ['currentTeamId']],
+        values: [userLogic, ['user'], teamLogic, ['currentTeamId']],
     }),
     props({} as DataNodeLogicProps),
     key((props) => props.key),

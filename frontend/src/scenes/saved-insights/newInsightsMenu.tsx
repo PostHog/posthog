@@ -13,8 +13,8 @@ const insightTypeURL: Record<InsightType, string> = {
     FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
     RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
     PATHS: urls.insightNew({ insight: InsightType.PATHS }),
-    JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
     SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
+    JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
 }
 
 function insightTypesForMenu(isUsingDataExplorationQueryTab: boolean): [string, InsightTypeMetadata][] {
