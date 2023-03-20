@@ -36,10 +36,11 @@ import { subscriptions } from 'kea-subscriptions'
 import { displayTypesWithoutLegend } from 'lib/components/InsightLegend/utils'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 
-const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
+
+const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
 export const insightVizDataLogic = kea<insightVizDataLogicType>([
     props({} as InsightLogicProps),
@@ -192,6 +193,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
         loadData: async ({ queryId }, breakpoint) => {
+            if (!values.isUsingDataExploration) {
+                return
+            }
+
             actions.setTimedOutQueryId(null)
 
             await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
@@ -221,16 +226,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             if (!values.isUsingDataExploration || insightData === null) {
                 return
             }
+            if (isInsightVizNode(values.query)) {
+                const updatedInsight = {
+                    ...values.insight,
+                    result: insightData?.result,
+                    next: insightData?.next,
+                }
 
-            const updatedInsight = {
-                ...values.insight,
-                result: insightData?.result,
-                next: insightData?.next,
+                updatedInsight.filters = queryNodeToFilter(values.query.source)
+                updatedInsight.query = undefined
+
+                actions.setInsight(updatedInsight, {})
             }
-            if (values.querySource) {
-                updatedInsight.filters = queryNodeToFilter(values.querySource)
-            }
-            actions.setInsight(updatedInsight, {})
         },
     })),
 ])

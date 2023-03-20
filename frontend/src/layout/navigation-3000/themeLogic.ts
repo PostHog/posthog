@@ -1,4 +1,6 @@
 import { actions, events, kea, path, reducers, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { themeLogicType } from './themeLogicType'
 
@@ -27,9 +29,13 @@ export const themeLogic = kea<themeLogicType>([
     }),
     selectors({
         isDarkModeOn: [
-            (s) => [s.darkModeSavedPreference, s.darkModeSystemPreference],
-            (darkModeSavedPreference, darkModeSystemPreference) => {
-                return darkModeSavedPreference ?? darkModeSystemPreference
+            (s) => [s.darkModeSavedPreference, s.darkModeSystemPreference, featureFlagLogic.selectors.featureFlags],
+            (darkModeSavedPreference, darkModeSystemPreference, featureFlags) => {
+                // Dark mode is a PostHog 3000 feature
+                // User-saved preference is used when set, oterwise we fall back to the system value
+                return featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+                    ? darkModeSavedPreference ?? darkModeSystemPreference
+                    : false
             },
         ],
         isThemeSyncedWithSystem: [

@@ -200,9 +200,6 @@ function Pages(): JSX.Element {
                             to={urls.webPerformance()}
                         />
                     )}
-                    {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
-                        <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
-                    )}
                     <div className="SideBar__heading">Data</div>
 
                     <PageButton
@@ -240,6 +237,9 @@ function Pages(): JSX.Element {
                             {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
                     ) : null}
+                    {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
+                        <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
+                    )}
                     <div className="SideBar__heading">Configuration</div>
 
                     <PageButton
