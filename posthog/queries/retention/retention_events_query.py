@@ -177,9 +177,7 @@ class RetentionEventsQuery(EventQuery):
         if self._aggregate_users_by_distinct_id and not self._filter.aggregation_group_type_index:
             return f"{self.EVENT_TABLE_ALIAS}.distinct_id as target"
         else:
-            return "{} as target".format(
-                f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id"
-            )
+            return "{} as target".format(self._person_id_alias)
 
     def get_timestamp_field(self) -> str:
         start_of_week_day = QueryDateRange.determine_extra_trunc_func_args(self._trunc_func)

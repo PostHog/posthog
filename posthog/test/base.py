@@ -763,3 +763,24 @@ def _create_insight(
     insight = Insight.objects.create(team=team, filters=insight_filters)
     dashboard_tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
     return insight, dashboard, dashboard_tile
+
+
+def create_person_id_override_by_distinct_id(distinct_id_from: str, distinct_id_to: str, team_id: int):
+    person_ids_result = sync_execute(
+        f"""
+        SELECT distinct_id, person_id
+        FROM events
+        WHERE distinct_id IN ('{distinct_id_from}', '{distinct_id_to}')
+        GROUP BY distinct_id, person_id
+        ORDER BY if(distinct_id = '{distinct_id_from}', -1, 0)
+    """
+    )
+
+    person_id_from, person_id_to = [row[1] for row in person_ids_result]
+
+    sync_execute(
+        f"""
+        INSERT INTO person_overrides (team_id, old_person_id, override_person_id)
+        VALUES ({team_id}, '{person_id_from}', '{person_id_to}')
+    """
+    )
