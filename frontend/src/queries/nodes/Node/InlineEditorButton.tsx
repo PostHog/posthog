@@ -7,7 +7,7 @@ import { Drawer } from 'lib/components/Drawer'
 import { urls } from 'scenes/urls'
 
 export interface InlineEditorButtonProps {
-    query: Node
+    query: Node | null
     setQuery?: (query: Node) => void
 }
 

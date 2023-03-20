@@ -808,7 +808,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # new person with "other_id" is yet to be created
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(17):
+        with self.assertNumQueries(14):
             # one extra query to find person_id for $anon_distinct_id
             response = self._post_decide(
                 api_version=2,

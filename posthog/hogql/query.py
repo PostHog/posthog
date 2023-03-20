@@ -46,9 +46,9 @@ def execute_hogql_query(
     if select_query.limit is None:
         select_query.limit = ast.Constant(value=DEFAULT_RETURNED_ROWS)
 
-    # Make a copy for hogql printing later. we don't want it to contain joined SQL tables for example
-
-    hogql_context = HogQLContext(select_team_id=team.pk, using_person_on_events=team.person_on_events_querying_enabled)
+    hogql_context = HogQLContext(
+        team_id=team.pk, enable_select_queries=True, using_person_on_events=team.person_on_events_querying_enabled
+    )
     clickhouse = print_ast(select_query, hogql_context, "clickhouse")
 
     select_query_hogql = cast(ast.SelectQuery, prepare_ast_for_printing(select_query, "hogql"))

@@ -238,9 +238,9 @@ class EventsTable(Table):
     # person fields on the event itself
     poe: EventsPersonSubTable = EventsPersonSubTable()
 
-    # TODO: swap these between pdi and person_on_events as needed
-    person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
-    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
+    # These are swapped out if the user has PoE enabled
+    person: BaseModel = FieldTraverser(chain=["pdi", "person"])
+    person_id: BaseModel = FieldTraverser(chain=["pdi", "person_id"])
 
     def clickhouse_table(self):
         return "events"
@@ -270,6 +270,9 @@ class SessionRecordingEvents(Table):
     pdi: LazyTable = LazyTable(
         from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
     )
+
+    person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
+    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
 
     def clickhouse_table(self):
         return "session_recording_events"
@@ -334,4 +337,12 @@ class Database(BaseModel):
         raise ValueError(f'Table "{table_name}" not found in database')
 
 
-database = Database()
+def create_hogql_database(team_id: Optional[int]) -> Database:
+    from posthog.models import Team
+
+    database = Database()
+    team = Team.objects.get(pk=team_id)
+    if team.person_on_events_querying_enabled:
+        database.events.person = FieldTraverser(chain=["poe"])
+        database.events.person_id = StringDatabaseField(name="person_id")
+    return database

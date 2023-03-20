@@ -21,7 +21,6 @@ import {
 } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { groupsModel, Noun } from '~/models/groupsModel'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
@@ -38,6 +37,7 @@ import {
     isBreakdownFunnelResults,
     stepsWithConversionMetrics,
 } from './funnelUtils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
@@ -48,12 +48,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
     connect((props: InsightLogicProps) => ({
         values: [
-            insightDataLogic(props),
+            insightVizDataLogic(props),
             ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series', 'interval', 'insightData'],
             groupsModel,
             ['aggregationLabel'],
         ],
-        actions: [insightDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
+        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
 
     selectors(({ props }) => ({
