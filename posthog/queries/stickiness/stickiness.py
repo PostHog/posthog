@@ -32,7 +32,7 @@ class Stickiness:
 
     def stickiness(self, entity: Entity, filter: StickinessFilter, team: Team) -> Dict[str, Any]:
         events_query, event_params = self.event_query_class(
-            entity, filter, team, using_person_on_events=team.person_on_events_querying_enabled
+            entity, filter, team, person_on_events_mode=team.person_on_events_mode
         ).get_query()
 
         query = f"""
