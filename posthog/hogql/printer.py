@@ -38,16 +38,6 @@ def print_ast(
     return print_prepared_ast(node=prepared_ast, context=context, dialect=dialect, stack=stack)
 
 
-def print_prepared_ast(
-    node: ast.Expr,
-    context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.SelectQuery]] = None,
-) -> str:
-    # _Printer also adds a team_id guard if printing clickhouse
-    return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
-
-
 def prepare_ast_for_printing(
     node: ast.Expr,
     context: HogQLContext,
@@ -67,6 +57,16 @@ def prepare_ast_for_printing(
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
+
+
+def print_prepared_ast(
+    node: ast.Expr,
+    context: HogQLContext,
+    dialect: Literal["hogql", "clickhouse"],
+    stack: Optional[List[ast.SelectQuery]] = None,
+) -> str:
+    # _Printer also adds a team_id guard if printing clickhouse
+    return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
 
 
 @dataclass
