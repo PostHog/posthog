@@ -10,6 +10,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
+from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.test.base import APIBaseTest
 
 
@@ -188,8 +189,7 @@ class TestTeamAPI(APIBaseTest):
         )
         mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
-    @patch("posthoganalytics.capture")
-    def test_delete_bulky_postgres_data(self, mock_capture: MagicMock):
+    def test_delete_bulky_postgres_data(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
@@ -216,19 +216,8 @@ class TestTeamAPI(APIBaseTest):
         )
         CohortPeople.objects.create(cohort_id=cohort.pk, person_id=person.pk)
 
-        response = self.client.delete(f"/api/projects/{team.id}")
-
-        self.assertEqual(response.status_code, 204)
-        self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
-        self.assertEqual(
-            AsyncDeletion.objects.filter(team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)).count(), 1
-        )
-        mock_capture.assert_called_once_with(
-            self.user.distinct_id,
-            "team deleted",
-            properties={},
-            groups={"instance": ANY, "organization": str(self.organization.id), "project": str(self.team.uuid)},
-        )
+        # if something is missing then teardown fails
+        delete_bulky_postgres_data([team.pk])
 
     def test_reset_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
