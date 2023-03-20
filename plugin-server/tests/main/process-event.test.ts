@@ -2330,6 +2330,32 @@ test('groupidentify', async () => {
     })
 })
 
+test('groupidentify without group_type ingests event', async () => {
+    await createPerson(hub, team, ['distinct_id1'])
+
+    await processEvent(
+        'distinct_id1',
+        '',
+        '',
+        {
+            event: '$groupidentify',
+            properties: {
+                token: team.api_token,
+                distinct_id: 'distinct_id1',
+                $group_key: 'org::5',
+                $group_set: {
+                    foo: 'bar',
+                },
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        new UUIDT().toString()
+    )
+
+    expect((await hub.db.fetchEvents()).length).toBe(1)
+})
+
 test('$groupidentify updating properties', async () => {
     const next: DateTime = now.plus({ minutes: 1 })
 

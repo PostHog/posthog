@@ -5,9 +5,9 @@ import pytz
 
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.query_date_range import QueryDateRange
+from posthog.queries.util import PersonPropertiesMode
 
 
 class PropertiesTimelineEventQuery(EventQuery):

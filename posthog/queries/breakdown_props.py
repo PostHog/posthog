@@ -18,7 +18,6 @@ from posthog.models.property.util import (
 )
 from posthog.models.team import Team
 from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.insight import insight_sync_execute
@@ -27,6 +26,8 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_ELEMENTS_ARRAY_OF_KEY_SQL
+from posthog.queries.util import PersonPropertiesMode
+from posthog.utils import PersonOnEventsMode
 
 ALL_USERS_COHORT_ID = 0
 
@@ -73,7 +74,9 @@ def get_breakdown_prop_values(
     sessions_join_clause = ""
     sessions_join_params: Dict = {}
 
-    null_person_filter = f"AND notEmpty(e.person_id)" if team.person_on_events_querying_enabled else ""
+    null_person_filter = (
+        f"AND notEmpty(e.person_id)" if team.person_on_events_mode != PersonOnEventsMode.DISABLED else ""
+    )
 
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
         outer_properties: Optional[PropertyGroup] = props_to_filter
@@ -124,7 +127,7 @@ def get_breakdown_prop_values(
         entity_filter, entity_params = FunnelEventQuery(
             filter,
             team,
-            using_person_on_events=team.person_on_events_querying_enabled,
+            person_on_events_mode=team.person_on_events_mode,
         )._get_entity_query()
         entity_format_params = {"entity_query": entity_filter}
     else:

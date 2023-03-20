@@ -31,6 +31,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
@@ -237,6 +238,7 @@ export function LineGraph_({
     const { createTooltipData } = useValues(lineGraphLogic)
     const { insightProps, insight, timezone } = useValues(insightLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
@@ -244,7 +246,7 @@ export function LineGraph_({
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
-    const colors = getGraphColors()
+    const colors = getGraphColors(isDarkModeOn)
     const insightType = insight.filters?.insight
     const isHorizontal = type === GraphType.HorizontalBar
     const isPie = type === GraphType.Pie
@@ -598,7 +600,7 @@ export function LineGraph_({
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendKeys])
+    }, [datasets, hiddenLegendKeys, isDarkModeOn])
 
     return (
         <div

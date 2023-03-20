@@ -13,12 +13,13 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyGroup, PropertyName
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.session_query import SessionQuery
+from posthog.queries.util import PersonPropertiesMode
+from posthog.utils import PersonOnEventsMode
 
 
 class EventQuery(metaclass=ABCMeta):
@@ -55,7 +56,7 @@ class EventQuery(metaclass=ABCMeta):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        using_person_on_events: bool = False,
+        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -70,7 +71,7 @@ class EventQuery(metaclass=ABCMeta):
         self._should_join_persons = should_join_persons
         self._should_join_sessions = should_join_sessions
         self._extra_fields = extra_fields
-        self._using_person_on_events = using_person_on_events
+        self._person_on_events_mode = person_on_events_mode
 
         if override_aggregate_users_by_distinct_id is not None:
             self._aggregate_users_by_distinct_id = override_aggregate_users_by_distinct_id
