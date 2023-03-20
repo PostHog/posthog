@@ -27,6 +27,7 @@ import {
     TimeToSeeDataWaterfallNode,
     TimeToSeeDataJSONNode,
     NewEntityNode,
+    DatabaseSchemaQuery,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
@@ -69,7 +70,7 @@ export function isActionsNode(node?: Node | null): node is ActionsNode {
     return node?.kind === NodeKind.ActionsNode
 }
 
-export function isNewEntityNode(node?: Node | null): node is NewEntityNode {
+export function isNewEntityNode(node?: Node): node is NewEntityNode {
     return node?.kind === NodeKind.NewEntityNode
 }
 
@@ -134,6 +135,10 @@ export function isInsightQueryWithDisplay(node?: Node | null): node is TrendsQue
 
 export function isInsightQueryWithBreakdown(node?: Node | null): node is TrendsQuery | FunnelsQuery {
     return isTrendsQuery(node) || isFunnelsQuery(node)
+}
+
+export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {
+    return node?.kind === NodeKind.DatabaseSchemaQuery
 }
 
 export function isInsightQueryWithSeries(

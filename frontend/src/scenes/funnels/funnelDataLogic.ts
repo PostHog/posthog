@@ -37,6 +37,7 @@ import {
     isBreakdownFunnelResults,
     stepsWithConversionMetrics,
 } from './funnelUtils'
+import { BIN_COUNT_AUTO } from 'lib/constants'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
@@ -49,7 +50,16 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series', 'interval', 'insightData'],
+            [
+                'querySource',
+                'insightFilter',
+                'funnelsFilter',
+                'breakdown',
+                'series',
+                'interval',
+                'insightData',
+                'insightDataError',
+            ],
             groupsModel,
             ['aggregationLabel'],
         ],
@@ -236,6 +246,15 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 }
             },
         ],
+        numericBinCount: [
+            (s) => [s.funnelsFilter, s.timeConversionResults],
+            (funnelsFilter, timeConversionResults): number => {
+                if (funnelsFilter?.bin_count === BIN_COUNT_AUTO) {
+                    return timeConversionResults?.bins?.length ?? 0
+                }
+                return funnelsFilter?.bin_count ?? 0
+            },
+        ],
 
         conversionMetrics: [
             (s) => [s.steps, s.funnelsFilter, s.timeConversionResults],
@@ -346,6 +365,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (funnelsFilter): FilterType => ({
                 events: funnelsFilter?.exclusions,
             }),
+        ],
+        areExclusionFiltersValid: [
+            (s) => [s.insightDataError],
+            (insightDataError): boolean => {
+                return !(insightDataError?.status === 400 && insightDataError?.type === 'validation_error')
+            },
         ],
     })),
 ])

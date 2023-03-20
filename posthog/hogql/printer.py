@@ -10,6 +10,7 @@ from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_refs
 from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
 from posthog.hogql.transforms.macros import expand_macros
+from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
 
@@ -56,6 +57,7 @@ def prepare_ast_for_printing(
     context.database = context.database or create_hogql_database(context.team_id)
     node = expand_macros(node, stack)
     resolve_refs(node, context.database, ref)
+    node = resolve_property_types(node, context)
     expand_asterisks(node)
     resolve_lazy_tables(node, stack, context)
 
