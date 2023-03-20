@@ -4,11 +4,9 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/lemon-ui/Link'
 import React from 'react'
 import clsx from 'clsx'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { Query } from '~/queries/Query/Query'
 import { useActions, useValues } from 'kea'
 import { stringifiedExamples } from '~/queries/examples'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 export function QueryScene(): JSX.Element {
     const { query } = useValues(querySceneLogic)
@@ -48,15 +46,13 @@ export function QueryScene(): JSX.Element {
                         </React.Fragment>
                     ))}
                 </div>
-                {showEditor ? (
-                    <>
-                        <QueryEditor query={query} setQuery={setQuery} />
-                        <div className="my-4">
-                            <LemonDivider />
-                        </div>
-                    </>
-                ) : null}
-                <Query query={query} setQuery={(query) => setQuery(JSON.stringify(query, null, 2))} />
+                <Query
+                    query={query}
+                    setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
+                    context={{
+                        showQueryEditor: showEditor,
+                    }}
+                />
             </div>
         </div>
     )
