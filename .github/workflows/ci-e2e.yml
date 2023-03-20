@@ -27,9 +27,11 @@ jobs:
         steps:
             - name: Wait for the container image to be ready
               uses: lewagon/wait-on-check-action@v1.2.0
+              # if we are on master then we don't need to wait for the container image
+              if: github.event_name == 'pull_request'
               with:
                   check-name: Build PostHog
-                  ref: ${{ github.ref == 'refs/heads/master' && github.sha || github.event.pull_request.head.sha }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   wait-interval: 10
 
