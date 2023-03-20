@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime
 
 import pytz
@@ -229,6 +230,86 @@ def retention_test_factory(retention):
         def test_month_interval_with_person_on_events_v2(self):
             _create_person(team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"})
             _create_person(team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"})
+
+            person_id1 = str(uuid.uuid4())
+            person_id2 = str(uuid.uuid4())
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person1",
+                person_id=person_id1,
+                timestamp=_date(day=0, month=-5),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person2",
+                person_id=person_id2,
+                timestamp=_date(day=0, month=-4),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person1",
+                person_id=person_id1,
+                timestamp=_date(day=0, month=-3),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person2",
+                person_id=person_id2,
+                timestamp=_date(day=0, month=-2),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person1",
+                person_id=person_id1,
+                timestamp=_date(day=0, month=-1),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person2",
+                person_id=person_id2,
+                timestamp=_date(day=0, month=0),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person1",
+                person_id=person_id1,
+                timestamp=_date(day=0, month=1),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person2",
+                person_id=person_id2,
+                timestamp=_date(day=0, month=2),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person1",
+                person_id=person_id1,
+                timestamp=_date(day=0, month=3),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person2",
+                person_id=person_id2,
+                timestamp=_date(day=0, month=4),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person1",
+                person_id=person_id1,
+                timestamp=_date(day=0, month=5),
+            )
 
             _create_events(
                 self.team,
