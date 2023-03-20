@@ -18,12 +18,17 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { FunnelsQuery } from '~/queries/schema'
 import { isStepsEmpty } from 'scenes/funnels/funnelUtils'
+import { isInsightQueryNode } from '~/queries/utils'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
-export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element | null {
     const { querySource, series } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
+
+    if (!isInsightQueryNode(querySource)) {
+        return null
+    }
 
     const actionFilters = queryNodeToFilter(querySource)
     const setActionFilters = (payload: Partial<FilterType>): void => {

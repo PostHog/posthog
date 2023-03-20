@@ -1234,6 +1234,7 @@ export interface DashboardTemplateType {
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
+    scope?: 'team' | 'global'
 }
 
 export interface MonacoMarker {

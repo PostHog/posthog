@@ -94,7 +94,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 data-attr={'new-prop-filter-' + pageKey}
                                 type="secondary"
                                 size="small"
-                                icon={<IconPlus style={{ color: 'var(--primary)' }} />}
+                                icon={<IconPlus />}
                             >
                                 {label}
                             </LemonButton>

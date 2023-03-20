@@ -23,6 +23,7 @@ import {
     funnelResultTrends,
     funnelResultWithBreakdown,
     funnelResultWithMultiBreakdown,
+    funnelInvalidExclusionError,
 } from './__mocks__/funnelDataLogicMocks'
 
 let logic: ReturnType<typeof funnelDataLogic.build>
@@ -54,7 +55,7 @@ describe('funnelDataLogic', () => {
     describe('funnel viz types', () => {
         it('with non-funnel insight', async () => {
             await expectLogic(logic).toMatchValues({
-                querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
+                querySource: null,
                 isStepsFunnel: null,
                 isTimeToConvertFunnel: null,
                 isTrendsFunnel: null,
@@ -138,7 +139,7 @@ describe('funnelDataLogic', () => {
     describe('empty funnel', () => {
         it('with non-funnel insight', async () => {
             await expectLogic(logic).toMatchValues({
-                querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
+                querySource: null,
                 isEmptyFunnel: null,
             })
         })
@@ -755,6 +756,31 @@ describe('funnelDataLogic', () => {
                             ],
                         }),
                     ],
+                })
+            })
+        })
+
+        describe('areExclusionFiltersValid', () => {
+            it('for standard funnel', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResult.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    areExclusionFiltersValid: true,
+                })
+            })
+
+            it('for invalid exclusion', async () => {
+                await expectLogic(logic, () => {
+                    builtDataNodeLogic.actions.loadDataFailure('', { status: 400, ...funnelInvalidExclusionError })
+                }).toMatchValues({
+                    areExclusionFiltersValid: false,
                 })
             })
         })

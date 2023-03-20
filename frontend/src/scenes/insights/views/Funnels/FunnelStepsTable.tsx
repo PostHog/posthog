@@ -21,14 +21,14 @@ import { getSeriesColor } from 'lib/colors'
 import { IconFlag } from 'lib/lemon-ui/icons'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { BreakdownFilter } from '~/queries/schema'
 import { cleanHiddenLegendSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function FunnelStepsTableDataExploration(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
-    const { breakdown } = useValues(insightDataLogic(insightProps))
+    const { breakdown } = useValues(insightVizDataLogic(insightProps))
     const { steps, flattenedBreakdowns, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelLogic(insightProps))
@@ -36,7 +36,7 @@ export function FunnelStepsTableDataExploration(): JSX.Element | null {
     return (
         <FunnelStepsTableComponent
             insightLoading={insightLoading}
-            breakdownFilter={breakdown}
+            breakdownFilter={breakdown ?? undefined}
             steps={steps}
             flattenedBreakdowns={flattenedBreakdowns}
             isOnlySeries={flattenedBreakdowns.length <= 1}

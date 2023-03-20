@@ -70,7 +70,8 @@ export function FunnelStepsPickerComponent({
     const optionsForRange = (range: number[]): LemonSelectOptions<number> => {
         return range
             .map((stepIndex): LemonSelectOption<number> | null => {
-                const stepFilter = filterSteps.find((f) => f.order === stepIndex)
+                // data exploration has no order on series and instead relies on array order
+                const stepFilter = filterSteps.find((f) => f.order === stepIndex) || filterSteps[stepIndex]
                 return stepFilter
                     ? {
                           value: stepIndex,

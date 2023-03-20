@@ -14,7 +14,6 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import { SeriesCheckColumnTitle, SeriesCheckColumnItem } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem } from './columns/SeriesColumn'
@@ -24,6 +23,7 @@ import { AggregationColumnItem, AggregationColumnTitle } from './columns/Aggrega
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
 import { BreakdownFilter, TrendsFilter } from '~/queries/schema'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -42,7 +42,7 @@ interface InsightsTableProps {
 export function InsightsTableDataExploration({ filterKey, ...rest }: InsightsTableProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { isNonTimeSeriesDisplay, compare, isTrends, display, interval, breakdown, trendsFilter } = useValues(
-        insightDataLogic(insightProps)
+        insightVizDataLogic(insightProps)
     )
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
@@ -63,9 +63,9 @@ export function InsightsTableDataExploration({ filterKey, ...rest }: InsightsTab
             compare={!!compare}
             isTrends={isTrends}
             trendsFilter={trendsFilter}
-            display={display}
-            interval={interval}
-            breakdown={breakdown}
+            display={display ?? undefined}
+            interval={interval ?? undefined}
+            breakdown={breakdown ?? undefined}
             allowAggregation={allowAggregation}
             aggregation={aggregation}
             setAggregationType={(state: CalcColumnState) => setAggregationType(state as AggregationType)}

@@ -786,7 +786,7 @@ const api = {
 
         async update(
             dashboardTemplateId: string,
-            dashboardTemplateData: DashboardTemplateEditorType
+            dashboardTemplateData: Partial<DashboardTemplateEditorType>
         ): Promise<DashboardTemplateType> {
             return await new ApiRequest()
                 .dashboardTemplatesDetail(dashboardTemplateId)

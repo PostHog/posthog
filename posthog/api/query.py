@@ -20,6 +20,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
+from posthog.hogql.database import create_hogql_database, serialize_database
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team, User
 from posthog.models.event.events_query import run_events_query
@@ -163,6 +164,9 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
         hogql_query = HogQLQuery.parse_obj(query_json)
         response = execute_hogql_query(query=hogql_query.query, team=team)
         return _response_to_dict(response)
+    elif query_kind == "DatabaseSchemaQuery":
+        database = create_hogql_database(team.pk)
+        return serialize_database(database)
     elif query_kind == "RecentPerformancePageViewNode":
         try:
             # noinspection PyUnresolvedReferences

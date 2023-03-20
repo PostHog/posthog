@@ -163,6 +163,144 @@ export function APISnippet(): JSX.Element {
     )
 }
 
+export function JSMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.JavaScript} wrap>
+            {`// Ensure flags are loaded before usage.
+// You'll only need to call this on the code for when the first time a user visits.
+
+posthog.onFeatureFlags(function() {
+// feature flags should be available at this point
+if (posthog.getFeatureFlag('${flagKey ?? ''}') === 'example-variant') {
+// do something
+}
+})
+
+// Otherwise, you can just do
+
+if (posthog.getFeatureFlag('${flagKey ?? ''}') === 'example-variant') {
+// do something
+}`}
+        </CodeSnippet>
+    )
+}
+
+export function iOSMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.Swift} wrap>
+            {`// In Swift
+
+if (posthog.getFeatureFlag('${flagKey}') == 'example-variant') {
+    // do something
+}
+            `}
+        </CodeSnippet>
+    )
+}
+
+export function AndroidMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.Java} wrap>
+            {`if (PostHog.with(this).getFeatureFlag('${flagKey}') == 'example-variant') {
+    // do something
+}
+            `}
+        </CodeSnippet>
+    )
+}
+
+export function ReactNativeMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.Java} wrap>
+            {`// With a hook
+import { useFeatureFlag } from 'posthog-react-native'
+
+const MyComponent = () => {
+    const showFlaggedFeature = useFeatureFlag('${flagKey}')
+
+    if (showFlaggedFeature === undefined) {
+        // the response is undefined if the flags are being loaded
+        return null
+    }
+
+    return showFlaggedFeature === 'example-variant' ? <Text>Testing feature 😄</Text> : <Text>Not Testing feature 😢</Text>
+}
+
+// Or calling on the method directly
+posthog.getFeatureFlag('${flagKey ?? ''}') === 'example-variant'
+            `}
+        </CodeSnippet>
+    )
+}
+
+export function NodeJSMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.JavaScript} wrap>
+                {`const enabledVariant = await client.getFeatureFlag('${flagKey}', 'user distinct id')
+
+if (enabledVariant === 'example-variant') {
+    // Do something differently for this user
+}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function PythonMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Python} wrap>
+                {`if posthog.get_feature_flag("${flagKey}", "user_distinct_id") == 'example-variant':
+    runAwesomeFeature()
+`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function RubyMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Ruby} wrap>
+                {`if posthog.get_feature_flag('${flagKey}', 'user distinct id') == 'example-variant'
+  # Do something
+end`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function GolangMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Go} wrap>
+                {`enabledVariant, err := client.GetFeatureFlag(
+                    FeatureFlagPayload{
+                        Key:        '${flagKey}',
+                        DistinctId: "distinct-id",
+                    })
+
+if (enabledVariant == 'example-variant') {
+  // Do something differently for this user
+}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function PHPMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.PHP} wrap>
+                {`if (PostHog::getFeatureFlag('${flagKey}', 'some distinct id') === 'example-variant') {
+    // do something here
+}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
 export function PythonLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <>

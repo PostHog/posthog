@@ -20,7 +20,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         syncSidebarWidthWithViewport: true,
         beginResize: true,
         endResize: true,
-        acknowledgeSidebarHotkeyHint: true,
+        acknowledgeSidebarKeyboardShortcut: true,
     }),
     reducers({
         isSidebarShown: [
@@ -56,13 +56,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 endResize: () => false,
             },
         ],
-        isSidebarHotkeyHintAcknowledged: [
+        isSidebarKeyboardShortcutAcknowledged: [
             false,
             {
                 persist: true,
             },
             {
-                acknowledgeSidebarHotkeyHint: () => true,
+                acknowledgeSidebarKeyboardShortcut: () => true,
             },
         ],
     }),
