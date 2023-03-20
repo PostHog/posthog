@@ -15,6 +15,7 @@ exclude = [
     "./plugin-server/node_modules/",
     "./plugins/node_modules/",
     "./env",
+    "./posthog/hogql/grammar",
 ]
 ignore = [
     "B006",

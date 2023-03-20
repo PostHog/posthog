@@ -130,7 +130,7 @@ jobs:
             - name: Check for errors and code style violations
               run: |
                   cd current
-                  ruff --exclude posthog/hogql/grammar .
+                  ruff .
 
             - name: Check static typing
               run: |
