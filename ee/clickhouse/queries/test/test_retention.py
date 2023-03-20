@@ -256,6 +256,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
+        # We expect 1s across the board due to the override set up from person1 to person2, making them the same person
         self.assertEqual(
             pluck(result, "values", "count"),
             [[1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1], [1, 1], [1]],

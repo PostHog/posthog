@@ -765,6 +765,10 @@ def _create_insight(
     return insight, dashboard, dashboard_tile
 
 
+# Populate the person_overrides table with an override from the person_id
+# for a person with a given distinct ID `distinct_id_from` to a given distinct ID
+# `distinct_id_to` such that with person_on_events_mode set to V2_ENABLED these
+# persons will both count as 1
 def create_person_id_override_by_distinct_id(distinct_id_from: str, distinct_id_to: str, team_id: int):
     person_ids_result = sync_execute(
         f"""
