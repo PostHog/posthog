@@ -9,17 +9,17 @@ import {
     keyForInsightLogicProps,
 } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { TrendsFilter, StickinessFilter } from '~/queries/schema'
 import { filterForQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export const chartFilterLogic = kea<chartFilterLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
     path: (key) => ['lib', 'components', 'ChartFilter', 'chartFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
-        actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['updateInsightFilter']],
-        values: [insightLogic(props), ['filters'], insightDataLogic(props), ['querySource']],
+        actions: [insightLogic(props), ['setFilters'], insightVizDataLogic(props), ['updateInsightFilter']],
+        values: [insightLogic(props), ['filters'], insightVizDataLogic(props), ['querySource']],
     }),
 
     actions: () => ({

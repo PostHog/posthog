@@ -3,163 +3,19 @@ import { useEffect, useState } from 'react'
 import { Card, Row } from 'antd'
 import { IconFlag, IconInfo, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import {
-    UTM_TAGS,
-    APISnippet,
-    JSSnippet,
-    PythonSnippet,
-    NodeJSSnippet,
-    PHPSnippet,
-    RubySnippet,
-    GolangSnippet,
-    NodeLocalEvaluationSnippet,
-    PHPLocalEvaluationSnippet,
-    RubyLocalEvaluationSnippet,
-    PythonLocalEvaluationSnippet,
-    JSBootstrappingSnippet,
-    ReactNativeSnippet,
-    iOSSnippet,
-    AndroidSnippet,
-} from 'scenes/feature-flags/FeatureFlagSnippets'
-
 import './FeatureFlagInstructions.scss'
-import {
-    JSPayloadSnippet,
-    NodeJSPayloadSnippet,
-    PythonPayloadSnippet,
-    RubyPayloadSnippet,
-} from 'scenes/feature-flags/FeatureFlagPayloadSnippets'
 import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 import { FeatureFlagType } from '~/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-
-const DOC_BASE_URL = 'https://posthog.com/docs/'
-const FF_ANCHOR = '#feature-flags'
-const LOCAL_EVAL_ANCHOR = '#local-evaluation'
-const BOOTSTRAPPING_ANCHOR = '#bootstrapping-flags'
-
-interface InstructionOption {
-    value: string
-    documentationLink: string
-    Snippet: ({ flagKey }: { flagKey: string }) => JSX.Element
-    type: LibraryType
-}
-
-enum LibraryType {
-    Client = 'Client',
-    Server = 'Server',
-}
-
-export const OPTIONS: InstructionOption[] = [
-    {
-        value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: JSSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'Android',
-        documentationLink: `${DOC_BASE_URL}integrate/client/android${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: AndroidSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'iOS',
-        documentationLink: `${DOC_BASE_URL}integrate/client/ios${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: iOSSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'ReactNative',
-        documentationLink: `${DOC_BASE_URL}integrate/client/react-native${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: ReactNativeSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'Node.js',
-        documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: NodeJSSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Python',
-        documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: PythonSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Ruby',
-        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: RubySnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'API',
-        documentationLink: `${DOC_BASE_URL}api/post-only-endpoints#example-request--response-decide-v2`,
-        Snippet: APISnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'PHP',
-        documentationLink: `${DOC_BASE_URL}integrations/php-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: PHPSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Golang',
-        documentationLink: `${DOC_BASE_URL}integrations/go-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: GolangSnippet,
-        type: LibraryType.Server,
-    },
-]
-
-const LOCAL_EVALUATION_OPTIONS: InstructionOption[] = [
-    {
-        value: 'Node.js',
-        documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
-        Snippet: NodeLocalEvaluationSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'PHP',
-        documentationLink: `${DOC_BASE_URL}integrations/php-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
-        Snippet: PHPLocalEvaluationSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Ruby',
-        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
-        Snippet: RubyLocalEvaluationSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Golang',
-        documentationLink: `${DOC_BASE_URL}integrations/go-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
-        Snippet: GolangSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Python',
-        documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
-        Snippet: PythonLocalEvaluationSnippet,
-        type: LibraryType.Server,
-    },
-]
-
-const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
-    {
-        value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${BOOTSTRAPPING_ANCHOR}`,
-        Snippet: JSBootstrappingSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'ReactNative',
-        documentationLink: `${DOC_BASE_URL}integrate/client/react-native${UTM_TAGS}${BOOTSTRAPPING_ANCHOR}`,
-        Snippet: JSBootstrappingSnippet,
-        type: LibraryType.Client,
-    },
-]
+import {
+    BOOTSTRAPPING_OPTIONS,
+    InstructionOption,
+    LibraryType,
+    LOCAL_EVALUATION_OPTIONS,
+    MULTIVARIATE_OPTIONS,
+    OPTIONS,
+    PAYLOAD_OPTIONS,
+} from './FeatureFlagCodeOptions'
 
 function FeatureFlagInstructionsHeader({
     selectedOptionValue,
@@ -246,26 +102,56 @@ export function CodeInstructions({
     const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
     const [payloadOption, setPayloadOption] = useState(PAYLOAD_OPTIONS[0])
+    const [localEvalOption, setLocalEvalOption] = useState(LOCAL_EVALUATION_OPTIONS[0])
+    const [bootstrapOption, setBootstrapOption] = useState(BOOTSTRAPPING_OPTIONS[0])
     const [showPayloadCode, setShowPayloadCode] = useState(Object.keys(featureFlag?.filters.payloads || {}).length > 0)
+    const [showLocalEvalCode, setShowLocalEvalCode] = useState(false)
+    const [showBootstrapCode, setShowBootstrapCode] = useState(false)
 
     const selectOption = (selectedValue: string): void => {
         const option = options.find((option) => option.value === selectedValue)
-        const payloadOption = PAYLOAD_OPTIONS.find((payloadOption) => payloadOption.value === selectedValue)
 
         if (option) {
             setSelectedOption(option)
         }
+
+        const payloadOption = PAYLOAD_OPTIONS.find((payloadOption) => payloadOption.value === selectedValue)
         if (payloadOption) {
             setPayloadOption(payloadOption)
         } else {
             setShowPayloadCode(false)
+        }
+
+        const localEvalOption = LOCAL_EVALUATION_OPTIONS.find(
+            (localEvalOption) => localEvalOption.value === selectedValue
+        )
+        if (localEvalOption) {
+            setLocalEvalOption(localEvalOption)
+        } else {
+            setShowLocalEvalCode(false)
+        }
+
+        const bootstrapOption = BOOTSTRAPPING_OPTIONS.find((bootstrapOption) => bootstrapOption.value === selectedValue)
+        if (bootstrapOption) {
+            setBootstrapOption(bootstrapOption)
+        } else {
+            setShowBootstrapCode(false)
         }
     }
     useEffect(() => {
         if (selectedLanguage) {
             selectOption(selectedLanguage)
         }
-    }, [selectedLanguage])
+        if (Object.keys(featureFlag?.filters.payloads || {}).length > 0) {
+            setShowPayloadCode(true)
+        }
+        if (featureFlag?.filters.multivariate?.variants || !featureFlag?.filters.multivariate) {
+            selectOption(selectedOption.value)
+        }
+        if (featureFlag?.ensure_experience_continuity) {
+            setShowLocalEvalCode(false)
+        }
+    }, [selectedLanguage, featureFlag])
 
     return (
         <>
@@ -303,44 +189,96 @@ export function CodeInstructions({
                             }}
                             value={selectedOption.value}
                         />
-                        {PAYLOAD_OPTIONS.map((payloadOption) => payloadOption.value).includes(selectedOption.value) && (
+                        <div className="flex items-center gap-1">
+                            <LemonCheckbox
+                                label="Show payload option"
+                                onChange={() => setShowPayloadCode(!showPayloadCode)}
+                                checked={showPayloadCode}
+                                disabled={
+                                    !PAYLOAD_OPTIONS.map((payloadOption) => payloadOption.value).includes(
+                                        selectedOption.value
+                                    )
+                                }
+                            />
+                            <Tooltip
+                                title={
+                                    <>
+                                        {`Feature flag payloads are only available in these libraries: ${PAYLOAD_OPTIONS.map(
+                                            (payloadOption) => ` ${payloadOption.value}`
+                                        )}`}
+                                    </>
+                                }
+                            >
+                                <IconInfo className="text-xl text-muted-alt shrink-0" />
+                            </Tooltip>
+                        </div>
+                        <>
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
-                                    label="Show payload option"
-                                    onChange={() => setShowPayloadCode(!showPayloadCode)}
+                                    label="Show bootstrap option"
+                                    checked={showBootstrapCode}
+                                    onChange={() => setShowBootstrapCode(!showBootstrapCode)}
+                                    disabled={
+                                        !BOOTSTRAPPING_OPTIONS.map((bo) => bo.value).includes(selectedOption.value) ||
+                                        !!featureFlag?.ensure_experience_continuity
+                                    }
                                 />
                                 <Tooltip
                                     title={
-                                        <>
-                                            {`Feature flag payloads is only available in these libraries: ${PAYLOAD_OPTIONS.map(
-                                                (payloadOption) => payloadOption.value
-                                            )}`}
-                                        </>
+                                        'If you need your flags available immediately, you can initialize the PostHog library with a distinct user ID and their feature flag values. This avoids the delay between the library loading and feature flags becoming available to use. Bootstrapping is only available client side in our JavaScript and ReactNative libraries.'
                                     }
                                 >
                                     <IconInfo className="text-xl text-muted-alt shrink-0" />
                                 </Tooltip>
                             </div>
+                            <div className="flex items-center gap-1">
+                                <LemonCheckbox
+                                    label="Show local evaluation option"
+                                    checked={showLocalEvalCode}
+                                    onChange={() => setShowLocalEvalCode(!showLocalEvalCode)}
+                                    disabled={
+                                        selectedOption.type !== LibraryType.Server ||
+                                        !!featureFlag?.ensure_experience_continuity
+                                    }
+                                />
+                                <Tooltip
+                                    title={
+                                        'Improve performance by evaluating feature flags without making API requests each time. Local evaluation is only available in server side libraries and without flag persistence across authentication steps.'
+                                    }
+                                >
+                                    <IconInfo className="text-xl text-muted-alt shrink-0" />
+                                </Tooltip>
+                            </div>
+                        </>
+                    </div>
+                    <div className="mt-4 mb">
+                        {!showLocalEvalCode && (
+                            <selectedOption.Snippet
+                                data-attr="feature-flag-instructions-snippet"
+                                flagKey={featureFlagKey}
+                            />
                         )}
-                        {!featureFlag?.ensure_experience_continuity && (
+                        {showPayloadCode && (
                             <>
-                                {selectedOption.type === LibraryType.Server && (
-                                    <LemonCheckbox label="Show local evaluation option" onChange={() => {}} />
-                                )}
-                                {selectedOption.type === LibraryType.Client && (
-                                    <LemonCheckbox label="Show bootstrap option" onChange={() => {}} />
-                                )}
+                                <h3>Payloads</h3>
+                                <payloadOption.Snippet flagKey={featureFlagKey} />
                             </>
                         )}
-                    </div>
-                    <div className="mt mb">
-                        <selectedOption.Snippet
-                            data-attr="feature-flag-instructions-snippet"
-                            flagKey={featureFlagKey}
-                        />
-                        {showPayloadCode && <payloadOption.Snippet flagKey={featureFlagKey} />}
+                        {showLocalEvalCode && (
+                            <>
+                                <h3>Local evaluation</h3>
+                                <localEvalOption.Snippet flagKey={featureFlagKey} />
+                            </>
+                        )}
+                        {showBootstrapCode && (
+                            <>
+                                <h3>Bootstrapping</h3>
+                                <bootstrapOption.Snippet flagKey={featureFlagKey} />
+                            </>
+                        )}
                         <FeatureFlagInstructionsFooter documentationLink={selectedOption.documentationLink} />
                     </div>
+                    <div />
                 </div>
             ) : (
                 <Card size="small">
@@ -381,10 +319,20 @@ export function FeatureFlagInstructions({
         <CodeInstructions
             featureFlagKey={featureFlagKey}
             headerPrompt="Learn how to use feature flags in your code"
-            options={OPTIONS}
+            options={featureFlag?.filters.multivariate?.variants ? MULTIVARIATE_OPTIONS : OPTIONS}
             selectedLanguage={language}
             newCodeExample={newCodeExample}
             featureFlag={featureFlag}
+        />
+    )
+}
+
+export function FeatureFlagMultivariateInstructions({ featureFlagKey }: { featureFlagKey: string }): JSX.Element {
+    return (
+        <CodeInstructions
+            featureFlagKey={featureFlagKey}
+            headerPrompt="Learn how to use multivariate flags"
+            options={MULTIVARIATE_OPTIONS}
         />
     )
 }
@@ -416,33 +364,6 @@ export function FeatureFlagBootstrappingInstructions({ language }: { language: s
         />
     )
 }
-
-const PAYLOAD_OPTIONS: InstructionOption[] = [
-    {
-        value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: JSPayloadSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'Node.js',
-        documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: NodeJSPayloadSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Python',
-        documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: PythonPayloadSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Ruby',
-        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Snippet: RubyPayloadSnippet,
-        type: LibraryType.Server,
-    },
-]
 
 export function FeatureFlagPayloadInstructions({ featureFlagKey }: { featureFlagKey: string }): JSX.Element {
     return (
