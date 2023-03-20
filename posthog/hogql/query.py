@@ -10,7 +10,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
 
 
@@ -49,7 +49,7 @@ def execute_hogql_query(
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
     hogql_query_context = HogQLContext(
-        team_id=team.pk, enable_select_queries=True, using_person_on_events=team.person_on_events_querying_enabled
+        team_id=team.pk, enable_select_queries=True, person_on_events_mode=team.person_on_events_mode
     )
     select_query_hogql = cast(
         ast.SelectQuery,
@@ -67,7 +67,7 @@ def execute_hogql_query(
 
     # Print the ClickHouse SQL query
     clickhouse_context = HogQLContext(
-        team_id=team.pk, enable_select_queries=True, using_person_on_events=team.person_on_events_querying_enabled
+        team_id=team.pk, enable_select_queries=True, person_on_events_mode=team.person_on_events_mode
     )
     clickhouse = print_ast(select_query, clickhouse_context, "clickhouse")
 
