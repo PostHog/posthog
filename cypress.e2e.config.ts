@@ -22,6 +22,7 @@ const checkFileDownloaded = async (filename: string, timeout: number, delayMs = 
 }
 
 export default defineConfig({
+    experimentalMemoryManagement: true,
     video: false,
     defaultCommandTimeout: 20000,
     requestTimeout: 8000,

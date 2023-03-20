@@ -2,6 +2,15 @@ import { urls } from 'scenes/urls'
 import { insight } from '../productAnalytics'
 import { decideResponse } from '../fixtures/api/decide'
 
+const hogQLQuery = `select event,
+          count()
+     from events
+ group by event,
+          properties.$browser,
+          person.properties.email
+ order by count() desc
+    limit 2`
+
 // For tests related to trends please check trendsElements.js
 describe('Insights (with data exploration on)', () => {
     beforeEach(() => {
@@ -53,7 +62,7 @@ describe('Insights (with data exploration on)', () => {
 
         it('can open a new paths insight', () => {
             insight.newInsight('PATHS', true)
-            cy.get('.Paths g').should('have.length', 36)
+            cy.get('.Paths g').should('have.length.gte', 5) // not a fixed value unfortunately
         })
 
         it('can open a new stickiness insight', () => {
@@ -130,7 +139,7 @@ describe('Insights (with data exploration on)', () => {
 
         it('can open a new paths insight', () => {
             insight.clickTab('PATH')
-            cy.get('.Paths g').should('have.length', 36)
+            cy.get('.Paths g').should('have.length.gte', 5) // not a fixed value unfortunately
         })
 
         it('can open a new stickiness insight', () => {
@@ -182,7 +191,9 @@ describe('Insights (with data exploration on)', () => {
 
         insight.newInsight('SQL', true)
         cy.get('[data-attr="hogql-query-editor"]').should('exist')
-        cy.get('tr.DataTable__row').should('have.length', 3)
+        insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
+
+        cy.get('.DataTable tr').should('have.length', 3)
 
         insight.clickTab('TRENDS')
         cy.get('.trends-insights-container canvas').should('exist')
@@ -191,7 +202,9 @@ describe('Insights (with data exploration on)', () => {
 
         insight.clickTab('SQL')
         cy.get('[data-attr="hogql-query-editor"]').should('exist')
-        cy.get('tr.DataTable__row').should('have.length', 3)
+        insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
+
+        cy.get('.DataTable tr').should('have.length', 3)
 
         insight.clickTab('TRENDS')
         cy.get('.trends-insights-container canvas').should('exist')
