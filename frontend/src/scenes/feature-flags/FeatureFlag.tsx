@@ -466,6 +466,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                         type="secondary"
                                                         sideIcon={<IconPlayCircle />}
                                                     >
+                                                        <LemonTag type="warning" className="uppercase ml-2 mr-2">
+                                                            Beta
+                                                        </LemonTag>
                                                         View Recordings
                                                     </LemonButton>
                                                 )}
