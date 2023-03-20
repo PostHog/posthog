@@ -33,8 +33,8 @@ def print_ast(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> str:
-    prepared_ast = prepare_ast_for_printing(node, context, stack)
-    return print_prepared_ast(prepared_ast, context, dialect, stack)
+    prepared_ast = prepare_ast_for_printing(node=node, context=context, stack=stack)
+    return print_prepared_ast(node=prepared_ast, context=context, dialect=dialect, stack=stack)
 
 
 def print_prepared_ast(

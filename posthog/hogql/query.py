@@ -51,7 +51,7 @@ def execute_hogql_query(
     )
     clickhouse = print_ast(select_query, hogql_context, "clickhouse")
 
-    select_query_hogql = cast(ast.SelectQuery, prepare_ast_for_printing(select_query, "hogql"))
+    select_query_hogql = cast(ast.SelectQuery, prepare_ast_for_printing(node=select_query, context=hogql_context))
     hogql = print_prepared_ast(select_query_hogql, hogql_context, "hogql")
 
     results, types = insight_sync_execute(
