@@ -1,4 +1,5 @@
 import json
+from dataclasses import asdict
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
@@ -9,7 +10,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
-from posthog.models.team.team import get_team_in_cache
+from posthog.models.team.team_caching import get_cached_team
 from posthog.test.base import APIBaseTest
 
 
@@ -285,7 +286,7 @@ class TestTeamAPI(APIBaseTest):
         token = response.json()["api_token"]
         team_id = response.json()["id"]
 
-        cached_team = get_team_in_cache(token)
+        cached_team = get_cached_team(token)
 
         assert cached_team is not None
         self.assertEqual(cached_team.name, "Test")
@@ -297,7 +298,7 @@ class TestTeamAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        cached_team = get_team_in_cache(token)
+        cached_team = get_cached_team(token)
         assert cached_team is not None
 
         self.assertEqual(cached_team.name, "Test")
@@ -305,16 +306,16 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(cached_team.session_recording_opt_in, True)
 
         # only things in CachedTeamSerializer are cached!
-        self.assertEqual(cached_team.timezone, "UTC")
+        self.assertEqual(asdict(cached_team).get("timezone"), None)
 
         # reset token should update cache as well
         response = self.client.patch(f"/api/projects/{team_id}/reset_token/")
         response_data = response.json()
 
-        cached_team = get_team_in_cache(token)
+        cached_team = get_cached_team(token)
         assert cached_team is None
 
-        cached_team = get_team_in_cache(response_data["api_token"])
+        cached_team = get_cached_team(response_data["api_token"])
         assert cached_team is not None
         self.assertEqual(cached_team.name, "Test")
         self.assertEqual(cached_team.uuid, response.json()["uuid"])

@@ -467,7 +467,7 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 
 
 def sync_team_inject_web_apps(team: Team):
-    inject_web_apps = len(get_decide_site_apps(team)) > 0
+    inject_web_apps = len(get_decide_site_apps(team.id)) > 0
     if inject_web_apps != team.inject_web_apps:
         team.inject_web_apps = inject_web_apps
         team.save(update_fields=["inject_web_apps"])

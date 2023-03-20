@@ -7,6 +7,7 @@ from django.test.client import Client
 from rest_framework import status
 
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
+from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.personal_api_key import hash_key_value
@@ -145,6 +146,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["capturePerformance"], False)
 
         self._update_team({"capture_performance_opt_in": True})
+
+        response = self._post_decide().json()
+        # Not enabled as we don't have the correct available feature
+        self.assertEqual(response["capturePerformance"], False)
+
+        self.organization.available_features = [AvailableFeature.RECORDINGS_PERFORMANCE]
+        self.organization.save()
 
         response = self._post_decide().json()
         self.assertEqual(response["capturePerformance"], True)
