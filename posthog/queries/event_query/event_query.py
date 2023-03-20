@@ -106,7 +106,7 @@ class EventQuery(metaclass=ABCMeta):
     def _determine_should_join_distinct_ids(self) -> None:
         pass
 
-    def _get_distinct_id_query(self) -> str:
+    def _get_person_ids_query(self) -> str:
         if self._should_join_distinct_ids:
             return f"""
             INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
