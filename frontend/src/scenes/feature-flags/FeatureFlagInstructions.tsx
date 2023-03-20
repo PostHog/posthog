@@ -193,6 +193,7 @@ export function CodeInstructions({
                             <LemonCheckbox
                                 label="Show payload option"
                                 onChange={() => setShowPayloadCode(!showPayloadCode)}
+                                data-attr="flags-code-example-payloads-option"
                                 checked={showPayloadCode}
                                 disabled={
                                     !PAYLOAD_OPTIONS.map((payloadOption) => payloadOption.value).includes(
@@ -216,6 +217,7 @@ export function CodeInstructions({
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
                                     label="Show bootstrap option"
+                                    data-attr="flags-code-example-bootstrap-option"
                                     checked={showBootstrapCode}
                                     onChange={() => setShowBootstrapCode(!showBootstrapCode)}
                                     disabled={
@@ -234,6 +236,7 @@ export function CodeInstructions({
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
                                     label="Show local evaluation option"
+                                    data-attr="flags-code-example-local-eval-option"
                                     checked={showLocalEvalCode}
                                     onChange={() => setShowLocalEvalCode(!showLocalEvalCode)}
                                     disabled={
