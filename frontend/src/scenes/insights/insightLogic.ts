@@ -120,7 +120,6 @@ export const insightLogic = kea<insightLogicType>([
     }),
 
     actions({
-        resetNewInsight: true,
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
         setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
@@ -441,17 +440,6 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         insight: {
-            resetNewInsight: (state) => {
-                if (props.dashboardItemId !== 'new') {
-                    return state
-                }
-                return {
-                    ...state,
-                    filters: {},
-                    query: undefined,
-                    results: null,
-                }
-            },
             loadInsight: (state, { shortId }) =>
                 shortId === state.short_id
                     ? state
