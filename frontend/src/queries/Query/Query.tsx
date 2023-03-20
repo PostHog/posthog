@@ -15,6 +15,8 @@ import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyIns
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
@@ -71,7 +73,24 @@ export function Query(props: QueryProps): JSX.Element {
     }
 
     if (component) {
-        return <ErrorBoundary>{component}</ErrorBoundary>
+        return (
+            <ErrorBoundary>
+                <>
+                    {!!props.context?.showQueryEditor ? (
+                        <>
+                            <QueryEditor
+                                query={JSON.stringify(query)}
+                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery))}
+                            />
+                            <div className="my-4">
+                                <LemonDivider />
+                            </div>
+                        </>
+                    ) : null}
+                    {component}
+                </>
+            </ErrorBoundary>
+        )
     }
 
     return (
