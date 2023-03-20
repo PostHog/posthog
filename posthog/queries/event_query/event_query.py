@@ -27,6 +27,7 @@ class EventQuery(metaclass=ABCMeta):
     PERSON_TABLE_ALIAS = "person"
     SESSION_TABLE_ALIAS = "sessions"
     EVENT_TABLE_ALIAS = "e"
+    PERSON_ID_OVERRIDES_TABLE_ALIAS = "overrides"
 
     _filter: Union[
         Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter, PropertiesTimelineFilter
@@ -40,6 +41,7 @@ class EventQuery(metaclass=ABCMeta):
     _extra_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
     _extra_person_fields: List[ColumnName]
+    _person_id_alias: str
 
     def __init__(
         self,
@@ -88,6 +90,13 @@ class EventQuery(metaclass=ABCMeta):
             self._determine_should_join_sessions()
 
         self._should_round_interval = round_interval
+
+        if person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
+        elif person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+            self._person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
+        else:
+            self._person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
 
     @abstractmethod
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
