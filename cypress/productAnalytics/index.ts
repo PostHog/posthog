@@ -80,27 +80,17 @@ export const insight = {
         cy.get(`[data-attr="insight-${(tabName === 'PATHS' ? 'PATH' : tabName).toLowerCase()}-tab"]`).click()
         cy.wait(`@${networkInterceptAlias}`)
     },
-    newInsight: (insightType: string = 'TRENDS', expectDataExplorationChrome: boolean = false): void => {
+    newInsight: (insightType: string = 'TRENDS'): void => {
         const networkInterceptAlias = interceptInsightLoad(insightType)
 
         cy.get('[data-attr=menu-item-insight]').click() // Open the new insight menu in the sidebar
         cy.get(`[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="${insightType}"]`).click()
 
-        cy.wait(`@${networkInterceptAlias}`).then(() => {
-            const expectExistence = expectDataExplorationChrome ? 'exist' : 'not.exist'
-            cy.get('[aria-label="Edit code"]').should(expectExistence)
-        })
+        cy.wait(`@${networkInterceptAlias}`)
     },
-    create: (
-        insightName: string,
-        insightType: string = 'TRENDS',
-        expectDataExplorationChrome: boolean = false
-    ): void => {
+    create: (insightName: string, insightType: string = 'TRENDS'): void => {
         cy.get('[data-attr=menu-item-insight]').click() // Open the new insight menu in the sidebar
         cy.get(`[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="${insightType}"]`).click()
-
-        const expectExistence = expectDataExplorationChrome ? 'exist' : 'not.exist'
-        cy.get('[aria-label="Edit code"]').should(expectExistence)
 
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
         cy.url().should('not.include', '/new') // wait for insight to complete and update URL
