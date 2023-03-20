@@ -193,6 +193,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
         loadData: async ({ queryId }, breakpoint) => {
+            if (!values.isUsingDataExploration) {
+                return
+            }
+
             actions.setTimedOutQueryId(null)
 
             await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
