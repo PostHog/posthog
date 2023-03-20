@@ -69,7 +69,7 @@ export function isActionsNode(node?: Node | null): node is ActionsNode {
     return node?.kind === NodeKind.ActionsNode
 }
 
-export function isNewEntityNode(node?: Node | null): node is NewEntityNode {
+export function isNewEntityNode(node?: Node): node is NewEntityNode {
     return node?.kind === NodeKind.NewEntityNode
 }
 
