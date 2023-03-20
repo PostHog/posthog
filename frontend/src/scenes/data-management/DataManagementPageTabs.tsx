@@ -114,7 +114,10 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                 <Tabs.TabPane
                     tab={
                         <span data-attr="data-management-database-tab">
-                            Database <LemonTag type="warning">BETA</LemonTag>
+                            Database
+                            <LemonTag type="warning" className="uppercase ml-2">
+                                Beta
+                            </LemonTag>
                         </span>
                     }
                     key={DataManagementTab.Database}
