@@ -11,13 +11,7 @@
 
 -c requirements.txt
 
-flake8==5.0.4
-flake8-bugbear==22.8.23
-flake8-colors==0.1.9
-flake8-comprehensions==3.10.0
-flake8-import-order==0.18.1
-flake8-logging-format==0.7.5
-flake8-print==5.0.0
+ruff>=0.0.257
 pip-tools==6.6.2
 mypy==0.981
 mypy-extensions==0.4.3

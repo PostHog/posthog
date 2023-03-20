@@ -272,7 +272,7 @@
         ],
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "black",
-            "flake8",
+            "ruff",
             "isort"
         ],
         "*.png": [
