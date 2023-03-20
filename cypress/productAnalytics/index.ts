@@ -36,6 +36,7 @@ function interceptInsightLoad(insightType: string): string {
         case 'RETENTION':
             networkInterceptAlias = 'loadNewRetentionInsight'
             break
+        case 'PATH':
         case 'PATHS':
             networkInterceptAlias = 'loadNewPathsInsight'
             break
@@ -43,6 +44,10 @@ function interceptInsightLoad(insightType: string): string {
         case 'JSON':
             networkInterceptAlias = 'loadNewQueryInsight'
             break
+    }
+
+    if (networkInterceptAlias === '') {
+        throw new Error('Unknown insight type: ' + insightType)
     }
 
     return networkInterceptAlias
