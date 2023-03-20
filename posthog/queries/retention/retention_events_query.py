@@ -128,7 +128,7 @@ class RetentionEventsQuery(EventQuery):
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups,
             person_properties_mode=get_person_properties_mode(self._team),
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=self._person_id_alias,
         )
 
         self.params.update(prop_params)
@@ -191,9 +191,13 @@ class RetentionEventsQuery(EventQuery):
             return f"{self._trunc_func}(toTimeZone(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp, 'UTC'), %(timezone)s)) AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if (
+        non_person_id_aggregation = (
             self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id
-        ) and not self._column_optimizer.is_using_cohort_propertes:
+        )
+        is_using_cohort_propertes = self._column_optimizer.is_using_cohort_propertes
+        if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED or (
+            non_person_id_aggregation and not is_using_cohort_propertes
+        ):
             self._should_join_distinct_ids = False
         else:
             self._should_join_distinct_ids = True
@@ -201,7 +205,6 @@ class RetentionEventsQuery(EventQuery):
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
         if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
-            self._should_join_distinct_ids = False
             self._should_join_persons = False
 
     def _get_entity_query(self, entity: Entity):
@@ -214,7 +217,7 @@ class RetentionEventsQuery(EventQuery):
                 prepend=prepend,
                 use_loop=False,
                 person_properties_mode=get_person_properties_mode(self._team),
-                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
+                person_id_joined_alias=self._person_id_alias,
                 hogql_context=self._filter.hogql_context,
             )
             condition = action_query

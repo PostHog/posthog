@@ -107,13 +107,21 @@ class EventQuery(metaclass=ABCMeta):
         pass
 
     def _get_person_ids_query(self) -> str:
-        if self._should_join_distinct_ids:
-            return f"""
+        if not self._should_join_distinct_ids:
+            return ""
+
+        if self._person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            return f"""LEFT OUTER JOIN (
+                SELECT override_person_id as person_id, old_person_id
+                FROM person_overrides
+                WHERE team_id = %(team_id)s
+            ) AS {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}
+            ON {self.EVENT_TABLE_ALIAS}.person_id = {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.old_person_id"""
+
+        return f"""
             INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
-            """
-        else:
-            return ""
+        """
 
     def _determine_should_join_persons(self) -> None:
         if self._person_query.is_used:
