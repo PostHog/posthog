@@ -38,7 +38,10 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
     }, [monaco])
 
     return (
-        <div className={clsx('flex flex-col p-2 bg-border space-y-2 resize-y overflow-auto h-80', props.className)}>
+        <div
+            data-attr="query-editor"
+            className={clsx('flex flex-col p-2 bg-border space-y-2 resize-y overflow-auto h-80', props.className)}
+        >
             <div className="flex-1">
                 <AutoSizer disableWidth>
                     {({ height }) => (

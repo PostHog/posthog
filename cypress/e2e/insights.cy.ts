@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
-import { savedInsights, createInsight } from '../productAnalytics'
+import { savedInsights, createInsight, insight } from '../productAnalytics'
 
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
@@ -79,7 +79,7 @@ describe('Insights', () => {
 
     describe('unsaved insights confirmation', () => {
         it('can move away from an unchanged new insight without confirm()', () => {
-            cy.get('[data-attr="menu-item-insight"]').click()
+            insight.newInsight()
             cy.log('Navigate away')
             cy.get('[data-attr="menu-item-featureflags"]').click()
             cy.log('We should be on the Feature Flags page now')
@@ -87,7 +87,7 @@ describe('Insights', () => {
         })
 
         it('Can navigate away from unchanged saved insight without confirm()', () => {
-            cy.get('[data-attr="menu-item-insight"]').click()
+            insight.newInsight()
             cy.log('Add series')
             cy.get('[data-attr=add-action-event-button]').click()
             cy.log('Save')
@@ -104,7 +104,7 @@ describe('Insights', () => {
                 return false
             })
 
-            cy.get('[data-attr="menu-item-insight"]').click()
+            insight.newInsight()
             cy.log('Add series')
             cy.get('[data-attr=add-action-event-button]').click()
             cy.log('Navigate away')
@@ -117,7 +117,7 @@ describe('Insights', () => {
             cy.on('window:confirm', () => {
                 return true
             })
-            cy.get('[data-attr="menu-item-insight"]').click()
+            insight.newInsight()
             cy.log('Add series')
             cy.get('[data-attr=add-action-event-button]').click()
             cy.log('Navigate away')
@@ -155,6 +155,7 @@ describe('Insights', () => {
         cy.reload()
 
         cy.clickNavMenu('insight')
+        cy.get('[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="TRENDS"]').click()
         cy.get('[data-attr=trend-element-subject-0] span').should('contain', 'Pageview')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.contains('Add graph series').click()

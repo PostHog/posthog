@@ -11,10 +11,11 @@ export interface NavbarButtonProps {
     title?: string
     onClick?: () => void
     to?: string
+    persistentTooltip?: boolean
 }
 
 export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardRef<HTMLElement, NavbarButtonProps>(
-    ({ identifier, title, onClick, ...buttonProps }, ref): JSX.Element => {
+    ({ identifier, title, onClick, persistentTooltip, ...buttonProps }, ref): JSX.Element => {
         const { aliasedActiveScene } = useValues(sceneLogic)
 
         const [hasBeenClicked, setHasBeenClicked] = useState(false)
@@ -28,11 +29,10 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                     title={effectiveTitle}
                     placement="right"
                     delayMs={0}
-                    visible={hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
+                    visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
                 >
                     <LemonButton
                         ref={ref}
-                        status="3000"
                         active={isActive}
                         data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
                         onMouseEnter={() => setHasBeenClicked(false)}

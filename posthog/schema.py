@@ -90,6 +90,14 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
+class DatabaseSchemaQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("DatabaseSchemaQuery", const=True)
+    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
+
+
 class DateRange(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -260,7 +268,7 @@ class InsightType(str, Enum):
     FUNNELS = "FUNNELS"
     RETENTION = "RETENTION"
     PATHS = "PATHS"
-    QUERY = "QUERY"
+    JSON = "JSON"
     SQL = "SQL"
 
 
@@ -1597,6 +1605,7 @@ class Model(BaseModel):
         LifecycleQuery,
         RecentPerformancePageViewNode,
         TimeToSeeDataSessionsQuery,
+        DatabaseSchemaQuery,
         Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery],
     ]
 

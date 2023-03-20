@@ -4,9 +4,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { FunnelsCue } from '../views/Trends/FunnelsCue'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
+import { insightTypeURL } from 'scenes/insights/utils'
 
 export function InsightsNav(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -22,7 +22,7 @@ export function InsightsNav(): JSX.Element {
                 tabs={tabs.map(({ label, type, dataAttr }) => ({
                     key: type,
                     label: (
-                        <Link to={urls.insightNew({ insight: type })} preventClick data-attr={dataAttr}>
+                        <Link to={insightTypeURL[type]} preventClick data-attr={dataAttr}>
                             <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[type].description}>
                                 {label}
                             </Tooltip>

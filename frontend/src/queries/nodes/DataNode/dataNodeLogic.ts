@@ -24,7 +24,6 @@ import clsx from 'clsx'
 import api, { ApiMethodOptions } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -41,7 +40,7 @@ const AUTOLOAD_INTERVAL = 30000
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
     connect({
-        values: [featureFlagsLogic, ['featureFlags'], userLogic, ['user'], teamLogic, ['currentTeamId']],
+        values: [userLogic, ['user'], teamLogic, ['currentTeamId']],
     }),
     props({} as DataNodeLogicProps),
     key((props) => props.key),
@@ -49,11 +48,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (!objectsEqual(props.query, oldProps.query) && !props.cachedResults) {
+        if (props.query?.kind && !objectsEqual(props.query, oldProps.query) && !props.cachedResults) {
             actions.loadData()
         }
     }),
     actions({
+        loadData: (refresh = false) => ({ refresh, queryId: uuid() }),
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
@@ -69,7 +69,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             props.cachedResults ?? null,
             {
                 clearResponse: () => null,
-                loadData: async (refresh: boolean = false, breakpoint) => {
+                loadData: async ({ refresh, queryId }, breakpoint) => {
                     if (props.cachedResults) {
                         return props.cachedResults
                     }
@@ -89,7 +89,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
                     }
-                    const queryId = uuid()
                     const now = performance.now()
                     try {
                         const data = (await query<DataNode>(props.query, methodOptions, refresh, queryId)) ?? null
@@ -102,6 +101,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             actions.abortQuery({ queryId })
                         }
                         breakpoint()
+                        e.queryId = queryId
                         throw e
                     }
                 },

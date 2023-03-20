@@ -1,13 +1,13 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { QueryRunner } from '~/queries/QueryRunner/QueryRunner'
 import { examples } from '~/queries/examples'
 import { mswDecorator } from '~/mocks/browser'
 import events from './__mocks__/EventsNode.json'
 import persons from './__mocks__/PersonsNode.json'
+import { Query } from '~/queries/Query/Query'
 
 export default {
     title: 'Queries/DataNode',
-    component: QueryRunner,
+    component: Query,
     parameters: {
         layout: 'fullscreen',
         options: { showPanel: false },
@@ -25,9 +25,9 @@ export default {
             },
         }),
     ],
-} as ComponentMeta<typeof QueryRunner>
+} as ComponentMeta<typeof Query>
 
-const QueryTemplate: ComponentStory<typeof QueryRunner> = QueryRunner
+const QueryTemplate: ComponentStory<typeof Query> = (args) => <Query {...args} context={{ showQueryEditor: true }} />
 
 export const Events = QueryTemplate.bind({})
 Events.args = { query: examples['Events'] }

@@ -43,9 +43,9 @@ from posthog.models.property import (
     PropertyName,
 )
 from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.session_query import SessionQuery
+from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import is_json, is_valid_regex
 
 # Property Groups Example:
@@ -769,33 +769,34 @@ def build_selector_regex(selector: Selector) -> str:
     return regex
 
 
+class HogQLPropertyChecker(TraversingVisitor):
+    def __init__(self):
+        self.event_properties: List[str] = []
+        self.person_properties: List[str] = []
+
+    def visit_field(self, node: ast.Field):
+        if len(node.chain) > 1 and node.chain[0] == "properties":
+            self.event_properties.append(node.chain[1])
+
+        if len(node.chain) > 2 and node.chain[0] == "person" and node.chain[1] == "properties":
+            self.person_properties.append(node.chain[2])
+
+        if (
+            len(node.chain) > 3
+            and node.chain[0] == "pdi"
+            and node.chain[1] == "person"
+            and node.chain[2] == "properties"
+        ):
+            self.person_properties.append(node.chain[3])
+
+
 def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:
     counters: List[tuple] = []
-
-    class PropertyChecker(TraversingVisitor):
-        def __init__(self):
-            self.event_properties: List[str] = []
-            self.person_properties: List[str] = []
-
-        def visit_field(self, node: ast.Field):
-            if len(node.chain) > 1 and node.chain[0] == "properties":
-                self.event_properties.append(node.chain[1])
-
-            if len(node.chain) > 2 and node.chain[0] == "person" and node.chain[1] == "properties":
-                self.person_properties.append(node.chain[2])
-
-            if (
-                len(node.chain) > 3
-                and node.chain[0] == "pdi"
-                and node.chain[1] == "person"
-                and node.chain[2] == "properties"
-            ):
-                self.person_properties.append(node.chain[3])
 
     for prop in props:
         if prop.type == "hogql":
             node = parse_expr(prop.key)
-            property_checker = PropertyChecker()
+            property_checker = HogQLPropertyChecker()
             property_checker.visit(node)
             for field in property_checker.event_properties:
                 counters.append((field, "event", None))

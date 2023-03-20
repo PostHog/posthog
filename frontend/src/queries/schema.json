@@ -1361,6 +1361,21 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "DatabaseSchemaQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "DatabaseSchemaQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "DateRange": {
             "additionalProperties": false,
             "properties": {
@@ -2089,7 +2104,7 @@
             ]
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "QUERY", "SQL"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -2590,6 +2605,9 @@
                 },
                 {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaQuery"
                 }
             ]
         },

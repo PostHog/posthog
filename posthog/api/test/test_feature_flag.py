@@ -2678,12 +2678,14 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         # now db is down
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
-            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 
-            self.assertTrue("group-flag" not in all_flags)
-            # can't be true unless we cache group type mappings as well
-            self.assertTrue("default-flag" not in all_flags)
-            self.assertTrue(errors)
+            with self.assertNumQueries(1):
+                all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
+
+                self.assertTrue("group-flag" not in all_flags)
+                # can't be true unless we cache group type mappings as well
+                self.assertTrue("default-flag" not in all_flags)
+                self.assertTrue(errors)
 
             # # now db is down, but decide was sent correct group property overrides
             with self.assertNumQueries(1):
@@ -2873,6 +2875,79 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
 
+    def test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again(self):
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
+
+        team_id = self.team.pk
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+
+        FeatureFlag.objects.create(
+            name="Alpha feature",
+            key="property-flag",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "value": "tim@posthog.com", "type": "person", "operator": "exact"}
+                        ],
+                        "rollout_percentage": None,
+                    }
+                ]
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        FeatureFlag.objects.create(
+            name="Alpha feature",
+            key="property-flag2",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "value": "tim@posthog.com", "type": "person", "operator": "exact"}
+                        ],
+                        "rollout_percentage": None,
+                    }
+                ]
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            name="Alpha feature",
+            key="default-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(2):
+            # 1 query to get person properties
+            # 1 query to set statement timeout
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+
+            self.assertTrue(all_flags["property-flag"])
+            self.assertTrue(all_flags["default-flag"])
+            self.assertFalse(errors)
+
+        # now db is slow and times out
+        with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
+            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS", 500
+        ), self.assertNumQueries(2):
+            # no extra queries to get person properties for the second flag after first one failed
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+
+            self.assertTrue("property-flag" not in all_flags)
+            self.assertTrue("property-flag2" not in all_flags)
+            self.assertTrue(all_flags["default-flag"])
+            self.assertTrue(errors)
+
     def test_feature_flags_v3_with_group_properties_and_slow_db(self):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
@@ -2935,12 +3010,14 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
             "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS", 500
         ):
-            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 
-            self.assertTrue("group-flag" not in all_flags)
-            # can't be true unless we cache group type mappings as well
-            self.assertTrue("default-flag" not in all_flags)
-            self.assertTrue(errors)
+            with self.assertNumQueries(2):
+                all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
+
+                self.assertTrue("group-flag" not in all_flags)
+                # can't be true unless we cache group type mappings as well
+                self.assertTrue("default-flag" not in all_flags)
+                self.assertTrue(errors)
 
             # # now db is slow, but decide was sent correct group property overrides
             with self.assertNumQueries(2):
