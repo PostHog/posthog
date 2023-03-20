@@ -49,10 +49,10 @@ def prepare_ast_for_printing(
     context.database = context.database or create_hogql_database(context.team_id)
     node = expand_macros(node, stack)
     resolve_refs(node, context.database, ref)
-    node = resolve_property_types(node, context)
     expand_asterisks(node)
     if dialect == "clickhouse":
         # This makes printed "hogql" nicer.
+        node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
