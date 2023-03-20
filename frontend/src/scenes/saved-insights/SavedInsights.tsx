@@ -108,7 +108,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
     [InsightType.SQL]: {
         name: 'SQL',
-        description: 'Use SQL to query your data',
+        description: 'Use PostHog SQL to query your data',
         icon: InsightSQLIcon,
         inMenu: true,
     },

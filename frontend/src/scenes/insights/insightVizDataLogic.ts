@@ -186,10 +186,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
             if (isInsightVizNode(query)) {
                 const querySource = query.source
-                if (isLifecycleQuery(querySource)) {
-                    const filters = queryNodeToFilter(querySource)
-                    actions.setFilters(filters)
-                }
+                const filters = queryNodeToFilter(querySource)
+                actions.setFilters(filters)
             }
         },
         loadData: async ({ queryId }, breakpoint) => {

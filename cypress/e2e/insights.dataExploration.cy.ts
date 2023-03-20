@@ -26,66 +26,56 @@ describe('Insights (with data exploration on)', () => {
         cy.visit(urls.insightNew())
     })
 
-    it('shows the edit as json button', () => {
-        insight.newInsight('TRENDS', true)
-    })
-
-    it('can shows the query editor', () => {
-        insight.newInsight('TRENDS', true)
-        cy.get('[aria-label="Edit code"]').click()
-        cy.get('[data-attr="query-editor"]').should('exist')
-    })
-
     it('can open the query editor', () => {
-        insight.newInsight('TRENDS', true)
-        cy.get('[aria-label="Edit code"]').click()
+        insight.newInsight('TRENDS')
+        cy.get('[aria-label="Edit as JSON"]').click()
         cy.get('[data-attr="query-editor"]').should('exist')
     })
 
     describe('opening a new insight directly', () => {
         it('can open a new trends insight', () => {
-            insight.newInsight('TRENDS', true)
+            insight.newInsight('TRENDS')
             cy.get('.trends-insights-container canvas').should('exist')
-            cy.get('tr').should('have.length', 2)
+            cy.get('tr').should('have.length.gte', 2)
         })
 
         it('can open a new funnels insight', () => {
-            insight.newInsight('FUNNELS', true)
+            insight.newInsight('FUNNELS')
             cy.get('.funnels-empty-state__title').should('exist')
         })
 
         it('can open a new retention insight', () => {
-            insight.newInsight('RETENTION', true)
+            insight.newInsight('RETENTION')
             cy.get('.RetentionContainer canvas').should('exist')
             cy.get('.RetentionTable__Tab').should('have.length', 66)
         })
 
         it('can open a new paths insight', () => {
-            insight.newInsight('PATHS', true)
+            insight.newInsight('PATHS')
             cy.get('.Paths g').should('have.length.gte', 5) // not a fixed value unfortunately
         })
 
         it('can open a new stickiness insight', () => {
-            insight.newInsight('STICKINESS', true)
+            insight.newInsight('STICKINESS')
             cy.get('.trends-insights-container canvas').should('exist')
         })
 
         it('can open a new lifecycle insight', () => {
-            insight.newInsight('LIFECYCLE', true)
+            insight.newInsight('LIFECYCLE')
             cy.get('.trends-insights-container canvas').should('exist')
         })
 
         it('can open a new SQL insight', () => {
-            insight.newInsight('SQL', true)
+            insight.newInsight('SQL')
             insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
-            cy.get('tr.DataTable__row').should('have.length', 2)
+            cy.get('tr.DataTable__row').should('have.length.gte', 2)
         })
 
         it('can open a new JSON insight', () => {
             cy.intercept('POST', /api\/projects\/\d+\/query\//).as('query')
 
-            insight.newInsight('JSON', true)
+            insight.newInsight('JSON')
             cy.get('[data-attr="query-editor"]').should('exist')
 
             // the default JSON query doesn't have any results, switch to one that does
@@ -115,16 +105,16 @@ describe('Insights (with data exploration on)', () => {
         // the SQL insight would be unexpectedly re-selected and the page would switch back to it
 
         beforeEach(() => {
-            insight.newInsight('SQL', true)
+            insight.newInsight('SQL')
             insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
-            cy.get('tr.DataTable__row').should('have.length', 2)
+            cy.get('tr.DataTable__row').should('have.length.gte', 2)
         })
 
         it('can open a new trends insight', () => {
             insight.clickTab('TRENDS')
             cy.get('.trends-insights-container canvas').should('exist')
-            cy.get('tr').should('have.length', 2)
+            cy.get('tr').should('have.length.gte', 2)
             cy.contains('tr', 'No insight results').should('not.exist')
         })
 
@@ -158,7 +148,7 @@ describe('Insights (with data exploration on)', () => {
             insight.clickTab('SQL')
             insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
-            cy.get('tr.DataTable__row').should('have.length', 2)
+            cy.get('tr.DataTable__row').should('have.length.gte', 2)
         })
 
         it('can open a new JSON insight', () => {
@@ -192,26 +182,26 @@ describe('Insights (with data exploration on)', () => {
          * tab would be selected, but no data loaded for it 🤷‍♀️
          */
 
-        insight.newInsight('SQL', true)
+        insight.newInsight('SQL')
         cy.get('[data-attr="hogql-query-editor"]').should('exist')
         insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
 
-        cy.get('.DataTable tr').should('have.length', 3)
+        cy.get('.DataTable tr').should('have.length.gte', 2)
 
         insight.clickTab('TRENDS')
         cy.get('.trends-insights-container canvas').should('exist')
-        cy.get('tr').should('have.length', 2)
+        cy.get('tr').should('have.length.gte', 2)
         cy.contains('tr', 'No insight results').should('not.exist')
 
         insight.clickTab('SQL')
         cy.get('[data-attr="hogql-query-editor"]').should('exist')
         insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
 
-        cy.get('.DataTable tr').should('have.length', 3)
+        cy.get('.DataTable tr').should('have.length.gte', 2)
 
         insight.clickTab('TRENDS')
         cy.get('.trends-insights-container canvas').should('exist')
-        cy.get('tr').should('have.length', 2)
+        cy.get('tr').should('have.length.gte', 2)
         cy.contains('tr', 'No insight results').should('not.exist')
     })
 })

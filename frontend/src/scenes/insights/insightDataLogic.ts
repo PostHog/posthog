@@ -45,7 +45,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['featureFlags'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['response as insightData', 'dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
+            ['dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
         ],
         actions: [
             insightLogic,
@@ -59,6 +59,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     actions({
         setQuery: (query: Node) => ({ query }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        toggleQueryEditorPanel: true,
     }),
 
     reducers(({ props }) => ({
@@ -66,6 +67,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             defaultQuery(props) as Node | null,
             {
                 setQuery: (_, { query }) => query,
+            },
+        ],
+        showQueryEditor: [
+            false,
+            {
+                toggleQueryEditorPanel: (state) => !state,
             },
         ],
     })),
