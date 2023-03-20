@@ -9,8 +9,10 @@ from posthog.hogql.database import Table, create_hogql_database
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_refs
 from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
+from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
+from posthog.utils import PersonOnEventsMode
 
 
 def team_id_guard_for_table(table_ref: Union[ast.TableRef, ast.TableAliasRef], context: HogQLContext) -> ast.Expr:
@@ -40,6 +42,7 @@ def print_ast(
 
     # modify the cloned tree as needed
     if dialect == "clickhouse":
+        node = resolve_property_types(node, context)
         expand_asterisks(node)
         resolve_lazy_tables(node, stack, context)
 
@@ -400,7 +403,7 @@ class _Printer(Visitor):
                 and ref.name == "properties"
                 and ref.table.field == "poe"
             ):
-                if self.context.using_person_on_events:
+                if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -421,7 +424,7 @@ class _Printer(Visitor):
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.using_person_on_events:
+                if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -467,7 +470,7 @@ class _Printer(Visitor):
             or (isinstance(table, ast.VirtualTableRef) and table.field == "poe")
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-            if self.context.using_person_on_events:
+            if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
                 materialized_column = self._get_materialized_column("events", ref.name, "person_properties")
             else:
                 materialized_column = self._get_materialized_column("person", ref.name, "properties")

@@ -1365,6 +1365,21 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "DatabaseSchemaQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "DatabaseSchemaQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "DateRange": {
             "additionalProperties": false,
             "properties": {
@@ -2594,6 +2609,9 @@
                 },
                 {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaQuery"
                 }
             ]
         },

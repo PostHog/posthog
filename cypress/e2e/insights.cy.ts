@@ -80,6 +80,7 @@ describe('Insights', () => {
     describe('unsaved insights confirmation', () => {
         it('can move away from an unchanged new insight without confirm()', () => {
             cy.get('[data-attr="menu-item-insight"]').click()
+            cy.get('[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="TRENDS"]').click()
             cy.log('Navigate away')
             cy.get('[data-attr="menu-item-featureflags"]').click()
             cy.log('We should be on the Feature Flags page now')
@@ -88,6 +89,7 @@ describe('Insights', () => {
 
         it('Can navigate away from unchanged saved insight without confirm()', () => {
             cy.get('[data-attr="menu-item-insight"]').click()
+            cy.get('[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="TRENDS"]').click()
             cy.log('Add series')
             cy.get('[data-attr=add-action-event-button]').click()
             cy.log('Save')
@@ -105,6 +107,7 @@ describe('Insights', () => {
             })
 
             cy.get('[data-attr="menu-item-insight"]').click()
+            cy.get('[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="TRENDS"]').click()
             cy.log('Add series')
             cy.get('[data-attr=add-action-event-button]').click()
             cy.log('Navigate away')
@@ -118,6 +121,7 @@ describe('Insights', () => {
                 return true
             })
             cy.get('[data-attr="menu-item-insight"]').click()
+            cy.get('[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="TRENDS"]').click()
             cy.log('Add series')
             cy.get('[data-attr=add-action-event-button]').click()
             cy.log('Navigate away')
