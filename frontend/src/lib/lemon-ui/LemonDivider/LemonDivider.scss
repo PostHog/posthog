@@ -1,15 +1,14 @@
 .LemonDivider {
     width: 100%;
     height: 1px;
-    opacity: 0.17;
-    background: currentColor;
+    background: var(--border);
     flex-shrink: 0;
 
     &--dashed {
         background: repeating-linear-gradient(
             to right,
-            currentColor,
-            currentColor 4px,
+            var(--border),
+            var(--border) 4px,
             transparent 4px,
             transparent 8px
         );
@@ -31,8 +30,8 @@
         &.LemonDivider--dashed {
             background: repeating-linear-gradient(
                 to bottom,
-                currentColor,
-                currentColor 4px,
+                var(--border),
+                var(--border) 4px,
                 transparent 4px,
                 transparent 8px
             );

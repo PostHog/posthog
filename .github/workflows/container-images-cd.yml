@@ -118,15 +118,19 @@ jobs:
                   build-args: |
                       BASE_IMAGE=posthog/posthog:latest
 
+            - name: get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@v2
+              with:
+                  app_id: ${{ secrets.DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
+
             - name: Trigger PostHog Cloud deployment
               # TODO: switch to https://github.com/marketplace/actions/repository-dispatch
               # as this action is now deprecated.
               uses: mvasigh/dispatch-action@main
               with:
-                  # TODO: find a way to avoid using a personal access token. An
-                  # option: push something to SQS (using WebIdentity) -> lambda
-                  # function to trigger the workflow via webhook
-                  token: ${{ secrets.POSTHOG_CLOUD_ACCESS_TOKEN }}
+                  token: ${{ steps.deployer.outputs.token }}
                   repo: posthog-cloud-infra
                   owner: PostHog
                   event_type: posthog_cloud_build

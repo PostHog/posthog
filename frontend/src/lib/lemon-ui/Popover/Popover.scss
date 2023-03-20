@@ -25,7 +25,7 @@
     transition: opacity 100ms ease, transform 100ms ease;
     transform-origin: top;
     box-shadow: var(--shadow-elevation);
-    background: #fff;
+    background: var(--bg-light);
     padding: 0.5rem;
     border-radius: var(--radius);
     border: 1px solid var(--border);
@@ -74,6 +74,14 @@
 
     .Popover--max-content-width & {
         width: max-content;
+    }
+
+    .posthog-3000 & {
+        background: var(--bg-3000);
+        padding: 0.25rem;
+    }
+    .posthog-3000 .Popover--actionable & {
+        border-color: var(--border);
     }
 }
 

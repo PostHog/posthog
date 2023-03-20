@@ -96,7 +96,7 @@ export enum Region {
     EU = 'EU',
 }
 
-export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
@@ -197,7 +197,7 @@ export interface OrganizationDomainType {
     verified_at: string // Datetime
     verification_challenge: string
     jit_provisioning_enabled: boolean
-    sso_enforcement: SSOProviders | ''
+    sso_enforcement: SSOProvider | ''
     has_saml: boolean
     saml_entity_id: string
     saml_acs_url: string
@@ -293,6 +293,7 @@ export interface TeamType extends TeamBasicType {
     app_urls: string[]
     recording_domains: string[]
     slack_incoming_webhook: string
+    autocapture_opt_out: boolean
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
@@ -1036,23 +1037,6 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export interface BillingType {
-    should_setup_billing: boolean
-    is_billing_active: boolean
-    plan: PlanInterface | null
-    billing_period_ends: string | null
-    event_allocation: number | null
-    current_usage: number | null
-    subscription_url: string
-    current_bill_amount: number | null
-    current_bill_usage: number | null
-    should_display_current_bill: boolean
-    billing_limit: number | null
-    billing_limit_exceeded: boolean | null
-    current_bill_cycle: CurrentBillCycleType | null
-    tiers: BillingTierType[] | null
-}
-
 export type BillingVersion = 'v1' | 'v2'
 
 export interface BillingV2FeatureType {
@@ -1110,6 +1094,7 @@ export interface BillingV2Type {
     billing_period?: {
         current_period_start: Dayjs
         current_period_end: Dayjs
+        interval: 'month' | 'year'
     }
     license?: {
         plan: LicensePlan
@@ -1125,14 +1110,6 @@ export interface BillingV2PlanType {
     description: string
     is_free?: boolean
     products: BillingProductV2Type[]
-}
-
-export interface BillingTierType {
-    name: string
-    price_per_event: number
-    number_of_events: number
-    subtotal: number
-    running_total: number
 }
 
 export interface PlanInterface {
@@ -1257,6 +1234,7 @@ export interface DashboardTemplateType {
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
+    scope?: 'team' | 'global'
 }
 
 export interface MonacoMarker {
@@ -1450,7 +1428,8 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
-    QUERY = 'QUERY',
+    JSON = 'JSON',
+    SQL = 'SQL',
 }
 
 export enum PathType {
@@ -1747,6 +1726,14 @@ export interface ActionFilter extends EntityFilter {
     properties?: AnyPropertyFilter[]
     type: EntityType
 }
+export interface TrendAPIResponse<ResultType = TrendResult[]> {
+    type: 'Trends'
+    is_cached: boolean
+    last_refresh: string | null
+    result: ResultType
+    timezone: string
+    next: string | null
+}
 
 export interface TrendResult {
     action: ActionFilter
@@ -1804,7 +1791,7 @@ export interface FunnelsTimeConversionBins {
 
 export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
 
-export interface FunnelResult<ResultType = FunnelResultType> {
+export interface FunnelAPIResponse<ResultType = FunnelResultType> {
     is_cached: boolean
     last_refresh: string | null
     result: ResultType
@@ -2071,7 +2058,7 @@ export enum DashboardMode { // Default mode is null
 }
 
 // Hotkeys for local (component) actions
-export type HotKeys =
+export type HotKey =
     | 'a'
     | 'b'
     | 'c'
@@ -2105,12 +2092,7 @@ export type HotKeys =
     | 'arrowdown'
     | 'arrowup'
 
-export interface LicenseType {
-    id: number
-    plan: LicensePlan
-    valid_until: string
-    created_at: string
-}
+export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export interface EventDefinition {
     id: string
@@ -2231,14 +2213,25 @@ interface BaseExperimentResults {
     variants: ExperimentVariant[]
 }
 
-export interface TrendsExperimentResults extends BaseExperimentResults {
+export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
 }
 
-export interface FunnelExperimentResults extends BaseExperimentResults {
+export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
+}
+
+export interface TrendsExperimentResults {
+    result: _TrendsExperimentResults
+    is_cached?: boolean
+    last_refresh?: string | null
+}
+export interface FunnelExperimentResults {
+    result: _FunnelExperimentResults
+    is_cached?: boolean
+    last_refresh?: string | null
 }
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults

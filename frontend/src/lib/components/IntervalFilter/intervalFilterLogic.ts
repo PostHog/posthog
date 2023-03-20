@@ -6,18 +6,18 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { BaseMathType, InsightLogicProps, IntervalType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { dayjs } from 'lib/dayjs'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { FunnelsQuery, InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export const intervalFilterLogic = kea<intervalFilterLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
     path: (key) => ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
-        actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['updateQuerySource']],
-        values: [insightLogic(props), ['filters'], insightDataLogic(props), ['querySource']],
+        actions: [insightLogic(props), ['setFilters'], insightVizDataLogic(props), ['updateQuerySource']],
+        values: [insightLogic(props), ['filters'], insightVizDataLogic(props), ['querySource']],
     }),
     actions: () => ({
         setInterval: (interval: IntervalKeyType) => ({ interval }),
@@ -37,7 +37,10 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                 actions.setFilters({ ...values.filters, interval })
             }
 
-            if ((values.querySource as FunnelsQuery | StickinessQuery | TrendsQuery).interval !== interval) {
+            if (
+                !values.querySource ||
+                (values.querySource as FunnelsQuery | StickinessQuery | TrendsQuery).interval !== interval
+            ) {
                 actions.updateQuerySource({ interval } as Partial<InsightQueryNode>)
             }
         },

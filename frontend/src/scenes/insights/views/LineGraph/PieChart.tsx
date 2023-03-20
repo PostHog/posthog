@@ -8,7 +8,8 @@ import {
     TooltipModel,
     ChartOptions,
     ChartDataset,
-} from 'chart.js'
+    Plugin,
+} from 'lib/Chart'
 import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty } from '~/lib/utils'
 import { GraphType } from '~/types'
@@ -20,7 +21,6 @@ import {
     onChartClick,
     onChartHover,
 } from 'scenes/insights/views/LineGraph/LineGraph'
-import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import ReactDOM from 'react-dom'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useActions, useValues } from 'kea'
@@ -29,8 +29,6 @@ import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-
-import './chartjsSetup'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 
 let timer: NodeJS.Timeout | null = null
@@ -94,7 +92,7 @@ export function PieChart({
         const onlyOneValue = processedDatasets?.[0]?.data?.length === 1
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: 'pie',
-            plugins: [ChartDataLabels],
+            plugins: [ChartDataLabels as Plugin<'pie'>],
             data: {
                 labels,
                 datasets: processedDatasets,
@@ -157,7 +155,7 @@ export function PieChart({
                     legend: {
                         display: false,
                     },
-                    crosshair: false as CrosshairOptions,
+                    crosshair: false,
                     tooltip: {
                         position: 'cursor',
                         enabled: false,

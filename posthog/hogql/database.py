@@ -48,6 +48,9 @@ class Table(BaseModel):
     def clickhouse_table(self):
         raise NotImplementedError("Table.clickhouse_table not overridden")
 
+    def hogql_table(self):
+        raise NotImplementedError("Table.hogql_table not overridden")
+
     def avoid_asterisk_fields(self) -> List[str]:
         return []
 
@@ -76,7 +79,7 @@ class LazyTable(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    join_function: Callable[[str, str, List[str]], Any]
+    join_function: Callable[[str, str, Dict[str, Any]], Any]
     table: Table
     from_field: str
 
@@ -101,6 +104,9 @@ class EventsPersonSubTable(VirtualTable):
     def clickhouse_table(self):
         return "events"
 
+    def hogql_table(self):
+        return "events"
+
 
 class PersonsTable(Table):
     id: StringDatabaseField = StringDatabaseField(name="id")
@@ -114,8 +120,11 @@ class PersonsTable(Table):
     def clickhouse_table(self):
         return "person"
 
+    def hogql_table(self):
+        return "persons"
 
-def join_with_persons_table(from_table: str, to_table: str, requested_fields: List[str]):
+
+def join_with_persons_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
     from posthog.hogql import ast
 
     if not requested_fields:
@@ -127,9 +136,9 @@ def join_with_persons_table(from_table: str, to_table: str, requested_fields: Li
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
         name="argMax", args=[field, ast.Field(chain=["version"])]
     )
-    for field in requested_fields:
+    for field, expr in requested_fields.items():
         if field != "id":
-            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(ast.Field(chain=[field]))))
+            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(expr)))
 
     id = ast.Field(chain=["id"])
 
@@ -169,12 +178,15 @@ class PersonDistinctIdTable(Table):
     def clickhouse_table(self):
         return "person_distinct_id2"
 
+    def hogql_table(self):
+        return "person_distinct_ids"
 
-def join_with_max_person_distinct_id_table(from_table: str, to_table: str, requested_fields: List[str]):
+
+def join_with_max_person_distinct_id_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
     from posthog.hogql import ast
 
     if not requested_fields:
-        requested_fields = ["person_id"]
+        requested_fields = {"person_id": ast.Field(chain=["person_id"])}
 
     # contains the list of fields we will select from this table
     fields_to_select: List[ast.Expr] = []
@@ -182,9 +194,9 @@ def join_with_max_person_distinct_id_table(from_table: str, to_table: str, reque
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
         name="argMax", args=[field, ast.Field(chain=["version"])]
     )
-    for field in requested_fields:
+    for field, expr in requested_fields.items():
         if field != "distinct_id":
-            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(ast.Field(chain=[field]))))
+            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(expr)))
 
     distinct_id = ast.Field(chain=["distinct_id"])
 
@@ -226,11 +238,14 @@ class EventsTable(Table):
     # person fields on the event itself
     poe: EventsPersonSubTable = EventsPersonSubTable()
 
-    # TODO: swap these between pdi and person_on_events as needed
-    person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
-    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
+    # These are swapped out if the user has PoE enabled
+    person: BaseModel = FieldTraverser(chain=["pdi", "person"])
+    person_id: BaseModel = FieldTraverser(chain=["pdi", "person_id"])
 
     def clickhouse_table(self):
+        return "events"
+
+    def hogql_table(self):
         return "events"
 
 
@@ -256,8 +271,43 @@ class SessionRecordingEvents(Table):
         from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
     )
 
+    person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
+    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
+
     def clickhouse_table(self):
         return "session_recording_events"
+
+    def hogql_table(self):
+        return "session_recording_events"
+
+
+class CohortPeople(Table):
+    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
+    cohort_id: IntegerDatabaseField = IntegerDatabaseField(name="cohort_id")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    sign: IntegerDatabaseField = IntegerDatabaseField(name="sign")
+    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
+
+    # TODO: automatically add "HAVING SUM(sign) > 0" to fields selected from this table?
+
+    person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
+
+    def clickhouse_table(self):
+        return "cohortpeople"
+
+
+class StaticCohortPeople(Table):
+    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
+    cohort_id: IntegerDatabaseField = IntegerDatabaseField(name="cohort_id")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+
+    person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
+
+    def avoid_asterisk_fields(self):
+        return ["_timestamp", "_offset"]
+
+    def clickhouse_table(self):
+        return "person_static_cohort"
 
 
 class Database(BaseModel):
@@ -269,6 +319,8 @@ class Database(BaseModel):
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
+    cohort_people: CohortPeople = CohortPeople()
+    static_cohort_people: StaticCohortPeople = StaticCohortPeople()
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
@@ -279,4 +331,51 @@ class Database(BaseModel):
         raise ValueError(f'Table "{table_name}" not found in database')
 
 
-database = Database()
+def create_hogql_database(team_id: Optional[int]) -> Database:
+    from posthog.models import Team
+
+    database = Database()
+    team = Team.objects.get(pk=team_id)
+    if team.person_on_events_querying_enabled:
+        database.events.person = FieldTraverser(chain=["poe"])
+        database.events.person_id = StringDatabaseField(name="person_id")
+    return database
+
+
+def serialize_database(database: Database) -> dict:
+    tables: Dict[str, List[Dict[str, Any]]] = {}
+
+    for table_key in database.__fields__.keys():
+        fields: List[Dict[str, Any]] = []
+        table = getattr(database, table_key, None)
+        for field_key in table.__fields__.keys() if table else []:
+            field = getattr(table, field_key, None)
+            if field_key == "team_id":
+                pass
+            elif isinstance(field, DatabaseField):
+                if isinstance(field, IntegerDatabaseField):
+                    fields.append({"key": field_key, "type": "integer"})
+                elif isinstance(field, StringDatabaseField):
+                    fields.append({"key": field_key, "type": "string"})
+                elif isinstance(field, DateTimeDatabaseField):
+                    fields.append({"key": field_key, "type": "datetime"})
+                elif isinstance(field, BooleanDatabaseField):
+                    fields.append({"key": field_key, "type": "boolean"})
+                elif isinstance(field, StringJSONDatabaseField):
+                    fields.append({"key": field_key, "type": "json"})
+            elif isinstance(field, LazyTable):
+                fields.append({"key": field_key, "type": "lazy_table", "table": field.table.hogql_table()})
+            elif isinstance(field, VirtualTable):
+                fields.append(
+                    {
+                        "key": field_key,
+                        "type": "virtual_table",
+                        "table": field.hogql_table(),
+                        "fields": list(field.__fields__.keys()),
+                    }
+                )
+            elif isinstance(field, FieldTraverser):
+                fields.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
+        tables[table_key] = fields
+
+    return tables

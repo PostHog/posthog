@@ -35,7 +35,12 @@ import {
     RetentionPeriod,
     GroupMathType,
 } from '~/types'
-import { actionsAndEventsToSeries, filtersToQueryNode } from './filtersToQueryNode'
+import {
+    actionsAndEventsToSeries,
+    cleanHiddenLegendIndexes,
+    cleanHiddenLegendSeries,
+    filtersToQueryNode,
+} from './filtersToQueryNode'
 
 describe('actionsAndEventsToSeries', () => {
     it('sorts series by order', () => {
@@ -64,6 +69,86 @@ describe('actionsAndEventsToSeries', () => {
         expect(result[0].name).toEqual('itemWithOrder')
         expect(result[1].name).toEqual('item1')
         expect(result[2].name).toEqual('item2')
+    })
+})
+
+describe('cleanHiddenLegendIndexes', () => {
+    it('converts legend keys', () => {
+        const keys: Record<string, boolean | undefined> = {
+            1: true,
+            2: false,
+            3: undefined,
+        }
+
+        const result = cleanHiddenLegendIndexes(keys)
+
+        expect(result).toEqual([1])
+    })
+
+    it('handles undefined legend keys', () => {
+        const keys = undefined
+
+        const result = cleanHiddenLegendIndexes(keys)
+
+        expect(result).toEqual(undefined)
+    })
+
+    it('ignores invalid keys', () => {
+        const keys: Record<string, boolean | undefined> = {
+            Opera: true,
+            'events/$pageview/0/Baseline': true,
+            1: true,
+        }
+
+        const result = cleanHiddenLegendIndexes(keys)
+
+        expect(result).toEqual([1])
+    })
+})
+
+describe('cleanHiddenLegendSeries', () => {
+    it('converts legend keys', () => {
+        const keys: Record<string, boolean | undefined> = {
+            Chrome: true,
+            'Chrome iOS': true,
+            Firefox: false,
+            Safari: undefined,
+        }
+
+        const result = cleanHiddenLegendSeries(keys)
+
+        expect(result).toEqual(['Chrome', 'Chrome iOS'])
+    })
+
+    it('handles undefined legend keys', () => {
+        const keys = undefined
+
+        const result = cleanHiddenLegendSeries(keys)
+
+        expect(result).toEqual(undefined)
+    })
+
+    it('converts legacy format', () => {
+        const keys: Record<string, boolean | undefined> = {
+            Opera: true,
+            'events/$pageview/0/Baseline': true,
+            1: true,
+        }
+
+        const result = cleanHiddenLegendSeries(keys)
+
+        expect(result).toEqual(['Opera', 'Baseline'])
+    })
+
+    it('ignores digit-only keys', () => {
+        const keys: Record<string, boolean | undefined> = {
+            Opera: true,
+            1: true,
+        }
+
+        const result = cleanHiddenLegendSeries(keys)
+
+        expect(result).toEqual(['Opera'])
     })
 })
 
@@ -226,7 +311,7 @@ describe('filtersToQueryNode', () => {
                 trendsFilter: {
                     smoothing_intervals: 1,
                     show_legend: true,
-                    hidden_legend_keys: { 0: true, 10: true },
+                    hidden_legend_indexes: [0, 10],
                     compare: true,
                     aggregation_axis_format: 'numeric',
                     aggregation_axis_prefix: '£',
@@ -270,7 +355,7 @@ describe('filtersToQueryNode', () => {
                 funnel_step: 1,
                 entrance_period_start: 'abc',
                 drop_off: true,
-                hidden_legend_keys: { 0: true, 10: true },
+                hidden_legend_keys: { Chrome: true, Safari: true },
             }
 
             const result = filtersToQueryNode(filters)
@@ -303,7 +388,7 @@ describe('filtersToQueryNode', () => {
                     funnel_step: 1,
                     entrance_period_start: 'abc',
                     drop_off: true,
-                    hidden_legend_keys: { 0: true, 10: true },
+                    hidden_legend_breakdowns: ['Chrome', 'Safari'],
                 },
             }
             expect(result).toEqual(query)
@@ -409,7 +494,7 @@ describe('filtersToQueryNode', () => {
                 stickinessFilter: {
                     compare: true,
                     show_legend: true,
-                    hidden_legend_keys: { 0: true, 10: true },
+                    hidden_legend_indexes: [0, 10],
                     stickiness_days: 2,
                     shown_as: ShownAsValue.STICKINESS,
                     display: ChartDisplayType.ActionsLineGraph,

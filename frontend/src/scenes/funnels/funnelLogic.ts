@@ -9,7 +9,6 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     BinCountValue,
-    BreakdownKeyType,
     CorrelationConfigType,
     ElementPropertyFilter,
     EntityTypes,
@@ -119,7 +118,7 @@ export const funnelLogic = kea<funnelLogicType>({
             groupPropertiesModel,
             ['groupProperties'],
         ],
-        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
+        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
 
@@ -169,7 +168,6 @@ export const funnelLogic = kea<funnelLogicType>({
         }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
-        toggleVisibilityByBreakdown: (breakdownValue?: BreakdownKeyType) => ({ breakdownValue }),
         toggleAdvancedMode: true,
 
         // Correlation related actions
@@ -896,16 +894,16 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         excludedPropertyNames: [
             () => [selectors.currentTeam],
-            (currentTeam) =>
+            (currentTeam): string[] =>
                 currentTeam?.correlation_config?.excluded_person_property_names || DEFAULT_EXCLUDED_PERSON_PROPERTIES,
         ],
         excludedEventNames: [
             () => [selectors.currentTeam],
-            (currentTeam) => currentTeam?.correlation_config?.excluded_event_names || [],
+            (currentTeam): string[] => currentTeam?.correlation_config?.excluded_event_names || [],
         ],
         excludedEventPropertyNames: [
             () => [selectors.currentTeam],
-            (currentTeam) => currentTeam?.correlation_config?.excluded_event_property_names || [],
+            (currentTeam): string[] => currentTeam?.correlation_config?.excluded_event_property_names || [],
         ],
         inversePropertyNames: [
             (s) => [s.filters, s.personProperties, s.groupProperties],
@@ -1034,11 +1032,6 @@ export const funnelLogic = kea<funnelLogicType>({
             if (stepReference !== values.filters.funnel_step_reference) {
                 actions.setFilters({ funnel_step_reference: stepReference }, true, true)
             }
-        },
-        toggleVisibilityByBreakdown: ({ breakdownValue }) => {
-            const key = getVisibilityKey(breakdownValue)
-            const currentIsHidden = !!values.hiddenLegendKeys?.[key]
-            actions.setHiddenById({ [key]: !currentIsHidden })
         },
         setFilters: ({ filters, mergeWithExisting }) => {
             const cleanedParams = cleanFilters(

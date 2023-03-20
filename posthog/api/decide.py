@@ -170,6 +170,8 @@ def get_decide(request: HttpRequest):
                 # default v1
                 response["featureFlags"] = list(active_flags.keys())
 
+            response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
+
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):

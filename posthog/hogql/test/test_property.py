@@ -11,7 +11,7 @@ from posthog.hogql.property import (
     selector_to_expr,
     tag_name_to_expr,
 )
-from posthog.models import Action, ActionStep, Property
+from posthog.models import Action, ActionStep, Cohort, Property
 from posthog.models.property import PropertyGroup
 from posthog.schema import HogQLPropertyFilter, PropertyOperator
 from posthog.test.base import BaseTest
@@ -321,5 +321,27 @@ class TestProperty(BaseTest):
                     "s1": parse_expr("event = '$pageview' and match(properties.$current_url, 'https://example2.com')"),
                     "s2": parse_expr("event = 'custom' and properties.$current_url = 'https://example3.com'"),
                 },
+            ),
+        )
+
+    def test_cohort_filter_static(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        self.assertEqual(
+            property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
+            parse_expr(f"person_id IN (SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort.pk})"),
+        )
+
+    def test_cohort_filter_dynamic(self):
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+        )
+        self.assertEqual(
+            property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
+            parse_expr(
+                f"person_id IN (SELECT person_id FROM cohort_people WHERE cohort_id = {cohort.pk} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
             ),
         )

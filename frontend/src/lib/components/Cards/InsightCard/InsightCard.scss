@@ -7,7 +7,7 @@
     border-radius: var(--radius);
     border: 1px solid var(--border);
     z-index: 3;
-    background: #fff;
+    background: var(--bg-light);
     &--highlighted {
         border-color: var(--primary);
         outline: 1px solid var(--primary);
@@ -136,7 +136,7 @@
             border-radius: 0.25rem;
             margin-right: 0.25rem;
             background: var(--primary);
-            color: #fff;
+            color: var(--bg-light);
             line-height: 1rem;
             font-size: 0.625rem;
             font-weight: 700;

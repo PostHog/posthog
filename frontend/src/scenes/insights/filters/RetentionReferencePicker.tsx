@@ -4,12 +4,12 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { useActions, useValues } from 'kea'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
 import { RetentionFilter } from '~/queries/schema'
-import { insightDataLogic } from '../insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function RetentionReferencePickerDataExploration(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { retentionFilter } = useValues(insightDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightDataLogic(insightProps))
+    const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     return <RetentionReferencePickerComponent {...retentionFilter} setFilters={updateInsightFilter} />
 }

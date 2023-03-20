@@ -571,12 +571,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.calculate_people_ch(pending_version=0)
 
         with freeze_time((datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")):
-            _create_person(
-                uuid=p2.uuid,
-                team_id=self.team.pk,
-                version=1,
-                properties={"$some_prop": "another", "$another_prop": "another"},
-            )
+            p2.version = 1
+            p2.properties = ({"$some_prop": "another", "$another_prop": "another"},)
+            p2.save()
 
         cohort1.calculate_people_ch(pending_version=1)
 
@@ -643,7 +640,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            sql, _ = format_filter_query(cohort, 0, HogQLContext())
+            sql, _ = format_filter_query(cohort, 0, HogQLContext(team_id=self.team.pk))
             self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):
