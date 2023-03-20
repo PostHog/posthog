@@ -77,8 +77,9 @@ describe('Insights (with data exploration on)', () => {
 
         it('can open a new SQL insight', () => {
             insight.newInsight('SQL', true)
+            insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
-            cy.get('tr.DataTable__row').should('have.length', 3)
+            cy.get('tr.DataTable__row').should('have.length', 2)
         })
 
         it('can open a new JSON insight', () => {
@@ -115,8 +116,9 @@ describe('Insights (with data exploration on)', () => {
 
         beforeEach(() => {
             insight.newInsight('SQL', true)
+            insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
-            cy.get('tr.DataTable__row').should('have.length', 3)
+            cy.get('tr.DataTable__row').should('have.length', 2)
         })
 
         it('can open a new trends insight', () => {
@@ -154,8 +156,9 @@ describe('Insights (with data exploration on)', () => {
 
         it('can open a new SQL insight', () => {
             insight.clickTab('SQL')
+            insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
-            cy.get('tr.DataTable__row').should('have.length', 3)
+            cy.get('tr.DataTable__row').should('have.length', 2)
         })
 
         it('can open a new JSON insight', () => {
