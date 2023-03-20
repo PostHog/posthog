@@ -37,9 +37,28 @@ export const insight = {
         // wait for save to complete and URL to change and include short id
         cy.url().should('not.include', '/new')
     },
-    create: (insightName: string, insightType: string = 'TRENDS'): void => {
+    newInsight: (insightType: string = 'TRENDS', expectDataExplorationChrome: boolean = false): void => {
+        cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as('loadTrendInsight')
+
         cy.get('[data-attr=menu-item-insight]').click() // Open the new insight menu in the sidebar
         cy.get(`[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="${insightType}"]`).click()
+
+        cy.wait('@loadTrendInsight').then(() => {
+            const expectExistence = expectDataExplorationChrome ? 'exist' : 'not.exist'
+            cy.get('[aria-label="Edit code"]').should(expectExistence)
+        })
+    },
+    create: (
+        insightName: string,
+        insightType: string = 'TRENDS',
+        expectDataExplorationChrome: boolean = false
+    ): void => {
+        cy.get('[data-attr=menu-item-insight]').click() // Open the new insight menu in the sidebar
+        cy.get(`[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="${insightType}"]`).click()
+
+        const expectExistence = expectDataExplorationChrome ? 'exist' : 'not.exist'
+        cy.get('[aria-label="Edit code"]').should(expectExistence)
+
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
         cy.url().should('not.include', '/new') // wait for insight to complete and update URL
         cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force

@@ -1,4 +1,5 @@
-import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import posthog from 'posthog-js'
+import { actions, connect, kea, key, listeners, path, props, selectors, reducers } from 'kea'
 import { InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -35,7 +36,10 @@ import { subscriptions } from 'kea-subscriptions'
 import { displayTypesWithoutLegend } from 'lib/components/InsightLegend/utils'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 
+const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
+
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export const insightVizDataLogic = kea<insightVizDataLogicType>([
     props({} as InsightLogicProps),
@@ -50,9 +54,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['query'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['response as insightData'],
+            ['response as insightData', 'dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
         ],
-        actions: [insightLogic, ['setFilters', 'setInsight'], insightDataLogic, ['setQuery']],
+        actions: [
+            insightLogic,
+            ['setFilters', 'setInsight'],
+            insightDataLogic,
+            ['setQuery'],
+            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
+            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            ['loadData', 'loadDataSuccess', 'loadDataFailure'],
+        ],
     })),
 
     actions({
@@ -61,6 +73,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
+        setTimedOutQueryId: (id: string | null) => ({ id }),
+    }),
+
+    reducers({
+        timedOutQueryId: [
+            null as null | string,
+            {
+                setTimedOutQueryId: (_, { id }) => id,
+            },
+        ],
     }),
 
     selectors({
@@ -103,6 +125,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.isTrends, s.isStickiness, s.display],
             (isTrends, isStickiness, display) =>
                 (isTrends || isStickiness) && !!display && !displayTypesWithoutLegend.includes(display),
+        ],
+
+        erroredQueryId: [
+            (s) => [s.insightDataError],
+            (insightDataError) => {
+                return insightDataError?.queryId || null
+            },
         ],
     }),
 
@@ -161,6 +190,26 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     actions.setFilters(filters)
                 }
             }
+        },
+        loadData: async ({ queryId }, breakpoint) => {
+            actions.setTimedOutQueryId(null)
+
+            await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
+
+            if (!!values.insightDataLoading) {
+                actions.setTimedOutQueryId(queryId)
+                const tags = {
+                    kind: values.querySource?.kind,
+                    scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
+                }
+                posthog.capture('insight timeout message shown', tags)
+            }
+        },
+        loadDataSuccess: () => {
+            actions.setTimedOutQueryId(null)
+        },
+        loadDataFailure: () => {
+            actions.setTimedOutQueryId(null)
         },
     })),
     subscriptions(({ values, actions }) => ({

@@ -90,7 +90,7 @@ export function FeedbackInstructions(): JSX.Element {
                                     <div>
                                         <p>Build a custom feedback form to connect feedback styled to your brand.</p>
                                         <div>
-                                            <div>1. Create a custom form styled to your app</div>
+                                            <div>1. Create a custom form in your webapp app or mobile app</div>
                                         </div>
                                         <div>
                                             <div>2. Send the feedback to PostHog</div>

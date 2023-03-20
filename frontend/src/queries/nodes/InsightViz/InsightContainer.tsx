@@ -4,7 +4,6 @@ import clsx from 'clsx'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
@@ -63,9 +62,6 @@ export function InsightContainer({
     const {
         insightProps,
         canEditInsight,
-        insightLoading,
-        timedOutQueryId,
-        erroredQueryId,
         // isUsingSessionAnalysis,
     } = useValues(insightLogic)
 
@@ -74,16 +70,27 @@ export function InsightContainer({
     // const {
     //     // correlationAnalysisAvailable
     // } = useValues(funnelLogic(insightProps))
-    const { isFunnelWithEnoughSteps, hasFunnelResults } = useValues(funnelDataLogic(insightProps))
-    // TODO: convert to data exploration with insightLogic
-    const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
-    const { isTrends, isFunnels, isPaths, display, trendsFilter, funnelsFilter, supportsDisplay, insightFilter } =
-        useValues(insightVizDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
+        funnelDataLogic(insightProps)
+    )
+    const {
+        isTrends,
+        isFunnels,
+        isPaths,
+        display,
+        trendsFilter,
+        funnelsFilter,
+        supportsDisplay,
+        insightFilter,
+        insightDataLoading,
+        erroredQueryId,
+        timedOutQueryId,
+    } = useValues(insightVizDataLogic(insightProps))
     const { exportContext } = useValues(insightDataLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (insightLoading && timedOutQueryId === null) {
+        if (insightDataLoading && timedOutQueryId === null) {
             return (
                 <div className="text-center">
                     <Animation type={AnimationType.LaptopHog} />
@@ -101,7 +108,7 @@ export function InsightContainer({
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!hasFunnelResults && !insightLoading) {
+            if (!hasFunnelResults && !insightDataLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -113,7 +120,7 @@ export function InsightContainer({
         if (!!timedOutQueryId) {
             return (
                 <InsightTimeoutState
-                    isLoading={insightLoading}
+                    isLoading={insightDataLoading}
                     queryId={timedOutQueryId}
                     insightProps={insightProps}
                     insightType={activeView}

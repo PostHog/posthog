@@ -145,6 +145,7 @@ export const FEATURE_FLAGS = {
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FF_CODE_EXAMPLE: 'ff-code-example', // owner: @liyiy
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
+    DATABASE: 'database', // owner @mariusandra
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
 }
 
