@@ -63,6 +63,9 @@ export enum NodeKind {
 
     /** Performance */
     RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
+
+    // Database metadata
+    DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 }
 
 export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
@@ -89,6 +92,7 @@ export type QuerySchema =
 
     // Misc
     | TimeToSeeDataSessionsQuery
+    | DatabaseSchemaQuery
 
 /** Node base class, everything else inherits from here */
 export interface Node {
@@ -424,6 +428,10 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     response?: TimeToSeeDataSessionsQueryResponse
 }
 
+export interface DatabaseSchemaQuery extends DataNode {
+    kind: NodeKind.DatabaseSchemaQuery
+}
+
 export interface TimeToSeeDataQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataQuery
 
@@ -486,6 +494,7 @@ export interface BreakdownFilter {
 export interface QueryContext {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
+    showQueryEditor?: boolean
 }
 
 interface QueryContextColumn {

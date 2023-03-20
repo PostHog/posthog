@@ -45,9 +45,9 @@ from posthog.models.property import (
     PropertyName,
 )
 from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.session_query import SessionQuery
+from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import is_json, is_valid_regex
 
 # Property Groups Example:

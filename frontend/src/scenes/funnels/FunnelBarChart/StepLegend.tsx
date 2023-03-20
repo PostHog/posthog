@@ -8,7 +8,7 @@ import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/fun
 import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { ValueInspectorButton } from '../ValueInspectorButton'
-import { FunnelStepMore } from '../FunnelStepMore'
+import { FunnelStepMore, FunnelStepMoreDataExploration } from '../FunnelStepMore'
 import { userLogic } from 'scenes/userLogic'
 import { Noun } from '~/models/groupsModel'
 
@@ -20,7 +20,7 @@ type StepLegendProps = {
 
 export function StepLegendDataExploration(props: StepLegendProps): JSX.Element {
     const { aggregationTargetLabel } = useValues(funnelLogic)
-    return <StepLegendComponent aggregationTargetLabel={aggregationTargetLabel} {...props} />
+    return <StepLegendComponent aggregationTargetLabel={aggregationTargetLabel} isUsingDataExploration {...props} />
 }
 
 export function StepLegend(props: StepLegendProps): JSX.Element {
@@ -28,7 +28,7 @@ export function StepLegend(props: StepLegendProps): JSX.Element {
     return <StepLegendComponent aggregationTargetLabel={aggregationTargetLabel} {...props} />
 }
 
-type StepLegendComponentProps = StepLegendProps & { aggregationTargetLabel: Noun }
+type StepLegendComponentProps = StepLegendProps & { aggregationTargetLabel: Noun; isUsingDataExploration?: boolean }
 
 export function StepLegendComponent({
     step,
@@ -36,6 +36,7 @@ export function StepLegendComponent({
     showTime,
     showPersonsModal,
     aggregationTargetLabel,
+    isUsingDataExploration,
 }: StepLegendComponentProps): JSX.Element {
     const { openPersonsModalForStep } = useActions(funnelLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -73,7 +74,15 @@ export function StepLegendComponent({
             <LemonRow
                 icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
                 sideIcon={
-                    hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && <FunnelStepMore stepIndex={stepIndex} />
+                    hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && (
+                        <>
+                            {isUsingDataExploration ? (
+                                <FunnelStepMoreDataExploration stepIndex={stepIndex} />
+                            ) : (
+                                <FunnelStepMore stepIndex={stepIndex} />
+                            )}
+                        </>
+                    )
                 }
             >
                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />

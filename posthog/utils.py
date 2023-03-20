@@ -1232,3 +1232,9 @@ def patchable(fn):
     inner._patch = patch  # type: ignore
 
     return inner
+
+
+class PersonOnEventsMode(str, Enum):
+    DISABLED = "disabled"
+    V1_ENABLED = "v1_enabled"
+    V2_ENABLED = "v2_enabled"

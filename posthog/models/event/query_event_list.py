@@ -65,7 +65,7 @@ def query_events_list(
 ) -> List:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
-    hogql_context = HogQLContext(within_non_hogql_query=True)
+    hogql_context = HogQLContext(within_non_hogql_query=True, team_id=team.pk, enable_select_queries=True)
 
     limit += 1
     limit_sql = "LIMIT %(limit)s"

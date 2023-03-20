@@ -17,6 +17,7 @@ import {
     IconGridView,
     IconListView,
     IconPerson,
+    IconPlusMini,
     IconQuestionAnswer,
     IconSelectEvents,
     IconStarFilled,
@@ -37,7 +38,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithSideAction, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { summariseInsight } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
@@ -115,7 +116,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         name: 'JSON',
         description: 'Build custom insights with our JSON query language',
         icon: InsightSQLIcon,
-        inMenu: false, // until data exploration is released
+        inMenu: true,
     },
 }
 
@@ -240,6 +241,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: InsightSQLIcon,
         inMenu: true,
     },
+    [NodeKind.DatabaseSchemaQuery]: {
+        name: 'Database Schema',
+        description: 'Introspect the PostHog database schema',
+        icon: InsightSQLIcon,
+        inMenu: true,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
@@ -271,6 +278,13 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const overrides3000: Partial<LemonButtonWithSideActionProps> = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+        ? {
+              size: 'small',
+              icon: <IconPlusMini />,
+          }
+        : {}
+
     return (
         <LemonButtonWithSideAction
             type="primary"
@@ -288,6 +302,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                 'data-attr': 'saved-insights-new-insight-dropdown',
             }}
             data-attr="saved-insights-new-insight-button"
+            {...overrides3000}
         >
             New insight
         </LemonButtonWithSideAction>

@@ -1,14 +1,10 @@
 /*! https://mths.be/cssescape v1.5.1 by @mathias | MIT license */
-export const cssEscape = function (value) {
-    if (arguments.length == 0) {
-        throw new TypeError('`CSS.escape` requires an argument.')
-    }
-    var string = String(value)
-    var length = string.length
-    var index = -1
-    var codeUnit
-    var result = ''
-    var firstCodeUnit = string.charCodeAt(0)
+export function cssEscape(string: string): string {
+    const length = string.length
+    let index = -1
+    let codeUnit: number
+    let result = ''
+    const firstCodeUnit = string.charCodeAt(0)
     while (++index < length) {
         codeUnit = string.charCodeAt(index)
         // Note: there’s no need to special-case astral symbols, surrogate
