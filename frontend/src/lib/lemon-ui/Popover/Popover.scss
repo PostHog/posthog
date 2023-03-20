@@ -75,6 +75,14 @@
     .Popover--max-content-width & {
         width: max-content;
     }
+
+    .posthog-3000 & {
+        background: var(--bg-3000);
+        padding: 0.25rem;
+    }
+    .posthog-3000 .Popover--actionable & {
+        border-color: var(--border);
+    }
 }
 
 .Popover__arrow {

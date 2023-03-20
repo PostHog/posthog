@@ -7,12 +7,14 @@ import { IconInfo } from 'lib/lemon-ui/icons'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 export enum DataManagementTab {
     Actions = 'actions',
     EventDefinitions = 'events',
     PropertyDefinitions = 'properties',
     IngestionWarnings = 'warnings',
+    Database = 'database',
 }
 
 const tabUrls = {
@@ -20,6 +22,7 @@ const tabUrls = {
     [DataManagementTab.EventDefinitions]: urls.eventDefinitions(),
     [DataManagementTab.Actions]: urls.actions(),
     [DataManagementTab.IngestionWarnings]: urls.ingestionWarnings(),
+    [DataManagementTab.Database]: urls.database(),
 }
 
 const eventsTabsLogic = kea<eventsTabsLogicType>({
@@ -43,6 +46,7 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED],
         ],
+        showDatabaseTab: [(s) => [s.featureFlags], (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.DATABASE]],
     },
     actionToUrl: () => ({
         setTab: ({ tab }) => tabUrls[tab as DataManagementTab] || urls.events(),
@@ -62,7 +66,7 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
 })
 
 export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX.Element {
-    const { showWarningsTab } = useValues(eventsTabsLogic)
+    const { showWarningsTab, showDatabaseTab } = useValues(eventsTabsLogic)
     const { setTab } = useActions(eventsTabsLogic)
     return (
         <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(t) => setTab(t as DataManagementTab)}>
@@ -104,6 +108,19 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                 <Tabs.TabPane
                     tab={<span data-attr="data-management-warnings-tab">Ingestion Warnings</span>}
                     key={DataManagementTab.IngestionWarnings}
+                />
+            )}
+            {showDatabaseTab && (
+                <Tabs.TabPane
+                    tab={
+                        <span data-attr="data-management-database-tab">
+                            Database
+                            <LemonTag type="warning" className="uppercase ml-2">
+                                Beta
+                            </LemonTag>
+                        </span>
+                    }
+                    key={DataManagementTab.Database}
                 />
             )}
         </Tabs>

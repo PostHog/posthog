@@ -584,7 +584,7 @@ const api = {
             filters: EventsListQueryParams,
             limit: number = 100,
             teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<PaginatedResponse<EventType[]>> {
+        ): Promise<PaginatedResponse<EventType>> {
             const params: EventsListQueryParams = { ...filters, limit, orderBy: filters.orderBy ?? ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
         },
@@ -786,7 +786,7 @@ const api = {
 
         async update(
             dashboardTemplateId: string,
-            dashboardTemplateData: DashboardTemplateEditorType
+            dashboardTemplateData: Partial<DashboardTemplateEditorType>
         ): Promise<DashboardTemplateType> {
             return await new ApiRequest()
                 .dashboardTemplatesDetail(dashboardTemplateId)

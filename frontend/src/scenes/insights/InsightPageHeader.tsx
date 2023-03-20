@@ -247,7 +247,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <LemonDivider vertical />
                             </>
                         )}
-                        {featureFlags[FEATURE_FLAGS.SAMPLING] ? (
+                        {!!featureFlags[FEATURE_FLAGS.SAMPLING] ? (
                             <>
                                 <Tooltip
                                     title={

@@ -109,9 +109,13 @@ $colors: (
     // PostHog 3000
     'text-3000': #111,
     'muted-3000': rgba(#111, 0.5),
-    'accent-3000': #e5e7e0,
-    'bg-3000': #eeefe9,
+    'primary-3000': #393939,
+    'secondary-3000': #e4e6dc,
     'border-3000': #d0d1c9,
+    'bg-3000': #f3f4ef,
+    'accent-3000': #eeefe9,
+    'glass-bg-3000': #e4e5deb3,
+    'glass-border-3000': #e4e5de,
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.

@@ -21,11 +21,10 @@ import {
 } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { groupsModel, Noun } from '~/models/groupsModel'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
-import { isFunnelsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isNewEntityNode } from '~/queries/utils'
 import { percentage, sum, average } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import {
@@ -38,6 +37,8 @@ import {
     isBreakdownFunnelResults,
     stepsWithConversionMetrics,
 } from './funnelUtils'
+import { BIN_COUNT_AUTO } from 'lib/constants'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
@@ -48,12 +49,21 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
     connect((props: InsightLogicProps) => ({
         values: [
-            insightDataLogic(props),
-            ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series', 'interval', 'insightData'],
+            insightVizDataLogic(props),
+            [
+                'querySource',
+                'insightFilter',
+                'funnelsFilter',
+                'breakdown',
+                'series',
+                'interval',
+                'insightData',
+                'insightDataError',
+            ],
             groupsModel,
             ['aggregationLabel'],
         ],
-        actions: [insightDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
+        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
 
     selectors(({ props }) => ({
@@ -126,7 +136,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         isFunnelWithEnoughSteps: [
             (s) => [s.series],
             (series) => {
-                return (series?.length || 0) > 1
+                return (series?.filter((node) => !isNewEntityNode(node)).length || 0) > 1
             },
         ],
         steps: [
@@ -234,6 +244,15 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 } else {
                     return false
                 }
+            },
+        ],
+        numericBinCount: [
+            (s) => [s.funnelsFilter, s.timeConversionResults],
+            (funnelsFilter, timeConversionResults): number => {
+                if (funnelsFilter?.bin_count === BIN_COUNT_AUTO) {
+                    return timeConversionResults?.bins?.length ?? 0
+                }
+                return funnelsFilter?.bin_count ?? 0
             },
         ],
 
@@ -346,6 +365,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (funnelsFilter): FilterType => ({
                 events: funnelsFilter?.exclusions,
             }),
+        ],
+        areExclusionFiltersValid: [
+            (s) => [s.insightDataError],
+            (insightDataError): boolean => {
+                return !(insightDataError?.status === 400 && insightDataError?.type === 'validation_error')
+            },
         ],
     })),
 ])

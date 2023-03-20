@@ -61,7 +61,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         if (isHogQLQuery(query) || (isDataTableNode(query) && isHogQLQuery(query.source))) {
                             return InsightType.SQL
                         }
-                        return InsightType.QUERY
+                        return InsightType.JSON
                     } else {
                         return InsightType.TRENDS
                     }
@@ -110,7 +110,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     tabs.push({
                         label: (
                             <>
-                                SQL{' '}
+                                SQL
                                 <LemonTag type="warning" className="uppercase ml-2">
                                     Beta
                                 </LemonTag>
@@ -122,9 +122,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     // don't show debug tab to everyone with the data exploration flags on
                     if (allowQueryTab && user?.is_staff) {
                         tabs.push({
-                            label: 'Debug',
-                            type: InsightType.QUERY,
-                            dataAttr: 'insight-query-tab',
+                            label: 'JSON',
+                            type: InsightType.JSON,
+                            dataAttr: 'insight-json-tab',
                         })
                     }
                 }
@@ -148,7 +148,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     actions.setQuery(queryFromKind(NodeKind.StickinessQuery))
                 } else if (view === InsightType.LIFECYCLE) {
                     actions.setQuery(queryFromKind(NodeKind.LifecycleQuery))
-                } else if (view === InsightType.QUERY) {
+                } else if (view === InsightType.JSON) {
                     actions.setQuery(TotalEventsTable)
                 } else if (view === InsightType.SQL) {
                     actions.setQuery(examples.HogQLTable)
@@ -157,7 +157,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 actions.setFilters(
                     cleanFilters(
                         // double-check that the view is valid
-                        { ...values.filters, insight: view === InsightType.QUERY ? InsightType.TRENDS : view },
+                        { ...values.filters, insight: view === InsightType.JSON ? InsightType.TRENDS : view },
                         values.filters
                     )
                 )

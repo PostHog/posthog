@@ -1,6 +1,8 @@
 from rest_framework import status
 
 from posthog.models.dashboard_templates import DashboardTemplate
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest
 
 
@@ -79,6 +81,7 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response
 
         dashboard_template = DashboardTemplate.objects.get(id=response.json()["id"])
+        assert dashboard_template.team_id == self.team.pk
 
         assert_template_equals(
             dashboard_template.__dict__,
@@ -90,6 +93,124 @@ class TestDashboardTemplates(APIBaseTest):
 
         assert_template_equals(
             get_template_from_response(response, dashboard_template.id),
+            variable_template,
+        )
+
+        assert get_template_from_response(response, dashboard_template.id)["team_id"] == self.team.pk
+
+    def test_staff_can_make_dashboard_template_public(self) -> None:
+        assert self.team.pk is not None
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response
+        assert response.json()["scope"] == "team"
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
+            {"scope": "global"},
+        )
+
+        assert update_response.status_code == status.HTTP_200_OK, update_response
+
+        get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
+
+        assert get_updated_response.json()["results"][0]["scope"] == "global"
+
+    def test_staff_can_make_dashboard_template_private(self) -> None:
+        assert self.team.pk is not None
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response
+
+        id = response.json()["id"]
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{id}",
+            {"scope": "global"},
+        )
+        assert update_response.status_code == status.HTTP_200_OK, update_response
+
+        get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
+
+        assert get_template_from_response(get_updated_response, id)["scope"] == "global"
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{id}",
+            {"scope": "team"},
+        )
+        assert update_response.status_code == status.HTTP_200_OK, update_response
+
+        get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
+
+        assert get_template_from_response(get_updated_response, id)["scope"] == "team"
+
+    def test_non_staff_cannot_make_dashboard_template_public(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response
+
+        self.user.is_staff = False
+        self.user.save()
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
+            {"scope": "global"},
+        )
+        assert update_response.status_code == status.HTTP_403_FORBIDDEN, update_response
+
+    def test_non_staff_cannot_edit_dashboard_template(self) -> None:
+        default_template = DashboardTemplate.objects.all()[0]
+        assert default_template.scope == "global"
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{default_template.id}",
+            {"template_name": "Test name"},
+        )
+        assert update_response.status_code == status.HTTP_200_OK, update_response
+
+        self.user.is_staff = False
+        self.user.save()
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{default_template.id}",
+            {"template_name": "Test name"},
+        )
+        assert update_response.status_code == status.HTTP_403_FORBIDDEN, update_response
+
+    def test_non_staff_can_get_public_dashboard_templates(self) -> None:
+        assert DashboardTemplate.objects.count() == 1  # Default template
+        assert self.team.pk is not None
+        new_org = Organization.objects.create(name="Test Org 2")
+        new_team = Team.objects.create(name="Test Team 2", organization=new_org)
+        dashboard_template = DashboardTemplate.objects.create(
+            team_id=new_team.pk,
+            scope=DashboardTemplate.Scope.ONLY_TEAM,
+            **variable_template,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
+        assert response.status_code == status.HTTP_200_OK, response
+
+        assert len(response.json()["results"]) == 1  # Only default template
+
+        dashboard_template.scope = "global"
+        dashboard_template.save()
+
+        get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
+        assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
+
+        assert len(get_updated_response.json()["results"]) == 2
+        assert_template_equals(
+            get_template_from_response(get_updated_response, dashboard_template.id),
             variable_template,
         )
 
@@ -190,7 +311,7 @@ class TestDashboardTemplates(APIBaseTest):
             "properties": {
                 "id": {"description": "The id of the dashboard template", "type": "string"},
                 "template_name": {"description": "The name of the dashboard template", "type": "string"},
-                "team_id": {"description": "The team this dashboard template belongs to", "type": "number"},
+                "team_id": {"description": "The team this dashboard template belongs to", "type": ["number", "null"]},
                 "created_at": {"description": "When the dashboard template was created", "type": "string"},
                 "image_url": {"description": "The image of the dashboard template", "type": ["string", "null"]},
                 "dashboard_description": {"description": "The description of the dashboard template", "type": "string"},
@@ -237,3 +358,27 @@ class TestDashboardTemplates(APIBaseTest):
 
         assert response.json() == dashboard_template_schema
         assert response.headers["Cache-Control"] == "max-age=120"
+
+    def test_cant_make_templates_without_teamid_private(self) -> None:
+        """
+        This test protects us from accidentally making the original default templates private
+        And as they don't have a team_id, they can't be then be found to be made public again
+        """
+        assert DashboardTemplate.objects.count() == 1  # default template
+
+        dashboard_template = DashboardTemplate.objects.all()[0]
+
+        assert dashboard_template.scope == "global"
+        assert dashboard_template.team_id is None
+
+        # can't update the default template to be private
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{dashboard_template.id}", {"scope": "team"}
+        )
+        # unauthorized
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        # check it's still global
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["scope"] == "global"

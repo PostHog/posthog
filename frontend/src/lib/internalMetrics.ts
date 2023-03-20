@@ -39,7 +39,7 @@ export async function captureTimeToSeeData(teamId: number | null, payload: TimeT
 /** api.get() wrapped in captureTimeToSeeData() tracking for simple cases of fetching insights or dashboards.
  * This is not in api.ts to avoid circular dependencies, but the principle is the same.
  */
-export async function apiGetWithTimeToSeeDataTracking<T extends any>(
+export async function apiGetWithTimeToSeeDataTracking<T>(
     url: string,
     teamId: number | null,
     timeToSeeDataPayload: Omit<
