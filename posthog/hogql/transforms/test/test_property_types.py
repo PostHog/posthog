@@ -54,7 +54,7 @@ class TestPropertyTypes(BaseTest):
         )
         self.assertEqual(printed, expected)
 
-    def test_resolve_property_types_perosn(self):
+    def test_resolve_property_types_person(self):
         printed = self._print_select(
             "select properties.tickets, properties.provided_timestamp, properties.$initial_browser from persons"
         )
