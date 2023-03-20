@@ -253,9 +253,10 @@ pytest-split==0.6.0
     # via -r requirements-dev.in
 pytest-watch==4.2.0
     # via -r requirements-dev.in
-python-dateutil==2.8.1
+python-dateutil==2.8.2
     # via
     #   -c requirements.txt
+    #   -r requirements-dev.in
     #   faker
     #   freezegun
 pytz==2021.1
