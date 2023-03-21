@@ -1,3 +1,4 @@
+# flake8: noqa
 from typing import Dict, List, Tuple
 
 import structlog
