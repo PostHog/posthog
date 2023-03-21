@@ -74,6 +74,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
             OpenApiParameter(
                 "group_type_index", OpenApiTypes.INT, description="Specify the group type to list", required=True
             ),
+            OpenApiParameter("search", OpenApiTypes.STR, description="Search the group name", required=True),
         ]
     )
     def list(self, request, *args, **kwargs):
@@ -89,6 +90,10 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
                 }
             )
         queryset = self.filter_queryset(self.get_queryset())
+
+        group_search = self.request.GET.get("search")
+        if group_search is not None:
+            queryset = queryset.filter(group_properties__icontains=group_search)
 
         page = self.paginate_queryset(queryset)
         if page is not None:

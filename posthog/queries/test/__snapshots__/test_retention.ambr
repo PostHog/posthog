@@ -76,7 +76,8 @@
   SELECT distinct_id,
          person_id
   FROM events
-  WHERE distinct_id IN ('person1',
+  WHERE team_id = 2
+    AND distinct_id IN ('person1',
                         'person2')
   GROUP BY distinct_id,
            person_id

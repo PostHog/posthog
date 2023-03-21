@@ -774,14 +774,12 @@ def create_person_id_override_by_distinct_id(distinct_id_from: str, distinct_id_
         f"""
         SELECT distinct_id, person_id
         FROM events
-        WHERE distinct_id IN ('{distinct_id_from}', '{distinct_id_to}')
+        WHERE team_id = {team_id} AND distinct_id IN ('{distinct_id_from}', '{distinct_id_to}')
         GROUP BY distinct_id, person_id
         ORDER BY if(distinct_id = '{distinct_id_from}', -1, 0)
     """
     )
 
-    print(person_ids_result)
-    
     person_id_from, person_id_to = [row[1] for row in person_ids_result]
 
     sync_execute(

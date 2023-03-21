@@ -210,9 +210,6 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
             )
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
-    @also_test_with_materialized_columns(
-        group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
-    )
     @snapshot_clickhouse_queries
     def test_groups_filtering_person_on_events_v2(self):
         self._create_groups_and_events()

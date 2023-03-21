@@ -5,7 +5,7 @@ export function FeatureFlagCodeExample({ featureFlag }: { featureFlag: FeatureFl
     return (
         <div>
             <h3>
-                <b>Implementation example</b>
+                <b>How to implement</b>
             </h3>
             <FeatureFlagInstructions
                 newCodeExample={true}
