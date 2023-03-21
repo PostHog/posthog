@@ -24,7 +24,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     return (
         <div className="space-y-2">
             <div>
-                Make full SQL queries with{' '}
+                Run SQL queries with{' '}
                 <a href="https://posthog.com/manual/hogql" target={'_blank'}>
                     HogQL
                 </a>
