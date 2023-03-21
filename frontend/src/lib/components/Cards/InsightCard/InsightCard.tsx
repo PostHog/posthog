@@ -167,7 +167,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     moveToDashboard?: (dashboard: DashboardType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
-    dashboardPlacement?: DashboardPlacement | null
+    placement: DashboardPlacement | 'SavedInsightGrid'
 }
 
 interface InsightMetaProps
@@ -266,9 +266,7 @@ function InsightMeta({
             metaDetails={<InsightDetails insight={insight} />}
             samplingNotice={
                 insight.filters.sampling_factor && insight.filters.sampling_factor < 1 ? (
-                    <Tooltip
-                        title={`Insight contains data sampled at a ${100 * insight.filters.sampling_factor}% rate`}
-                    >
+                    <Tooltip title={`Results calculated from ${100 * insight.filters.sampling_factor}% of users`}>
                         <PieChartFilled className="mr-2" style={{ color: 'var(--primary-light)' }} />
                     </Tooltip>
                 ) : null
@@ -513,7 +511,7 @@ function InsightCardInternal(
         className,
         children,
         moreButtons,
-        dashboardPlacement,
+        placement,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -558,12 +556,12 @@ function InsightCardInternal(
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
     const [areDetailsShown, setAreDetailsShown] = useState(false)
 
-    const exportedAndCached = dashboardPlacement && dashboardPlacement == DashboardPlacement.Export && !!insight.result
-    const sharedAndCached = dashboardPlacement && dashboardPlacement == DashboardPlacement.Public && !!insight.result
+    const exportedAndCached = placement == DashboardPlacement.Export && !!insight.result
+    const sharedAndCached = placement == DashboardPlacement.Public && !!insight.result
     const canMakeQueryAPICalls =
-        dashboardPlacement &&
+        placement === 'SavedInsightGrid' ||
         [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
-            dashboardPlacement
+            placement
         )
 
     return (

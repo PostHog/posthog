@@ -785,3 +785,91 @@ class TestParser(BaseTest):
                 ),
             ),
         )
+
+    def test_select_with_columns(self):
+        self.assertEqual(
+            parse_select("with event as boo select boo from events"),
+            ast.SelectQuery(
+                macros={"boo": ast.Macro(name="boo", expr=ast.Field(chain=["event"]), type="column")},
+                select=[ast.Field(chain=["boo"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            ),
+        )
+        self.assertEqual(
+            parse_select("with count() as kokku select kokku from events"),
+            ast.SelectQuery(
+                macros={"kokku": ast.Macro(name="kokku", expr=ast.Call(name="count", args=[]), type="column")},
+                select=[ast.Field(chain=["kokku"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            ),
+        )
+
+    def test_select_with_subqueries(self):
+        self.assertEqual(
+            parse_select("with customers as (select 'yes' from events) select * from customers"),
+            ast.SelectQuery(
+                macros={
+                    "customers": ast.Macro(
+                        name="customers",
+                        expr=ast.SelectQuery(
+                            select=[ast.Constant(value="yes")],
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                        ),
+                        type="subquery",
+                    )
+                },
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["customers"])),
+            ),
+        )
+
+    def test_select_with_mixed(self):
+        self.assertEqual(
+            parse_select("with happy as (select 'yes' from events), ':(' as sad select sad from happy"),
+            ast.SelectQuery(
+                macros={
+                    "happy": ast.Macro(
+                        name="happy",
+                        expr=ast.SelectQuery(
+                            select=[ast.Constant(value="yes")],
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                        ),
+                        type="subquery",
+                    ),
+                    "sad": ast.Macro(name="sad", expr=ast.Constant(value=":("), type="column"),
+                },
+                select=[ast.Field(chain=["sad"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["happy"])),
+            ),
+        )
+
+    def test_macros_subquery_recursion(self):
+        query = "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
+        self.assertEqual(
+            parse_select(query),
+            ast.SelectQuery(
+                macros={
+                    "users": ast.Macro(
+                        name="users",
+                        expr=ast.SelectQuery(
+                            select=[
+                                ast.Field(chain=["event"]),
+                                ast.Alias(alias="tt", expr=ast.Field(chain=["timestamp"])),
+                            ],
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                        ),
+                        type="subquery",
+                    ),
+                    "final": ast.Macro(
+                        name="final",
+                        expr=ast.SelectQuery(
+                            select=[ast.Field(chain=["tt"])],
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["users"])),
+                        ),
+                        type="subquery",
+                    ),
+                },
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["final"])),
+            ),
+        )

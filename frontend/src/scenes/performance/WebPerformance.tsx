@@ -145,6 +145,7 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                                 },
                             },
                         },
+                        showOpenEditorButton: !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB],
                     }}
                 />
             ) : (

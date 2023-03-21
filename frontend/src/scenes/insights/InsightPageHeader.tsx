@@ -1,6 +1,5 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { summariseInsight } from 'scenes/insights/utils'
-import { IconLock } from 'lib/lemon-ui/icons'
 import {
     AvailableFeature,
     ExporterFormat,
@@ -10,6 +9,7 @@ import {
     InsightShortId,
     ItemMode,
 } from '~/types'
+import { IconEvent, IconLock } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -19,7 +19,6 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { deleteWithUndo } from 'lib/utils'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
-import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -43,6 +42,7 @@ import { ThunderboltFilled } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { globalInsightLogic } from './globalInsightLogic'
+import { isInsightVizNode } from '~/queries/utils'
 import { posthog } from 'posthog-js'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
@@ -69,8 +69,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query, queryChanged } = useValues(insightDataLogic(insightProps))
-    const { setQuery, saveInsight: saveQueryBasedInsight } = useActions(insightDataLogic(insightProps))
+    const { query, queryChanged, showQueryEditor } = useValues(insightDataLogic(insightProps))
+    const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -247,7 +247,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <LemonDivider vertical />
                             </>
                         )}
-                        {featureFlags[FEATURE_FLAGS.SAMPLING] ? (
+                        {!!featureFlags[FEATURE_FLAGS.SAMPLING] ? (
                             <>
                                 <Tooltip
                                     title={
@@ -314,7 +314,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 insightChanged={insightChanged || queryChanged}
                             />
                         )}
-                        {isUsingDataExploration && <InlineEditorButton query={query} setQuery={setQuery} />}
+                        {isUsingDataExploration && isInsightVizNode(query) ? (
+                            <LemonButton
+                                tooltip={showQueryEditor ? 'Hide JSON editor' : 'Edit as JSON'}
+                                type={'secondary'}
+                                onClick={toggleQueryEditorPanel}
+                            >
+                                <IconEvent />
+                            </LemonButton>
+                        ) : null}
                     </div>
                 }
                 caption={

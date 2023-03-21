@@ -4,7 +4,6 @@ from posthog.constants import PropertyOperatorType
 from posthog.models.cohort.util import get_count_operator
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.property import Property, PropertyGroup
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.foss_cohort_query import (
     FOSSCohortQuery,
     parse_and_validate_positive_integer,
@@ -12,6 +11,8 @@ from posthog.queries.foss_cohort_query import (
     validate_interval,
     validate_seq_date_more_recent_than_date,
 )
+from posthog.queries.util import PersonPropertiesMode
+from posthog.utils import PersonOnEventsMode
 
 
 def check_negation_clause(prop: PropertyGroup) -> Tuple[bool, bool]:
@@ -262,13 +263,14 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
     def _get_sequence_query(self) -> Tuple[str, Dict[str, Any], str]:
         params = {}
 
-        names = ["event", "properties", "distinct_id", "timestamp"]
+        materialized_columns = list(self._column_optimizer.event_columns_to_query)
+        names = ["event", "properties", "distinct_id", "timestamp", *materialized_columns]
 
         person_prop_query = ""
         person_prop_params: dict = {}
 
         _inner_fields = [
-            f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
+            f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
         ]
         _intermediate_fields = ["person_id"]
         _outer_fields = ["person_id"]
@@ -288,7 +290,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         event_param_name = f"{self._cohort_pk}_event_ids"
 
-        if self.should_pushdown_persons and self._using_person_on_events:
+        if self.should_pushdown_persons and self._person_on_events_mode != PersonOnEventsMode.DISABLED:
             person_prop_query, person_prop_params = self._get_prop_groups(
                 self._inner_property_groups,
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
@@ -297,7 +299,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         new_query = f"""
         SELECT {", ".join(_inner_fields)} FROM events AS {self.EVENT_TABLE_ALIAS}
-        {self._get_distinct_id_query()}
+        {self._get_person_ids_query()}
         WHERE team_id = %(team_id)s
         AND event IN %({event_param_name})s
         {date_condition}

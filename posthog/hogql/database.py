@@ -238,9 +238,9 @@ class EventsTable(Table):
     # person fields on the event itself
     poe: EventsPersonSubTable = EventsPersonSubTable()
 
-    # TODO: swap these between pdi and person_on_events as needed
-    person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
-    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
+    # These are swapped out if the user has PoE enabled
+    person: BaseModel = FieldTraverser(chain=["pdi", "person"])
+    person_id: BaseModel = FieldTraverser(chain=["pdi", "person_id"])
 
     def clickhouse_table(self):
         return "events"
@@ -271,6 +271,9 @@ class SessionRecordingEvents(Table):
         from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
     )
 
+    person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
+    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
+
     def clickhouse_table(self):
         return "session_recording_events"
 
@@ -292,6 +295,9 @@ class CohortPeople(Table):
     def clickhouse_table(self):
         return "cohortpeople"
 
+    def hogql_table(self):
+        return "cohort_people"
+
 
 class StaticCohortPeople(Table):
     person_id: StringDatabaseField = StringDatabaseField(name="person_id")
@@ -306,6 +312,23 @@ class StaticCohortPeople(Table):
     def clickhouse_table(self):
         return "person_static_cohort"
 
+    def hogql_table(self):
+        return "static_cohort_people"
+
+
+class Groups(Table):
+    index: IntegerDatabaseField = IntegerDatabaseField(name="group_type_index")
+    key: StringDatabaseField = StringDatabaseField(name="group_key")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="group_properties")
+
+    def clickhouse_table(self):
+        return "groups"
+
+    def hogql_table(self):
+        return "groups"
+
 
 class Database(BaseModel):
     class Config:
@@ -318,6 +341,7 @@ class Database(BaseModel):
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
+    groups: Groups = Groups()
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
@@ -328,4 +352,51 @@ class Database(BaseModel):
         raise ValueError(f'Table "{table_name}" not found in database')
 
 
-database = Database()
+def create_hogql_database(team_id: Optional[int]) -> Database:
+    from posthog.models import Team
+
+    database = Database()
+    team = Team.objects.get(pk=team_id)
+    if team.person_on_events_querying_enabled:
+        database.events.person = FieldTraverser(chain=["poe"])
+        database.events.person_id = StringDatabaseField(name="person_id")
+    return database
+
+
+def serialize_database(database: Database) -> dict:
+    tables: Dict[str, List[Dict[str, Any]]] = {}
+
+    for table_key in database.__fields__.keys():
+        fields: List[Dict[str, Any]] = []
+        table = getattr(database, table_key, None)
+        for field_key in table.__fields__.keys() if table else []:
+            field = getattr(table, field_key, None)
+            if field_key == "team_id":
+                pass
+            elif isinstance(field, DatabaseField):
+                if isinstance(field, IntegerDatabaseField):
+                    fields.append({"key": field_key, "type": "integer"})
+                elif isinstance(field, StringDatabaseField):
+                    fields.append({"key": field_key, "type": "string"})
+                elif isinstance(field, DateTimeDatabaseField):
+                    fields.append({"key": field_key, "type": "datetime"})
+                elif isinstance(field, BooleanDatabaseField):
+                    fields.append({"key": field_key, "type": "boolean"})
+                elif isinstance(field, StringJSONDatabaseField):
+                    fields.append({"key": field_key, "type": "json"})
+            elif isinstance(field, LazyTable):
+                fields.append({"key": field_key, "type": "lazy_table", "table": field.table.hogql_table()})
+            elif isinstance(field, VirtualTable):
+                fields.append(
+                    {
+                        "key": field_key,
+                        "type": "virtual_table",
+                        "table": field.hogql_table(),
+                        "fields": list(field.__fields__.keys()),
+                    }
+                )
+            elif isinstance(field, FieldTraverser):
+                fields.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
+        tables[table_key] = fields
+
+    return tables

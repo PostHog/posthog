@@ -78,6 +78,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
+    [Scene.Database]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
     [Scene.WebPerformance]: {
         projectBased: true,
         name: 'Web Performance',
@@ -293,6 +297,7 @@ export const routes: Record<string, Scene> = {
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
     [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
+    [urls.database()]: Scene.Database,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.webPerformance() + '/*']: Scene.WebPerformance,
@@ -308,6 +313,7 @@ export const routes: Record<string, Scene> = {
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
+    [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,
     [urls.cohort(':id')]: Scene.Cohort,
     [urls.cohorts()]: Scene.Cohorts,
     [urls.experiments()]: Scene.Experiments,

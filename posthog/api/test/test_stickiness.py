@@ -1,15 +1,18 @@
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Union
 
 from dateutil.relativedelta import relativedelta
+from django.test import override_settings
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
 
+from posthog.client import sync_execute
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest, snapshot_clickhouse_queries
+from posthog.test.base import APIBaseTest, create_person_id_override_by_distinct_id, snapshot_clickhouse_queries
 from posthog.utils import encode_get_request_params
 
 
@@ -69,21 +72,25 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 period = timedelta(days=1)
             base_time = datetime.fromisoformat("2020-01-01T12:00:00.000000")
             p1 = person_factory(team_id=self.team.id, distinct_ids=["person1"], properties={"name": "person1"})
+            p1_person_id = str(uuid.uuid4())
             event_factory(
                 team=self.team,
                 event="watched movie",
                 distinct_id="person1",
                 timestamp=base_time.replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(1)},
+                person_id=p1_person_id,
             )
 
             p2 = person_factory(team_id=self.team.id, distinct_ids=["person2"], properties={"name": "person2"})
+            p2_person_id = str(uuid.uuid4())
             event_factory(
                 team=self.team,
                 event="watched movie",
                 distinct_id="person2",
                 timestamp=base_time.replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(2)},
+                person_id=p2_person_id,
             )
             event_factory(
                 team=self.team,
@@ -91,6 +98,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 distinct_id="person2",
                 timestamp=(base_time + period).replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(2)},
+                person_id=p2_person_id,
             )
             # same day
             event_factory(
@@ -99,17 +107,20 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 distinct_id="person2",
                 timestamp=(base_time + period).replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(2)},
+                person_id=p2_person_id,
             )
 
             p3 = person_factory(
                 team_id=self.team.id, distinct_ids=["person3a", "person3b"], properties={"name": "person3"}
             )
+            p3_person_id = str(uuid.uuid4())
             event_factory(
                 team=self.team,
                 event="watched movie",
                 distinct_id="person3a",
                 timestamp=(base_time).replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(3)},
+                person_id=p3_person_id,
             )
             event_factory(
                 team=self.team,
@@ -117,6 +128,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 distinct_id="person3b",
                 timestamp=(base_time + period).replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(3)},
+                person_id=p3_person_id,
             )
             event_factory(
                 team=self.team,
@@ -124,15 +136,19 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 distinct_id="person3a",
                 timestamp=(base_time + period * 2).replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Chrome", **event_properties(3)},
+                person_id=p3_person_id,
             )
 
             p4 = person_factory(team_id=self.team.id, distinct_ids=["person4"], properties={"name": "person4"})
+            p4_person_id = str(uuid.uuid4())
+
             event_factory(
                 team=self.team,
                 event="watched movie",
                 distinct_id="person4",
                 timestamp=(base_time + period * 4).replace(tzinfo=timezone.utc).isoformat(),
                 properties={"$browser": "Safari", **event_properties(4)},
+                person_id=p4_person_id,
             )
 
             return p1, p2, p3, p4
@@ -158,6 +174,41 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["count"], 4)
             self.assertEqual(response[0]["labels"][0], "1 day")
             self.assertEqual(response[0]["data"][0], 2)
+            self.assertEqual(response[0]["labels"][1], "2 days")
+            self.assertEqual(response[0]["data"][1], 1)
+            self.assertEqual(response[0]["labels"][2], "3 days")
+            self.assertEqual(response[0]["data"][2], 1)
+            self.assertEqual(response[0]["labels"][6], "7 days")
+            self.assertEqual(response[0]["data"][6], 0)
+
+        @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+        @snapshot_clickhouse_queries
+        def test_stickiness_with_person_on_events_v2(self):
+            # KLUDGE: We need to do this to ensure create_person_id_override_by_distinct_id
+            # works correctly. Worth considering other approaches as we generally avoid
+            # truncating tables in tests.
+            sync_execute("TRUNCATE TABLE sharded_events")
+            self._create_multiple_people()
+            create_person_id_override_by_distinct_id("person1", "person2", self.team.pk)
+
+            with freeze_time("2020-01-08T13:01:01Z"):
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
+                        "insight": "STICKINESS",
+                        "shown_as": "Stickiness",
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-08",
+                        "events": [{"id": "watched movie"}],
+                    },
+                )
+
+                response = stickiness_response["result"]
+
+            self.assertEqual(response[0]["count"], 3)
+            self.assertEqual(response[0]["labels"][0], "1 day")
+            self.assertEqual(response[0]["data"][0], 1)
             self.assertEqual(response[0]["labels"][1], "2 days")
             self.assertEqual(response[0]["data"][1], 1)
             self.assertEqual(response[0]["labels"][2], "3 days")

@@ -58,8 +58,9 @@ services:
     maildev:
         image: maildev/maildev:2.0.5
         restart: on-failure
+
     worker: &worker
-        command: ./bin/docker-worker-celery --with-scheduler
+        command: ./bin/start-worker
         restart: on-failure
         environment:
             DISABLE_SECURE_SSL_REDIRECT: 'true'
@@ -84,7 +85,7 @@ services:
 
     web:
         <<: *worker
-        command: /compose/start
+        command: ./bin/start-backend & ./bin/start-frontend
         restart: on-failure
 
     plugins:
@@ -95,6 +96,9 @@ services:
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_DATABASE: 'posthog'
+            CLICKHOUSE_SECURE: 'false'
+            CLICKHOUSE_VERIFY: 'false'
         depends_on:
             - db
             - redis
@@ -102,9 +106,86 @@ services:
             - kafka
             - object_storage
 
+    migrate:
+        <<: *worker
+        command: sh -c "
+            python manage.py migrate
+            && python manage.py migrate_clickhouse
+            && python manage.py run_async_migrations
+            "
+        restart: 'no'
+        deploy:
+            replicas: 0
+
     asyncmigrationscheck:
         <<: *worker
         command: python manage.py run_async_migrations --check
         restart: 'no'
         deploy:
             replicas: 0
+
+    # Temporal containers
+    elasticsearch:
+        environment:
+            - cluster.routing.allocation.disk.threshold_enabled=true
+            - cluster.routing.allocation.disk.watermark.low=512mb
+            - cluster.routing.allocation.disk.watermark.high=256mb
+            - cluster.routing.allocation.disk.watermark.flood_stage=128mb
+            - discovery.type=single-node
+            - ES_JAVA_OPTS=-Xms256m -Xmx256m
+            - xpack.security.enabled=false
+        image: elasticsearch:7.16.2
+        expose:
+            - 9200
+        volumes:
+            - /var/lib/elasticsearch/data
+    temporal:
+        depends_on:
+            - db
+        environment:
+            - DB=postgresql
+            - DB_PORT=5432
+            - POSTGRES_USER=posthog
+            - POSTGRES_PWD=posthog
+            - POSTGRES_SEEDS=db
+            - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+            - ENABLE_ES=true
+            - ES_SEEDS=elasticsearch
+            - ES_VERSION=v7
+        image: temporalio/auto-setup:1.20.0
+        ports:
+            - 7233:7233
+        labels:
+            kompose.volume.type: configMap
+        volumes:
+            - ./docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
+    temporal-admin-tools:
+        depends_on:
+            - temporal
+        environment:
+            - TEMPORAL_CLI_ADDRESS=temporal:7233
+        image: temporalio/admin-tools:1.20.0
+        stdin_open: true
+        tty: true
+    temporal-ui:
+        depends_on:
+            - temporal
+        environment:
+            - TEMPORAL_ADDRESS=temporal:7233
+            - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+        image: temporalio/ui:2.10.3
+        ports:
+            - 8081:8080
+    temporal-django-worker:
+        <<: *worker
+        command: ./bin/temporal-django-worker
+        restart: on-failure
+        environment:
+            TEMPORAL_SCHEDULER_HOST: temporal
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
+            - temporal

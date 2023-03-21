@@ -15,10 +15,12 @@ import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyIns
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
-    query: T | string
+    query: T | string | null
     /** Set this if you're controlling the query parameter */
     setQuery?: (query: T) => void
 
@@ -29,7 +31,7 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
     cachedResults?: AnyResponseType
 }
 
-export function Query(props: QueryProps): JSX.Element {
+export function Query(props: QueryProps): JSX.Element | null {
     const { query: propsQuery, setQuery: propsSetQuery } = props
     const readOnly = propsSetQuery === undefined
 
@@ -44,6 +46,10 @@ export function Query(props: QueryProps): JSX.Element {
     const setQuery = readOnly ? undefined : propsSetQuery ?? localSetQuery
 
     const queryContext = props.context || {}
+
+    if (query === null) {
+        return null
+    }
 
     if (typeof query === 'string') {
         try {
@@ -71,7 +77,24 @@ export function Query(props: QueryProps): JSX.Element {
     }
 
     if (component) {
-        return <ErrorBoundary>{component}</ErrorBoundary>
+        return (
+            <ErrorBoundary>
+                <>
+                    {!!props.context?.showQueryEditor ? (
+                        <>
+                            <QueryEditor
+                                query={JSON.stringify(query)}
+                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery))}
+                            />
+                            <div className="my-4">
+                                <LemonDivider />
+                            </div>
+                        </>
+                    ) : null}
+                    {component}
+                </>
+            </ErrorBoundary>
+        )
     }
 
     return (

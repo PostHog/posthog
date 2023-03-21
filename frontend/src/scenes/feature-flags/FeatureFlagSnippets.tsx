@@ -163,6 +163,144 @@ export function APISnippet(): JSX.Element {
     )
 }
 
+export function JSMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.JavaScript} wrap>
+            {`// Ensure flags are loaded before usage.
+// You'll only need to call this on the code for when the first time a user visits.
+
+posthog.onFeatureFlags(function() {
+// feature flags should be available at this point
+if (posthog.getFeatureFlag('${flagKey ?? ''}') === 'example-variant') {
+// do something
+}
+})
+
+// Otherwise, you can just do
+
+if (posthog.getFeatureFlag('${flagKey ?? ''}') === 'example-variant') {
+// do something
+}`}
+        </CodeSnippet>
+    )
+}
+
+export function iOSMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.Swift} wrap>
+            {`// In Swift
+
+if (posthog.getFeatureFlag('${flagKey}') == 'example-variant') {
+    // do something
+}
+            `}
+        </CodeSnippet>
+    )
+}
+
+export function AndroidMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.Java} wrap>
+            {`if (PostHog.with(this).getFeatureFlag('${flagKey}') == 'example-variant') {
+    // do something
+}
+            `}
+        </CodeSnippet>
+    )
+}
+
+export function ReactNativeMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.Java} wrap>
+            {`// With a hook
+import { useFeatureFlag } from 'posthog-react-native'
+
+const MyComponent = () => {
+    const showFlaggedFeature = useFeatureFlag('${flagKey}')
+
+    if (showFlaggedFeature === undefined) {
+        // the response is undefined if the flags are being loaded
+        return null
+    }
+
+    return showFlaggedFeature === 'example-variant' ? <Text>Testing feature 😄</Text> : <Text>Not Testing feature 😢</Text>
+}
+
+// Or calling on the method directly
+posthog.getFeatureFlag('${flagKey ?? ''}') === 'example-variant'
+            `}
+        </CodeSnippet>
+    )
+}
+
+export function NodeJSMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.JavaScript} wrap>
+                {`const enabledVariant = await client.getFeatureFlag('${flagKey}', 'user distinct id')
+
+if (enabledVariant === 'example-variant') {
+    // Do something differently for this user
+}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function PythonMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Python} wrap>
+                {`if posthog.get_feature_flag("${flagKey}", "user_distinct_id") == 'example-variant':
+    runAwesomeFeature()
+`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function RubyMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Ruby} wrap>
+                {`if posthog.get_feature_flag('${flagKey}', 'user distinct id') == 'example-variant'
+  # Do something
+end`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function GolangMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Go} wrap>
+                {`enabledVariant, err := client.GetFeatureFlag(
+                    FeatureFlagPayload{
+                        Key:        '${flagKey}',
+                        DistinctId: "distinct-id",
+                    })
+
+if (enabledVariant == 'example-variant') {
+  // Do something differently for this user
+}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function PHPMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.PHP} wrap>
+                {`if (PostHog::getFeatureFlag('${flagKey}', 'some distinct id') === 'example-variant') {
+    // do something here
+}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
 export function PythonLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <>
@@ -170,6 +308,7 @@ export function PythonLocalEvaluationSnippet({ flagKey }: { flagKey: string }): 
                 {`posthog.get_feature_flag(
     ${flagKey},
     'distinct id',
+// add person or group properties used in the flag to ensure the flag is evaluated locally, vs. going to our servers
     person_properties={'is_authorized': True}
 )
 
@@ -186,6 +325,7 @@ export function RubyLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JS
                 {`posthog.get_feature_flag(
     ${flagKey},
     'distinct id',
+// add person or group properties used in the flag to ensure the flag is evaluated locally, vs. going to our servers
     person_properties: {'is_authorized': true}
 )
 
@@ -201,6 +341,7 @@ export function NodeLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JS
             {`await client.getFeatureFlag(
     ${flagKey},
     'distinct id',
+// add person or group properties used in the flag to ensure the flag is evaluated locally
     {
         personProperties: {'is_authorized': true}
     }
@@ -215,6 +356,7 @@ export function PHPLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX
             {`PostHog::getFeatureFlag(
     ${flagKey},
     'distinct id',
+// add person or group properties used in the flag to ensure the flag is evaluated locally, vs. going to our servers
     [], // group properties
     ["is_authorized" => true] // person properties
 )
@@ -231,6 +373,7 @@ export function GolangLocalEvaluationSnippet({ flagKey }: { flagKey: string }): 
         FeatureFlagPayload{
             Key:        ${flagKey},
             DistinctId: "distinct-id",
+// add person or group properties used in the flag to ensure the flag is evaluated locally, vs. going to our servers
       PersonProperties: posthog.NewProperties().
         Set("is_authorized", true),
         },
@@ -243,15 +386,20 @@ export function GolangLocalEvaluationSnippet({ flagKey }: { flagKey: string }): 
 export function JSBootstrappingSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript} wrap>
-            {`posthog.init('{project_api_key}', {
+            {`// Initialise the posthog library with a distinct ID and feature flags for immediate loading
+
+posthog.init('{project_api_key}', {
     api_host: 'https://app.posthog.com',
-    bootstrap: {
+    bootstrap:
+    {
         distinctID: 'your-anonymous-id',
         featureFlags: {
-            'flag-1': true,
-            'variant-flag': 'control',
-            'other-flag': false
-        }
+    // input the flag values here from 'posthog.getAllFlags(distinct_id)' which you can find in the server-side libraries.
+        // example:
+            // 'flag-1': true,
+            // 'variant-flag': 'control',
+            // 'other-flag': false
+        },
     }
 })
             `}

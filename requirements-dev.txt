@@ -17,7 +17,6 @@ async-timeout==4.0.2
 attrs==21.4.0
     # via
     #   -c requirements.txt
-    #   flake8-bugbear
     #   jsonschema
     #   openapi-schema-validator
     #   pytest
@@ -91,25 +90,6 @@ faker==17.5.0
     # via -r requirements-dev.in
 fakeredis==1.9.1
     # via -r requirements-dev.in
-flake8==5.0.4
-    # via
-    #   -r requirements-dev.in
-    #   flake8-bugbear
-    #   flake8-colors
-    #   flake8-comprehensions
-    #   flake8-print
-flake8-bugbear==22.8.23
-    # via -r requirements-dev.in
-flake8-colors==0.1.9
-    # via -r requirements-dev.in
-flake8-comprehensions==3.10.0
-    # via -r requirements-dev.in
-flake8-import-order==0.18.1
-    # via -r requirements-dev.in
-flake8-logging-format==0.7.5
-    # via -r requirements-dev.in
-flake8-print==5.0.0
-    # via -r requirements-dev.in
 flaky==3.7.0
     # via -r requirements-dev.in
 freezegun==1.2.2
@@ -131,9 +111,7 @@ inflect==5.6.2
 iniconfig==1.1.1
     # via pytest
 isort==5.2.2
-    # via
-    #   -r requirements-dev.in
-    #   datamodel-code-generator
+    # via datamodel-code-generator
 itypes==1.2.0
     # via coreapi
 jinja2==2.11.3
@@ -152,8 +130,6 @@ lazy-object-proxy==1.9.0
     # via openapi-spec-validator
 markupsafe==1.1.1
     # via jinja2
-mccabe==0.7.0
-    # via flake8
 mypy==0.981
     # via
     #   -r requirements-dev.in
@@ -195,11 +171,6 @@ prance==0.22.11.4.0
     # via datamodel-code-generator
 py==1.10.0
     # via pytest
-pycodestyle==2.9.1
-    # via
-    #   flake8
-    #   flake8-import-order
-    #   flake8-print
 pycparser==2.20
     # via
     #   -c requirements.txt
@@ -208,8 +179,6 @@ pydantic[email]==1.10.4
     # via
     #   -c requirements.txt
     #   datamodel-code-generator
-pyflakes==2.5.0
-    # via flake8
 pyopenssl==22.0.0
     # via
     #   -c requirements.txt
@@ -253,9 +222,10 @@ pytest-split==0.6.0
     # via -r requirements-dev.in
 pytest-watch==4.2.0
     # via -r requirements-dev.in
-python-dateutil==2.8.1
+python-dateutil==2.8.2
     # via
     #   -c requirements.txt
+    #   -r requirements-dev.in
     #   faker
     #   freezegun
 pytz==2021.1
@@ -281,6 +251,8 @@ ruamel-yaml==0.17.21
     # via prance
 ruamel-yaml-clib==0.2.7
     # via ruamel-yaml
+ruff==0.0.257
+    # via -r requirements-dev.in
 semver==2.13.0
     # via prance
 six==1.16.0
