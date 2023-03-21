@@ -120,7 +120,11 @@ export const insightLogic = kea<insightLogicType>([
     }),
 
     actions({
-        setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
+        setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode, clearInsightQuery?: boolean) => ({
+            filters,
+            insightMode,
+            clearInsightQuery,
+        }),
         setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
         reportInsightViewed: (
@@ -453,6 +457,12 @@ export const insightLogic = kea<insightLogicType>([
             setInsight: (_state, { insight }) => ({
                 ...insight,
             }),
+            setFilters: (state, { clearInsightQuery }) => {
+                return {
+                    ...state,
+                    query: clearInsightQuery ? undefined : state.query,
+                }
+            },
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                 const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
@@ -780,9 +790,9 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         isUsingDashboardQueryTiles: [
-            (s) => [s.featureFlags, s.isUsingDataExploration],
-            (featureFlags: FeatureFlagsSet, isUsingDataExploration: boolean): boolean => {
-                return isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => {
+                return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
             },
         ],
         insightRefreshButtonDisabledReason: [

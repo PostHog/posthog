@@ -8,7 +8,6 @@ import { insightLogic } from './insightLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { isInsightVizNode } from '~/queries/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from './utils/cleanFilters'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -41,8 +40,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
         values: [
             insightLogic,
             ['insight', 'isUsingDataExploration'],
-            featureFlagLogic,
-            ['featureFlags'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             ['dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],

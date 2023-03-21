@@ -21,16 +21,17 @@ export interface InsightSceneProps {
 
 export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
-    const { insightMode } = useValues(insightSceneLogic)
+    const { insightMode, insight } = useValues(insightSceneLogic)
 
     // insightLogic
-    const logic = insightLogic({ dashboardItemId: insightId || 'new' })
+    const logic = insightLogic({ dashboardItemId: insightId || 'new', cachedInsight: insight })
     const {
         insightProps,
         insightLoading,
         filtersKnown,
         filters,
         isUsingDataExploration,
+        isUsingDashboardQueryTiles,
         erroredQueryId,
         isFilterBasedInsight,
     } = useValues(logic)
@@ -73,7 +74,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 
-            {isUsingDataExploration ? (
+            {isUsingDataExploration || (isUsingDashboardQueryTiles && isQueryBasedInsight) ? (
                 <>
                     <Query
                         query={query}
