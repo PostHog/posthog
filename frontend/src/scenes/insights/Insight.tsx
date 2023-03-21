@@ -34,7 +34,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         filtersKnown,
         filters,
         isUsingDataExploration,
-        isUsingDashboardQueryTiles,
+        isUsingDashboardQueries,
         erroredQueryId,
         isFilterBasedInsight,
     } = useValues(logic)
@@ -77,7 +77,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 
-            {isUsingDataExploration || (isUsingDashboardQueryTiles && isQueryBasedInsight) ? (
+            {isUsingDataExploration || (isUsingDashboardQueries && isQueryBasedInsight) ? (
                 <>
                     <Query
                         query={query}

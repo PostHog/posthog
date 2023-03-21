@@ -618,16 +618,29 @@ export const insightLogic = kea<insightLogicType>([
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
         ],
         derivedName: [
-            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions, s.isUsingDataExploration],
-            (insight, aggregationLabel, cohortsById, mathDefinitions, isUsingDataExploration) =>
-                summariseInsight(
+            (s) => [
+                s.insight,
+                s.aggregationLabel,
+                s.cohortsById,
+                s.mathDefinitions,
+                s.isUsingDataExploration,
+                s.isUsingDashboardQueries,
+            ],
+            (
+                insight,
+                aggregationLabel,
+                cohortsById,
+                mathDefinitions,
+                isUsingDataExploration,
+                isUsingDashboardQueries
+            ) =>
+                summariseInsight(insight.query, insight.filters || {}, {
                     isUsingDataExploration,
-                    insight.query,
                     aggregationLabel,
                     cohortsById,
                     mathDefinitions,
-                    insight.filters || {}
-                ).slice(0, 400),
+                    isUsingDashboardQueries,
+                }).slice(0, 400),
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
@@ -789,7 +802,7 @@ export const insightLogic = kea<insightLogicType>([
                 return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
             },
         ],
-        isUsingDashboardQueryTiles: [
+        isUsingDashboardQueries: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => {
                 return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]

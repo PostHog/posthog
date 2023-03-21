@@ -231,14 +231,13 @@ function InsightMeta({
     // not all interactions are currently implemented for queries
     const allInteractionsAllowed = !insight.query
 
-    const summary = summariseInsight(
-        !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
-        insight.query,
+    const summary = summariseInsight(insight.query, insight.filters, {
         aggregationLabel,
         cohortsById,
         mathDefinitions,
-        insight.filters
-    )
+        isUsingDataExploration: !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
+        isUsingDashboardQueries: !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB],
+    })
 
     return (
         <CardMeta
@@ -523,7 +522,7 @@ function InsightCardInternal(
         doNotLoad: true,
     }
 
-    const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueryTiles } = useValues(
+    const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueries } = useValues(
         insightLogic(insightLogicProps)
     )
     const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
@@ -604,7 +603,7 @@ function InsightCardInternal(
                     >
                         {exportedAndCached || sharedAndCached ? (
                             <Query query={insight.query} cachedResults={insight.result} />
-                        ) : isUsingDashboardQueryTiles && canMakeQueryAPICalls ? (
+                        ) : isUsingDashboardQueries && canMakeQueryAPICalls ? (
                             <Query query={insight.query} />
                         ) : (
                             <QueriesUnsupportedHere />

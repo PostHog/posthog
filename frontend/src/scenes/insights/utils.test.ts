@@ -1043,7 +1043,17 @@ describe('summarize data table query', () => {
             },
         }
 
-        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+        const result = summariseInsight(
+            query,
+            {},
+            {
+                aggregationLabel,
+                cohortsById: cohortIdsMapped,
+                mathDefinitions,
+                isUsingDashboardQueries: true,
+                isUsingDataExploration: true,
+            }
+        )
 
         expect(result).toEqual('event from events into a data table.')
     })
@@ -1057,7 +1067,17 @@ describe('summarize data table query', () => {
             },
         }
 
-        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+        const result = summariseInsight(
+            query,
+            {},
+            {
+                aggregationLabel,
+                cohortsById: cohortIdsMapped,
+                mathDefinitions,
+                isUsingDashboardQueries: true,
+                isUsingDataExploration: true,
+            }
+        )
 
         expect(result).toEqual('event, timestamp from events into a data table.')
     })
@@ -1072,7 +1092,17 @@ describe('summarize data table query', () => {
             },
         }
 
-        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+        const result = summariseInsight(
+            query,
+            {},
+            {
+                aggregationLabel,
+                cohortsById: cohortIdsMapped,
+                mathDefinitions,
+                isUsingDashboardQueries: true,
+                isUsingDataExploration: true,
+            }
+        )
 
         expect(result).toEqual('event from events into a data table.')
     })
@@ -1087,7 +1117,17 @@ describe('summarize data table query', () => {
             },
         }
 
-        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+        const result = summariseInsight(
+            query,
+            {},
+            {
+                aggregationLabel,
+                cohortsById: cohortIdsMapped,
+                mathDefinitions,
+                isUsingDashboardQueries: true,
+                isUsingDataExploration: true,
+            }
+        )
 
         expect(result).toEqual('timestamp from events into a data table.')
     })
@@ -1101,7 +1141,17 @@ describe('summarize data table query', () => {
             },
         }
 
-        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+        const result = summariseInsight(
+            query,
+            {},
+            {
+                aggregationLabel,
+                cohortsById: cohortIdsMapped,
+                mathDefinitions,
+                isUsingDashboardQueries: true,
+                isUsingDataExploration: true,
+            }
+        )
 
         expect(result).toEqual(
             'session_id, session_start, session_end, duration_ms from Time to See Data into a data table.'
@@ -1119,7 +1169,17 @@ describe('summarize data table query', () => {
             },
         }
 
-        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+        const result = summariseInsight(
+            query,
+            {},
+            {
+                aggregationLabel,
+                cohortsById: cohortIdsMapped,
+                mathDefinitions,
+                isUsingDashboardQueries: true,
+                isUsingDataExploration: true,
+            }
+        )
 
         expect(result).toEqual('Waterfall chart for time to see session complete_me.')
     })
@@ -1133,7 +1193,17 @@ describe('summarize data table query', () => {
                 select: ['count()'],
             },
         }
-        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+        const result = summariseInsight(
+            query,
+            {},
+            {
+                aggregationLabel,
+                cohortsById: cohortIdsMapped,
+                mathDefinitions,
+                isUsingDashboardQueries: true,
+                isUsingDataExploration: true,
+            }
+        )
 
         expect(result).toEqual('count() from events into a data table.')
     })
@@ -1144,7 +1214,17 @@ describe('summarize data table query', () => {
             query: 'select event,\n          person.properties.email from events\n  where timestamp > now() - interval 1 day',
         }
 
-        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+        const result = summariseInsight(
+            query,
+            {},
+            {
+                aggregationLabel,
+                cohortsById: cohortIdsMapped,
+                mathDefinitions,
+                isUsingDashboardQueries: true,
+                isUsingDataExploration: true,
+            }
+        )
 
         expect(result).toEqual('HogQL data table.')
     })
@@ -1157,7 +1237,17 @@ describe('summarize data table query', () => {
                 kind: NodeKind.PersonsNode,
             },
         }
-        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+        const result = summariseInsight(
+            query,
+            {},
+            {
+                aggregationLabel,
+                cohortsById: cohortIdsMapped,
+                mathDefinitions,
+                isUsingDashboardQueries: true,
+                isUsingDataExploration: true,
+            }
+        )
 
         expect(result).toEqual('person, id, created_at, person.$delete from persons into a data table.')
     })
@@ -1167,7 +1257,17 @@ describe('summarize data table query', () => {
             kind: NodeKind.RecentPerformancePageViewNode,
             dateRange: { date_from: '-7d' },
         }
-        const result = summariseInsight(true, query, aggregationLabel, cohortIdsMapped, mathDefinitions, {})
+        const result = summariseInsight(
+            query,
+            {},
+            {
+                aggregationLabel,
+                cohortsById: cohortIdsMapped,
+                mathDefinitions,
+                isUsingDashboardQueries: true,
+                isUsingDataExploration: true,
+            }
+        )
 
         expect(result).toEqual('Recent page views with performance data.')
     })

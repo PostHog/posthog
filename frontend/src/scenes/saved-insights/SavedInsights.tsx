@@ -350,6 +350,7 @@ function SavedInsightsGrid(): JSX.Element {
 export function SavedInsights(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const isUsingDataExploration = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+    const isUsingDashboardQueries = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
 
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
@@ -385,14 +386,13 @@ export function SavedInsights(): JSX.Element {
                             <Link to={urls.insightView(insight.short_id)}>
                                 {name || (
                                     <i>
-                                        {summariseInsight(
+                                        {summariseInsight(insight.query, insight.filters, {
                                             isUsingDataExploration,
-                                            insight.query,
                                             aggregationLabel,
                                             cohortsById,
                                             mathDefinitions,
-                                            insight.filters
-                                        )}
+                                            isUsingDashboardQueries,
+                                        })}
                                     </i>
                                 )}
                             </Link>

@@ -148,7 +148,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setActiveView: ({ view }) => {
-            if ([InsightType.SQL || InsightType.JSON].includes(view)) {
+            if ([InsightType.SQL, InsightType.JSON].includes(view as InsightType)) {
                 // if the selected view is SQL or JSON then we must have the "allow queries" flag on,
                 // so no need to check it
                 if (view === InsightType.JSON) {

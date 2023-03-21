@@ -61,6 +61,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightSaving,
         exporterResourceParams,
         isUsingDataExploration,
+        isUsingDashboardQueries,
         insightRefreshButtonDisabledReason,
     } = useValues(logic)
     const { saveInsight, setInsightMetadata, saveAs, loadResults } = useActions(logic)
@@ -111,14 +112,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={summariseInsight(
+                        placeholder={summariseInsight(query, filters, {
                             isUsingDataExploration,
-                            query,
                             aggregationLabel,
                             cohortsById,
                             mathDefinitions,
-                            filters
-                        )}
+                            isUsingDashboardQueries,
+                        })}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
                         maxLength={400} // Sync with Insight model

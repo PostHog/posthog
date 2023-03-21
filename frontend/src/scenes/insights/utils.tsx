@@ -521,22 +521,27 @@ function summariseQuery(query: Node): string {
     return `QueryKind: ${query?.kind}`
 }
 
+export interface SummaryContext {
+    isUsingDataExploration: boolean
+    isUsingDashboardQueries: boolean
+    aggregationLabel: groupsModelType['values']['aggregationLabel']
+    cohortsById: cohortsModelType['values']['cohortsById']
+    mathDefinitions: mathsLogicType['values']['mathDefinitions']
+}
+
 export function summariseInsight(
-    isUsingDataExploration: boolean,
     query: Node | undefined | null,
-    aggregationLabel: groupsModelType['values']['aggregationLabel'],
-    cohortsById: cohortsModelType['values']['cohortsById'],
-    mathDefinitions: mathsLogicType['values']['mathDefinitions'],
-    filters: Partial<FilterType>
+    filters: Partial<FilterType>,
+    context: SummaryContext
 ): string {
     const hasFilters = Object.keys(filters || {}).length > 0
 
-    return isUsingDataExploration && isInsightVizNode(query)
-        ? summarizeInsightQuery(query.source, aggregationLabel, cohortsById, mathDefinitions)
-        : isUsingDataExploration && !!query
+    return context.isUsingDataExploration && isInsightVizNode(query)
+        ? summarizeInsightQuery(query.source, context.aggregationLabel, context.cohortsById, context.mathDefinitions)
+        : context.isUsingDashboardQueries && !!query && !isInsightVizNode(query)
         ? summariseQuery(query)
         : hasFilters
-        ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
+        ? summarizeInsightFilters(filters, context.aggregationLabel, context.cohortsById, context.mathDefinitions)
         : ''
 }
 
