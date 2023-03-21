@@ -5478,6 +5478,61 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response[0]["data"], [1.0])
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @snapshot_clickhouse_queries
+    def test_same_day_with_person_on_events_v2g(self):
+        person_id1 = str(uuid.uuid4())
+        person_id2 = str(uuid.uuid4())
+
+        _create_person(team_id=self.team.pk, distinct_ids=["distinctid1"], properties={})
+        _create_person(team_id=self.team.pk, distinct_ids=["distinctid2"], properties={})
+
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="distinctid1",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+            person_id=person_id1,
+        )
+
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="distinctid2",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+            person_id=person_id2,
+        )
+
+        create_person_id_override_by_distinct_id("distinctid1", "distinctid2", self.team.pk)
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [2.0])
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [1.0])
+
     @also_test_with_materialized_columns(event_properties=["email", "name"], person_properties=["email", "name"])
     def test_ilike_regression_with_current_clickhouse_version(self):
         # CH upgrade to 22.3 has this problem: https://github.com/ClickHouse/ClickHouse/issues/36279
