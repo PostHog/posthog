@@ -443,6 +443,10 @@ $decorations: underline, overline, line-through, no-underline;
     float: left;
 }
 
+.align-middle {
+    vertical-align: middle;
+}
+
 // Position
 .relative {
     position: relative;
