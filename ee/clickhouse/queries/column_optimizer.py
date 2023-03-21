@@ -61,10 +61,10 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
                 ] += 1
             elif self.filter.breakdown_type == "hogql":
                 if isinstance(self.filter.breakdown, list):
-                    breakdown = self.filter.breakdown[0]
+                    expr = str(self.filter.breakdown[0])
                 else:
-                    breakdown = self.filter.breakdown
-                count_hogql_properties(breakdown, counter)
+                    expr = str(self.filter.breakdown)
+                count_hogql_properties(expr, counter)
 
             # If we have a breakdowns attribute then make sure we pull in everything we
             # need to calculate it

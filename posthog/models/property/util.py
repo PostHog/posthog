@@ -806,7 +806,9 @@ def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIde
     return Counter(cast(Iterable, counters))
 
 
-def count_hogql_properties(expr: str, counter: Optional[TCounter] = None) -> TCounter:
+def count_hogql_properties(
+    expr: str, counter: Optional[TCounter[PropertyIdentifier]] = None
+) -> TCounter[PropertyIdentifier]:
     if not counter:
         counter = Counter()
     node = parse_expr(expr)
