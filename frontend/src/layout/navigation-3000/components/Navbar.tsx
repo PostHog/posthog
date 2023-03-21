@@ -1,3 +1,4 @@
+import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import {
@@ -6,14 +7,17 @@ import {
     IconCohort,
     IconComment,
     IconCottage,
+    IconDarkMode,
     IconExperiment,
     IconFlag,
     IconGauge,
     IconHelpOutline,
+    IconLightMode,
     IconLive,
     IconPerson,
     IconRecording,
     IconSettings,
+    IconSync,
     IconUnverifiedEvent,
 } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -23,12 +27,18 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
+import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
     const { isSitePopoverOpen } = useValues(navigationLogic)
     const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
+    const { isDarkModeOn, darkModeSavedPreference, darkModeSystemPreference, isThemeSyncedWithSystem } =
+        useValues(themeLogic)
+    const { toggleTheme } = useActions(themeLogic)
+
+    const activeThemeIcon = isDarkModeOn ? <IconDarkMode /> : <IconLightMode />
 
     return (
         <nav className="Navbar3000">
@@ -73,6 +83,30 @@ export function Navbar(): JSX.Element {
                 </div>
                 <div className="Navbar3000__bottom">
                     <ul>
+                        <NavbarButton
+                            icon={
+                                isThemeSyncedWithSystem ? (
+                                    <div className="relative">
+                                        {activeThemeIcon}
+                                        <LemonBadge size="small" position="top-right" content={<IconSync />} />
+                                    </div>
+                                ) : (
+                                    activeThemeIcon
+                                )
+                            }
+                            identifier="theme-button"
+                            title={
+                                darkModeSavedPreference === false
+                                    ? `Sync theme with system preference (${
+                                          darkModeSystemPreference ? 'dark' : 'light'
+                                      } mode)`
+                                    : darkModeSavedPreference
+                                    ? 'Switch to light mode'
+                                    : 'Switch to dark mode'
+                            }
+                            onClick={() => toggleTheme()}
+                            persistentTooltip
+                        />
                         <HelpButton
                             customComponent={
                                 <NavbarButton

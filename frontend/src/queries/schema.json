@@ -1306,16 +1306,16 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
-                "showEventsBufferWarning": {
-                    "description": "Show warning about live events being buffered max 60 sec (default: false)",
-                    "type": "boolean"
-                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
                 },
                 "showHogQLEditor": {
                     "description": "Include a HogQL query editor above HogQL tables",
+                    "type": "boolean"
+                },
+                "showOpenEditorButton": {
+                    "description": "Show a button to open the current query as a new insight. (default: true)",
                     "type": "boolean"
                 },
                 "showPropertyFilter": {
@@ -1359,6 +1359,21 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "DatabaseSchemaQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "DatabaseSchemaQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         },
         "DateRange": {
@@ -1956,6 +1971,9 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },
@@ -2086,7 +2104,7 @@
             ]
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "QUERY", "SQL"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -2190,6 +2208,9 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },
@@ -2202,6 +2223,67 @@
         "LifecycleToggle": {
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
+        },
+        "NewEntityNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "event": {
+                    "type": ["string", "null"]
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "NewEntityNode",
+                    "type": "string"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/GroupMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
         },
         "PathCleaningFilter": {
             "additionalProperties": false,
@@ -2523,6 +2605,9 @@
                 },
                 {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaQuery"
                 }
             ]
         },
@@ -2753,6 +2838,9 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },
@@ -2896,6 +2984,9 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },

@@ -3,8 +3,9 @@ from typing import Any, Dict, Set, Tuple, Union
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import get_aggregation_target_field
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
+from posthog.queries.util import get_person_properties_mode
+from posthog.utils import PersonOnEventsMode
 
 
 class FunnelEventQuery(EventQuery):
@@ -21,7 +22,7 @@ class FunnelEventQuery(EventQuery):
             get_aggregation_target_field(
                 self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, f"{self.EVENT_TABLE_ALIAS}.person_id"
             )
-            if self._using_person_on_events
+            if self._person_on_events_mode != PersonOnEventsMode.DISABLED
             else get_aggregation_target_field(
                 self._filter.aggregation_group_type_index,
                 self.EVENT_TABLE_ALIAS,
@@ -38,7 +39,7 @@ class FunnelEventQuery(EventQuery):
 
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
 
-        if self._using_person_on_events:
+        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
             _fields += [f"{self.EVENT_TABLE_ALIAS}.person_id as person_id"]
 
             _fields.extend(
@@ -62,10 +63,8 @@ class FunnelEventQuery(EventQuery):
 
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
+            person_properties_mode=get_person_properties_mode(self._team),
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
         )
 
         self.params.update(prop_params)
@@ -84,7 +83,11 @@ class FunnelEventQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
-        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
+        null_person_filter = (
+            f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
+            if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+            else ""
+        )
 
         sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})
@@ -97,7 +100,7 @@ class FunnelEventQuery(EventQuery):
             {{extra_select_fields}}
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_distinct_id_query()}
+            {self._get_person_ids_query()}
             {person_query}
             {groups_query}
             {{extra_join}}
@@ -121,7 +124,7 @@ class FunnelEventQuery(EventQuery):
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._using_person_on_events:
+        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
             self._should_join_distinct_ids = False
             self._should_join_persons = False
 

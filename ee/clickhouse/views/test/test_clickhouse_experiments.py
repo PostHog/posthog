@@ -977,7 +977,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
         result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
 
         self.assertEqual(result[0][0]["name"], "$pageview")
@@ -1001,6 +1001,106 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
         self.assertEqual(response_data["significance_code"], ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
         self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
+
+    def test_experiment_flow_with_event_results_cached(self):
+
+        journeys_for(
+            {
+                "person1": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}},
+                ],
+                "person2": [
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                ],
+                "person3": [
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                ],
+                # doesn't have feature set
+                "person_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-03"},
+                    {"event": "$pageleave", "timestamp": "2020-01-05"},
+                ],
+                "person_out_of_end_date": [
+                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageleave", "timestamp": "2020-08-05", "properties": {"$feature/a-b-test": "control"}},
+                ],
+                # non-converters with FF
+                "person4": [
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "test"}}
+                ],
+                "person5": [
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"}}
+                ],
+            },
+            self.team,
+        )
+
+        ff_key = "a-b-test"
+        # generates the FF which should result in the above events^
+
+        experiment_payload = {
+            "name": "Test Experiment",
+            "description": "",
+            "start_date": "2020-01-01T00:00",
+            "end_date": "2020-01-06T00:00",
+            "feature_flag_key": ff_key,
+            "parameters": None,
+            "filters": {
+                "insight": "funnels",
+                "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                "properties": [
+                    {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                    # properties superceded by FF breakdown
+                ],
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            experiment_payload,
+        )
+
+        id = response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
+        self.assertEqual(200, response.status_code)
+
+        response_json = response.json()
+        response_data = response_json["result"]
+        result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
+
+        self.assertEqual(response_json.pop("is_cached"), False)
+
+        self.assertEqual(result[0][0]["name"], "$pageview")
+        self.assertEqual(result[0][0]["count"], 2)
+        self.assertEqual("control", result[0][0]["breakdown_value"][0])
+
+        self.assertEqual(result[0][1]["name"], "$pageleave")
+        self.assertEqual(result[0][1]["count"], 2)
+        self.assertEqual("control", result[0][1]["breakdown_value"][0])
+
+        self.assertEqual(result[1][0]["name"], "$pageview")
+        self.assertEqual(result[1][0]["count"], 3)
+        self.assertEqual("test", result[1][0]["breakdown_value"][0])
+
+        self.assertEqual(result[1][1]["name"], "$pageleave")
+        self.assertEqual(result[1][1]["count"], 1)
+        self.assertEqual("test", result[1][1]["breakdown_value"][0])
+
+        # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
+        # The variant has very low probability of being better.
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
+        self.assertEqual(response_data["significance_code"], ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
+
+        response2 = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
+
+        response2_json = response2.json()
+
+        self.assertEqual(response2_json.pop("is_cached"), True)
+        self.assertEqual(response2_json["result"], response_data)
 
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones(self):
@@ -1104,7 +1204,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
         result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
 
         self.assertEqual(result[0][0]["name"], "$pageview")
@@ -1240,7 +1340,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
         result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
 
         self.assertEqual(result[0][0]["name"], "$pageview")
@@ -1365,7 +1465,7 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
         result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
 
         self.assertEqual(result[0]["count"], 4)
@@ -1528,7 +1628,7 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
         result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
 
         self.assertEqual(result[0]["count"], 4)
@@ -1610,7 +1710,7 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
         result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
 
         self.assertEqual(result[0]["count"], 3)
@@ -1731,7 +1831,7 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
         self.assertEqual(200, response.status_code)
 
-        response_data = response.json()
+        response_data = response.json()["result"]
         result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
 
         self.assertEqual(result[0]["count"], 4)

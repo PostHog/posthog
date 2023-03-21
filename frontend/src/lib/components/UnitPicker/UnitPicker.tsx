@@ -8,7 +8,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { CustomUnitModal } from 'lib/components/UnitPicker/CustomUnitModal'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 interface UnitPickerProps {
     filters: TrendsFilterType
@@ -29,7 +29,7 @@ export interface HandleUnitChange {
 
 export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { updateInsightFilter } = useActions(insightDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { reportAxisUnitsChanged } = useActions(eventUsageLogic)
     const [isVisible, setIsVisible] = useState(false)
     const [localAxisFormat, setLocalAxisFormat] = useState(filters.aggregation_axis_format || undefined)

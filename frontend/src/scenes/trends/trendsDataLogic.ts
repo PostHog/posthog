@@ -1,10 +1,10 @@
 import { kea, props, key, path, connect, selectors } from 'kea'
 import { ChartDisplayType, InsightLogicProps, LifecycleToggle, TrendAPIResponse, TrendResult } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export const trendsDataLogic = kea<trendsDataLogicType>([
     props({} as InsightLogicProps),
@@ -12,7 +12,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     path((key) => ['scenes', 'trends', 'trendsDataLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [insightDataLogic(props), ['insightData', 'display', 'lifecycleFilter']],
+        values: [insightVizDataLogic(props), ['insightData', 'display', 'lifecycleFilter']],
     })),
 
     selectors({

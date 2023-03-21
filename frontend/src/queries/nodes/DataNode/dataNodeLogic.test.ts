@@ -1,5 +1,4 @@
 import { initKeaTests } from '~/test/init'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { expectLogic, partial } from 'kea-test-utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema'
@@ -29,7 +28,6 @@ describe('dataNodeLogic', () => {
 
     beforeEach(async () => {
         initKeaTests()
-        featureFlagLogic.mount()
     })
     afterEach(() => logic?.unmount())
 

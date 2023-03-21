@@ -14,7 +14,7 @@ $screens: (
     'xxl': $xxl,
 );
 
-$tiny_spaces: 0, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20;
+$tiny_spaces: 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20;
 $humongous_spaces: 30, 40, 60, 80, 100, 120, 140, 160, 180, 200;
 $all_spaces: list.join($tiny_spaces, $humongous_spaces);
 $leadings: 3, 4, 5, 6, 7, 8, 9, 10;
@@ -107,11 +107,25 @@ $colors: (
     'transparent': transparent,
 
     // PostHog 3000
-    'text-3000': #111,
-    'muted-3000': rgba(#111, 0.5),
-    'accent-3000': #e5e7e0,
-    'bg-3000': #eeefe9,
-    'border-3000': #d0d1c9,
+    'text-3000-light': #111,
+    'muted-3000-light': rgba(#111, 0.5),
+    'primary-3000-light': #393939,
+    'secondary-3000-light': #e4e6dc,
+    'accent-3000-light': #eeefe9,
+    'bg-3000-light': #f3f4ef,
+    'border-3000-light': #d0d1c9,
+    'glass-bg-3000-light': #e4e5deb3,
+    'glass-border-3000-light': #e4e5de,
+
+    'text-3000-dark': #fff,
+    'muted-3000-dark': rgba(#fff, 0.5),
+    'primary-3000-dark': var(--primary),
+    'secondary-3000-dark': #3b4159,
+    'accent-3000-dark': #1d1f27,
+    'bg-3000-dark': #151619,
+    'border-3000-dark': #2b2c32,
+    'glass-bg-3000-dark': #1d1f27b3,
+    'glass-border-3000-dark': var(--border-3000-dark),
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.

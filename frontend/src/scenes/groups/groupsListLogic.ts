@@ -29,6 +29,7 @@ export const groupsListLogic = kea<groupsListLogicType>({
     actions: () => ({
         loadGroups: (url?: string | null) => ({ url }),
         setTab: (tab: string) => ({ tab }),
+        setSearch: (search: string) => ({ search }),
     }),
     loaders: ({ values }) => ({
         groups: [
@@ -37,7 +38,10 @@ export const groupsListLogic = kea<groupsListLogicType>({
                 loadGroups: async ({ url }) => {
                     if (values.groupsEnabled) {
                         url =
-                            url || `api/projects/${values.currentTeamId}/groups/?group_type_index=${values.currentTab}`
+                            url ||
+                            `api/projects/${values.currentTeamId}/groups/?group_type_index=${values.currentTab}${
+                                values.search ? '&search=' + encodeURIComponent(values.search) : ''
+                            }`
                         return await api.get(url)
                     }
                 },
@@ -45,6 +49,13 @@ export const groupsListLogic = kea<groupsListLogicType>({
         ],
     }),
     reducers: {
+        search: [
+            '',
+            {
+                setSearch: (_, { search }) => search,
+                setTab: () => '',
+            },
+        ],
         currentTab: [
             '-1',
             {
@@ -98,6 +109,12 @@ export const groupsListLogic = kea<groupsListLogicType>({
             if (values.currentTab !== '-1') {
                 actions.setTab('-1')
             }
+        },
+    }),
+    listeners: ({ actions }) => ({
+        setSearch: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadGroups()
         },
     }),
 })

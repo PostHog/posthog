@@ -67,7 +67,7 @@ import { globalInsightLogic } from './globalInsightLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
+const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
 export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {
@@ -98,7 +98,6 @@ export const insightLogic = kea<insightLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
-
     connect({
         values: [
             teamLogic,
@@ -1151,7 +1150,10 @@ export const insightLogic = kea<insightLogicType>([
             const hasDashboardItemId =
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-')
             const isCachedWithResultAndFilters =
-                !!props.cachedInsight && !!props.cachedInsight?.result && !!props.cachedInsight?.filters
+                !!props.cachedInsight &&
+                !!props.cachedInsight?.result &&
+                (Object.keys(props.cachedInsight?.filters || {}).length > 0 ||
+                    Object.keys(props.cachedInsight?.query || {}).length > 0)
 
             if (!isCachedWithResultAndFilters) {
                 if (hasDashboardItemId) {

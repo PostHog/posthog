@@ -1,6 +1,7 @@
 .LemonButton {
     position: relative;
-    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
+    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
+        transform 100ms ease;
     display: flex;
     flex-direction: row;
     flex-shrink: 0;
@@ -48,6 +49,25 @@
         }
     }
 
+    &.LemonButton--has-icon {
+        padding-left: 0.5rem;
+        &.LemonButton--small {
+            padding-left: 0.375rem;
+        }
+        &.LemonButton--large {
+            padding-left: 0.75rem;
+        }
+    }
+    &.LemonButton--has-side-icon {
+        padding-right: 0.5rem;
+        &.LemonButton--small {
+            padding-right: 0.375rem;
+        }
+        &.LemonButton--large {
+            padding-right: 0.75rem;
+        }
+    }
+
     &.LemonButton--no-content {
         padding-left: 0.5rem;
         padding-right: 0.5rem;
@@ -59,7 +79,7 @@
         gap: 0.25rem;
 
         &.LemonButton--no-content {
-            padding: 0.125rem;
+            padding: 0.125rem; // NOTE: This rule needs to be later than --has-icon and --has-side-icon to override them
             min-height: 1rem;
         }
 
@@ -83,13 +103,7 @@
         }
     }
 
-    &.LemonButton--hasIcon {
-        padding-left: 0.5rem;
-    }
-    &.LemonButton--hasSideIcon {
-        padding-right: 0.5rem;
-    }
-    &.LemonButton--noPadding {
+    &.LemonButton--no-padding {
         min-height: 0;
         height: auto;
         width: auto;
@@ -137,8 +151,7 @@
             border: 1px solid var(--border);
 
             &:not(.LemonButton--disabled):hover,
-            &.LemonButton--active,
-            &:not(.LemonButton--disabled):active {
+            &.LemonButton--active {
                 background: var(--primary-highlight);
                 border-color: var(--primary);
             }
@@ -199,8 +212,7 @@
                 border: 1px solid var(--border);
 
                 &:not(.LemonButton--disabled):hover,
-                &.LemonButton--active,
-                &:not(.LemonButton--disabled):active {
+                &.LemonButton--active {
                     background: var(--#{$status}-highlight, var(--primary-highlight));
                     border-color: var(--#{$status});
                 }
@@ -212,20 +224,49 @@
         }
     }
 
-    // PostHog 3000
-    &.LemonButton--status-3000 {
-        color: var(--default);
+    .posthog-3000 & {
+        font-size: 0.8125rem;
+        border: none !important; // 3000 buttons never have borders
+
+        .LemonButton__icon {
+            color: var(--muted);
+        }
 
         &:not(.LemonButton--disabled):hover,
         &.LemonButton--active {
+            color: var(--default);
             background: var(--border);
-            .LemonIcon {
+            .LemonButton__icon {
                 color: var(--default);
             }
         }
 
-        .LemonIcon {
+        &:not(.LemonButton--disabled):active {
+            transform: scale(0.9375); // 30/32 (1px less on both sides, assuming a 32px tall button)
+        }
+
+        &.LemonButton--status-primary {
             color: var(--muted);
+        }
+
+        &.LemonButton--status-stealth {
+            color: var(--default);
+        }
+
+        &.LemonButton--primary {
+            color: #fff;
+            background: var(--primary-3000);
+            .LemonButton__icon {
+                color: #fff;
+            }
+        }
+
+        &.LemonButton--secondary {
+            color: var(--default);
+            background: var(--secondary-3000);
+            .LemonButton__icon {
+                color: var(--default);
+            }
         }
     }
 }
@@ -235,28 +276,35 @@
 }
 
 .LemonButtonWithSideAction__spacer {
-    width: 1px;
-    height: 1.25rem;
-    margin-right: 1.75rem;
+    height: 1.5rem;
+    width: 1.5rem;
+    padding-left: 0.375rem;
+    box-sizing: content-box;
 
     &.LemonButtonWithSideAction__spacer--divider {
         opacity: 0.17;
-        background: currentColor;
+        border-left: 1px solid currentColor;
+    }
+
+    .LemonButton--small & {
+        margin-left: 0.25rem;
     }
 }
 
-.LemonButtonWithSideAction--side-button {
+.LemonButtonWithSideAction__side-button {
     position: absolute;
     top: 50%;
     right: 0.5rem;
     transform: translateY(-50%);
 
-    .LemonButton {
-        &.LemonButton--status-primary {
-            &:hover {
-                // NOTE: this is a rare case where we specify a unique hover style. Only primary status is supported
-                background: var(--primary-extralight);
-            }
+    .LemonButtonWithSideAction--small & {
+        right: 0.375rem;
+    }
+
+    &.LemonButton--status-primary {
+        &:hover {
+            // NOTE: this is a rare case where we specify a unique hover style. Only primary status is supported
+            background: var(--primary-extralight);
         }
     }
 }

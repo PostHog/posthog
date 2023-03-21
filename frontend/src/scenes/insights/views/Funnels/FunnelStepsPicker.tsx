@@ -1,72 +1,117 @@
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { EntityFilter, FunnelVizType } from '~/types'
-import { Row, Select } from 'antd'
-import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { EntityFilter } from '~/types'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { FunnelsFilter } from '~/queries/schema'
+import { LemonSelect, LemonSelectOptions, LemonSelectOption } from '@posthog/lemon-ui'
+
+export function FunnelStepsPickerDataExploration(): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { series, isFunnelWithEnoughSteps, funnelsFilter } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const onChange = (funnel_from_step?: number, funnel_to_step?: number): void => {
+        updateInsightFilter({ funnel_from_step, funnel_to_step })
+    }
+
+    return (
+        <FunnelStepsPickerComponent
+            filterSteps={series || []}
+            numberOfSeries={series?.length || 0}
+            isFunnelWithEnoughSteps={isFunnelWithEnoughSteps}
+            funnelsFilter={funnelsFilter}
+            onChange={onChange}
+        />
+    )
+}
 
 export function FunnelStepsPicker(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { filters, numberOfSeries, isFunnelWithEnoughSteps, filterSteps } = useValues(funnelLogic(insightProps))
     const { changeStepRange } = useActions(funnelLogic(insightProps))
 
-    if (filters.funnel_viz_type === FunnelVizType.Steps) {
-        return null
-    }
-
     const onChange = (funnel_from_step?: number, funnel_to_step?: number): void => {
         changeStepRange(funnel_from_step, funnel_to_step)
     }
 
+    return (
+        <FunnelStepsPickerComponent
+            filterSteps={filterSteps}
+            numberOfSeries={numberOfSeries}
+            isFunnelWithEnoughSteps={isFunnelWithEnoughSteps}
+            funnelsFilter={filters}
+            onChange={onChange}
+        />
+    )
+}
+
+type FunnelStepsPickerComponentProps = {
+    filterSteps: Record<string, any>[]
+    numberOfSeries: number
+    isFunnelWithEnoughSteps: boolean
+    funnelsFilter?: FunnelsFilter | null
+    onChange: (funnel_from_step?: number, funnel_to_step?: number) => void
+}
+
+export function FunnelStepsPickerComponent({
+    filterSteps,
+    numberOfSeries,
+    isFunnelWithEnoughSteps,
+    funnelsFilter,
+    onChange,
+}: FunnelStepsPickerComponentProps): JSX.Element | null {
     const fromRange = isFunnelWithEnoughSteps ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice(0, -1) : [0]
     const toRange = isFunnelWithEnoughSteps
-        ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice((filters.funnel_from_step ?? 0) + 1)
+        ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice((funnelsFilter?.funnel_from_step ?? 0) + 1)
         : [1]
 
-    const renderStepOptions = (range: number[]): React.ReactNode => {
-        return range.map((stepIndex) => {
-            const stepFilter = filterSteps.find((f) => f.order === stepIndex)
-
-            return stepFilter ? (
-                <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
-                    <div style={{ display: 'flex', flexDirection: 'row' }}>
-                        <span style={{ marginRight: 4 }}>Step {stepIndex + 1}:</span>
-                        <EntityFilterInfo filter={stepFilter as EntityFilter} />
-                    </div>
-                </Select.Option>
-            ) : null
-        })
+    const optionsForRange = (range: number[]): LemonSelectOptions<number> => {
+        return range
+            .map((stepIndex): LemonSelectOption<number> | null => {
+                // data exploration has no order on series and instead relies on array order
+                const stepFilter = filterSteps.find((f) => f.order === stepIndex) || filterSteps[stepIndex]
+                return stepFilter
+                    ? {
+                          value: stepIndex,
+                          label: `Step ${stepIndex + 1}`,
+                          element: (
+                              <div className="flex flex-row">
+                                  <span className="mr-1">Step {stepIndex + 1}:</span>
+                                  <EntityFilterInfo filter={stepFilter as EntityFilter} />
+                              </div>
+                          ),
+                      }
+                    : null
+            })
+            .filter((option): option is LemonSelectOption<number> => option !== null)
     }
 
     return (
-        <Row className="funnel-options-inputs">
-            <span className="text-muted-alt">from</span>
-            <Select
-                disabled={!isFunnelWithEnoughSteps}
+        <div className="flex items-center">
+            <span className="text-muted-alt">&nbsp;from</span>
+            <LemonSelect
+                size="small"
+                className="mx-1"
                 dropdownMatchSelectWidth={false}
-                dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomLeft}
-                data-attr="funnel-header-steps-funnel_from_step-selector"
-                optionLabelProp="label"
-                value={filters.funnel_from_step || 0}
-                onChange={(fromStep: number) => onChange(fromStep, filters.funnel_to_step)}
-                style={{ marginLeft: 4, marginRight: 4 }}
-            >
-                {renderStepOptions(fromRange)}
-            </Select>
+                optionTooltipPlacement="bottomLeft"
+                disabled={!isFunnelWithEnoughSteps}
+                options={optionsForRange(fromRange)}
+                value={funnelsFilter?.funnel_from_step || 0}
+                onChange={(fromStep: number | null) => fromStep && onChange(fromStep, funnelsFilter?.funnel_to_step)}
+            />
             <span className="text-muted-alt">to</span>
-            <Select
-                disabled={!isFunnelWithEnoughSteps}
+            <LemonSelect
+                size="small"
+                className="mx-1"
                 dropdownMatchSelectWidth={false}
-                dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomLeft}
-                data-attr="funnel-header-steps-funnel_to_step-selector"
-                optionLabelProp="label"
-                value={filters.funnel_to_step || Math.max(numberOfSeries - 1, 1)}
-                onChange={(toStep: number) => onChange(filters.funnel_from_step, toStep)}
-                style={{ marginLeft: 4, marginRight: 4 }}
-            >
-                {renderStepOptions(toRange)}
-            </Select>
-        </Row>
+                optionTooltipPlacement="bottomLeft"
+                disabled={!isFunnelWithEnoughSteps}
+                options={optionsForRange(toRange)}
+                value={funnelsFilter?.funnel_to_step || Math.max(numberOfSeries - 1, 1)}
+                onChange={(toStep: number | null) => toStep && onChange(funnelsFilter?.funnel_from_step, toStep)}
+            />
+        </div>
     )
 }

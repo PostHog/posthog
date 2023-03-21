@@ -2,8 +2,6 @@ import {
     CohortType,
     FilterLogicalOperator,
     GroupType,
-    LicensePlan,
-    LicenseType,
     OrganizationInviteType,
     OrganizationMemberType,
     OrganizationType,
@@ -174,13 +172,6 @@ export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
     created_by: MOCK_DEFAULT_BASIC_USER,
     created_at: '2022-03-11T16:44:01.264613Z',
     updated_at: '2022-03-11T16:44:01.318717Z',
-}
-
-export const MOCK_DEFAULT_LICENSE: LicenseType = {
-    id: 1,
-    plan: LicensePlan.Scale,
-    valid_until: '2025-03-11T14:05:45.338000Z',
-    created_at: '2022-03-11T14:05:36.107000Z',
 }
 
 export const MOCK_PERSON_PROPERTIES: PersonProperty[] = [

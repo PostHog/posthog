@@ -1,6 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { billingLogic } from '~/scenes/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -19,7 +18,7 @@ describe('announcementLogic', () => {
         initKeaTests()
         logic = announcementLogic()
         logic.mount()
-        await expectLogic(logic).toMount([featureFlagLogic, preflightLogic, userLogic, navigationLogic, billingLogic])
+        await expectLogic(logic).toMount([featureFlagLogic, preflightLogic, userLogic, navigationLogic])
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CLOUD_ANNOUNCEMENT], {
             [FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]: MOCK_CLOUD_ANNOUNCEMENT,
         })
