@@ -1,5 +1,5 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { summarizeInsight } from 'scenes/insights/utils'
+
 import {
     AvailableFeature,
     ExporterFormat,
@@ -44,6 +44,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { globalInsightLogic } from './globalInsightLogic'
 import { isInsightVizNode } from '~/queries/utils'
 import { posthog } from 'posthog-js'
+import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
