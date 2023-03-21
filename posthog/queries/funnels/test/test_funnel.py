@@ -178,8 +178,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         def test_funnel_events_with_person_on_events_v2(self):
 
             # KLUDGE: We need to do this to ensure create_person_id_override_by_distinct_id
-            # works correctly. Worth considering other approaches as we generally avoid
-            # truncating tables in tests.
+            # works correctly. Worth considering other approaches as we generally like to
+            # avoid truncating tables in tests for speed.
             sync_execute("TRUNCATE TABLE sharded_events")
 
             funnel = self._basic_funnel()
@@ -214,6 +214,9 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
+
+            # key difference between this test and test_funnel_events.
+            # we merged two people and thus the count here is 3 and not 4
             self.assertEqual(result[0]["count"], 3)
 
             self.assertEqual(result[1]["name"], "paid")
