@@ -263,7 +263,8 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
     def _get_sequence_query(self) -> Tuple[str, Dict[str, Any], str]:
         params = {}
 
-        names = ["event", "properties", "distinct_id", "timestamp"]
+        materialized_columns = list(self._column_optimizer.event_columns_to_query)
+        names = ["event", "properties", "distinct_id", "timestamp", *materialized_columns]
 
         person_prop_query = ""
         person_prop_params: dict = {}
@@ -298,7 +299,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         new_query = f"""
         SELECT {", ".join(_inner_fields)} FROM events AS {self.EVENT_TABLE_ALIAS}
-        {self._get_distinct_id_query()}
+        {self._get_person_ids_query()}
         WHERE team_id = %(team_id)s
         AND event IN %({event_param_name})s
         {date_condition}

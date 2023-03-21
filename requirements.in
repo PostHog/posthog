@@ -52,7 +52,7 @@ posthoganalytics==2.3.1
 psycopg2-binary==2.8.6
 pydantic==1.10.4
 pyjwt==2.4.0
-python-dateutil==2.8.1
+python-dateutil>=2.8.2
 python3-saml==1.12.0
 pytz==2021.1
 redis==4.3.4
@@ -66,6 +66,7 @@ social-auth-app-django==5.0.0
 social-auth-core==4.3.0
 statshog==1.0.6
 sqlparse==0.4.2
+temporalio==1.1.0
 token-bucket==0.3.0
 toronado==0.1.0
 webdriver_manager==3.8.4
