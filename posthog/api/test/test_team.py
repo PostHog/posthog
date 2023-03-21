@@ -10,6 +10,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
+from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.test.base import APIBaseTest
 
 
@@ -187,6 +188,36 @@ class TestTeamAPI(APIBaseTest):
             groups={"instance": ANY, "organization": str(self.organization.id), "project": str(self.team.uuid)},
         )
         mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
+
+    def test_delete_bulky_postgres_data(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        team: Team = Team.objects.create_with_data(organization=self.organization)
+
+        self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
+
+        from posthog.models.cohort import Cohort, CohortPeople
+        from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
+
+        # from posthog.models.insight_caching_state import InsightCachingState
+        from posthog.models.person import Person
+
+        cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
+        person = Person.objects.create(
+            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+        person.add_distinct_id("test")
+        flag = FeatureFlag.objects.create(
+            team=team, name="test", key="test", rollout_percentage=50, created_by=self.user
+        )
+        FeatureFlagHashKeyOverride.objects.create(
+            team_id=team.pk, person_id=person.id, feature_flag_key=flag.key, hash_key="test"
+        )
+        CohortPeople.objects.create(cohort_id=cohort.pk, person_id=person.pk)
+
+        # if something is missing then teardown fails
+        delete_bulky_postgres_data([team.pk])
 
     def test_reset_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
