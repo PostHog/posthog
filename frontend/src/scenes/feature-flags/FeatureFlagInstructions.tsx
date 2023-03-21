@@ -241,6 +241,7 @@ export function CodeInstructions({
                                     onChange={() => setShowLocalEvalCode(!showLocalEvalCode)}
                                     disabled={
                                         selectedOption.type !== LibraryType.Server ||
+                                        selectedOption.value === 'API' ||
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
