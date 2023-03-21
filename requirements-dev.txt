@@ -111,9 +111,7 @@ inflect==5.6.2
 iniconfig==1.1.1
     # via pytest
 isort==5.2.2
-    # via
-    #   -r requirements-dev.in
-    #   datamodel-code-generator
+    # via datamodel-code-generator
 itypes==1.2.0
     # via coreapi
 jinja2==2.11.3

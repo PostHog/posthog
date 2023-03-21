@@ -56,7 +56,7 @@ class StickinessEventsQuery(EventQuery):
                 countDistinct({get_trunc_func_ch(self._filter.interval)}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s))) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_distinct_id_query()}
+            {self._get_person_ids_query()}
             {person_query}
             {groups_query}
             WHERE team_id = %(team_id)s
