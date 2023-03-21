@@ -1150,7 +1150,10 @@ export const insightLogic = kea<insightLogicType>([
             const hasDashboardItemId =
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-')
             const isCachedWithResultAndFilters =
-                !!props.cachedInsight && !!props.cachedInsight?.result && !!props.cachedInsight?.filters
+                !!props.cachedInsight &&
+                !!props.cachedInsight?.result &&
+                (Object.keys(props.cachedInsight?.filters || {}).length > 0 ||
+                    Object.keys(props.cachedInsight?.query || {}).length > 0)
 
             if (!isCachedWithResultAndFilters) {
                 if (hasDashboardItemId) {
