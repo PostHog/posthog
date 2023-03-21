@@ -40,7 +40,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonButtonWithSideAction, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { summariseInsight } from 'scenes/insights/utils'
+import { summarizeInsight } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -386,7 +386,7 @@ export function SavedInsights(): JSX.Element {
                             <Link to={urls.insightView(insight.short_id)}>
                                 {name || (
                                     <i>
-                                        {summariseInsight(insight.query, insight.filters, {
+                                        {summarizeInsight(insight.query, insight.filters, {
                                             isUsingDataExploration,
                                             aggregationLabel,
                                             cohortsById,

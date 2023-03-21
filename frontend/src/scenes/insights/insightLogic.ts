@@ -38,7 +38,7 @@ import {
     findInsightFromMountedLogic,
     getInsightId,
     getResponseBytes,
-    summariseInsight,
+    summarizeInsight,
 } from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -634,7 +634,7 @@ export const insightLogic = kea<insightLogicType>([
                 isUsingDataExploration,
                 isUsingDashboardQueries
             ) =>
-                summariseInsight(insight.query, insight.filters || {}, {
+                summarizeInsight(insight.query, insight.filters || {}, {
                     isUsingDataExploration,
                     aggregationLabel,
                     cohortsById,

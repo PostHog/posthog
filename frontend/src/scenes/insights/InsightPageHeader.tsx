@@ -1,5 +1,5 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { summariseInsight } from 'scenes/insights/utils'
+import { summarizeInsight } from 'scenes/insights/utils'
 import {
     AvailableFeature,
     ExporterFormat,
@@ -110,7 +110,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={summariseInsight(query, filters, {
+                        placeholder={summarizeInsight(query, filters, {
                             isUsingDataExploration,
                             aggregationLabel,
                             cohortsById,

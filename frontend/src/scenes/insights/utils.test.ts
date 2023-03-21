@@ -8,8 +8,11 @@ import {
     FilterType,
     GroupMathType,
     InsightType,
+    PathsFilterType,
     PathType,
     PropertyMathType,
+    RetentionFilterType,
+    TrendsFilterType,
 } from '~/types'
 import {
     extractObjectDiffKeys,
@@ -17,9 +20,8 @@ import {
     formatBreakdownLabel,
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
-    summariseInsight,
-    summarizeInsightFilters,
-    summarizeInsightQuery,
+    summarizeInsight,
+    SummaryContext,
 } from 'scenes/insights/utils'
 import {
     BASE_MATH_DEFINITIONS,
@@ -73,6 +75,14 @@ const mathDefinitions: Record<string, MathDefinition> = {
     },
     ...PROPERTY_MATH_DEFINITIONS,
     ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
+}
+
+const summaryContext: SummaryContext = {
+    aggregationLabel,
+    cohortsById: cohortIdsMapped,
+    mathDefinitions,
+    isUsingDataExploration: false,
+    isUsingDashboardQueries: false,
 }
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
@@ -234,37 +244,11 @@ describe('extractObjectDiffKeys()', () => {
     })
 })
 
-describe('summarizeInsightFilters()', () => {
-    const aggregationLabel = (groupTypeIndex: number | null | undefined): Noun =>
-        groupTypeIndex != undefined
-            ? {
-                  singular: 'organization',
-                  plural: 'organizations',
-              }
-            : { singular: 'user', plural: 'users' }
-    const cohortIdsMapped: Partial<Record<CohortType['id'], CohortType>> = {
-        1: {
-            id: 1,
-            name: 'Poles',
-            filters: { properties: { id: '1', type: FilterLogicalOperator.Or, values: [] } },
-            groups: [],
-        },
-    }
-    const mathDefinitions: Record<string, MathDefinition> = {
-        ...BASE_MATH_DEFINITIONS,
-        'unique_group::0': {
-            name: 'Unique organizations',
-            shortName: 'unique organizations',
-            description: 'Foo.',
-            category: MathCategory.ActorCount,
-        },
-        ...PROPERTY_MATH_DEFINITIONS,
-        ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
-    }
-
+describe('summarizeInsight()', () => {
     it('summarizes a Trends insight with four event and actor count series', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.TRENDS,
                     events: [
@@ -304,9 +288,7 @@ describe('summarizeInsightFilters()', () => {
                         },
                     ],
                 },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                summaryContext
             )
         ).toEqual(
             'Pageview unique users & Rageclick MAUs & Random action count & Pageview unique organizations & Autocapture unique groups'
@@ -315,7 +297,8 @@ describe('summarizeInsightFilters()', () => {
 
     it('summarizes a Trends insight with two property value and event count per actor series', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.TRENDS,
                     events: [
@@ -336,29 +319,27 @@ describe('summarizeInsightFilters()', () => {
                         },
                     ],
                 },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                summaryContext
             )
         ).toEqual("Random action count per user average & purchase's price sum")
     })
 
     it('summarizes a Trends insight with no series', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.TRENDS,
                 },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                summaryContext
             )
         ).toEqual('')
     })
 
     it('summarizes a Trends insight with event property breakdown', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.TRENDS,
                     events: [
@@ -372,16 +353,15 @@ describe('summarizeInsightFilters()', () => {
                     breakdown_type: 'event',
                     breakdown: '$browser',
                 },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                summaryContext
             )
         ).toEqual("Pageview unique users by event's Browser")
     })
 
     it('summarizes a Trends insight with cohort breakdown', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.TRENDS,
                     events: [
@@ -400,16 +380,15 @@ describe('summarizeInsightFilters()', () => {
                     breakdown_type: 'cohort',
                     breakdown: ['all', 1],
                 },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                summaryContext
             )
         ).toEqual('Pageview count & Pageview unique users, by cohorts: all users, Poles')
     })
 
     it('summarizes a Trends insight with a formula', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.TRENDS,
                     events: [
@@ -429,17 +408,16 @@ describe('summarizeInsightFilters()', () => {
                         },
                     ],
                     formula: '(A + B) / 100',
-                },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                } as TrendsFilterType,
+                summaryContext
             )
         ).toEqual('(A + B) / 100 on A. Pageview unique users & B. Random action count')
     })
 
     it('summarizes a user-based Funnels insight with 3 steps', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.FUNNELS,
                     events: [
@@ -462,16 +440,15 @@ describe('summarizeInsightFilters()', () => {
                         },
                     ],
                 },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                summaryContext
             )
         ).toEqual('Pageview → random_event → Random action user conversion rate')
     })
 
     it('summarizes an organization-based Funnels insight with 2 steps and a breakdown', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.FUNNELS,
                     events: [
@@ -490,16 +467,15 @@ describe('summarizeInsightFilters()', () => {
                     breakdown_type: 'person',
                     breakdown: 'some_prop',
                 },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                summaryContext
             )
         ).toEqual("Pageview → random_event organization conversion rate by person's some_prop")
     })
 
     it('summarizes a user first-time Retention insight with the same event for cohortizing and returning', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.RETENTION,
                     target_entity: {
@@ -513,17 +489,16 @@ describe('summarizeInsightFilters()', () => {
                         type: 'event',
                     },
                     retention_type: RETENTION_FIRST_TIME,
-                },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                } as RetentionFilterType,
+                summaryContext
             )
         ).toEqual('Retention of users based on doing Autocapture for the first time and returning with the same event')
     })
 
     it('summarizes an organization recurring Retention insight with the different events for cohortizing and returning', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.RETENTION,
                     target_entity: {
@@ -538,61 +513,57 @@ describe('summarizeInsightFilters()', () => {
                     },
                     retention_type: RETENTION_RECURRING,
                     aggregation_group_type_index: 0,
-                },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                } as RetentionFilterType,
+                summaryContext
             )
         ).toEqual('Retention of organizations based on doing purchase recurringly and returning with Pageview')
     })
 
     it('summarizes a Paths insight based on all events', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.PATHS,
                     include_event_types: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
-                },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                } as PathsFilterType,
+                summaryContext
             )
         ).toEqual('User paths based on all events')
     })
 
     it('summarizes a Paths insight based on all events (empty include_event_types case)', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.PATHS,
                     include_event_types: [],
-                },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                } as PathsFilterType,
+                summaryContext
             )
         ).toEqual('User paths based on all events')
     })
 
     it('summarizes a Paths insight based on pageviews with start and end points', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.PATHS,
                     include_event_types: [PathType.PageView],
                     start_point: '/landing-page',
                     end_point: '/basket',
-                },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                } as PathsFilterType,
+                summaryContext
             )
         ).toEqual('User paths based on page views starting at /landing-page and ending at /basket')
     })
 
     it('summarizes a Stickiness insight with a user-based series and an organization-based one', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.STICKINESS,
                     events: [
@@ -614,16 +585,15 @@ describe('summarizeInsightFilters()', () => {
                         },
                     ],
                 },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                summaryContext
             )
         ).toEqual('Organization stickiness based on Random action & user stickiness based on Pageview')
     })
 
     it('summarizes a Lifecycle insight', () => {
         expect(
-            summarizeInsightFilters(
+            summarizeInsight(
+                null,
                 {
                     insight: InsightType.LIFECYCLE,
                     events: [
@@ -635,15 +605,13 @@ describe('summarizeInsightFilters()', () => {
                         },
                     ],
                 },
-                aggregationLabel,
-                cohortIdsMapped,
-                mathDefinitions
+                summaryContext
             )
         ).toEqual('User lifecycle based on Rageclick')
     })
 })
 
-describe('summarizeInsightQuery()', () => {
+describe('summariseInsightQuery()', () => {
     it('summarizes a Trends insight with four event and actor count series', () => {
         const query: TrendsQuery = {
             kind: NodeKind.TrendsQuery,
@@ -683,7 +651,7 @@ describe('summarizeInsightQuery()', () => {
             ],
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual(
             'Pageview unique users & Rageclick MAUs & Random action count & Pageview unique organizations & Autocapture unique groups'
@@ -710,7 +678,7 @@ describe('summarizeInsightQuery()', () => {
             ],
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual("Random action count per user average & purchase's price sum")
     })
@@ -721,7 +689,7 @@ describe('summarizeInsightQuery()', () => {
             series: [],
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual('')
     })
@@ -743,7 +711,7 @@ describe('summarizeInsightQuery()', () => {
             },
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual("Pageview unique users by event's Browser")
     })
@@ -770,7 +738,7 @@ describe('summarizeInsightQuery()', () => {
             },
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual('Pageview count & Pageview unique users, by cohorts: all users, Poles')
     })
@@ -797,7 +765,7 @@ describe('summarizeInsightQuery()', () => {
             },
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual('(A + B) / 100 on A. Pageview unique users & B. Random action count')
     })
@@ -824,7 +792,7 @@ describe('summarizeInsightQuery()', () => {
             ],
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual('Pageview → random_event → Random action user conversion rate')
     })
@@ -851,7 +819,7 @@ describe('summarizeInsightQuery()', () => {
             },
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual("Pageview → random_event organization conversion rate by person's some_prop")
     })
@@ -874,7 +842,7 @@ describe('summarizeInsightQuery()', () => {
             },
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual(
             'Retention of users based on doing Autocapture for the first time and returning with the same event'
@@ -900,7 +868,7 @@ describe('summarizeInsightQuery()', () => {
             aggregation_group_type_index: 0,
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual(
             'Retention of organizations based on doing purchase recurringly and returning with Pageview'
@@ -915,7 +883,7 @@ describe('summarizeInsightQuery()', () => {
             },
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual('User paths based on all events')
     })
@@ -928,7 +896,7 @@ describe('summarizeInsightQuery()', () => {
             },
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual('User paths based on all events')
     })
@@ -943,7 +911,7 @@ describe('summarizeInsightQuery()', () => {
             },
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual('User paths based on page views starting at /landing-page and ending at /basket')
     })
@@ -966,7 +934,7 @@ describe('summarizeInsightQuery()', () => {
             ],
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual('Organization stickiness based on Random action & user stickiness based on Pageview')
     })
@@ -983,7 +951,7 @@ describe('summarizeInsightQuery()', () => {
             ],
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+        const result = summarizeInsight(query, {}, summaryContext)
 
         expect(result).toEqual('User lifecycle based on Rageclick')
     })
@@ -1043,7 +1011,7 @@ describe('summarize data table query', () => {
             },
         }
 
-        const result = summariseInsight(
+        const result = summarizeInsight(
             query,
             {},
             {
@@ -1067,7 +1035,7 @@ describe('summarize data table query', () => {
             },
         }
 
-        const result = summariseInsight(
+        const result = summarizeInsight(
             query,
             {},
             {
@@ -1092,7 +1060,7 @@ describe('summarize data table query', () => {
             },
         }
 
-        const result = summariseInsight(
+        const result = summarizeInsight(
             query,
             {},
             {
@@ -1117,7 +1085,7 @@ describe('summarize data table query', () => {
             },
         }
 
-        const result = summariseInsight(
+        const result = summarizeInsight(
             query,
             {},
             {
@@ -1141,7 +1109,7 @@ describe('summarize data table query', () => {
             },
         }
 
-        const result = summariseInsight(
+        const result = summarizeInsight(
             query,
             {},
             {
@@ -1169,7 +1137,7 @@ describe('summarize data table query', () => {
             },
         }
 
-        const result = summariseInsight(
+        const result = summarizeInsight(
             query,
             {},
             {
@@ -1193,7 +1161,7 @@ describe('summarize data table query', () => {
                 select: ['count()'],
             },
         }
-        const result = summariseInsight(
+        const result = summarizeInsight(
             query,
             {},
             {
@@ -1214,7 +1182,7 @@ describe('summarize data table query', () => {
             query: 'select event,\n          person.properties.email from events\n  where timestamp > now() - interval 1 day',
         }
 
-        const result = summariseInsight(
+        const result = summarizeInsight(
             query,
             {},
             {
@@ -1237,7 +1205,7 @@ describe('summarize data table query', () => {
                 kind: NodeKind.PersonsNode,
             },
         }
-        const result = summariseInsight(
+        const result = summarizeInsight(
             query,
             {},
             {
@@ -1257,7 +1225,7 @@ describe('summarize data table query', () => {
             kind: NodeKind.RecentPerformancePageViewNode,
             dateRange: { date_from: '-7d' },
         }
-        const result = summariseInsight(
+        const result = summarizeInsight(
             query,
             {},
             {

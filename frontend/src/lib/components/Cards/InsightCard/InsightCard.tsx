@@ -41,7 +41,7 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { summariseInsight } from 'scenes/insights/utils'
+import { summarizeInsight } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -231,7 +231,7 @@ function InsightMeta({
     // not all interactions are currently implemented for queries
     const allInteractionsAllowed = !insight.query
 
-    const summary = summariseInsight(insight.query, insight.filters, {
+    const summary = summarizeInsight(insight.query, insight.filters, {
         aggregationLabel,
         cohortsById,
         mathDefinitions,

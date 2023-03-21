@@ -212,11 +212,7 @@ export function humanizePathsEventTypes(include_event_types: PathsFilterType['in
     return humanEventTypes
 }
 
-export function summarizeBreakdown(
-    filters: Partial<FilterType> | BreakdownFilter,
-    aggregationLabel: groupsModelType['values']['aggregationLabel'],
-    cohortsById: cohortsModelType['values']['cohortsById']
-): string | null {
+function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, context: SummaryContext): string | null {
     const { breakdown_type, breakdown, breakdown_group_type_index } = filters
     if (breakdown) {
         if (breakdown_type === 'cohort') {
@@ -227,8 +223,8 @@ export function summarizeBreakdown(
                         cohortId &&
                         (cohortId === 'all'
                             ? 'all users'
-                            : cohortId in cohortsById
-                            ? cohortsById[cohortId]?.name
+                            : cohortId in context.cohortsById
+                            ? context.cohortsById[cohortId]?.name
                             : `ID ${cohortId}`)
                 )
                 .join(', ')}`
@@ -236,7 +232,7 @@ export function summarizeBreakdown(
             const noun =
                 breakdown_type !== 'group'
                     ? breakdown_type
-                    : aggregationLabel(breakdown_group_type_index, true).singular
+                    : context.aggregationLabel(breakdown_group_type_index, true).singular
             return `${noun}'s ${
                 (breakdown as string) in keyMapping.event ? keyMapping.event[breakdown as string].label : breakdown
             }`
@@ -245,12 +241,7 @@ export function summarizeBreakdown(
     return null
 }
 
-export function summarizeInsightFilters(
-    filters: AnyPartialFilterType,
-    aggregationLabel: groupsModelType['values']['aggregationLabel'],
-    cohortsById: cohortsModelType['values']['cohortsById'],
-    mathDefinitions: mathsLogicType['values']['mathDefinitions']
-): string {
+function summarizeInsightFilters(filters: AnyPartialFilterType, context: SummaryContext): string {
     const localFilters = toLocalFilters(filters)
 
     if (isRetentionFilter(filters)) {
@@ -258,7 +249,7 @@ export function summarizeInsightFilters(
             filters.returning_entity?.id === filters.target_entity?.id &&
             filters.returning_entity?.type === filters.target_entity?.type
         return (
-            `Retention of ${aggregationLabel(filters.aggregation_group_type_index, true).plural}` +
+            `Retention of ${context.aggregationLabel(filters.aggregation_group_type_index, true).plural}` +
             ` based on doing ${getDisplayNameFromEntityFilter((filters.target_entity || {}) as EntityFilter)}` +
             ` ${retentionOptions[filters.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
             (areTargetAndReturningIdentical
@@ -278,7 +269,7 @@ export function summarizeInsightFilters(
     } else if (isLifecycleFilter(filters)) {
         return `User lifecycle based on ${getDisplayNameFromEntityFilter(localFilters[0])}`
     } else if (isFunnelsFilter(filters)) {
-        let summary = ''
+        let summary
         const linkSymbol =
             filters.funnel_order_type === StepOrderValue.STRICT
                 ? '⇉'
@@ -286,7 +277,7 @@ export function summarizeInsightFilters(
                 ? '&'
                 : '→'
         summary = `${localFilters.map((filter) => getDisplayNameFromEntityFilter(filter)).join(` ${linkSymbol} `)} ${
-            aggregationLabel(filters.aggregation_group_type_index, true).singular
+            context.aggregationLabel(filters.aggregation_group_type_index, true).singular
         } conversion`
         if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
             summary += ' time'
@@ -297,14 +288,14 @@ export function summarizeInsightFilters(
             summary += ' rate'
         }
         if (filters.breakdown_type) {
-            summary += ` by ${summarizeBreakdown(filters, aggregationLabel, cohortsById)}`
+            summary += ` by ${summarizeBreakdown(filters, context)}`
         }
         return summary
     } else if (isStickinessFilter(filters)) {
         return capitalizeFirstLetter(
             localFilters
                 .map((localFilter) => {
-                    const actor = aggregationLabel(
+                    const actor = context.aggregationLabel(
                         localFilter.math === 'unique_group' ? localFilter.math_group_type_index : null,
                         true
                     ).singular
@@ -316,7 +307,7 @@ export function summarizeInsightFilters(
         let summary = localFilters
             .map((localFilter, localFilterIndex) => {
                 const mathType = apiValueToMathType(localFilter.math, localFilter.math_group_type_index)
-                const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
+                const mathDefinition = context.mathDefinitions[mathType] as MathDefinition | undefined
                 let series: string
                 if (mathDefinition?.category === MathCategory.EventCountPerActor) {
                     series = `${getDisplayNameFromEntityFilter(localFilter)} count per user ${mathDefinition.shortName}`
@@ -347,11 +338,7 @@ export function summarizeInsightFilters(
             .join(' & ')
 
         if (filters.breakdown_type) {
-            summary += `${localFilters.length > 1 ? ',' : ''} by ${summarizeBreakdown(
-                filters,
-                aggregationLabel,
-                cohortsById
-            )}`
+            summary += `${localFilters.length > 1 ? ',' : ''} by ${summarizeBreakdown(filters, context)}`
         }
         if (filters.formula) {
             summary = `${filters.formula} on ${summary}`
@@ -362,17 +349,12 @@ export function summarizeInsightFilters(
     return ''
 }
 
-export function summarizeInsightQuery(
-    query: InsightQueryNode,
-    aggregationLabel: groupsModelType['values']['aggregationLabel'],
-    cohortsById: cohortsModelType['values']['cohortsById'],
-    mathDefinitions: mathsLogicType['values']['mathDefinitions']
-): string {
+function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext): string {
     if (isTrendsQuery(query)) {
         let summary = query.series
             .map((s, index) => {
                 const mathType = apiValueToMathType(s.math, s.math_group_type_index)
-                const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
+                const mathDefinition = context.mathDefinitions[mathType] as MathDefinition | undefined
                 let series: string
                 if (mathDefinition?.category === MathCategory.EventCountPerActor) {
                     series = `${getDisplayNameFromEntityNode(s)} count per user ${mathDefinition.shortName}`
@@ -403,11 +385,7 @@ export function summarizeInsightQuery(
             .join(' & ')
 
         if (query.breakdown?.breakdown_type) {
-            summary += `${query.series.length > 1 ? ',' : ''} by ${summarizeBreakdown(
-                query.breakdown,
-                aggregationLabel,
-                cohortsById
-            )}`
+            summary += `${query.series.length > 1 ? ',' : ''} by ${summarizeBreakdown(query.breakdown, context)}`
         }
         if (query.trendsFilter?.formula) {
             summary = `${query.trendsFilter.formula} on ${summary}`
@@ -415,7 +393,7 @@ export function summarizeInsightQuery(
 
         return summary
     } else if (isFunnelsQuery(query)) {
-        let summary = ''
+        let summary
         const linkSymbol =
             query.funnelsFilter?.funnel_order_type === StepOrderValue.STRICT
                 ? '⇉'
@@ -423,7 +401,7 @@ export function summarizeInsightQuery(
                 ? '&'
                 : '→'
         summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
-            aggregationLabel(query.aggregation_group_type_index, true).singular
+            context.aggregationLabel(query.aggregation_group_type_index, true).singular
         } conversion`
         if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert) {
             summary += ' time'
@@ -434,7 +412,7 @@ export function summarizeInsightQuery(
             summary += ' rate'
         }
         if (query.breakdown?.breakdown_type) {
-            summary += ` by ${summarizeBreakdown(query.breakdown, aggregationLabel, cohortsById)}`
+            summary += ` by ${summarizeBreakdown(query.breakdown, context)}`
         }
         return summary
     } else if (isRetentionQuery(query)) {
@@ -442,7 +420,7 @@ export function summarizeInsightQuery(
             query.retentionFilter?.returning_entity?.id === query.retentionFilter?.target_entity?.id &&
             query.retentionFilter?.returning_entity?.type === query.retentionFilter?.target_entity?.type
         return (
-            `Retention of ${aggregationLabel(query.aggregation_group_type_index, true).plural}` +
+            `Retention of ${context.aggregationLabel(query.aggregation_group_type_index, true).plural}` +
             ` based on doing ${getDisplayNameFromEntityFilter(
                 (query.retentionFilter?.target_entity || {}) as EntityFilter
             )}` +
@@ -467,7 +445,7 @@ export function summarizeInsightQuery(
         return capitalizeFirstLetter(
             (query as StickinessQuery).series
                 .map((s) => {
-                    const actor = aggregationLabel(s.math_group_type_index, true).singular
+                    const actor = context.aggregationLabel(s.math_group_type_index, true).singular
                     return `${actor} stickiness based on ${getDisplayNameFromEntityNode(s)}`
                 })
                 .join(' & ')
@@ -529,7 +507,7 @@ export interface SummaryContext {
     mathDefinitions: mathsLogicType['values']['mathDefinitions']
 }
 
-export function summariseInsight(
+export function summarizeInsight(
     query: Node | undefined | null,
     filters: Partial<FilterType>,
     context: SummaryContext
@@ -537,11 +515,11 @@ export function summariseInsight(
     const hasFilters = Object.keys(filters || {}).length > 0
 
     return context.isUsingDataExploration && isInsightVizNode(query)
-        ? summarizeInsightQuery(query.source, context.aggregationLabel, context.cohortsById, context.mathDefinitions)
+        ? summarizeInsightQuery(query.source, context)
         : context.isUsingDashboardQueries && !!query && !isInsightVizNode(query)
         ? summariseQuery(query)
         : hasFilters
-        ? summarizeInsightFilters(filters, context.aggregationLabel, context.cohortsById, context.mathDefinitions)
+        ? summarizeInsightFilters(filters, context)
         : ''
 }
 
