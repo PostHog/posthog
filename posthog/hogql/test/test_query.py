@@ -50,7 +50,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT count(), event FROM events WHERE equals(properties.random_uuid, %(hogql_val_2)s) GROUP BY event LIMIT 100",
+                "SELECT count(), event FROM events WHERE equals(properties.random_uuid, %(hogql_val_0)s) GROUP BY event LIMIT 100",
             )
             self.assertEqual(response.results, [(2, "random event")])
 
@@ -65,7 +65,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT count, event FROM (SELECT count() AS count, event FROM events WHERE equals(properties.random_uuid, %(hogql_val_2)s) GROUP BY event) GROUP BY count, event LIMIT 100",
+                "SELECT count, event FROM (SELECT count() AS count, event FROM events WHERE equals(properties.random_uuid, %(hogql_val_0)s) GROUP BY event) GROUP BY count, event LIMIT 100",
             )
             self.assertEqual(response.results, [(2, "random event")])
 
@@ -80,7 +80,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT count, event FROM (SELECT count(*) AS count, event FROM events WHERE equals(properties.random_uuid, %(hogql_val_2)s) GROUP BY event) AS c GROUP BY count, event LIMIT 100",
+                "SELECT count, event FROM (SELECT count(*) AS count, event FROM events WHERE equals(properties.random_uuid, %(hogql_val_0)s) GROUP BY event) AS c GROUP BY count, event LIMIT 100",
             )
             self.assertEqual(response.results, [(2, "random event")])
 
@@ -95,7 +95,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT DISTINCT properties.sneaky_mail FROM person WHERE equals(properties.random_uuid, %(hogql_val_3)s) LIMIT 100",
+                "SELECT DISTINCT properties.sneaky_mail FROM persons WHERE equals(properties.random_uuid, %(hogql_val_0)s) LIMIT 100",
             )
             self.assertEqual(response.results, [("tim@posthog.com",)])
 
@@ -109,7 +109,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT DISTINCT person_id, distinct_id FROM person_distinct_id2 LIMIT 100",
+                "SELECT DISTINCT person_id, distinct_id FROM person_distinct_ids LIMIT 100",
             )
             self.assertTrue(len(response.results) > 0)
 
@@ -169,7 +169,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT event, timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_id, version) AS person_id FROM person_distinct_id2 GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) LIMIT 100",
+                "SELECT event, timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_id, version) AS person_id FROM person_distinct_ids GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) LIMIT 100",
             )
             self.assertTrue(len(response.results) > 0)
 
@@ -182,12 +182,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             self.assertEqual(
-                response.hogql,
-                "SELECT event, timestamp, pdi.distinct_id, pdi.person_id FROM events LIMIT 10",
-            )
-            self.assertEqual(
                 response.clickhouse,
                 f"SELECT events.event, events.timestamp, events__pdi.distinct_id, events__pdi.person_id FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+            )
+            self.assertEqual(
+                response.hogql,
+                "SELECT event, timestamp, pdi.distinct_id, pdi.person_id FROM events LIMIT 10",
             )
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
@@ -202,7 +202,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             self.assertEqual(
-                response.hogql, "SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id FROM events AS e LIMIT 10"
+                response.hogql,
+                "SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id FROM events AS e LIMIT 10",
             )
             self.assertEqual(
                 response.clickhouse,

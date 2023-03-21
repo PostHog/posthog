@@ -295,6 +295,9 @@ class CohortPeople(Table):
     def clickhouse_table(self):
         return "cohortpeople"
 
+    def hogql_table(self):
+        return "cohort_people"
+
 
 class StaticCohortPeople(Table):
     person_id: StringDatabaseField = StringDatabaseField(name="person_id")
@@ -308,6 +311,9 @@ class StaticCohortPeople(Table):
 
     def clickhouse_table(self):
         return "person_static_cohort"
+
+    def hogql_table(self):
+        return "static_cohort_people"
 
 
 class Groups(Table):
