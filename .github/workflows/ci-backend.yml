@@ -121,7 +121,7 @@ jobs:
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
 
-            - name: Check for errors, import sort, and code style violations
+            - name: Check for syntax errors, import sort, and code style violations
               run: |
                   cd current
                   ruff .
