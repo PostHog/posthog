@@ -28,7 +28,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.session_recordings.session_recording_helpers import get_metadata_from_events_summary
 from posthog.utils import format_query_params_absolute_url
 
-DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
+DEFAULT_RECORDING_CHUNK_LIMIT = 10  # Should be tuned to find the best value
 
 logger = structlog.get_logger(__name__)
 

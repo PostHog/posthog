@@ -2,10 +2,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import {
-    parseMetadataResponse,
-    sessionRecordingDataLogic,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
@@ -18,6 +15,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { parseMetadataResponse } from 'scenes/session-recordings/player/recordingDataUtils'
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>

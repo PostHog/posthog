@@ -1,5 +1,4 @@
 import { RecordingSegment } from '~/types'
-import { parseMetadataResponse } from './sessionRecordingDataLogic'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import {
     comparePlayerPositions,
@@ -12,6 +11,7 @@ import {
     getSegmentFromPlayerPosition,
     guessPlayerPositionFromEpochTimeWithoutWindowId,
 } from './playerUtils'
+import { parseMetadataResponse } from 'scenes/session-recordings/player/recordingDataUtils'
 
 const metadata = parseMetadataResponse(recordingMetaJson)
 const segments: RecordingSegment[] = metadata.segments ?? []

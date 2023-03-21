@@ -226,17 +226,30 @@ def decompress_chunked_snapshot_data(
         )
         decompressed_data = json.loads(decompress(b64_compressed_data))
 
-        events_with_only_activity_data = get_events_summary_from_snapshot_data(decompressed_data)
+        events_summary = flatten(
+            [
+                chunk["snapshot_data"]["events_summary"]
+                for chunk in sorted(chunks, key=lambda c: c["snapshot_data"]["chunk_index"])
+            ]
+        )
+
+        if chunks[0]["window_id"] not in snapshot_data_by_window_id:
+            snapshot_data_by_window_id[chunks[0]["window_id"]] = {"events_summary": [], "snapshot_data": []}
+
+        # Include materialized events summary to keep this consistent with metadata endpoint
+        snapshot_data_by_window_id[chunks[0]["window_id"]]["events_summary"].extend(events_summary)
 
         # Decompressed data can be large, and in metadata calculations, we only care if the event is "active"
         # This pares down the data returned, so we're not passing around a massive object
-        if chunks[0]["window_id"] not in snapshot_data_by_window_id:
-            snapshot_data_by_window_id[chunks[0]["window_id"]] = {"events_summary": [], "snapshot_data": []}
         if return_only_activity_data:
-            snapshot_data_by_window_id[chunks[0]["window_id"]]["events_summary"].extend(events_with_only_activity_data)
+            events_with_only_activity_data = get_events_summary_from_snapshot_data(decompressed_data)
+            snapshot_data_by_window_id[chunks[0]["window_id"]]["snapshot_data"].extend(events_with_only_activity_data)
         else:
             snapshot_data_by_window_id[chunks[0]["window_id"]]["snapshot_data"].extend(decompressed_data)
-            snapshot_data_by_window_id[chunks[0]["window_id"]]["events_summary"].extend(events_with_only_activity_data)
+
+        for window_id in snapshot_data_by_window_id.keys():
+            snapshot_data_by_window_id[window_id]["snapshot_data"].sort(key=lambda x: x["timestamp"])
+            snapshot_data_by_window_id[window_id]["events_summary"].sort(key=lambda x: x["timestamp"])
     return DecompressedRecordingData(has_next=has_next, snapshot_data_by_window_id=snapshot_data_by_window_id)
 
 
@@ -345,58 +358,6 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
     return events_summary
 
 
-def generate_inactive_segments_for_range(
-    range_start_time: datetime,
-    range_end_time: datetime,
-    last_active_window_id: WindowId,
-    start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment],
-    is_first_segment: bool = False,
-    is_last_segment: bool = False,
-) -> List[RecordingSegment]:
-    """
-    Given the start and end times of a known period of inactivity,
-    this function will try create recording segments to fill the gap based on the
-    start and end times of the given window_ids
-    """
-
-    window_ids_by_start_time = sorted(
-        start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x]["start_time"]
-    )
-
-    # Order of window_ids to use for generating inactive segments. Start with the window_id of the
-    # last active segment, then try the other window_ids in order of start_time
-    window_id_priority_list: List[WindowId] = [last_active_window_id] + window_ids_by_start_time
-
-    inactive_segments: List[RecordingSegment] = []
-    current_time = range_start_time
-
-    for window_id in window_id_priority_list:
-        window_start_time = start_and_end_times_by_window_id[window_id]["start_time"]
-        window_end_time = start_and_end_times_by_window_id[window_id]["end_time"]
-        if window_end_time > current_time and current_time < range_end_time:
-            # Add/subtract a millisecond to make sure the segments don't exactly overlap
-            segment_start_time = max(window_start_time, current_time)
-            segment_end_time = min(window_end_time, range_end_time)
-            inactive_segments.append(
-                RecordingSegment(
-                    start_time=segment_start_time, end_time=segment_end_time, window_id=window_id, is_active=False
-                )
-            )
-            current_time = min(segment_end_time, window_end_time)
-
-    # Ensure segments don't exactly overlap. This makes the corresponding player logic simpler
-    for index, segment in enumerate(inactive_segments):
-        if (index == 0 and segment["start_time"] == range_start_time and not is_first_segment) or (
-            index > 0 and segment["start_time"] == inactive_segments[index - 1]["end_time"]
-        ):
-            segment["start_time"] = segment["start_time"] + timedelta(milliseconds=1)
-
-        if index == len(inactive_segments) - 1 and segment["end_time"] == range_end_time and not is_last_segment:
-            segment["end_time"] = segment["end_time"] - timedelta(milliseconds=1)
-
-    return inactive_segments
-
-
 @dataclasses.dataclass
 class PaginatedList:
     has_next: bool
@@ -440,8 +401,9 @@ def get_metadata_from_events_summary(
     list of active segments. (note, it's very possible that active segments overlap if a user is flipping back
     and forth between tabs)
 
-    (4) To complete the recording, we fill in the gaps between active segments with "inactive segments". In
-    determining which window should be used for the inactive segment, we try to minimize the switching of windows.
+    (4) [THIS STEP WAS MOVED TO THE FRONTEND] See `recordingDataUtils.ts` To complete the recording, we fill in the gaps
+    between active segments with "inactive segments". In determining which window should be used for the inactive segment,
+    we try to minimize the switching of windows.
     """
 
     start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment] = {}
@@ -469,42 +431,6 @@ def get_metadata_from_events_summary(
     first_start_time = min([cast(datetime, x["start_time"]) for x in start_and_end_times_by_window_id.values()])
     last_end_time = max([cast(datetime, x["end_time"]) for x in start_and_end_times_by_window_id.values()])
 
-    # Now, we fill in the gaps between the active segments with inactive segments
-    all_segments: List[RecordingSegment] = []
-    current_timestamp = first_start_time
-    current_window_id: WindowId = sorted(
-        start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x]["start_time"]
-    )[0]
-
-    for index, segment in enumerate(all_active_segments):
-        # It's possible that segments overlap and we don't need to fill a gap
-        if segment["start_time"] > current_timestamp:
-            all_segments.extend(
-                generate_inactive_segments_for_range(
-                    current_timestamp,
-                    segment["start_time"],
-                    current_window_id,
-                    start_and_end_times_by_window_id,
-                    is_first_segment=index == 0,
-                )
-            )
-        all_segments.append(segment)
-        current_window_id = segment["window_id"]
-        current_timestamp = max(segment["end_time"], current_timestamp)
-
-    # If the last segment ends before the recording ends, we need to fill in the gap
-    if current_timestamp < last_end_time:
-        all_segments.extend(
-            generate_inactive_segments_for_range(
-                current_timestamp,
-                last_end_time,
-                current_window_id,
-                start_and_end_times_by_window_id,
-                is_last_segment=True,
-                is_first_segment=current_timestamp == first_start_time,
-            )
-        )
-
     all_events_summary: List[SessionRecordingEventSummary] = list(flatten(list(events_summary_by_window_id.values())))
 
     click_count = len([x for x in all_events_summary if x["type"] == 3 and x["data"]["source"] == 2])
@@ -515,7 +441,7 @@ def get_metadata_from_events_summary(
 
     return RecordingMetadata(
         distinct_id="",  # Will be added by the caller
-        segments=all_segments,
+        segments=all_active_segments,
         start_and_end_times_by_window_id=start_and_end_times_by_window_id,
         start_time=first_start_time,
         end_time=last_end_time,

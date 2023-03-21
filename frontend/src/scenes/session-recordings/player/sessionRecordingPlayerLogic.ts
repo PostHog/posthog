@@ -20,7 +20,6 @@ import {
     deleteRecording,
     getPlayerPositionFromPlayerTime,
     getPlayerTimeFromPlayerPosition,
-    getSegmentFromPlayerPosition,
 } from './playerUtils'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import equal from 'fast-deep-equal'
@@ -223,7 +222,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
         matchingEvents: [
             (s) => [s.matching],
-            (matching) => (matching ?? []).map((filterMatches) => filterMatches.events).flat(),
+            (matching) => (matching ?? []).map((filterMatches: MatchedRecording) => filterMatches.events).flat(),
         ],
         recordingStartTime: [
             () => [(_, props) => props.recordingStartTime],
@@ -439,20 +438,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.stopAnimation()
             actions.setCurrentPlayerPosition(playerPosition)
 
-            // Check if we're seeking to a new segment
-            let nextSegment = null
-            if (playerPosition && values.sessionPlayerData?.metadata) {
-                console.log('BLAH1')
-                nextSegment = getSegmentFromPlayerPosition(playerPosition, values.sessionPlayerData?.segments)
-                if (
-                    nextSegment &&
-                    (nextSegment.windowId !== values.currentSegment?.windowId ||
-                        nextSegment.startTimeEpochMs !== values.currentSegment?.startTimeEpochMs)
-                ) {
-                    actions.setCurrentSegment(nextSegment)
-                }
-            }
-
             // If not currently loading anything and part of the recording hasn't loaded, set error state
             if (
                 (!values.sessionPlayerSnapshotDataLoading && !values.sessionPlayerData.bufferedTo) ||
@@ -466,19 +451,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         values.sessionPlayerData.segments
                     ) > 0)
             ) {
-                console.log(
-                    'BLAH2',
-                    !values.sessionPlayerSnapshotDataLoading && !values.sessionPlayerData.bufferedTo,
-                    !values.sessionPlayerSnapshotDataLoading &&
-                        !!values.sessionPlayerData?.bufferedTo &&
-                        !!playerPosition &&
-                        !!values.currentSegment &&
-                        comparePlayerPositions(
-                            playerPosition,
-                            values.sessionPlayerData.bufferedTo,
-                            values.sessionPlayerData.segments
-                        ) > 0
-                )
+                // console.log(
+                //     'BLAH2',
+                //     !values.sessionPlayerSnapshotDataLoading && !values.sessionPlayerData.bufferedTo,
+                //     !values.sessionPlayerSnapshotDataLoading &&
+                //         !!values.sessionPlayerData?.bufferedTo &&
+                //         !!playerPosition &&
+                //         !!values.currentSegment &&
+                //         comparePlayerPositions(
+                //             playerPosition,
+                //             values.sessionPlayerData.bufferedTo,
+                //             values.sessionPlayerData.segments
+                //         ) > 0
+                // )
                 values.player?.replayer?.pause()
                 actions.endBuffer()
                 console.error("Error: Player tried to seek to a position that hasn't loaded yet")
@@ -496,7 +481,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.sessionPlayerData.segments
                 ) > 0
             ) {
-                console.log('BLAH3', !values.sessionPlayerData?.bufferedTo, !playerPosition, !values.currentSegment)
+                // console.log('BLAH3', !values.sessionPlayerData?.bufferedTo, !playerPosition, !values.currentSegment)
                 values.player?.replayer?.pause()
                 actions.startBuffer()
                 actions.setErrorPlayerState(false)
@@ -504,14 +489,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
-                console.log('BLAH4')
+                // console.log('BLAH4')
                 values.player?.replayer?.pause(playerPosition.time)
                 actions.endBuffer()
                 actions.setErrorPlayerState(false)
             }
             // Otherwise play
             else {
-                console.log('BLAH5')
+                // console.log('BLAH5')
                 values.player?.replayer?.play(playerPosition.time)
                 actions.updateAnimation()
                 actions.endBuffer()
@@ -591,7 +576,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.sessionPlayerData.segments
                 ) >= 0
             ) {
-                console.log('BLAHBLAH1')
+                // console.log('BLAHBLAH1', values.currentSegment?.endPlayerPosition, values.sessionPlayerData.segments, nextPlayerPosition)
                 const nextSegmentIndex = (values.sessionPlayerData.segments ?? []).indexOf(values.currentSegment) + 1
                 if (nextSegmentIndex < (values.sessionPlayerData.segments ?? []).length) {
                     const nextSegment = (values.sessionPlayerData.segments ?? [])[nextSegmentIndex]
@@ -614,7 +599,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 ) > 0 &&
                 !values.sessionPlayerSnapshotDataLoading
             ) {
-                console.log('BLAHBLAH2')
+                // console.log('BLAHBLAH2')
                 values.player?.replayer?.pause()
                 actions.endBuffer()
                 console.error('PostHog Recording Playback Error: Tried to access snapshot that is not loaded yet')
@@ -632,14 +617,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.sessionPlayerData.segments
                 ) > 0
             ) {
-                console.log('BLAHBLAH3')
+                // console.log('BLAHBLAH3')
                 // Pause only the animation, not our player, so it will restart
                 // when the buffering progresses
                 values.player?.replayer?.pause()
                 actions.startBuffer()
                 actions.setErrorPlayerState(false)
             } else {
-                console.log('BLAHBLAH4')
+                // console.log('BLAHBLAH4')
                 // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentPlayerPosition(nextPlayerPosition)
                 cache.timer = requestAnimationFrame(actions.updateAnimation)

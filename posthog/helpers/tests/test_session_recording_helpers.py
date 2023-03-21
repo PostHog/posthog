@@ -12,7 +12,6 @@ from posthog.session_recordings.session_recording_helpers import (
     SnapshotDataTaggedWithWindowId,
     compress_and_chunk_snapshots,
     decompress_chunked_snapshot_data,
-    generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
     get_events_summary_from_snapshot_data,
     is_active_event,
@@ -312,121 +311,6 @@ def test_get_active_segments_from_no_active_events():
     ]
     active_segments = get_active_segments_from_event_list(events, window_id="1", activity_threshold_seconds=60)
     assert active_segments == []
-
-
-def test_generate_inactive_segments_for_range():
-    base_time = datetime(2019, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    generated_segments = generate_inactive_segments_for_range(
-        base_time,
-        base_time + timedelta(seconds=60),
-        "2",
-        {
-            "1": {
-                "start_time": base_time - timedelta(seconds=30),
-                "end_time": base_time + timedelta(seconds=40),
-                "window_id": "2",
-                "is_active": False,
-            },
-            "2": {
-                "start_time": base_time,
-                "end_time": base_time + timedelta(seconds=20),
-                "window_id": "2",
-                "is_active": False,
-            },
-            "3": {
-                "start_time": base_time + timedelta(seconds=35),
-                "end_time": base_time + timedelta(seconds=80),
-                "window_id": "2",
-                "is_active": False,
-            },
-        },
-    )
-    millisecond = timedelta(milliseconds=1)
-    assert generated_segments == [
-        RecordingSegment(
-            start_time=base_time + millisecond,
-            end_time=base_time + timedelta(seconds=20),
-            window_id="2",
-            is_active=False,
-        ),
-        RecordingSegment(
-            start_time=base_time + timedelta(seconds=20) + millisecond,
-            end_time=base_time + timedelta(seconds=40),
-            window_id="1",
-            is_active=False,
-        ),
-        RecordingSegment(
-            start_time=base_time + timedelta(seconds=40) + millisecond,
-            end_time=base_time + timedelta(seconds=60) - millisecond,
-            window_id="3",
-            is_active=False,
-        ),
-    ]
-
-
-def test_generate_inactive_segments_for_range_that_cannot_be_filled():
-    base_time = datetime(2019, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    generated_segments = generate_inactive_segments_for_range(
-        base_time,
-        base_time + timedelta(seconds=60),
-        "2",
-        {
-            "2": {
-                "start_time": base_time,
-                "end_time": base_time + timedelta(seconds=20),
-                "window_id": "2",
-                "is_active": False,
-            },
-            "3": {
-                "start_time": base_time + timedelta(seconds=35),
-                "end_time": base_time + timedelta(seconds=80),
-                "window_id": "2",
-                "is_active": False,
-            },
-        },
-    )
-    millisecond = timedelta(milliseconds=1)
-    assert generated_segments == [
-        RecordingSegment(
-            start_time=base_time + millisecond,
-            end_time=base_time + timedelta(seconds=20),
-            window_id="2",
-            is_active=False,
-        ),
-        RecordingSegment(
-            start_time=base_time + timedelta(seconds=35),
-            end_time=base_time + timedelta(seconds=60) - millisecond,
-            window_id="3",
-            is_active=False,
-        ),
-    ]
-
-
-def test_generate_inactive_segments_for_last_segment():
-    base_time = datetime(2019, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    generated_segments = generate_inactive_segments_for_range(
-        base_time,
-        base_time + timedelta(seconds=60),
-        "2",
-        {
-            "2": {
-                "start_time": base_time,
-                "end_time": base_time + timedelta(seconds=70),
-                "window_id": "2",
-                "is_active": False,
-            }
-        },
-        is_last_segment=True,
-    )
-    millisecond = timedelta(milliseconds=1)
-    assert generated_segments == [
-        RecordingSegment(
-            start_time=base_time + millisecond,
-            end_time=base_time + timedelta(seconds=60),
-            window_id="2",
-            is_active=False,
-        )
-    ]
 
 
 def test_paginate_list():
