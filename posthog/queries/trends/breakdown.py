@@ -31,6 +31,7 @@ from posthog.queries.breakdown_props import (
     get_breakdown_prop_values,
 )
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
+from posthog.queries.event_query import EventQuery
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
@@ -67,7 +68,9 @@ from posthog.utils import PersonOnEventsMode, encode_get_request_params
 
 
 class TrendsBreakdown:
-    DISTINCT_ID_TABLE_ALIAS = "pdi"
+    DISTINCT_ID_TABLE_ALIAS = EventQuery.DISTINCT_ID_TABLE_ALIAS
+    EVENT_TABLE_ALIAS = EventQuery.EVENT_TABLE_ALIAS
+    PERSON_ID_OVERRIDES_TABLE_ALIAS = EventQuery.PERSON_ID_OVERRIDES_TABLE_ALIAS
 
     def __init__(
         self,
@@ -84,6 +87,12 @@ class TrendsBreakdown:
         self.params: Dict[str, Any] = {"team_id": team.pk}
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
         self.person_on_events_mode = person_on_events_mode
+        if person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
+        elif person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+            self._person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
+        else:
+            self._person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
 
     @cached_property
     def _person_properties_mode(self) -> PersonPropertiesMode:
@@ -97,7 +106,7 @@ class TrendsBreakdown:
     def actor_aggregator(self) -> str:
         if self.team.aggregate_users_by_distinct_id:
             return "e.distinct_id"
-        return f"{'e' if self._person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else 'pdi'}.person_id"
+        return self._person_id_alias
 
     @cached_property
     def _props_to_filter(self) -> Tuple[str, Dict]:
@@ -112,11 +121,9 @@ class TrendsBreakdown:
         return parse_prop_grouped_clauses(
             team_id=self.team_id,
             property_group=target_properties,
-            table_name="e",
+            table_name=self.EVENT_TABLE_ALIAS,
             person_properties_mode=self._person_properties_mode,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-            if self.person_on_events_mode == PersonOnEventsMode.DISABLED
-            else "person_id",
+            person_id_joined_alias=self._person_id_alias,
             hogql_context=self.filter.hogql_context,
         )
 
@@ -138,10 +145,8 @@ class TrendsBreakdown:
         aggregate_operation, _, math_params = process_math(
             self.entity,
             self.team,
-            event_table_alias="e",
-            person_id_alias=f"person_id"
-            if self.person_on_events_mode != PersonOnEventsMode.DISABLED
-            else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            event_table_alias=self.EVENT_TABLE_ALIAS,
+            person_id_alias=self._person_id_alias,
         )
 
         action_query = ""
@@ -151,9 +156,9 @@ class TrendsBreakdown:
             action_query, action_params = format_action_filter(
                 team_id=self.team_id,
                 action=action,
-                table_name="e",
+                table_name=self.EVENT_TABLE_ALIAS,
                 person_properties_mode=self._person_properties_mode,
-                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self.person_on_events_mode == PersonOnEventsMode.DISABLED else 'e'}.person_id",
+                person_id_joined_alias=self._person_id_alias,
                 hogql_context=self.filter.hogql_context,
             )
 
@@ -233,9 +238,6 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS
-                    if self.person_on_events_mode == PersonOnEventsMode.DISABLED
-                    else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -304,9 +306,7 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS
-                    if self.person_on_events_mode == PersonOnEventsMode.DISABLED
-                    else "e",
+                    person_id_alias=self._person_id_alias,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -322,9 +322,7 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS
-                    if self.person_on_events_mode == PersonOnEventsMode.DISABLED
-                    else "e",
+                    person_id_alias=self._person_id_alias,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
