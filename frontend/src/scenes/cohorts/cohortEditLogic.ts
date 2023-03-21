@@ -29,7 +29,7 @@ import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/Coh
 import type { cohortEditLogicType } from './cohortEditLogicType'
 import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
 import { processCohort } from 'lib/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind, Node } from '~/queries/schema'
 import { isDataTableNode } from '~/queries/utils'
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
