@@ -43,7 +43,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['insight', 'isUsingDataExploration'],
+            ['insight', 'isUsingDataExploration', 'isUsingDashboardQueries'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             ['dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
@@ -134,26 +134,28 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         saveInsight: ({ redirectToViewMode }) => {
-            if (!values.query) {
-                return
-            }
-
             let filters = values.insight.filters
-            if (isInsightVizNode(values.query)) {
+            if (values.isUsingDataExploration && isInsightVizNode(values.query)) {
                 const querySource = values.query.source
                 filters = queryNodeToFilter(querySource)
-            } else if (values.isQueryBasedInsight) {
+            } else if (values.isUsingDashboardQueries && values.isQueryBasedInsight) {
                 filters = {}
+            }
+
+            let query = undefined
+            if (values.isUsingDashboardQueries && values.isQueryBasedInsight) {
+                query = values.query
             }
 
             actions.setInsight(
                 {
                     ...values.insight,
                     filters: filters,
-                    ...(values.isQueryBasedInsight ? { query: values.query } : {}),
+                    query: query ?? undefined,
                 },
                 { overrideFilter: true, fromPersistentApi: false }
             )
+
             actions.insightLogicSaveInsight(redirectToViewMode)
         },
     })),

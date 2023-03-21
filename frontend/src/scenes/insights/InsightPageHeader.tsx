@@ -64,7 +64,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         isUsingDashboardQueries,
         insightRefreshButtonDisabledReason,
     } = useValues(logic)
-    const { saveInsight, setInsightMetadata, saveAs, loadResults } = useActions(logic)
+    const { setInsightMetadata, saveAs, loadResults } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
@@ -85,8 +85,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { featureFlags } = useValues(featureFlagLogic)
     const { globalInsightFilters } = useValues(globalInsightLogic)
     const { setGlobalInsightFilters } = useActions(globalInsightLogic)
-
-    const saveInsightHandler = isUsingDataExploration ? saveQueryBasedInsight : saveInsight
 
     return (
         <>
@@ -307,7 +305,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         ) : (
                             <InsightSaveButton
                                 saveAs={saveAs}
-                                saveInsight={saveInsightHandler}
+                                saveInsight={saveQueryBasedInsight}
                                 isSaved={insight.saved}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
