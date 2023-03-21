@@ -45,17 +45,21 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['featureFlags'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['response as insightData', 'dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
+            ['dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
         ],
         actions: [
             insightLogic,
             ['setInsight', 'loadInsightSuccess', 'loadResultsSuccess', 'saveInsight as insightLogicSaveInsight'],
+            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
+            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            ['loadData'],
         ],
     })),
 
     actions({
         setQuery: (query: Node) => ({ query }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        toggleQueryEditorPanel: true,
     }),
 
     reducers(({ props }) => ({
@@ -63,6 +67,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             defaultQuery(props) as Node | null,
             {
                 setQuery: (_, { query }) => query,
+            },
+        ],
+        showQueryEditor: [
+            false,
+            {
+                toggleQueryEditorPanel: (state) => !state,
             },
         ],
     })),
@@ -96,6 +106,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        setQuery: () => {
+            actions.loadData()
+        },
         setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
             if (overrideFilter && query == null) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))

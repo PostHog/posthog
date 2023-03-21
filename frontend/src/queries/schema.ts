@@ -275,6 +275,8 @@ export interface DataTableNode extends Node {
     showEventsBufferWarning?: boolean
     /** Can the user click on column headers to sort the table? (default: true) */
     allowSorting?: boolean
+    /** Show a button to open the current query as a new insight. (default: true) */
+    showOpenEditorButton?: boolean
 }
 
 // Insight viz node
@@ -494,6 +496,8 @@ export interface BreakdownFilter {
 export interface QueryContext {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
+    /** used to override the value in the query */
+    showOpenEditorButton?: boolean
     showQueryEditor?: boolean
 }
 

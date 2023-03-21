@@ -23,6 +23,8 @@ from posthog.hogql import ast
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
+from posthog.models.action.action import Action
+from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (
     format_cohort_subquery,
@@ -43,9 +45,9 @@ from posthog.models.property import (
     PropertyName,
 )
 from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.session_query import SessionQuery
+from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import is_json, is_valid_regex
 
 # Property Groups Example:
@@ -792,7 +794,6 @@ class HogQLPropertyChecker(TraversingVisitor):
 
 def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:
     counters: List[tuple] = []
-
     for prop in props:
         if prop.type == "hogql":
             node = parse_expr(prop.key)
@@ -802,6 +803,10 @@ def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIde
                 counters.append((field, "event", None))
             for field in property_checker.person_properties:
                 counters.append((field, "person", None))
+        elif prop.type == "behavioral" and prop.event_type == "actions":
+            action = Action.objects.get(pk=prop.key)
+            action_counter = get_action_tables_and_properties(action)
+            counters.extend(action_counter)
         else:
             counters.append((prop.key, prop.type, prop.group_type_index))
     return Counter(cast(Iterable, counters))

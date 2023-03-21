@@ -16,10 +16,10 @@ from posthog.models.property.util import (
     parse_prop_grouped_clauses,
     prop_filter_json_extract,
 )
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS
+from posthog.queries.util import PersonPropertiesMode
 
 
 class PersonQuery:

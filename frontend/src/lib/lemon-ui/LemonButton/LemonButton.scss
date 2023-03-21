@@ -254,19 +254,10 @@
         }
 
         &.LemonButton--primary {
-            color: var(--bg-light);
+            color: #fff;
             background: var(--primary-3000);
             .LemonButton__icon {
-                color: var(--bg-light);
-            }
-
-            &:not(.LemonButton--disabled):hover,
-            &.LemonButton--active {
-                color: var(--bg-light);
-                background: var(--default);
-                .LemonButton__icon {
-                    color: var(--bg-light);
-                }
+                color: #fff;
             }
         }
 
@@ -275,11 +266,6 @@
             background: var(--secondary-3000);
             .LemonButton__icon {
                 color: var(--default);
-            }
-
-            &:not(.LemonButton--disabled):hover,
-            &.LemonButton--active {
-                background: var(--accent-3000);
             }
         }
     }

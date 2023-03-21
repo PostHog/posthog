@@ -7,6 +7,7 @@ from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.test.base import BaseTest
+from posthog.utils import PersonOnEventsMode
 
 
 class TestPrinter(BaseTest):
@@ -64,7 +65,9 @@ class TestPrinter(BaseTest):
         )
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
-            context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=True, using_person_on_events=False)
+            context = HogQLContext(
+                team_id=self.team.pk, within_non_hogql_query=True, person_on_events_mode=PersonOnEventsMode.DISABLED
+            )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
                 "replaceRegexpAll(JSONExtractRaw(person_props, %(hogql_val_0)s), '^\"|\"$', '')",
@@ -76,7 +79,9 @@ class TestPrinter(BaseTest):
             )
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
-            context = HogQLContext(team_id=self.team.pk, within_non_hogql_query=True, using_person_on_events=True)
+            context = HogQLContext(
+                team_id=self.team.pk, within_non_hogql_query=True, person_on_events_mode=PersonOnEventsMode.V1_ENABLED
+            )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
                 "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",

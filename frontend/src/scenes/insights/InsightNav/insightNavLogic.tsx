@@ -13,7 +13,6 @@ import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter
 import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { examples, TotalEventsTable } from '~/queries/examples'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { userLogic } from 'scenes/userLogic'
 
 export interface Tab {
     label: string | JSX.Element
@@ -33,8 +32,6 @@ export const insightNavLogic = kea<insightNavLogicType>([
             ['featureFlags'],
             insightDataLogic(props),
             ['query'],
-            userLogic,
-            ['user'],
         ],
         actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuery']],
     })),
@@ -71,8 +68,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.isUsingDataExploration, s.allowQueryTab, s.user],
-            (isUsingDataExploration, allowQueryTab, user) => {
+            (s) => [s.allowQueryTab],
+            (allowQueryTab) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',
@@ -106,7 +103,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     },
                 ]
 
-                if (isUsingDataExploration) {
+                if (allowQueryTab) {
                     tabs.push({
                         label: (
                             <>
@@ -119,14 +116,19 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     })
-                    // don't show debug tab to everyone with the data exploration flags on
-                    if (allowQueryTab && user?.is_staff) {
-                        tabs.push({
-                            label: 'JSON',
-                            type: InsightType.JSON,
-                            dataAttr: 'insight-json-tab',
-                        })
-                    }
+
+                    tabs.push({
+                        label: (
+                            <>
+                                JSON{' '}
+                                <LemonTag type="warning" className="uppercase ml-2">
+                                    Beta
+                                </LemonTag>
+                            </>
+                        ),
+                        type: InsightType.JSON,
+                        dataAttr: 'insight-json-tab',
+                    })
                 }
 
                 return tabs

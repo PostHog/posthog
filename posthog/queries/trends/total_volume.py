@@ -39,7 +39,7 @@ from posthog.queries.trends.util import (
     process_math,
 )
 from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch
-from posthog.utils import encode_get_request_params
+from posthog.utils import PersonOnEventsMode, encode_get_request_params
 
 
 class TrendsTotalVolume:
@@ -51,7 +51,9 @@ class TrendsTotalVolume:
             entity,
             team,
             event_table_alias=TrendsEventQuery.EVENT_TABLE_ALIAS,
-            person_id_alias=f"person_id" if team.person_on_events_querying_enabled else "pdi.person_id",
+            person_id_alias=f"person_id"
+            if team.person_on_events_mode != PersonOnEventsMode.DISABLED
+            else "pdi.person_id",
         )
 
         trend_event_query = TrendsEventQuery(
@@ -62,7 +64,7 @@ class TrendsTotalVolume:
             if join_condition != ""
             or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
             else False,
-            using_person_on_events=team.person_on_events_querying_enabled,
+            person_on_events_mode=team.person_on_events_mode,
         )
         event_query_base, event_query_params = trend_event_query.get_query_base()
 

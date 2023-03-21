@@ -495,12 +495,22 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] ? (
                                                     <FeatureFlagRecordings flagKey={featureFlag.key || 'my-flag'} />
                                                 ) : (
-                                                    <FeatureFlagInstructions
-                                                        featureFlagKey={featureFlag.key || 'my-flag'}
-                                                    />
+                                                    <>
+                                                        {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
+                                                            <FeatureFlagInstructions
+                                                                featureFlagKey={featureFlag.key || 'my-flag'}
+                                                            />
+                                                        )}
+                                                    </>
                                                 )}
                                             </Col>
                                         </Row>
+                                        {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
+                                            <>
+                                                <LemonDivider className="mb-4" />
+                                                <FeatureFlagCodeExample featureFlag={featureFlag} />
+                                            </>
+                                        )}
                                     </Tabs.TabPane>
                                     {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
                                         <Tabs.TabPane
