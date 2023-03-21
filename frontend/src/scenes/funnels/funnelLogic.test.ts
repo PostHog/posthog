@@ -548,7 +548,7 @@ describe('funnelLogic', () => {
             await initFunnelLogic(props)
         })
 
-        it('setFilters calls openPersonsModal', async () => {
+        test('openPersonsModalForStep calls openPersonsModal', async () => {
             await expectLogic().toDispatchActions(preflightLogic, ['loadPreflightSuccess'])
             await expectLogic(() => {
                 router.actions.push(urls.insightEdit(Insight123))
@@ -563,15 +563,62 @@ describe('funnelLogic', () => {
                     name: '$pageview',
                     order: 0,
                     type: 'events',
-                    converted_people_url: '/some/people/url',
-                    dropped_people_url: '/some/people/url',
+                    // Breakdown must be ignored in openPersonsModalForStep
+                    converted_people_url: '/some/people/url?funnel_step=2&funnel_step_breakdown=USA',
+                    dropped_people_url: '/some/people/url?funnel_step=-2&funnel_step_breakdown=USA',
                 },
                 converted: true,
             })
 
             expect(openPersonsModal).toHaveBeenCalledWith({
                 title: expect.any(Object),
-                url: '/some/people/url',
+                url: '/some/people/url?funnel_step=2', // Positive funnel_step and no funnel_step_breakdown
+            })
+        })
+
+        test('openPersonsModalForSeries calls openPersonsModal', async () => {
+            await expectLogic().toDispatchActions(preflightLogic, ['loadPreflightSuccess'])
+            await expectLogic(() => {
+                router.actions.push(urls.insightEdit(Insight123))
+            })
+
+            logic.actions.openPersonsModalForSeries({
+                series: {
+                    action_id: '$pageview',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    count: 1,
+                    name: '$pageview',
+                    order: 0,
+                    type: 'events',
+                    // Breakdown must be ignored in openPersonsModalForStep
+                    converted_people_url: '/some/people/url?funnel_step=2&funnel_step_breakdown=Latvia',
+                    dropped_people_url: '/some/people/url?funnel_step=-2&funnel_step_breakdown=Latvia',
+                    droppedOffFromPrevious: 0,
+                    conversionRates: {
+                        fromPrevious: 1,
+                        total: 1,
+                        fromBasisStep: 1,
+                    },
+                },
+                step: {
+                    action_id: '$pageview',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    count: 1,
+                    name: '$pageview',
+                    order: 0,
+                    type: 'events',
+                    // Breakdown must be ignored in openPersonsModalForStep
+                    converted_people_url: '/some/people/url?funnel_step=2&funnel_step_breakdown=USA',
+                    dropped_people_url: '/some/people/url?funnel_step=-2&funnel_step_breakdown=USA',
+                },
+                converted: true,
+            })
+
+            expect(openPersonsModal).toHaveBeenCalledWith({
+                title: expect.any(Object),
+                url: '/some/people/url?funnel_step=2&funnel_step_breakdown=Latvia', // Series funnel_step_breakdown included
             })
         })
     })
