@@ -310,6 +310,20 @@ class StaticCohortPeople(Table):
         return "person_static_cohort"
 
 
+class Groups(Table):
+    index: IntegerDatabaseField = IntegerDatabaseField(name="group_type_index")
+    key: StringDatabaseField = StringDatabaseField(name="group_key")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="group_properties")
+
+    def clickhouse_table(self):
+        return "groups"
+
+    def hogql_table(self):
+        return "groups"
+
+
 class Database(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -321,6 +335,7 @@ class Database(BaseModel):
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
+    groups: Groups = Groups()
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)

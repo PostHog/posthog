@@ -299,7 +299,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         new_query = f"""
         SELECT {", ".join(_inner_fields)} FROM events AS {self.EVENT_TABLE_ALIAS}
-        {self._get_distinct_id_query()}
+        {self._get_person_ids_query()}
         WHERE team_id = %(team_id)s
         AND event IN %({event_param_name})s
         {date_condition}

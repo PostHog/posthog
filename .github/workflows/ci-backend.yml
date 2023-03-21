@@ -267,7 +267,7 @@ jobs:
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
               if: ${{ !matrix.person-on-events && github.event.pull_request.head.repo.full_name == github.repository }}
               with:
-                  add: '["ee", "posthog/clickhouse/test/__snapshots__", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/"]'
+                  add: '["ee", "posthog/clickhouse/test/__snapshots__", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/", "posthog/migrations"]'
                   message: 'Update query snapshots'
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}

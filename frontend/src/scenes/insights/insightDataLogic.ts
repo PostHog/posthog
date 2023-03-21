@@ -28,7 +28,11 @@ export const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
 const defaultQuery = (insightProps: InsightLogicProps): Node | null => {
     const filters = insightProps.cachedInsight?.filters
     const query = insightProps.cachedInsight?.query
-    return query ? query : filters ? queryFromFilters(filters) : null
+    return !!query && Object.keys(query).length > 0
+        ? query
+        : !!filters && !!Object.keys(filters).length
+        ? queryFromFilters(filters)
+        : null
 }
 
 export const insightDataLogic = kea<insightDataLogicType>([
