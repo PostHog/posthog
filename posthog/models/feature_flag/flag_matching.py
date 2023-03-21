@@ -415,7 +415,6 @@ def _get_all_feature_flags(
     cache = FlagsMatcherCache(team_id)
 
     if person_id is not None:
-        # fixes https://posthog.sentry.io/issues/4014746175/?project=1899813&referrer=slack
         try:
             overrides = hash_key_overrides(team_id, person_id)
         except Exception:
