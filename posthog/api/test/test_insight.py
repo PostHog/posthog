@@ -2570,7 +2570,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     # @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
-    def test_insight_funnels_hogql_breakdown_old_style(self) -> None:
+    def test_insight_funnels_hogql_breakdown_single(self) -> None:
         with freeze_time("2012-01-15T04:01:34.000Z"):
             _create_person(team=self.team, distinct_ids=["1"], properties={"fish": "there is no fish"})
             _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"int_value": 1})
