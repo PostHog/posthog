@@ -13,8 +13,6 @@ import { EditorFilters } from './EditorFilters/EditorFilters'
 import clsx from 'clsx'
 import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { containsHogQLQuery } from '~/queries/utils'
 
 export interface InsightSceneProps {
@@ -23,10 +21,13 @@ export interface InsightSceneProps {
 
 export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
-    const { insightMode } = useValues(insightSceneLogic)
+    const { insightMode, insight } = useValues(insightSceneLogic)
 
     // insightLogic
-    const logic = insightLogic({ dashboardItemId: insightId || 'new' })
+    const logic = insightLogic({
+        dashboardItemId: insightId || 'new',
+        cachedInsight: insight?.short_id === insightId ? insight : null,
+    })
     const {
         insightProps,
         insightLoading,
@@ -37,9 +38,8 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         isFilterBasedInsight,
     } = useValues(logic)
     const { reportInsightViewedForRecentInsights, abortAnyRunningQuery, loadResults } = useActions(logic)
-
     // insightDataLogic
-    const { query, isQueryBasedInsight } = useValues(insightDataLogic(insightProps))
+    const { query, isQueryBasedInsight, showQueryEditor } = useValues(insightDataLogic(insightProps))
     const { setQuery } = useActions(insightDataLogic(insightProps))
 
     // other logics
@@ -69,29 +69,24 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         return <InsightSkeleton />
     }
 
-    // TODO the query editor visibility will be determined by the Query component after #14709
-    const showQueryEditorPanel = insightMode === ItemMode.Edit && isQueryBasedInsight && !containsHogQLQuery(query)
-
     const insightScene = (
         <div className={'insights-page'}>
             <InsightPageHeader insightLogicProps={insightProps} />
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 
-            {isUsingDataExploration && query !== null ? (
+            {isUsingDataExploration ? (
                 <>
-                    {showQueryEditorPanel ? (
-                        <>
-                            <QueryEditor
-                                query={JSON.stringify(query)}
-                                setQuery={(stringQuery) => setQuery(JSON.parse(stringQuery))}
-                            />
-                            <div className="my-4">
-                                <LemonDivider />
-                            </div>
-                        </>
-                    ) : null}
-                    <Query query={query} setQuery={insightMode === ItemMode.Edit ? setQuery : undefined} />
+                    <Query
+                        query={query}
+                        setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
+                        context={{
+                            showOpenEditorButton: false,
+                            showQueryEditor:
+                                insightMode === ItemMode.Edit &&
+                                ((isQueryBasedInsight && !containsHogQLQuery(query)) || showQueryEditor),
+                        }}
+                    />
                 </>
             ) : (
                 <>

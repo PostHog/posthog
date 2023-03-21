@@ -10,7 +10,7 @@ from posthog.models import Entity, Filter
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.property import Property, PropertyIdentifier
-from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.util import PersonPropertiesMode
 
 
 def format_action_filter(

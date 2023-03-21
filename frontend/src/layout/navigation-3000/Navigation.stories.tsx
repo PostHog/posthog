@@ -6,6 +6,8 @@ import { urls } from 'scenes/urls'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
+import { useActions } from 'kea'
+import { themeLogic } from './themeLogic'
 
 export default {
     title: 'PostHog 3000/Navigation',
@@ -28,10 +30,23 @@ export default {
     },
 } as Meta
 
-export function Navigation(): JSX.Element {
+export function LightMode(): JSX.Element {
+    const { syncDarkModePreference } = useActions(themeLogic)
     useFeatureFlags([FEATURE_FLAGS.POSTHOG_3000])
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
+        syncDarkModePreference(false)
+    }, [])
+
+    return <App />
+}
+
+export function DarkMode(): JSX.Element {
+    const { syncDarkModePreference } = useActions(themeLogic)
+    useFeatureFlags([FEATURE_FLAGS.POSTHOG_3000])
+    useEffect(() => {
+        router.actions.push(urls.projectHomepage())
+        syncDarkModePreference(true)
     }, [])
 
     return <App />

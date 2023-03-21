@@ -103,7 +103,16 @@ describe('EventsProcessor#createEvent()', () => {
     })
 
     it('emits event with group columns', async () => {
-        await eventsProcessor.db.insertGroup(2, 0, 'group_key', { group_prop: 'value' }, DateTime.fromISO(timestamp), 1)
+        await eventsProcessor.db.insertGroup(
+            2,
+            0,
+            'group_key',
+            { group_prop: 'value' },
+            DateTime.fromISO(timestamp),
+            {},
+            {},
+            1
+        )
 
         await eventsProcessor.createEvent(
             { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
@@ -135,6 +144,8 @@ describe('EventsProcessor#createEvent()', () => {
         await eventsProcessor.db.createPerson(
             DateTime.fromISO(timestamp).toUTC(),
             { foo: 'bar', a: 2 },
+            {},
+            {},
             2,
             null,
             false,

@@ -320,3 +320,12 @@ export const funnelResultTrends = {
     last_refresh: '2023-03-03T18:55:57.840129Z',
     is_cached: false,
 }
+
+// 1. Add step "Pageview"
+// 2. Add "Pageview" as exclusion step
+export const funnelInvalidExclusionError = {
+    type: 'validation_error',
+    code: 'invalid_input',
+    detail: "Exclusion event can't be the same as funnel step",
+    attr: null,
+}

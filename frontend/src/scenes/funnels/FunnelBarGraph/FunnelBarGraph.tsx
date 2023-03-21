@@ -8,24 +8,67 @@ import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
 import { FunnelLayout } from 'lib/constants'
 import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
-import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
+import { ChartParams, FunnelStepReference, FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { FunnelStepMore } from '../FunnelStepMore'
+import { FunnelStepMoreDataExploration, FunnelStepMore } from '../FunnelStepMore'
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 import { Bar } from './Bar'
 import { AverageTimeInspector } from './AverageTimeInspector'
+import { Noun } from '~/models/groupsModel'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { funnelDataLogic } from '../funnelDataLogic'
+import { FunnelsFilter } from '~/queries/schema'
+
+export function FunnelBarGraphDataExploration(props: ChartParams): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { visibleStepsWithConversionMetrics, aggregationTargetLabel, funnelsFilter } = useValues(
+        funnelDataLogic(insightProps)
+    )
+    return (
+        <FunnelBarGraphComponent
+            steps={visibleStepsWithConversionMetrics}
+            stepReference={funnelsFilter?.funnel_step_reference || FunnelStepReference.total}
+            aggregationTargetLabel={aggregationTargetLabel}
+            funnelsFilter={funnelsFilter}
+            isUsingDataExploration
+            {...props}
+        />
+    )
+}
 
 export function FunnelBarGraph(props: ChartParams): JSX.Element {
-    const {
-        filters,
-        visibleStepsWithConversionMetrics: steps,
-        stepReference,
-        aggregationTargetLabel,
-        isInDashboardContext,
-    } = useValues(funnelLogic)
+    const { filters, visibleStepsWithConversionMetrics, stepReference, aggregationTargetLabel } = useValues(funnelLogic)
+    return (
+        <FunnelBarGraphComponent
+            steps={visibleStepsWithConversionMetrics}
+            stepReference={stepReference}
+            aggregationTargetLabel={aggregationTargetLabel}
+            funnelsFilter={filters}
+            {...props}
+        />
+    )
+}
+
+type FunnelBarGraphComponentProps = {
+    steps: FunnelStepWithConversionMetrics[]
+    stepReference: FunnelStepReference
+    aggregationTargetLabel: Noun
+    funnelsFilter?: FunnelsFilter | null
+    isUsingDataExploration?: boolean
+} & ChartParams
+
+export function FunnelBarGraphComponent({
+    steps,
+    stepReference,
+    aggregationTargetLabel,
+    funnelsFilter,
+    isUsingDataExploration,
+    ...props
+}: FunnelBarGraphComponentProps): JSX.Element {
+    const { isInDashboardContext } = useValues(funnelLogic)
     const { openPersonsModalForStep } = useActions(funnelLogic)
 
     const { ref: graphRef, width } = useResizeObserver()
@@ -57,7 +100,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
                             <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
-                            {filters.funnel_order_type === StepOrderValue.UNORDERED ? (
+                            {funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED ? (
                                 <SeriesGlyph variant="funnel-step-glyph">
                                     <IconInfinity style={{ fill: 'var(--primary_alt)', width: 14 }} />
                                 </SeriesGlyph>
@@ -67,18 +110,22 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                             <div className={`funnel-series-linebox ${showLineAfter ? 'after' : ''}`} />
                         </div>
                         <header>
-                            <div style={{ display: 'flex', alignItems: 'center', maxWidth: '100%', flexGrow: 1 }}>
+                            <div className="flex items-center max-w-full grow">
                                 <div className="funnel-step-title">
-                                    {filters.funnel_order_type === StepOrderValue.UNORDERED ? (
+                                    {funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED ? (
                                         <span>Completed {step.order + 1} steps</span>
                                     ) : (
                                         <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     )}
                                 </div>
-                                {filters.funnel_order_type !== StepOrderValue.UNORDERED &&
+                                {funnelsFilter?.funnel_order_type !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
-                                <FunnelStepMore stepIndex={stepIndex} />
+                                {isUsingDataExploration ? (
+                                    <FunnelStepMoreDataExploration stepIndex={stepIndex} />
+                                ) : (
+                                    <FunnelStepMore stepIndex={stepIndex} />
+                                )}
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${FunnelLayout.horizontal}`}>
                                 {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (
@@ -118,6 +165,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                     }
                                                     disabled={isInDashboardContext}
                                                     popoverTitle={
+                                                        // eslint-disable-next-line react/forbid-dom-props
                                                         <div style={{ wordWrap: 'break-word' }}>
                                                             <PropertyKeyInfo value={step.name} />
                                                             {' • '}
@@ -190,6 +238,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                         <div
                                             className="funnel-bar-empty-space"
                                             onClick={() => openPersonsModalForStep({ step, converted: false })} // dropoff value for steps is negative
+                                            // eslint-disable-next-line react/forbid-dom-props
                                             style={{
                                                 flex: `${1 - breakdownSum / basisStep.count} 1 0`,
                                                 cursor: `${!props.inCardView ? 'pointer' : ''}`,
@@ -248,6 +297,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                         <div
                                             className="funnel-bar-empty-space"
                                             onClick={() => openPersonsModalForStep({ step, converted: false })} // dropoff value for steps is negative
+                                            // eslint-disable-next-line react/forbid-dom-props
                                             style={{
                                                 flex: `${1 - step.conversionRates.fromBasisStep} 1 0`,
                                                 cursor: `${!props.inCardView ? 'pointer' : ''}`,
@@ -285,7 +335,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             )
                                         </span>
                                     </div>
-                                    <div className="text-muted-alt conversion-metadata-caption" style={{ flexGrow: 1 }}>
+                                    <div className="text-muted-alt conversion-metadata-caption grow">
                                         completed step
                                     </div>
                                 </div>

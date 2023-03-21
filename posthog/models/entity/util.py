@@ -4,7 +4,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
-from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.util import PersonPropertiesMode
 
 
 def get_entity_filtering_params(

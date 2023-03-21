@@ -34,7 +34,12 @@ RUN apt-get update \
 ARG NODE_VERSION="18"
 RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
 
-RUN curl -fsSL https://get.pnpm.io/install.sh | sh -
+# install pnpm globally, this container doesn't expose a supported shell to the pnpm installer
+# so `RUN curl -fsSL https://get.pnpm.io/install.sh | sh -` fails
+# see https://github.com/pnpm/pnpm/issues/4495
+RUN npm install --global pnpm \
+    && SHELL=bash pnpm setup \
+    && source /root/.bashrc
 
 WORKDIR /workspace
 

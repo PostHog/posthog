@@ -10,6 +10,7 @@ def replace_placeholders(node: ast.Expr, placeholders: Dict[str, ast.Expr]) -> a
 
 class ReplacePlaceholders(CloningVisitor):
     def __init__(self, placeholders: Dict[str, ast.Expr]):
+        super().__init__()
         self.placeholders = placeholders
 
     def visit_placeholder(self, node):

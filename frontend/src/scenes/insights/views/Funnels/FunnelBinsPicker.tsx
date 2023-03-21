@@ -7,6 +7,13 @@ import { BarChartOutlined } from '@ant-design/icons'
 import clsx from 'clsx'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { FunnelsFilter } from '~/queries/schema'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+
+// Constraints as defined in funnel_time_to_convert.py:34
+const MIN = 1
+const MAX = 90
+const NUMBER_PRESETS = new Set([5, 15, 25, 50, 90])
 
 interface BinOption {
     key?: string
@@ -14,11 +21,6 @@ interface BinOption {
     value: BinCountValue | 'custom'
     display: boolean
 }
-
-// Constraints as defined in funnel_time_to_convert.py:34
-const MIN = 1
-const MAX = 90
-const NUMBER_PRESETS = new Set([5, 15, 25, 50, 90])
 
 const options: BinOption[] = [
     {
@@ -38,18 +40,61 @@ const options: BinOption[] = [
     },
 ]
 
-export function FunnelBinsPicker({ disabled }: { disabled?: boolean }): JSX.Element {
+type FunnelBinsPickerProps = { disabled?: boolean }
+
+export function FunnelBinsPickerDataExploration(props: FunnelBinsPickerProps): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { funnelsFilter, numericBinCount } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+
+    const setBinCount = (binCount: BinCountValue): void => {
+        updateInsightFilter({ bin_count: binCount && binCount !== BIN_COUNT_AUTO ? binCount : undefined })
+    }
+
+    return (
+        <FunnelBinsPickerComponent
+            funnelsFilter={funnelsFilter}
+            setBinCount={setBinCount}
+            numericBinCount={numericBinCount}
+            {...props}
+        />
+    )
+}
+
+export function FunnelBinsPicker(props: FunnelBinsPickerProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters, numericBinCount } = useValues(funnelLogic(insightProps))
     const { setBinCount } = useActions(funnelLogic(insightProps))
 
+    return (
+        <FunnelBinsPickerComponent
+            funnelsFilter={filters}
+            setBinCount={setBinCount}
+            numericBinCount={numericBinCount}
+            {...props}
+        />
+    )
+}
+
+type FunnelBinsPickerComponentProps = FunnelBinsPickerProps & {
+    funnelsFilter?: FunnelsFilter | null
+    setBinCount: (binCount: BinCountValue) => void
+    numericBinCount: number
+}
+
+function FunnelBinsPickerComponent({
+    funnelsFilter,
+    setBinCount,
+    numericBinCount,
+    disabled,
+}: FunnelBinsPickerComponentProps): JSX.Element {
     return (
         <Select
             id="funnel-bin-filter"
             dropdownClassName="funnel-bin-filter-dropdown"
             data-attr="funnel-bin-filter"
             defaultValue={BIN_COUNT_AUTO}
-            value={filters.bin_count || BIN_COUNT_AUTO}
+            value={funnelsFilter?.bin_count || BIN_COUNT_AUTO}
             onSelect={(count) => setBinCount(count)}
             dropdownRender={(menu) => {
                 return (

@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
-import { ChartDisplayType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
+import { InsightLogicProps, InsightShortId, InsightType } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { NodeKind, TrendsQuery } from '~/queries/schema'
@@ -26,17 +26,12 @@ describe('insightDataLogic', () => {
     })
 
     describe('default query', () => {
-        it('defaults to trends', () => {
+        it('defaults to null', () => {
             const props: InsightLogicProps = { dashboardItemId: 'new' }
             const logic = insightDataLogic(props)
             logic.mount()
             expectLogic(logic).toMatchValues({
-                query: expect.objectContaining({
-                    kind: NodeKind.InsightVizNode,
-                    source: expect.objectContaining({
-                        kind: NodeKind.TrendsQuery,
-                    }),
-                }),
+                query: null,
             })
         })
 
@@ -187,52 +182,6 @@ describe('insightDataLogic', () => {
             await expectLogic(theInsightDataLogic, () => {
                 theInsightLogic.actions.setInsight({ filters: {}, query: undefined }, {})
             }).toNotHaveDispatchedActions(['setQuery'])
-        })
-    })
-
-    describe('manages query source state', () => {
-        const props = { dashboardItemId: Insight123 }
-        beforeEach(() => {
-            theInsightDataLogic = insightDataLogic(props)
-            theInsightDataLogic.mount()
-        })
-
-        it('updateQuerySource updates the query source', () => {
-            expectLogic(theInsightDataLogic, () => {
-                theInsightDataLogic.actions.updateQuerySource({ filterTestAccounts: true })
-            }).toMatchValues({
-                query: expect.objectContaining({
-                    source: expect.objectContaining({
-                        filterTestAccounts: true,
-                    }),
-                }),
-            })
-
-            expect(theInsightDataLogic.values.querySource).toMatchObject({ filterTestAccounts: true })
-        })
-    })
-
-    describe('manages insight filter state', () => {
-        const props = { dashboardItemId: Insight123 }
-        beforeEach(() => {
-            theInsightDataLogic = insightDataLogic(props)
-            theInsightDataLogic.mount()
-        })
-
-        it('updateInsightFilter updates the insight filter', () => {
-            expectLogic(theInsightDataLogic, () => {
-                theInsightDataLogic.actions.updateInsightFilter({ display: ChartDisplayType.ActionsAreaGraph })
-            }).toMatchValues({
-                query: expect.objectContaining({
-                    source: expect.objectContaining({
-                        trendsFilter: expect.objectContaining({
-                            display: 'ActionsAreaGraph',
-                        }),
-                    }),
-                }),
-            })
-
-            expect(theInsightDataLogic.values.insightFilter).toMatchObject({ display: 'ActionsAreaGraph' })
         })
     })
 })

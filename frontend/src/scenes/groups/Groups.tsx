@@ -14,6 +14,8 @@ import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsA
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 export const scene: SceneExport = {
     component: Groups,
@@ -26,8 +28,9 @@ export function Groups(): JSX.Element {
         groupName: { singular, plural },
         groups,
         groupsLoading,
+        search,
     } = useValues(groupsListLogic)
-    const { loadGroups } = useActions(groupsListLogic)
+    const { loadGroups, setSearch } = useActions(groupsListLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
     if (
@@ -67,6 +70,15 @@ export function Groups(): JSX.Element {
     return (
         <>
             <PersonPageHeader />
+            <LemonInput
+                type="search"
+                placeholder={`Search for ${plural}`}
+                onChange={setSearch}
+                value={search}
+                data-attr="group-search"
+                className="mb-4"
+            />
+            <LemonDivider className="mb-4" />
             <LemonTable
                 columns={columns}
                 rowKey="group_key"

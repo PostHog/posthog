@@ -5,7 +5,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { InsightLogicProps, InsightType, SavedInsightsTabs } from '~/types'
+import { FilterType, InsightLogicProps, InsightType, SavedInsightsTabs } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import clsx from 'clsx'
 import './EmptyStates.scss'
@@ -16,6 +16,10 @@ import { AnimationType } from 'lib/animations/animations'
 import { LemonButton } from '@posthog/lemon-ui'
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { posthog } from 'posthog-js'
+import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { FunnelsQuery } from '~/queries/schema'
 
 export function InsightEmptyState(): JSX.Element {
     return (
@@ -51,7 +55,7 @@ export function InsightTimeoutState({
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                <div className="illustration-main" style={{ height: 'auto' }}>
+                <div className="illustration-main">
                     {isLoading ? <Animation type={AnimationType.SportsHog} /> : <IconErrorOutline />}
                 </div>
                 {isLoading ? (
@@ -173,12 +177,40 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
     )
 }
 
-export function FunnelSingleStepState({ actionable = true }: { actionable?: boolean }): JSX.Element {
+type FunnelSingleStepStateProps = { actionable?: boolean }
+
+export function FunnelSingleStepStateDataExploration(props: FunnelSingleStepStateProps): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { series } = useValues(funnelDataLogic(insightProps))
+    const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
+
+    const filters = series ? seriesToActionsAndEvents(series) : {}
+    const setFilters = (payload: Partial<FilterType>): void => {
+        updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as Partial<FunnelsQuery>)
+    }
+
+    const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
+
+    return <FunnelSingleStepStateComponent addFilter={addFilter} {...props} />
+}
+
+export function FunnelSingleStepState(props: FunnelSingleStepStateProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
+    return <FunnelSingleStepStateComponent addFilter={addFilter} {...props} />
+}
+
+type FunnelSingleStepStateComponentProps = FunnelSingleStepStateProps & {
+    addFilter: () => void
+}
+
+export function FunnelSingleStepStateComponent({
+    actionable = true,
+    addFilter,
+}: FunnelSingleStepStateComponentProps): JSX.Element {
     return (
         <div className="insight-empty-state funnels-empty-state">
             <div className="empty-state-inner">

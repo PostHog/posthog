@@ -9,6 +9,7 @@ import {
     FunnelVizType,
     InsightModel,
     InsightShortId,
+    InsightType,
     PathsFilterType,
     PathType,
     StepOrderValue,
@@ -39,17 +40,35 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, Node, StickinessQuery } from '~/queries/schema'
 import {
+    ActionsNode,
+    BreakdownFilter,
+    EventsNode,
+    InsightQueryNode,
+    NewEntityNode,
+    Node,
+    StickinessQuery,
+} from '~/queries/schema'
+import {
+    isDataTableNode,
     isEventsNode,
+    isEventsQuery,
     isFunnelsQuery,
+    isHogQLQuery,
     isInsightVizNode,
     isLifecycleQuery,
+    isNewEntityNode,
     isPathsQuery,
+    isPersonsNode,
+    isRecentPerformancePageViewNode,
     isRetentionQuery,
     isStickinessQuery,
+    isTimeToSeeDataSessionsNode,
+    isTimeToSeeDataSessionsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
+import { urls } from 'scenes/urls'
+import { examples } from '~/queries/examples'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -66,7 +85,14 @@ export const getDisplayNameFromEntityFilter = (
     return (isCustom ? customName : null) ?? name ?? (filter?.id ? `${filter?.id}` : null)
 }
 
-export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isCustom = true): string | null => {
+export const getDisplayNameFromEntityNode = (
+    node: EventsNode | ActionsNode | NewEntityNode,
+    isCustom = true
+): string | null => {
+    if (isNewEntityNode(node)) {
+        return null
+    }
+
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
@@ -453,9 +479,51 @@ export function summarizeInsightQuery(
     }
 }
 
+function summariseQuery(query: Node): string {
+    if (isDataTableNode(query)) {
+        let selected: string[] = []
+        let source = ''
+
+        if (isEventsQuery(query.source)) {
+            selected = [...query.source.select]
+            source = 'events'
+        } else if (isPersonsNode(query.source)) {
+            selected = []
+            source = 'persons'
+        } else if (isHogQLQuery(query.source)) {
+            selected = []
+            source = 'HogQL'
+        } else if (isTimeToSeeDataSessionsQuery(query.source)) {
+            selected = ['sessions']
+            source = 'Time to See Data'
+        }
+
+        if (!!query.columns) {
+            selected = [...query.columns]
+        }
+        return `${selected
+            .filter((c) => !(query.hiddenColumns || []).includes(c))
+            .join(', ')} from ${source} into a data table.`
+    }
+
+    if (isTimeToSeeDataSessionsNode(query)) {
+        return `Waterfall chart for time to see session ${query.source.sessionId}.`
+    }
+
+    if (isHogQLQuery(query)) {
+        return 'HogQL data table.'
+    }
+
+    if (isRecentPerformancePageViewNode(query)) {
+        return 'Recent page views with performance data.'
+    }
+
+    return `QueryKind: ${query?.kind}`
+}
+
 export function summariseInsight(
     isUsingDataExploration: boolean,
-    query: Node | undefined,
+    query: Node | undefined | null,
     aggregationLabel: groupsModelType['values']['aggregationLabel'],
     cohortsById: cohortsModelType['values']['cohortsById'],
     mathDefinitions: mathsLogicType['values']['mathDefinitions'],
@@ -466,7 +534,7 @@ export function summariseInsight(
     return isUsingDataExploration && isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, aggregationLabel, cohortsById, mathDefinitions)
         : isUsingDataExploration && !!query
-        ? `QueryKind: ${query?.kind}`
+        ? summariseQuery(query)
         : hasFilters
         ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
         : ''
@@ -551,4 +619,15 @@ export function sortDates(dates: Array<string | null>): Array<string | null> {
 // Gets content-length header from a fetch Response
 export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
+}
+
+export const insightTypeURL: Record<InsightType, string> = {
+    TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
+    STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
+    LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
+    FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
+    RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
+    PATHS: urls.insightNew({ insight: InsightType.PATHS }),
+    JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
+    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
 }

@@ -45,7 +45,17 @@ export async function createPerson(
     distinctIds: string[],
     properties: Record<string, any> = {}
 ): Promise<Person> {
-    return server.db.createPerson(DateTime.utc(), properties, team.id, null, false, new UUIDT().toString(), distinctIds)
+    return server.db.createPerson(
+        DateTime.utc(),
+        properties,
+        {},
+        {},
+        team.id,
+        null,
+        false,
+        new UUIDT().toString(),
+        distinctIds
+    )
 }
 
 export type ReturnWithHub = { hub?: Hub; closeHub?: () => Promise<void> }
@@ -1706,18 +1716,16 @@ describe('when handling $identify', () => {
         // Get pairins of person distinctIds and the events associated with them
         const eventsByPerson = await getEventsByPerson(hub)
 
-        expect(eventsByPerson).toEqual(
-            expect.arrayContaining([
-                [
-                    [anonymousId, initialDistinctId],
-                    ['event 1', '$identify', 'event 2', '$identify'],
-                ],
-                [
-                    [p2DistinctId, p2NewDistinctId],
-                    ['event 3', '$identify', 'event 4'],
-                ],
-            ])
-        )
+        expect(eventsByPerson).toEqual([
+            [
+                [anonymousId, initialDistinctId],
+                ['event 1', '$identify', 'event 2', '$identify'],
+            ],
+            [
+                [p2DistinctId, p2NewDistinctId],
+                ['event 3', '$identify', 'event 4'],
+            ],
+        ])
 
         // Make sure the persons are identified
         const persons = await hub.db.fetchPersons()
@@ -1758,18 +1766,16 @@ describe('when handling $identify', () => {
         // Get pairins of person distinctIds and the events associated with them
         const eventsByPerson = await getEventsByPerson(hub)
 
-        expect(eventsByPerson).toEqual(
-            expect.arrayContaining([
-                [
-                    [initialDistinctId, anonymousId],
-                    ['$identify', 'event 2', '$identify'],
-                ],
-                [
-                    [p2DistinctId, p2NewDistinctId],
-                    ['event 3', '$identify', 'event 4'],
-                ],
-            ])
-        )
+        expect(eventsByPerson).toEqual([
+            [
+                [initialDistinctId, anonymousId],
+                ['$identify', 'event 2', '$identify'],
+            ],
+            [
+                [p2DistinctId, p2NewDistinctId],
+                ['event 3', '$identify', 'event 4'],
+            ],
+        ])
 
         // Make sure the persons are identified
         const persons = await hub.db.fetchPersons()
@@ -2324,11 +2330,37 @@ test('groupidentify', async () => {
     })
 })
 
+test('groupidentify without group_type ingests event', async () => {
+    await createPerson(hub, team, ['distinct_id1'])
+
+    await processEvent(
+        'distinct_id1',
+        '',
+        '',
+        {
+            event: '$groupidentify',
+            properties: {
+                token: team.api_token,
+                distinct_id: 'distinct_id1',
+                $group_key: 'org::5',
+                $group_set: {
+                    foo: 'bar',
+                },
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        new UUIDT().toString()
+    )
+
+    expect((await hub.db.fetchEvents()).length).toBe(1)
+})
+
 test('$groupidentify updating properties', async () => {
     const next: DateTime = now.plus({ minutes: 1 })
 
     await createPerson(hub, team, ['distinct_id1'])
-    await hub.db.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, 1)
+    await hub.db.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {}, 1)
 
     await processEvent(
         'distinct_id1',

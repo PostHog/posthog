@@ -40,6 +40,8 @@ import {
     PluginLogEntryType,
     PluginLogLevel,
     PluginSourceFileStatus,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
     PropertyDefinitionType,
     RawAction,
     RawClickHouseEvent,
@@ -815,6 +817,8 @@ export class DB {
     public async createPerson(
         createdAt: DateTime,
         properties: Properties,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -825,8 +829,18 @@ export class DB {
 
         const person = await this.postgresTransaction('createPerson', async (client) => {
             const insertResult = await this.postgresQuery(
-                'INSERT INTO posthog_person (created_at, properties, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-                [createdAt.toISO(), JSON.stringify(properties), teamId, isUserId, isIdentified, uuid, 0],
+                'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
+                [
+                    createdAt.toISO(),
+                    JSON.stringify(properties),
+                    JSON.stringify(propertiesLastUpdatedAt),
+                    JSON.stringify(propertiesLastOperation),
+                    teamId,
+                    isUserId,
+                    isIdentified,
+                    uuid,
+                    0,
+                ],
                 'insertPerson',
                 client
             )
@@ -1646,13 +1660,15 @@ export class DB {
         groupKey: string,
         groupProperties: Properties,
         createdAt: DateTime,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
         version: number,
         client?: PoolClient,
         options: { cache?: boolean } = { cache: true }
     ): Promise<void> {
         const result = await this.postgresQuery(
             `
-            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, properties_last_updated_at, properties_last_operation, created_at, version)
+            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (team_id, group_key, group_type_index) DO NOTHING
             RETURNING version
@@ -1662,9 +1678,9 @@ export class DB {
                 groupKey,
                 groupTypeIndex,
                 JSON.stringify(groupProperties),
-                JSON.stringify({}), // Required non null, but unused
-                JSON.stringify({}), // Required non null, but unused
                 createdAt.toISO(),
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
                 version,
             ],
             'upsertGroup',
@@ -1689,6 +1705,8 @@ export class DB {
         groupKey: string,
         groupProperties: Properties,
         createdAt: DateTime,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
         version: number,
         client?: PoolClient
     ): Promise<void> {
@@ -1708,8 +1726,8 @@ export class DB {
                 groupTypeIndex,
                 createdAt.toISO(),
                 JSON.stringify(groupProperties),
-                JSON.stringify({}), // Required non null, but unused
-                JSON.stringify({}), // Required non null, but unused
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
                 version,
             ],
             'upsertGroup',

@@ -5,7 +5,6 @@ import {
     EventsNode,
     EventsQuery,
     HogQLQuery,
-    Node,
     PersonsNode,
     QueryContext,
 } from '~/queries/schema'
@@ -28,7 +27,7 @@ import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
+import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { isEventsQuery, isHogQlAggregation, isHogQLQuery, isPersonsNode, taxonomicFilterToHogQl } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
@@ -81,7 +80,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         highlightedRows,
     } = useValues(builtDataNodeLogic)
 
-    const dataTableLogicProps: DataTableLogicProps = { query, key }
+    const dataTableLogicProps: DataTableLogicProps = { query, key, context }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
@@ -99,6 +98,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         showColumnConfigurator,
         showSavedQueries,
         expandable,
+        showOpenEditorButton,
     } = queryWithDefaults
 
     const isReadOnly = setQuery === undefined
@@ -363,8 +363,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             {firstRowLeft}
                             <div className="flex-1" />
                             {firstRowRight}
-                            {inlineEditorButtonOnRow === 1 && !isReadOnly ? (
-                                <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                            {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
+                                <OpenEditorButton query={query} />
                             ) : null}
                         </div>
                     )}
@@ -374,14 +374,14 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             {secondRowLeft}
                             <div className="flex-1" />
                             {secondRowRight}
-                            {inlineEditorButtonOnRow === 2 && !isReadOnly ? (
-                                <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                            {showOpenEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
+                                <OpenEditorButton query={query} />
                             ) : null}
                         </div>
                     )}
-                    {inlineEditorButtonOnRow === 0 && !isReadOnly ? (
+                    {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
                         <div className="absolute right-0 z-10 p-1">
-                            <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                            <OpenEditorButton query={query} />
                         </div>
                     ) : null}
                     <LemonTable

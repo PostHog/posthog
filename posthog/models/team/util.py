@@ -9,11 +9,13 @@ def delete_bulky_postgres_data(team_ids: List[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
 
     from posthog.models.cohort import CohortPeople
+    from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
     from posthog.models.insight_caching_state import InsightCachingState
     from posthog.models.person import Person, PersonDistinctId
 
     _raw_delete(PersonDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete(CohortPeople.objects.filter(cohort__team_id__in=team_ids))
+    _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))
     _raw_delete(Person.objects.filter(team_id__in=team_ids))
     _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
 

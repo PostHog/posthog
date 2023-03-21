@@ -63,6 +63,9 @@ export enum NodeKind {
 
     /** Performance */
     RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
+
+    // Database metadata
+    DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 }
 
 export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
@@ -89,6 +92,7 @@ export type QuerySchema =
 
     // Misc
     | TimeToSeeDataSessionsQuery
+    | DatabaseSchemaQuery
 
 /** Node base class, everything else inherits from here */
 export interface Node {
@@ -269,6 +273,8 @@ export interface DataTableNode extends Node {
     propertiesViaUrl?: boolean
     /** Can the user click on column headers to sort the table? (default: true) */
     allowSorting?: boolean
+    /** Show a button to open the current query as a new insight. (default: true) */
+    showOpenEditorButton?: boolean
 }
 
 // Insight viz node
@@ -303,7 +309,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: (EventsNode | ActionsNode | NewEntityNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -321,7 +327,7 @@ export interface FunnelsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: (EventsNode | ActionsNode | NewEntityNode)[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -355,7 +361,7 @@ export interface StickinessQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: (EventsNode | ActionsNode | NewEntityNode)[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
 }
@@ -371,7 +377,7 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: (EventsNode | ActionsNode | NewEntityNode)[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
 }
@@ -420,6 +426,10 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     teamId?: number
 
     response?: TimeToSeeDataSessionsQueryResponse
+}
+
+export interface DatabaseSchemaQuery extends DataNode {
+    kind: NodeKind.DatabaseSchemaQuery
 }
 
 export interface TimeToSeeDataQuery extends DataNode {
@@ -484,6 +494,9 @@ export interface BreakdownFilter {
 export interface QueryContext {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
+    /** used to override the value in the query */
+    showOpenEditorButton?: boolean
+    showQueryEditor?: boolean
 }
 
 interface QueryContextColumn {

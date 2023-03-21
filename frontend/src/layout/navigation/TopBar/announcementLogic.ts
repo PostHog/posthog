@@ -2,7 +2,6 @@ import { kea, connect, path, actions, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -33,8 +32,6 @@ export const announcementLogic = kea<announcementLogicType>([
             ['user'],
             navigationLogic,
             ['asyncMigrationsOk'],
-            billingLogic,
-            ['alertToShow'],
         ],
     }),
     actions({
@@ -74,21 +71,18 @@ export const announcementLogic = kea<announcementLogicType>([
                 s.closable,
                 s.closed,
                 s.persistedClosedAnnouncements,
-                s.alertToShow,
             ],
             (
                 { pathname },
                 relevantAnnouncementType,
                 closable,
                 closed,
-                persistedClosedAnnouncements,
-                alertToShow
+                persistedClosedAnnouncements
             ): AnnouncementType | null => {
                 if (
                     (closable &&
                         (closed ||
                             (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))) || // hide if already closed
-                    alertToShow || // hide if there is a billing alert
                     pathname == urls.ingestion() // hide during the ingestion phase
                 ) {
                     return null
