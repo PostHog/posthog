@@ -27,6 +27,7 @@ class EventQuery(metaclass=ABCMeta):
     PERSON_TABLE_ALIAS = "person"
     SESSION_TABLE_ALIAS = "sessions"
     EVENT_TABLE_ALIAS = "e"
+    PERSON_ID_OVERRIDES_TABLE_ALIAS = "overrides"
 
     _filter: Union[
         Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter, PropertiesTimelineFilter
@@ -40,6 +41,7 @@ class EventQuery(metaclass=ABCMeta):
     _extra_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
     _extra_person_fields: List[ColumnName]
+    _person_id_alias: str
 
     def __init__(
         self,
@@ -89,6 +91,13 @@ class EventQuery(metaclass=ABCMeta):
 
         self._should_round_interval = round_interval
 
+        if person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
+        elif person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+            self._person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
+        else:
+            self._person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+
     @abstractmethod
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         pass
@@ -97,14 +106,22 @@ class EventQuery(metaclass=ABCMeta):
     def _determine_should_join_distinct_ids(self) -> None:
         pass
 
-    def _get_distinct_id_query(self) -> str:
-        if self._should_join_distinct_ids:
-            return f"""
+    def _get_person_ids_query(self) -> str:
+        if not self._should_join_distinct_ids:
+            return ""
+
+        if self._person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            return f"""LEFT OUTER JOIN (
+                SELECT override_person_id as person_id, old_person_id
+                FROM person_overrides
+                WHERE team_id = %(team_id)s
+            ) AS {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}
+            ON {self.EVENT_TABLE_ALIAS}.person_id = {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.old_person_id"""
+
+        return f"""
             INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
-            """
-        else:
-            return ""
+        """
 
     def _determine_should_join_persons(self) -> None:
         if self._person_query.is_used:

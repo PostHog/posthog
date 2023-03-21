@@ -100,7 +100,7 @@ class FunnelEventQuery(EventQuery):
             {{extra_select_fields}}
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_distinct_id_query()}
+            {self._get_person_ids_query()}
             {person_query}
             {groups_query}
             {{extra_join}}
