@@ -308,6 +308,7 @@ export function PythonLocalEvaluationSnippet({ flagKey }: { flagKey: string }): 
                 {`posthog.get_feature_flag(
     ${flagKey},
     'distinct id',
+// add person or group properties used in the flag to ensure the flag is evaluated locally, vs. going to our servers
     person_properties={'is_authorized': True}
 )
 
@@ -324,6 +325,7 @@ export function RubyLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JS
                 {`posthog.get_feature_flag(
     ${flagKey},
     'distinct id',
+// add person or group properties used in the flag to ensure the flag is evaluated locally, vs. going to our servers
     person_properties: {'is_authorized': true}
 )
 
@@ -339,6 +341,7 @@ export function NodeLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JS
             {`await client.getFeatureFlag(
     ${flagKey},
     'distinct id',
+// add person or group properties used in the flag to ensure the flag is evaluated locally
     {
         personProperties: {'is_authorized': true}
     }
@@ -353,6 +356,7 @@ export function PHPLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX
             {`PostHog::getFeatureFlag(
     ${flagKey},
     'distinct id',
+// add person or group properties used in the flag to ensure the flag is evaluated locally, vs. going to our servers
     [], // group properties
     ["is_authorized" => true] // person properties
 )
@@ -369,6 +373,7 @@ export function GolangLocalEvaluationSnippet({ flagKey }: { flagKey: string }): 
         FeatureFlagPayload{
             Key:        ${flagKey},
             DistinctId: "distinct-id",
+// add person or group properties used in the flag to ensure the flag is evaluated locally, vs. going to our servers
       PersonProperties: posthog.NewProperties().
         Set("is_authorized", true),
         },
@@ -381,15 +386,20 @@ export function GolangLocalEvaluationSnippet({ flagKey }: { flagKey: string }): 
 export function JSBootstrappingSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript} wrap>
-            {`posthog.init('{project_api_key}', {
+            {`// Initialise the posthog library with a distinct ID and feature flags for immediate loading
+
+posthog.init('{project_api_key}', {
     api_host: 'https://app.posthog.com',
-    bootstrap: {
+    bootstrap:
+    {
         distinctID: 'your-anonymous-id',
         featureFlags: {
-            'flag-1': true,
-            'variant-flag': 'control',
-            'other-flag': false
-        }
+    // input the flag values here from 'posthog.getAllFlags(distinct_id)' which you can find in the server-side libraries.
+        // example:
+            // 'flag-1': true,
+            // 'variant-flag': 'control',
+            // 'other-flag': false
+        },
     }
 })
             `}
