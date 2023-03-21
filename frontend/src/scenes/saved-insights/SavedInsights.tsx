@@ -108,13 +108,13 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
     [InsightType.SQL]: {
         name: 'SQL',
-        description: 'Use PostHog SQL to query your data',
+        description: 'Use HogQL to query your data',
         icon: InsightSQLIcon,
         inMenu: true,
     },
     [InsightType.JSON]: {
-        name: 'JSON',
-        description: 'Build custom insights with our JSON query language',
+        name: 'Custom',
+        description: 'Save any part of PostHog as an insight, and edit the JSON directly.',
         icon: InsightSQLIcon,
         inMenu: true,
     },
