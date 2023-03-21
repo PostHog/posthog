@@ -696,9 +696,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setPlayer(null)
             actions.reportRecordingViewedSummary({
                 viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
-                recording_duration_ms: values.sessionPlayerData?.metadata
-                    ? values.sessionPlayerData.metadata.recordingDurationMs
-                    : undefined,
+                recording_duration_ms: values.sessionPlayerData.recordingDurationMs,
                 recording_age_days:
                     (values.sessionPlayerData?.segments ?? []).length > 0
                         ? Math.floor(

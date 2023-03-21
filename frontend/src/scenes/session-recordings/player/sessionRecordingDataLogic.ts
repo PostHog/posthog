@@ -290,7 +290,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             eventPlayerPosition = guessPlayerPositionFromEpochTimeWithoutWindowId(
                                 eventEpochTimeOfEvent,
                                 values.sessionPlayerData?.metadata?.startAndEndTimesByWindowId,
-                                values.sessionPlayerData?.metadata?.segments
+                                values.sessionPlayerData?.segments ?? []
                             )
                         } else {
                             // 2. If it does have a $window_id, then link it to the window in question

@@ -610,7 +610,7 @@ export interface SessionPlayerSnapshotData {
     snapshotsByWindowId: Record<string, SessionSnapshotsByWindowId>
     segments?: RecordingSegment[]
     startAndEndTimesByWindowId?: Record<string, RecordingStartAndEndTime>
-    recordingDurationMs: number
+    recordingDurationMs?: number
     next?: string
 }
 
