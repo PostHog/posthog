@@ -1,6 +1,7 @@
 import { urls } from 'scenes/urls'
 import { insight } from '../productAnalytics'
 import { decideResponse } from '../fixtures/api/decide'
+import { randomString } from '../support/random'
 
 const hogQLQuery = `select event,
           count()
@@ -30,6 +31,18 @@ describe('Insights (with data exploration on)', () => {
         insight.newInsight('TRENDS')
         cy.get('[aria-label="Edit as JSON"]').click()
         cy.get('[data-attr="query-editor"]').should('exist')
+    })
+
+    it('can save and load a SQL insight', () => {
+        insight.newInsight('SQL')
+        const insightName = randomString('SQL insight')
+        insight.editName(insightName)
+        insight.save()
+        cy.visit(urls.savedInsights())
+        cy.contains('row-name a', insightName).click()
+        insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
+        cy.get('[data-attr="hogql-query-editor"]').should('not.exist')
+        cy.get('tr.DataTable__row').should('have.length.gte', 2)
     })
 
     describe('opening a new insight directly', () => {
