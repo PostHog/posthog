@@ -569,10 +569,3 @@ class SessionRecordingListV2(SessionRecordingList):
             where_conditions,
             params,
         )
-
-    def run(self, *args, **kwargs) -> SessionRecordingQueryResult:
-        self._filter.hogql_context.using_person_on_events = True
-        query, query_params = self.get_query()
-        query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
-        session_recordings = self._data_to_return(query_results)
-        return self._paginate_results(session_recordings)

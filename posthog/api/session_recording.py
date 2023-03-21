@@ -238,8 +238,13 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
+
+        # TODO: once person on events is deployed, we can remove the check for hogql properties https://github.com/PostHog/posthog/pull/14458#discussion_r1135780372
         session_recording_list_instance: Type[SessionRecordingList] = (
-            SessionRecordingListV2 if team.recordings_list_v2_query_enabled else SessionRecordingList
+            SessionRecordingListV2
+            if team.recordings_list_v2_query_enabled
+            and not any(entity.has_hogql_property for entity in filter.entities)
+            else SessionRecordingList
         )
         (ch_session_recordings, more_recordings_available) = session_recording_list_instance(
             filter=filter, team=team
