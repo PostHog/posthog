@@ -796,13 +796,7 @@ def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIde
     counters: List[tuple] = []
     for prop in props:
         if prop.type == "hogql":
-            node = parse_expr(prop.key)
-            property_checker = HogQLPropertyChecker()
-            property_checker.visit(node)
-            for field in property_checker.event_properties:
-                counters.append((field, "event", None))
-            for field in property_checker.person_properties:
-                counters.append((field, "person", None))
+            counters.extend(count_hogql_properties(prop.key))
         elif prop.type == "behavioral" and prop.event_type == "actions":
             action = Action.objects.get(pk=prop.key)
             action_counter = get_action_tables_and_properties(action)
@@ -810,6 +804,21 @@ def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIde
         else:
             counters.append((prop.key, prop.type, prop.group_type_index))
     return Counter(cast(Iterable, counters))
+
+
+def count_hogql_properties(
+    expr: str, counter: Optional[TCounter[PropertyIdentifier]] = None
+) -> TCounter[PropertyIdentifier]:
+    if not counter:
+        counter = Counter()
+    node = parse_expr(expr)
+    property_checker = HogQLPropertyChecker()
+    property_checker.visit(node)
+    for field in property_checker.event_properties:
+        counter[(field, "event", None)] += 1
+    for field in property_checker.person_properties:
+        counter[(field, "person", None)] += 1
+    return counter
 
 
 def get_session_property_filter_statement(prop: Property, idx: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
