@@ -20,7 +20,6 @@ import {
     IconErrorOutline,
     IconUnfoldLess,
     IconUnfoldMore,
-    IconPlayCircle,
 } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -446,6 +445,23 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     buttons={
                                         <>
                                             <div className="flex items-center gap-2 mb-2">
+                                                {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
+                                                    <>
+                                                        <LemonButton
+                                                            to={urls.sessionRecordings(SessionRecordingsTabs.Recent, {
+                                                                events: defaultEntityFilterOnFlag(featureFlag.key)
+                                                                    .events,
+                                                            })}
+                                                            type="secondary"
+                                                        >
+                                                            <LemonTag type="warning" className="uppercase ml-2 mr-2">
+                                                                Beta
+                                                            </LemonTag>
+                                                            View Recordings
+                                                        </LemonButton>
+                                                        <LemonDivider vertical />
+                                                    </>
+                                                )}
                                                 <LemonButton
                                                     data-attr="delete-feature-flag"
                                                     status="danger"
@@ -457,21 +473,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 >
                                                     Delete feature flag
                                                 </LemonButton>
-                                                <LemonDivider vertical />
-                                                {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
-                                                    <LemonButton
-                                                        to={urls.sessionRecordings(SessionRecordingsTabs.Recent, {
-                                                            events: defaultEntityFilterOnFlag(featureFlag.key).events,
-                                                        })}
-                                                        type="secondary"
-                                                        sideIcon={<IconPlayCircle />}
-                                                    >
-                                                        <LemonTag type="warning" className="uppercase ml-2 mr-2">
-                                                            Beta
-                                                        </LemonTag>
-                                                        View Recordings
-                                                    </LemonButton>
-                                                )}
                                                 <LemonButton
                                                     data-attr="edit-feature-flag"
                                                     type="secondary"
