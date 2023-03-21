@@ -121,16 +121,15 @@ jobs:
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
 
+            - name: Check for errors, import sort, and code style violations
+              run: |
+                  cd current
+                  ruff .
+
             - name: Check formatting
               run: |
                   cd current
                   black --exclude posthog/hogql/grammar --check .
-                  isort --skip posthog/hogql/grammar --check-only .
-
-            - name: Check for errors and code style violations
-              run: |
-                  cd current
-                  ruff .
 
             - name: Check static typing
               run: |
