@@ -1,14 +1,17 @@
-from datetime import datetime
-
-from django.conf import settings
-from temporalio.client import Client
-
-from posthog.temporal.workflows import NoOpWorkflow
+from temporalio.client import Client, TLSConfig
 
 
-async def execute_noop_workflow(host, port) -> str:
-    client = await Client.connect(f"{host}:{port}")
-    result = await client.execute_workflow(
-        NoOpWorkflow.run, datetime.now().isoformat(), id="noop-workflow", task_queue=settings.TEMPORAL_TASK_QUEUE
+async def connect(host, port, namespace, server_root_ca_cert=None, client_cert=None, client_key=None):
+    tls = False
+    if server_root_ca_cert and client_cert and client_key:
+        tls = TLSConfig(
+            server_root_ca_cert=server_root_ca_cert,
+            client_cert=client_cert,
+            client_private_key=client_key,
+        )
+    client = await Client.connect(
+        f"{host}:{port}",
+        namespace=namespace,
+        tls=tls,
     )
-    return result
+    return client
