@@ -780,8 +780,6 @@ def create_person_id_override_by_distinct_id(distinct_id_from: str, distinct_id_
     """
     )
 
-    print(person_ids_result)
-    
     person_id_from, person_id_to = [row[1] for row in person_ids_result]
 
     sync_execute(
