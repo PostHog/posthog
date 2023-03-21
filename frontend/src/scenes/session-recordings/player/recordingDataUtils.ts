@@ -177,18 +177,16 @@ export function parseSegments(
 }
 
 export const parseMetadataResponse = (recording: SessionRecordingType): SessionRecordingMeta => {
-    // TODO: Remove this metadata parsing logic entirely once this logic is migrated to snapshots
     const startAndEndTimesByWindowId = parseStartAndEndTimesByWindowId(recording.start_and_end_times_by_window_id)
-    const segments = parseSegments(recording.segments, [], startAndEndTimesByWindowId)
     return {
-        segments,
         startAndEndTimesByWindowId,
         pinnedCount: recording.pinned_count ?? 0,
-        recordingDurationMs: sum(segments.map((s) => s.durationMs)),
     }
 }
+
+// TODO: Write tests for this
 export const parseSnapshotResponse = (
-    recording: SessionRecordingType,
+    recording: Pick<SessionRecordingType, 'snapshot_data_by_window_id' | 'segments'>,
     prevSnapshotData: SessionPlayerSnapshotData | null,
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
 ): SessionPlayerSnapshotData => {
@@ -223,6 +221,7 @@ export const parseSnapshotResponse = (
         segments,
         startAndEndTimesByWindowId,
         snapshotsByWindowId,
+        recordingDurationMs: sum(segments.map((s) => s.durationMs)),
     }
 }
 export const generateRecordingReportDurations = (

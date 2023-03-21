@@ -138,11 +138,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     })),
     selectors(({}) => ({
         recordingTimeInfo: [
-            (s) => [s.sessionPlayerMetaData],
-            (sessionPlayerMetaData): { start: Dayjs; end: Dayjs; duration: number } => {
-                const { startTimeEpochMs } = sessionPlayerMetaData?.metadata?.segments[0] || {}
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData): { start: Dayjs; end: Dayjs; duration: number } => {
+                const { startTimeEpochMs } = sessionPlayerData?.segments?.[0] || {}
                 const start = dayjs(startTimeEpochMs)
-                const duration = sessionPlayerMetaData?.metadata?.recordingDurationMs || 0
+                const duration = sessionPlayerData?.recordingDurationMs || 0
                 const end = start.add(duration, 'ms')
                 return { start, end, duration }
             },

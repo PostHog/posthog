@@ -365,15 +365,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         sessionPlayerData: [
             (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData],
             (meta, snapshots): SessionPlayerData => {
-                console.log('SESSIONPLAYERDATA metadata vs', meta.metadata.segments, snapshots?.segments, {
-                    ...meta,
-                    ...(snapshots || {
-                        snapshotsByWindowId: {},
-                        segments: [],
-                        startAndEndTimesByWindowId: {},
-                    }),
-                    bufferedTo: snapshots ? calculateBufferedTo(snapshots) : null,
-                })
                 return {
                     ...meta,
                     ...(snapshots || {

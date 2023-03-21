@@ -1,5 +1,6 @@
 import { RecordingSegment } from '~/types'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
+import reordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
 import {
     comparePlayerPositions,
     convertPlayerPositionToX,
@@ -11,10 +12,11 @@ import {
     getSegmentFromPlayerPosition,
     guessPlayerPositionFromEpochTimeWithoutWindowId,
 } from './playerUtils'
-import { parseMetadataResponse } from 'scenes/session-recordings/player/recordingDataUtils'
+import { parseMetadataResponse, parseSnapshotResponse } from 'scenes/session-recordings/player/recordingDataUtils'
 
 const metadata = parseMetadataResponse(recordingMetaJson)
-const segments: RecordingSegment[] = metadata.segments ?? []
+const snapshots = parseSnapshotResponse(reordingSnapshotsJson as any, null, metadata.startAndEndTimesByWindowId)
+const segments: RecordingSegment[] = snapshots.segments ?? []
 
 describe('comparePlayerPositions', () => {
     it('works when the window_ids are the same', () => {
@@ -166,7 +168,7 @@ describe('guessPlayerPositionFromEpochTimeWithoutWindowId', () => {
             guessPlayerPositionFromEpochTimeWithoutWindowId(
                 1639078847000,
                 metadata.startAndEndTimesByWindowId,
-                metadata.segments
+                snapshots.segments ?? []
             )
         ).toEqual({ windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f', time: 227777 })
     })
@@ -176,7 +178,7 @@ describe('guessPlayerPositionFromEpochTimeWithoutWindowId', () => {
             guessPlayerPositionFromEpochTimeWithoutWindowId(
                 1739102187000,
                 metadata.startAndEndTimesByWindowId,
-                metadata.segments
+                snapshots.segments ?? []
             )
         ).toEqual(null)
     })

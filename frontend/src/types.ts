@@ -598,9 +598,7 @@ export interface RecordingStartAndEndTime {
 
 export interface SessionRecordingMeta {
     pinnedCount: number
-    segments: RecordingSegment[]
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
-    recordingDurationMs: number
 }
 
 export interface SessionSnapshotsByWindowId {
@@ -612,6 +610,7 @@ export interface SessionPlayerSnapshotData {
     snapshotsByWindowId: Record<string, SessionSnapshotsByWindowId>
     segments?: RecordingSegment[]
     startAndEndTimesByWindowId?: Record<string, RecordingStartAndEndTime>
+    recordingDurationMs: number
     next?: string
 }
 

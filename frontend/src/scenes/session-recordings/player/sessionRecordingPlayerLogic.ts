@@ -451,19 +451,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         values.sessionPlayerData.segments
                     ) > 0)
             ) {
-                // console.log(
-                //     'BLAH2',
-                //     !values.sessionPlayerSnapshotDataLoading && !values.sessionPlayerData.bufferedTo,
-                //     !values.sessionPlayerSnapshotDataLoading &&
-                //         !!values.sessionPlayerData?.bufferedTo &&
-                //         !!playerPosition &&
-                //         !!values.currentSegment &&
-                //         comparePlayerPositions(
-                //             playerPosition,
-                //             values.sessionPlayerData.bufferedTo,
-                //             values.sessionPlayerData.segments
-                //         ) > 0
-                // )
                 values.player?.replayer?.pause()
                 actions.endBuffer()
                 console.error("Error: Player tried to seek to a position that hasn't loaded yet")

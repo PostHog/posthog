@@ -37,7 +37,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
                 if (!currentPlayerPosition) {
                     return null
                 }
-                const snapshots = sessionPlayerData.snapshotsByWindowId[currentPlayerPosition.windowId] ?? []
+                const snapshots =
+                    sessionPlayerData.snapshotsByWindowId[currentPlayerPosition.windowId]['snapshot_data'] ?? []
 
                 const currentEpochTime =
                     getEpochTimeFromPlayerPosition(
@@ -62,7 +63,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
         recordingStartTime: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
-                const startTimeFromMeta = sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
+                const startTimeFromMeta = sessionPlayerData?.segments?.[0]?.startTimeEpochMs
                 return startTimeFromMeta ?? null
             },
         ],
