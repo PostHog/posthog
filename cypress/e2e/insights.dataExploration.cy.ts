@@ -39,8 +39,8 @@ describe('Insights (with data exploration on)', () => {
         insight.editName(insightName)
         insight.save()
         cy.visit(urls.savedInsights())
-        cy.contains('row-name a', insightName).click()
-        insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
+        cy.contains('.row-name a', insightName).click()
+
         cy.get('[data-attr="hogql-query-editor"]').should('not.exist')
         cy.get('tr.DataTable__row').should('have.length.gte', 2)
     })

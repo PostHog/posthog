@@ -24,7 +24,10 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     const { insightMode, insight } = useValues(insightSceneLogic)
 
     // insightLogic
-    const logic = insightLogic({ dashboardItemId: insightId || 'new', cachedInsight: insight })
+    const logic = insightLogic({
+        dashboardItemId: insightId || 'new',
+        cachedInsight: insight?.short_id === insightId ? insight : null,
+    })
     const {
         insightProps,
         insightLoading,
