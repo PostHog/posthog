@@ -623,8 +623,19 @@ class TrendsBreakdown:
             return str(value) or "none"
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
-        if self.person_on_events_mode != PersonOnEventsMode.DISABLED:
+        if self.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
             return "", {}
+
+        if self.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            return (
+                f"""LEFT OUTER JOIN (
+                SELECT override_person_id as person_id, old_person_id
+                FROM person_overrides
+                WHERE team_id = %(team_id)s
+            ) AS {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}
+            ON {self.EVENT_TABLE_ALIAS}.person_id = {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.old_person_id""",
+                {},
+            )
 
         person_query = PersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
         event_join = EVENT_JOIN_PERSON_SQL.format(

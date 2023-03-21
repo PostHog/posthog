@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
@@ -7,6 +8,7 @@ from urllib.parse import parse_qsl, urlparse
 import pytz
 from django.conf import settings
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
@@ -40,6 +42,7 @@ from posthog.test.base import (
     _create_person,
     also_test_with_different_timezones,
     also_test_with_materialized_columns,
+    create_person_id_override_by_distinct_id,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
@@ -5897,6 +5900,66 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "date_to": "2020-01-12T00:00:00Z",
                     "breakdown": "key",
                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
+                    "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+                }
+            ),
+            self.team,
+        )
+
+        self.assertEqual(len(response), 2)
+        self.assertEqual(response[0]["breakdown_value"], "oh")
+        self.assertEqual(response[0]["count"], 1)
+        self.assertEqual(response[1]["breakdown_value"], "uh")
+        self.assertEqual(response[1]["count"], 1)
+
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @snapshot_clickhouse_queries
+    def test_breakdown_with_filter_groups_person_on_events_v2(self):
+        self._create_groups()
+
+        id1 = str(uuid.uuid4())
+        id2 = str(uuid.uuid4())
+        _create_event(
+            event="sign up",
+            distinct_id=id1,
+            team=self.team,
+            properties={"key": "oh", "$group_0": "org:7", "$group_1": "company:10"},
+            timestamp="2020-01-02T12:00:00Z",
+            person_id=id1,
+        )
+        _create_event(
+            event="sign up",
+            distinct_id=id1,
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:5"},
+            timestamp="2020-01-02T12:00:01Z",
+            person_id=id1,
+        )
+        _create_event(
+            event="sign up",
+            distinct_id=id1,
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:6"},
+            timestamp="2020-01-02T12:00:02Z",
+            person_id=id1,
+        )
+        _create_event(
+            event="sign up",
+            distinct_id=id2,
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:6"},
+            timestamp="2020-01-02T12:00:02Z",
+            person_id=id2,
+        )
+
+        create_person_id_override_by_distinct_id(id1, id2, self.team.pk)
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-01T00:00:00Z",
+                    "date_to": "2020-01-12T00:00:00Z",
+                    "breakdown": "key",
+                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0, "math": "dau"}],
                     "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
                 }
             ),
