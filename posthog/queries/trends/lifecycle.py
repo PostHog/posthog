@@ -163,7 +163,7 @@ class LifecycleEventQuery(EventQuery):
                 event_table_alias=self.EVENT_TABLE_ALIAS,
                 person_column=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
                 created_at_clause=created_at_clause,
-                distinct_id_query=self._get_distinct_id_query(),
+                distinct_id_query=self._get_person_ids_query(),
                 person_query=person_query,
                 groups_query=groups_query,
                 prop_query=prop_query,

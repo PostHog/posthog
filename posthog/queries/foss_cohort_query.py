@@ -318,7 +318,7 @@ class FOSSCohortQuery(EventQuery):
             date_condition, date_params = self._get_date_condition()
             query = f"""
             SELECT {", ".join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_distinct_id_query()}
+            {self._get_person_ids_query()}
             WHERE team_id = %(team_id)s
             AND event IN %({event_param_name})s
             {date_condition}

@@ -198,9 +198,10 @@ class _Printer(Visitor):
                 raise ValueError(f"Table alias {node.ref.name} does not resolve to a table!")
 
             if self.dialect == "clickhouse":
-                join_strings.append(self._print_identifier(table_ref.table.clickhouse_table()))
+                table_name = table_ref.table.clickhouse_table()
             else:
-                join_strings.append(self._print_identifier(table_ref.table.hogql_table()))
+                table_name = table_ref.table.hogql_table()
+            join_strings.append(self._print_identifier(table_name))
 
             if node.alias is not None:
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
@@ -341,10 +342,6 @@ class _Printer(Visitor):
             return ".".join([self._print_identifier(identifier) for identifier in node.chain])
 
         if node.ref is not None:
-            select_query = self._last_select()
-            select: Optional[ast.SelectQueryRef] = select_query.ref if select_query else None
-            if select is None:
-                raise ValueError(f"Can't find SelectQueryRef for field: {original_field}")
             return self.visit(node.ref)
         else:
             raise ValueError(f"Unknown Ref, can not print {type(node.ref).__name__}")
@@ -439,16 +436,14 @@ class _Printer(Visitor):
 
             else:
                 field_sql = self._print_identifier(resolved_field.name)
-
-                # If the field is called on a table that has an alias, prepend the table alias.
-                # If there's another field with the same name in the scope that's not this, prepend the full table name.
-                # Note: we don't prepend a table name for the special "person" fields.
-                if isinstance(ref.table, ast.TableAliasRef) or ref_with_name_in_scope != ref:
-                    field_sql = f"{self.visit(ref.table)}.{field_sql}"
+                if self.context.within_non_hogql_query and ref_with_name_in_scope == ref:
+                    # Do not prepend table name in non-hogql context. We don't know what it actually is.
+                    return field_sql
+                field_sql = f"{self.visit(ref.table)}.{field_sql}"
 
         elif isinstance(ref.table, ast.SelectQueryRef) or isinstance(ref.table, ast.SelectQueryAliasRef):
             field_sql = self._print_identifier(ref.name)
-            if isinstance(ref.table, ast.SelectQueryAliasRef) or ref_with_name_in_scope != ref:
+            if isinstance(ref.table, ast.SelectQueryAliasRef):
                 field_sql = f"{self.visit(ref.table)}.{field_sql}"
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
