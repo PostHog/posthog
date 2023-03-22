@@ -33,7 +33,7 @@ describe('Insights (with data exploration on)', () => {
         cy.get('[data-attr="query-editor"]').should('exist')
     })
 
-    it('can save and load a SQL insight', () => {
+    it('can save and load and edit a SQL insight', () => {
         insight.newInsight('SQL')
         const insightName = randomString('SQL insight')
         insight.editName(insightName)
@@ -43,6 +43,14 @@ describe('Insights (with data exploration on)', () => {
 
         cy.get('[data-attr="hogql-query-editor"]').should('not.exist')
         cy.get('tr.DataTable__row').should('have.length.gte', 2)
+
+        cy.get('[data-attr="insight-edit-button"]').click()
+        insight.clickTab('RETENTION')
+
+        cy.get('[data-attr="insight-save-button"]').click()
+
+        cy.get('.RetentionContainer canvas').should('exist')
+        cy.get('.RetentionTable__Tab').should('have.length', 66)
     })
 
     describe('opening a new insight directly', () => {

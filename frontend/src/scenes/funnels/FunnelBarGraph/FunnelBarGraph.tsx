@@ -69,7 +69,7 @@ export function FunnelBarGraphComponent({
     ...props
 }: FunnelBarGraphComponentProps): JSX.Element {
     const { isInDashboardContext } = useValues(funnelLogic)
-    const { openPersonsModalForStep } = useActions(funnelLogic)
+    const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelLogic)
 
     const { ref: graphRef, width } = useResizeObserver()
 
@@ -158,8 +158,9 @@ export function FunnelBarGraphComponent({
                                                     percentage={barSizePercentage}
                                                     name={breakdown.name}
                                                     onBarClick={() =>
-                                                        openPersonsModalForStep({
+                                                        openPersonsModalForSeries({
                                                             step,
+                                                            series: breakdown,
                                                             converted: true,
                                                         })
                                                     }

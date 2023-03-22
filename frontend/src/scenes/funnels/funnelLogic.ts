@@ -51,6 +51,7 @@ import {
     isValidBreakdownParameter,
     stepsWithConversionMetrics,
     flattenedStepsByBreakdown,
+    generateBaselineConversionUrl,
 } from './funnelUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -1078,7 +1079,8 @@ export const funnelLogic = kea<funnelLogicType>({
             }
 
             openPersonsModal({
-                url: converted ? step.converted_people_url : step.dropped_people_url,
+                // openPersonsModalForStep is for the baseline - for breakdown series use openPersonsModalForSeries
+                url: generateBaselineConversionUrl(converted ? step.converted_people_url : step.dropped_people_url),
                 title: funnelTitle({
                     converted,
                     // Note - when in a legend the step.order is always 0 so we use stepIndex instead
