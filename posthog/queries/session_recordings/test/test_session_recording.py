@@ -141,7 +141,9 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             recording: DecompressedRecordingData = SessionRecordingEvents(
                 team=self.team, session_recording_id=chunked_session_id
             ).get_snapshots(chunk_limit, filter.offset)
-            self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), chunk_limit * snapshots_per_chunk)
+            self.assertEqual(
+                len(recording["snapshot_data_by_window_id"][""]["snapshot_data"]), chunk_limit * snapshots_per_chunk
+            )
             self.assertTrue(recording["has_next"])
 
     def test_get_chunked_snapshots_with_specific_limit_and_offset(self):
@@ -164,8 +166,12 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 team=self.team, session_recording_id=chunked_session_id
             ).get_snapshots(chunk_limit, filter.offset)
 
-            self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), chunk_limit * snapshots_per_chunk)
-            self.assertEqual(recording["snapshot_data_by_window_id"][""][0]["timestamp"], 1_600_000_300_000)
+            self.assertEqual(
+                len(recording["snapshot_data_by_window_id"][""]["snapshot_data"]), chunk_limit * snapshots_per_chunk
+            )
+            self.assertEqual(
+                recording["snapshot_data_by_window_id"][""]["snapshot_data"][0]["timestamp"], 1_600_000_300_000
+            )
             self.assertTrue(recording["has_next"])
 
     def test_get_metadata(self):
