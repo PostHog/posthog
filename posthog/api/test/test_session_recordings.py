@@ -72,7 +72,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 {
                     "type": 2 if has_full_snapshot else 3,
                     "data": {
-                        "source": 0,
+                        "source": 1,
                         "texts": [],
                         "attributes": [],
                         "removes": [],
@@ -279,14 +279,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "created_at": "2023-01-01T12:00:00Z",
                 "uuid": ANY,
             },
-            "segments": [
-                {
-                    "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "window_id": "",
-                    "is_active": False,
-                }
-            ],
+            "segments": [],
             "start_and_end_times_by_window_id": {
                 "": {
                     "window_id": "",
@@ -308,7 +301,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
         response_data = response.json()
-        self.assertEqual(len(response_data["result"]["snapshot_data_by_window_id"][""]), DEFAULT_RECORDING_CHUNK_LIMIT)
+        self.assertEqual(
+            len(response_data["snapshot_data_by_window_id"][""]["snapshot_data"]), DEFAULT_RECORDING_CHUNK_LIMIT
+        )
 
     def test_get_snapshots_is_compressed(self):
         base_time = now()
@@ -344,6 +339,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     chunked_session_id,
                     start_time + relativedelta(minutes=s),
                     window_id="1" if index % 2 == 0 else "2",
+                    has_full_snapshot=False,
                 )
 
             next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots"
@@ -353,19 +349,31 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 response_data = response.json()
 
                 self.assertEqual(
-                    len(response_data["result"]["snapshot_data_by_window_id"]["1"]),
+                    len(response_data["snapshot_data_by_window_id"]["1"]["snapshot_data"]),
                     snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
                 )
                 self.assertEqual(
-                    len(response_data["result"]["snapshot_data_by_window_id"]["2"]),
+                    len(response_data["snapshot_data_by_window_id"]["2"]["snapshot_data"]),
+                    snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
+                )
+                self.assertEqual(
+                    len(response_data["snapshot_data_by_window_id"]["1"]["events_summary"]),
+                    snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
+                )
+                self.assertEqual(
+                    len(response_data["snapshot_data_by_window_id"]["2"]["events_summary"]),
+                    snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
+                )
+                self.assertEqual(
+                    len(response_data["segments"]),
                     snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
                 )
                 if i == expected_num_requests - 1:
-                    self.assertIsNone(response_data["result"]["next"])
+                    self.assertIsNone(response_data["next"])
                 else:
-                    self.assertIsNotNone(response_data["result"]["next"])
+                    self.assertIsNotNone(response_data["next"])
 
-                next_url = response_data["result"]["next"]
+                next_url = response_data["next"]
 
     def test_get_metadata_for_chunked_session_recording(self):
 
@@ -395,19 +403,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                         ).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     }
                 },
-            )
-            self.assertEqual(
-                response_data["segments"],
-                [
-                    {
-                        "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "end_time": (
-                            now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
-                        ).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "is_active": False,
-                        "window_id": "",
-                    }
-                ],
             )
             self.assertEqual(response_data["viewed"], False)
             self.assertEqual(response_data["id"], chunked_session_id)
@@ -497,15 +492,18 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         assert not response_data["next"]
         assert response_data["snapshot_data_by_window_id"] == {
-            "": [
-                {
-                    "texts": ["\\ud83d\udc83\\ud83c\\udffb"],
-                    "timestamp": 1640952000000.0,
-                    "has_full_snapshot": True,
-                    "type": 2,
-                    "data": {"source": 0},
-                }
-            ]
+            "": {
+                "events_summary": [{"timestamp": 1640952000000.0, "type": 2, "data": {"source": 0}}],
+                "snapshot_data": [
+                    {
+                        "timestamp": 1640952000000.0,
+                        "has_full_snapshot": True,
+                        "type": 2,
+                        "data": {"source": 0},
+                        "texts": ["\\ud83d\udc83\\ud83c\\udffb"],
+                    }
+                ],
+            }
         }
 
     def test_delete_session_recording(self):

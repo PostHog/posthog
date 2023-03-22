@@ -247,9 +247,17 @@ def decompress_chunked_snapshot_data(
         else:
             snapshot_data_by_window_id[chunks[0]["window_id"]]["snapshot_data"].extend(decompressed_data)
 
+        # Sorting and cleaning
         for window_id in snapshot_data_by_window_id.keys():
-            snapshot_data_by_window_id[window_id]["snapshot_data"].sort(key=lambda x: x["timestamp"])
-            snapshot_data_by_window_id[window_id]["events_summary"].sort(key=lambda x: x["timestamp"])
+            snapshot_data_by_window_id[window_id]["snapshot_data"] = sorted(
+                [event for event in snapshot_data_by_window_id[window_id]["snapshot_data"] if event is not None],
+                key=lambda x: x["timestamp"],
+            )
+            snapshot_data_by_window_id[window_id]["events_summary"] = sorted(
+                [event for event in snapshot_data_by_window_id[window_id]["events_summary"] if event is not None],
+                key=lambda x: x["timestamp"],
+            )
+
     return DecompressedRecordingData(has_next=has_next, snapshot_data_by_window_id=snapshot_data_by_window_id)
 
 
