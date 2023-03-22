@@ -501,8 +501,9 @@ def get_all_feature_flags(
                 # then https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
                 # will take care of it^.
 
-                # Also, we disregard the person_id from L467 above because it's possible that this person_id was deleted
+                # Also, we disregard the person_id from L467 above and query again because it's possible that this person_id was deleted
                 # before we get here.
+                # Further, with the new merging logic, the merge can happen into either of the original persons.
                 person_id = (
                     PersonDistinctId.objects.filter(distinct_id__in=[hash_key_override, distinct_id], team_id=team_id)
                     .values_list("person_id", flat=True)
