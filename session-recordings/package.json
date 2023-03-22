@@ -16,7 +16,7 @@
     "scripts": {
         "build": "swc ./src/ --out-dir ./dist",
         "test": "vitest",
-        "dev": "NODE_ENV=dev nodemon -w src/ src/main.ts",
+        "dev": "NODE_ENV=dev nodemon -w src/ src/main.ts | pino-pretty",
         "start": "NODE_ENV=production node dist/main.js"
     },
     "devDependencies": {

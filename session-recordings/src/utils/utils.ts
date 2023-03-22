@@ -1,14 +1,14 @@
 import { KafkaMessage, Message } from 'kafkajs'
 import { KafkaTopic, RecordingEvent, RecordingEventGroup, RecordingMessage } from '../types'
 
-export const getEventGroupDataString = (recordingEventGroup: RecordingEventGroup) => {
+export const getEventGroupDataString = (recordingEventGroup: RecordingEventGroup): string => {
     const eventDataStrings = recordingEventGroup.events
         .sort((a, b) => a.timestamp - b.timestamp)
         .map((event) => event.messages.map((message) => message.value).join(''))
     return eventDataStrings.join('\n')
 }
 
-export const getEventSummaryMetadata = (recordingEventGroup: RecordingEventGroup) => {
+export const getEventSummaryMetadata = (recordingEventGroup: RecordingEventGroup): string => {
     const eventSummaries = Object.values(recordingEventGroup.events)
         .filter((event) => event.complete)
         .sort((a, b) => a.timestamp - b.timestamp)
@@ -23,7 +23,7 @@ export const getEventSummaryMetadata = (recordingEventGroup: RecordingEventGroup
     return eventSummaries.join('\n')
 }
 
-export const getEventSize = (recordingEvent: RecordingEvent) => {
+export const getEventSize = (recordingEvent: RecordingEvent): number => {
     return recordingEvent.messages.reduce((acc, message) => acc + message.value.length, 0)
 }
 
@@ -75,8 +75,8 @@ export const convertKafkaMessageToRecordingMessage = (
     }
 }
 
-export const getTopicPartitionKey = (topic: string, partition: number) => `${topic}-${partition}`
-export const getTopicAndPartitionFromKey = (topicPartitionKey: string) => {
+export const getTopicPartitionKey = (topic: string, partition: number): string => `${topic}-${partition}`
+export const getTopicAndPartitionFromKey = (topicPartitionKey: string): { topic: string; partition: number } => {
     const [topic, partition] = topicPartitionKey.split('-')
     return { topic, partition: Number.parseInt(partition) }
 }

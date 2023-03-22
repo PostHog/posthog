@@ -1,3 +1,5 @@
+import { KafkaMessage } from 'kafkajs'
+
 export type KafkaTopic = string
 // | 'recording_events'
 // | 'recording_events_retry_1'
@@ -54,4 +56,29 @@ export type RecordingMessage = {
     kafkaOffset: number
     originalKafkaOffset: number // If this message was re-sent on a retry topic, this is the original Kafka offset. Used for ordering
     kafkaKey: string
+}
+
+// The
+export type RecordingSnapshot = {
+    session_id: string
+    window_id?: string
+    event: string
+
+    // Properties data
+    chunk_id: string
+    chunk_index: number
+    chunk_count: number
+    data: string
+    compresssion: string
+    has_full_snapshot: string
+    events_summary: {
+        timestamp: number
+        type: number
+        data: any
+    }[]
+}
+
+export type ParsedKafkaMessage = KafkaMessage & {
+    event: any
+    snapshot: RecordingSnapshotEvent
 }
