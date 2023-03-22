@@ -15,7 +15,7 @@ import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyIns
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
+import { AddToNotebook, AddToNotebookWrapper } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -86,11 +86,7 @@ export function Query(props: QueryProps): JSX.Element | null {
 
         return (
             <ErrorBoundary>
-                <div className="relative">
-                    <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS}>
-                        <AddToNotebook node={NotebookNodeType.Query} properties={{ query: queryWithoutFull }} />
-                    </FlaggedFeature>
-
+                <AddToNotebookWrapper node={NotebookNodeType.Query} properties={{ query: queryWithoutFull }}>
                     {!!props.context?.showQueryEditor ? (
                         <>
                             <QueryEditor
@@ -103,7 +99,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                         </>
                     ) : null}
                     {component}
-                </div>
+                </AddToNotebookWrapper>
             </ErrorBoundary>
         )
     }
