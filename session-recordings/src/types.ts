@@ -58,11 +58,12 @@ export type RecordingMessage = {
     kafkaKey: string
 }
 
-// The
-export type RecordingSnapshot = {
+// This is the incoming message from Kafka
+export type IncomingRecordingMessage = {
+    team_id: number
+    distinct_id: string
     session_id: string
     window_id?: string
-    event: string
 
     // Properties data
     chunk_id: string
@@ -78,7 +79,8 @@ export type RecordingSnapshot = {
     }[]
 }
 
-export type ParsedKafkaMessage = KafkaMessage & {
-    event: any
-    snapshot: RecordingSnapshotEvent
+// This is the incoming message from Kafka
+export type PersistedRecordingMessage = {
+    window_id?: string
+    data: any
 }

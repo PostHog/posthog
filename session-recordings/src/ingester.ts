@@ -1,31 +1,11 @@
-import { PutObjectCommand } from '@aws-sdk/client-s3'
-import { KafkaTopic, ParsedKafkaMessage, RecordingEvent, RecordingEventGroup, RecordingMessage } from './types'
-import { s3Client } from './utils/s3'
+import { IncomingRecordingMessage, KafkaTopic } from './types'
 import { meterProvider } from './utils/metrics'
-import { performance } from 'perf_hooks'
-import {
-    convertKafkaMessageToRecordingMessage,
-    convertRecordingMessageToKafkaMessage,
-    getEventGroupDataString,
-    getEventSize,
-    getEventSummaryMetadata,
-    getTopicAndPartitionFromKey,
-    getTopicPartitionKey,
-} from './utils/utils'
 import pino from 'pino'
-import { randomUUID } from 'crypto'
 import { consumer, producer } from './utils/kafka'
 import { config } from './config'
 import { GlobalSessionManager } from './ingester/session-manager'
 
 const logger = pino({ name: 'ingester', level: process.env.LOG_LEVEL || 'info' })
-
-const maxEventGroupAge = Number.parseInt(
-    process.env.MAX_EVENT_GROUP_AGE || process.env.NODE_ENV === 'dev' ? '1000' : '300000'
-)
-const eventGroupSizeUploadThreshold = Number.parseInt(
-    process.env.MAX_EVENT_GROUP_SIZE || process.env.NODE_ENV === 'dev' ? '1000' : '1000000'
-)
 
 const RECORDING_EVENTS_DEAD_LETTER_TOPIC = config.topics.sessionRecordingEventsDeadLetter
 
@@ -44,19 +24,10 @@ const RECORDING_EVENTS_TOPICS_CONFIGS: Record<KafkaTopic, TopicConfig> = {
 }
 const RECORDING_EVENTS_TOPICS = Object.keys(RECORDING_EVENTS_TOPICS_CONFIGS) as KafkaTopic[]
 
-// We hold multiple event groups per session at once. This is to avoid
-// committing an offset for messages that haven't been sent yet.
-const eventGroupsBySessionId: { [key: string]: RecordingEventGroup[] } = {}
-
-// TODO: Handle old messages in this buffer. They could stop the Kafka offset from progressing
-const eventBuffers: Record<string, RecordingEvent> = {}
-
 // Define the metrics we'll be exposing at /metrics
 const meter = meterProvider.getMeter('ingester')
 const messagesReceived = meter.createCounter('messages_received')
 const snapshotMessagesProcessed = meter.createCounter('snapshot_messages_processed')
-
-const handleMessage = async (message: RecordingMessage): Promise<void> => {}
 
 export const startConsumer = (): void => {
     consumer.connect()
@@ -76,15 +47,30 @@ export const startConsumer = (): void => {
             const parsedMessage = JSON.parse(message.value.toString())
             const parsedData = JSON.parse(parsedMessage.data)
 
-            const parsedKafkaMessage: ParsedKafkaMessage = {
-                ...message,
-                event: parsedMessage,
-                snapshot: parsedData.properties,
+            if (parsedData.event !== '$snapshot') {
+                logger.info('Received non-snapshot message, ignoring')
+                return
             }
 
-            console.log(parsedKafkaMessage)
+            const $snapshot_data = parsedData.properties.$snapshot_data
 
-            GlobalSessionManager.consume(parsedKafkaMessage)
+            const recordingMessage: IncomingRecordingMessage = {
+                team_id: parsedMessage.team_id,
+                distinct_id: parsedMessage.distinct_id,
+                session_id: parsedData.properties.$session_id,
+                window_id: parsedData.properties.$window_id,
+
+                // Properties data
+                chunk_id: $snapshot_data.chunk_id,
+                chunk_index: $snapshot_data.chunk_index,
+                chunk_count: $snapshot_data.chunk_count,
+                data: $snapshot_data.data,
+                compresssion: $snapshot_data.compression,
+                has_full_snapshot: $snapshot_data.has_full_snapshot,
+                events_summary: $snapshot_data.events_summary,
+            }
+
+            GlobalSessionManager.consume(recordingMessage)
 
             // 1. Parse the message
             // 2. Get or create the SessionManager by sessionId
