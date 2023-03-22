@@ -428,13 +428,24 @@
 ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.1
   '
+  SELECT "posthog_persondistinctid"."person_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('random',
+                                                      'example_id')
+         AND "posthog_persondistinctid"."team_id" = 2)
+  ORDER BY "posthog_persondistinctid"."id" ASC
+  LIMIT 1
+  '
+---
+# name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.2
+  '
   SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key"
   FROM "posthog_featureflaghashkeyoverride"
   WHERE ("posthog_featureflaghashkeyoverride"."person_id" = 2
          AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
   '
 ---
-# name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.2
+# name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.3
   '
   SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",
          "posthog_featureflaghashkeyoverride"."hash_key"
@@ -443,7 +454,7 @@
          AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
   '
 ---
-# name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.3
+# name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.4
   '
   SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'
           AND "posthog_person"."properties" ? 'email'
@@ -456,7 +467,7 @@
          AND "posthog_person"."team_id" = 2)
   '
 ---
-# name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.4
+# name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.5
   '
   SELECT pg_sleep(1);
   
@@ -468,7 +479,7 @@
   LIMIT 1
   '
 ---
-# name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.5
+# name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.6
   '
   SELECT pg_sleep(1);
   

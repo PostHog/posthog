@@ -352,7 +352,8 @@ const HogQLTable: DataTableNode = {
     source: HogQLRaw,
 }
 
-export const examples: Record<string, Node> = {
+/* a subset of examples including only those we can show all users and that don't use HogQL */
+export const queryExamples: Record<string, Node> = {
     Events,
     EventsTable,
     EventsTableFull,
@@ -370,6 +371,14 @@ export const examples: Record<string, Node> = {
     InsightStickinessQuery,
     InsightLifecycleQuery,
     RecentPageViewsWithPerformance,
+}
+
+export const stringifiedQueryExamples: Record<string, string> = Object.fromEntries(
+    Object.entries(queryExamples).map(([key, node]) => [key, JSON.stringify(node)])
+)
+
+export const examples: Record<string, Node> = {
+    ...queryExamples,
     TimeToSeeDataSessionsTable,
     TimeToSeeDataSessionsJSON,
     TimeToSeeDataWaterfall,

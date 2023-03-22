@@ -5,6 +5,7 @@ from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
 from posthog.models.action.util import format_entity_filter
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import PersonOnEventsMode
@@ -14,6 +15,8 @@ from posthog.queries.util import PersonPropertiesMode
 
 
 class EventFiltersSQL(NamedTuple):
+    non_aggregate_select_condition_clause: str
+    aggregate_event_select_clause: str
     aggregate_select_clause: str
     aggregate_having_clause: str
     where_conditions: str
@@ -160,6 +163,7 @@ class SessionRecordingList(EventQuery):
     def _determine_should_join_events(self):
         return self._filter.entities and len(self._filter.entities) > 0
 
+    @cached_property
     def _get_properties_select_clause(self) -> str:
         clause = (
             f", events.elements_chain as elements_chain"
@@ -171,6 +175,7 @@ class SessionRecordingList(EventQuery):
         )
         return clause
 
+    @cached_property
     def _get_person_id_clause(self) -> Tuple[str, Dict[str, Any]]:
         person_id_clause = ""
         person_id_params = {}
@@ -181,6 +186,7 @@ class SessionRecordingList(EventQuery):
 
     # We want to select events beyond the range of the recording to handle the case where
     # a recording spans the time boundaries
+    @cached_property
     def _get_events_timestamp_clause(self) -> Tuple[str, Dict[str, Any]]:
         timestamp_clause = ""
         timestamp_params = {}
@@ -192,6 +198,7 @@ class SessionRecordingList(EventQuery):
             timestamp_params["event_end_time"] = self._filter.date_to + timedelta(hours=12)
         return timestamp_clause, timestamp_params
 
+    @cached_property
     def _get_recording_start_time_clause(self) -> Tuple[str, Dict[str, Any]]:
         start_time_clause = ""
         start_time_params = {}
@@ -203,12 +210,14 @@ class SessionRecordingList(EventQuery):
             start_time_params["end_time"] = self._filter.date_to
         return start_time_clause, start_time_params
 
+    @cached_property
     def session_ids_clause(self) -> Tuple[str, Dict[str, Any]]:
         if self._filter.session_ids is None:
             return "", {}
 
         return "AND session_id in %(session_ids)s", {"session_ids": self._filter.session_ids}
 
+    @cached_property
     def _get_duration_clause(self) -> Tuple[str, Dict[str, Any]]:
         duration_clause = ""
         duration_params = {}
@@ -261,7 +270,10 @@ class SessionRecordingList(EventQuery):
 
         return filter_sql, params
 
+    @cached_property
     def format_event_filters(self) -> EventFiltersSQL:
+        non_aggregate_select_condition_clause = ""
+        aggregate_event_select_clause = ""
         aggregate_select_clause = ""
         aggregate_having_clause = ""
         where_conditions = "AND event IN %(event_names)s"
@@ -290,7 +302,14 @@ class SessionRecordingList(EventQuery):
 
         params = {**params, "event_names": list(event_names_to_filter)}
 
-        return EventFiltersSQL(aggregate_select_clause, aggregate_having_clause, where_conditions, params)
+        return EventFiltersSQL(
+            non_aggregate_select_condition_clause,
+            aggregate_event_select_clause,
+            aggregate_select_clause,
+            aggregate_having_clause,
+            where_conditions,
+            params,
+        )
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         offset = self._filter.offset or 0
@@ -301,12 +320,11 @@ class SessionRecordingList(EventQuery):
             self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
         )
 
-        events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause()
-        recording_start_time_clause, recording_start_time_params = self._get_recording_start_time_clause()
-        session_ids_clause, session_ids_params = self.session_ids_clause()
-        person_id_clause, person_id_params = self._get_person_id_clause()
-        duration_clause, duration_params = self._get_duration_clause()
-        properties_select_clause = self._get_properties_select_clause()
+        events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
+        recording_start_time_clause, recording_start_time_params = self._get_recording_start_time_clause
+        session_ids_clause, session_ids_params = self.session_ids_clause
+        person_id_clause, person_id_params = self._get_person_id_clause
+        duration_clause, duration_params = self._get_duration_clause
 
         core_recordings_query = self._core_session_recordings_query.format(
             recording_start_time_clause=recording_start_time_clause,
@@ -335,13 +353,9 @@ class SessionRecordingList(EventQuery):
                 },
             )
 
-        event_filters = self.format_event_filters()
+        event_filters = self.format_event_filters
 
-        core_events_query = self._core_events_query.format(
-            properties_select_clause=properties_select_clause,
-            event_filter_where_conditions=event_filters.where_conditions,
-            events_timestamp_clause=events_timestamp_clause,
-        )
+        core_events_query, core_events_query_params = self._get_core_events_query()
 
         return (
             self._session_recordings_query_with_events.format(
@@ -364,8 +378,23 @@ class SessionRecordingList(EventQuery):
                 **recording_start_time_params,
                 **event_filters.params,
                 **session_ids_params,
+                **core_events_query_params,
             },
         )
+
+    def _get_core_events_query(self) -> Tuple[str, Dict[str, Any]]:
+        params: Dict[str, Any] = {}
+        event_filters = self.format_event_filters
+        properties_select_clause = self._get_properties_select_clause
+        events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
+
+        core_events_query = self._core_events_query.format(
+            properties_select_clause=properties_select_clause,
+            event_filter_where_conditions=event_filters.where_conditions,
+            events_timestamp_clause=events_timestamp_clause,
+        )
+
+        return core_events_query, {**params, **events_timestamp_params}
 
     def _paginate_results(self, session_recordings) -> SessionRecordingQueryResult:
         more_recordings_available = False
@@ -407,3 +436,136 @@ class SessionRecordingList(EventQuery):
         query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
         session_recordings = self._data_to_return(query_results)
         return self._paginate_results(session_recordings)
+
+
+class SessionRecordingListV2(SessionRecordingList):
+
+    _core_events_query = """
+        SELECT
+            uuid,
+            distinct_id,
+            event,
+            team_id,
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id
+            {properties_select_clause}
+            {non_aggregate_select_condition_clause}
+
+        FROM events
+        WHERE
+            team_id = %(team_id)s
+            {event_filter_where_conditions}
+            {events_timestamp_clause}
+            AND notEmpty(session_id)
+    """
+
+    _core_events_query_grouped = """
+        SELECT
+            session_id,
+            distinct_id
+            {aggregate_event_select_clause}
+        FROM (
+            {ungrouped_core_events_query}
+        ) GROUP BY session_id, distinct_id
+        HAVING 1 = 1
+        {event_filter_aggregate_having_clause}
+    """
+
+    _session_recordings_query_with_events = """
+        SELECT
+            session_recordings.session_id,
+            start_time,
+            end_time,
+            click_count,
+            keypress_count,
+            urls,
+            duration,
+            session_recordings.distinct_id as distinct_id
+            {event_filter_aggregate_select_clause}
+        FROM (
+            {core_events_query}
+        ) AS events
+        JOIN (
+            {core_recordings_query}
+        ) AS session_recordings
+        ON session_recordings.session_id = events.session_id
+        {recording_person_query}
+        WHERE
+            session_recordings.distinct_id == events.distinct_id
+            {prop_filter_clause}
+            {person_id_clause}
+        ORDER BY start_time DESC
+        LIMIT %(limit)s OFFSET %(offset)s
+        """
+
+    def _get_core_events_query(self) -> Tuple[str, Dict[str, Any]]:
+        params: Dict[str, Any] = {}
+        event_filters = self.format_event_filters
+        properties_select_clause = self._get_properties_select_clause
+        events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
+
+        core_events_query = self._core_events_query.format(
+            properties_select_clause=properties_select_clause,
+            non_aggregate_select_condition_clause=event_filters.non_aggregate_select_condition_clause,
+            event_filter_where_conditions=event_filters.where_conditions,
+            events_timestamp_clause=events_timestamp_clause,
+        )
+
+        grouped_events_query = self._core_events_query_grouped.format(
+            aggregate_event_select_clause=event_filters.aggregate_event_select_clause,
+            ungrouped_core_events_query=core_events_query,
+            event_filter_aggregate_having_clause=event_filters.aggregate_having_clause,
+        )
+
+        return grouped_events_query, {**params, **events_timestamp_params}
+
+    @cached_property
+    def format_event_filters(self) -> EventFiltersSQL:
+        non_aggregate_select_condition_clause = ""
+        aggregate_event_select_clause = ""
+        aggregate_select_clause = ""
+        aggregate_having_clause = ""
+        where_conditions = "AND event IN %(event_names)s"
+        # Always include $pageview events so the start_url and end_url can be extracted
+        event_names_to_filter: List[Union[int, str]] = []
+
+        params: Dict = {}
+
+        for index, entity in enumerate(self._filter.entities):
+            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+                action = entity.get_action()
+                event_names_to_filter.extend([ae for ae in action.get_step_events() if ae not in event_names_to_filter])
+            else:
+                if entity.id not in event_names_to_filter:
+                    event_names_to_filter.append(entity.id)
+
+            condition_sql, filter_params = self.format_event_filter(
+                entity, prepend=f"event_matcher_{index}", team_id=self._team_id
+            )
+            aggregate_event_select_clause += f"""
+            , groupUniqArrayIf(100)((timestamp, uuid, session_id, window_id), event_match_{index} = 1) AS matching_events_{index}
+            , sum(event_match_{index}) AS matches_{index}
+            """
+
+            aggregate_select_clause += f"""
+            , matches_{index}
+            , matching_events_{index}
+            """
+
+            non_aggregate_select_condition_clause += f"""
+            , if({condition_sql}, 1, 0) as event_match_{index}
+            """
+            aggregate_having_clause += f"\nAND matches_{index} > 0"
+            params = {**params, **filter_params}
+
+        params = {**params, "event_names": list(event_names_to_filter)}
+
+        return EventFiltersSQL(
+            non_aggregate_select_condition_clause,
+            aggregate_event_select_clause,
+            aggregate_select_clause,
+            aggregate_having_clause,
+            where_conditions,
+            params,
+        )
