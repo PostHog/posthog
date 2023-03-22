@@ -14,8 +14,6 @@ import clsx from 'clsx'
 import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { containsHogQLQuery } from '~/queries/utils'
-import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
-import { Link } from 'lib/lemon-ui/Link'
 
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
@@ -74,7 +72,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     }
 
     const actuallyShowQueryEditor =
-        isUsingDataExploration &&
+        isUsingDashboardQueries &&
         insightMode === ItemMode.Edit &&
         ((isQueryBasedInsight && !containsHogQLQuery(query)) || showQueryEditor)
 
@@ -86,28 +84,13 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
             {isUsingDataExploration || (isUsingDashboardQueries && isQueryBasedInsight) ? (
                 <>
-                    {actuallyShowQueryEditor && isQueryBasedInsight && query ? (
-                        <div className="mb-2">
-                            Buttons like
-                            <div className="inline-block align-middle">
-                                <OpenEditorButton query={query} type="secondary" size="small" className="ml-1 mr-1" />
-                            </div>
-                            open any data table as a new insight. Read the{' '}
-                            <Link
-                                to="https://github.com/posthog/posthog/blob/master/frontend/src/queries/schema.ts"
-                                target="_blank"
-                            >
-                                schema.ts
-                            </Link>{' '}
-                            source for documentation.
-                        </div>
-                    ) : null}
                     <Query
                         query={query}
                         setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
                         context={{
                             showOpenEditorButton: false,
                             showQueryEditor: actuallyShowQueryEditor,
+                            showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
                         }}
                     />
                 </>

@@ -381,3 +381,28 @@ export const examples: Record<string, Node> = {
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(
     Object.entries(examples).map(([key, node]) => [key, JSON.stringify(node)])
 )
+
+/* a subset of examples including only those we can show all users and that don't use HogQL */
+export const queryExamples: Record<string, Node> = {
+    Events,
+    EventsTable,
+    EventsTableFull,
+    TotalEventsTable,
+    PropertyFormulasTable,
+    EventAggregations,
+    Persons,
+    PersonsTable,
+    PersonsTableFull,
+    LegacyTrendsQuery,
+    InsightTrendsQuery,
+    InsightFunnelsQuery,
+    InsightRetentionQuery,
+    InsightPathsQuery,
+    InsightStickinessQuery,
+    InsightLifecycleQuery,
+    RecentPageViewsWithPerformance,
+}
+
+export const stringifiedQueryExamples: Record<string, string> = Object.fromEntries(
+    Object.entries(queryExamples).map(([key, node]) => [key, JSON.stringify(node)])
+)

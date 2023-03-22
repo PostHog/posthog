@@ -210,9 +210,10 @@ export function LemonSelect<T>({
                 {...buttonProps}
             >
                 <span>
-                    {allLeafOptions.find((o) => o.value === localValue)?.label ?? localValue ?? (
-                        <span className="text-muted">{placeholder}</span>
-                    )}
+                    {allLeafOptions.find((o) => {
+                        return o.value === localValue
+                    })?.label ??
+                        localValue ?? <span className="text-muted">{placeholder}</span>}
                 </span>
                 {isClearButtonShown && (
                     <LemonButton
