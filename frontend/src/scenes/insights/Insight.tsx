@@ -92,7 +92,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                             <div className="inline-block align-middle">
                                 <OpenEditorButton query={query} type="secondary" size="small" className="ml-1 mr-1" />
                             </div>
-                            open any part of PostHog as a new insight. Read the{' '}
+                            open any data table as a new insight. Read the{' '}
                             <Link
                                 to="https://github.com/posthog/posthog/blob/master/frontend/src/queries/schema.ts"
                                 target="_blank"

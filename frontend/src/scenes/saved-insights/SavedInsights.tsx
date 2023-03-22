@@ -115,7 +115,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
     [InsightType.JSON]: {
         name: 'Custom',
-        description: 'Save any part of PostHog as an insight, and edit the JSON directly.',
+        description: 'Save any data table as an insight, and edit the JSON directly.',
         icon: InsightSQLIcon,
         inMenu: true,
     },
