@@ -65,20 +65,36 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             "version": "2022-12-22",
             "distinct_id": "distinct_id_1",
             "snapshot_data_by_window_id": {
-                "window_1": [
-                    {
-                        "timestamp": 1640865600000.0,
-                        "has_full_snapshot": 1,
-                        "type": 2,
-                        "data": {"source": 0, "href": long_url},
-                    },
-                    {
-                        "timestamp": 1640872800000.0,
-                        "has_full_snapshot": 1,
-                        "type": 2,
-                        "data": {"source": 0, "href": long_url},
-                    },
-                ]
+                "window_1": {
+                    "snapshot_data": [
+                        {
+                            "timestamp": 1640865600000.0,
+                            "has_full_snapshot": 1,
+                            "type": 2,
+                            "data": {"source": 0, "href": long_url},
+                        },
+                        {
+                            "timestamp": 1640872800000.0,
+                            "has_full_snapshot": 1,
+                            "type": 2,
+                            "data": {"source": 0, "href": long_url},
+                        },
+                    ],
+                    "events_summary": [
+                        {
+                            "timestamp": 1640865600000.0,
+                            "has_full_snapshot": 1,
+                            "type": 2,
+                            "data": {"source": 0, "href": long_url},
+                        },
+                        {
+                            "timestamp": 1640872800000.0,
+                            "has_full_snapshot": 1,
+                            "type": 2,
+                            "data": {"source": 0, "href": long_url},
+                        },
+                    ],
+                }
             },
             "start_and_end_times_by_window_id": {
                 "window_1": {
@@ -88,14 +104,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
                     "is_active": False,
                 }
             },
-            "segments": [
-                {
-                    "start_time": "2021-12-30 12:00:00+00:00",
-                    "end_time": "2021-12-30 14:00:00+00:00",
-                    "window_id": "window_1",
-                    "is_active": False,
-                }
-            ],
+            "segments": [],
         }
 
     @patch("ee.models.session_recording_extensions.report_team_action")
