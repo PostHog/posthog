@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 
 import { Card, Row } from 'antd'
-import { IconFlag, IconInfo, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconFlag, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import './FeatureFlagInstructions.scss'
 import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 import { FeatureFlagType } from '~/types'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     BOOTSTRAPPING_OPTIONS,
     InstructionOption,
@@ -157,39 +156,41 @@ export function CodeInstructions({
         <>
             {newCodeExample ? (
                 <div>
-                    <div className="flex flex-row gap-4">
-                        <LemonSelect
-                            data-attr={'feature-flag-instructions-select' + (dataAttr ? `-${dataAttr}` : '')}
-                            options={[
-                                {
-                                    title: 'Client libraries',
-                                    options: OPTIONS.filter((option) => option.type == LibraryType.Client).map(
-                                        (option) => ({
-                                            value: option.value,
-                                            label: option.value,
-                                            'data-attr': `feature-flag-instructions-select-option-${option.value}`,
-                                        })
-                                    ),
-                                },
-                                {
-                                    title: 'Server libraries',
-                                    options: OPTIONS.filter((option) => option.type == LibraryType.Server).map(
-                                        (option) => ({
-                                            value: option.value,
-                                            label: option.value,
-                                            'data-attr': `feature-flag-instructions-select-option-${option.value}`,
-                                        })
-                                    ),
-                                },
-                            ]}
-                            onChange={(val) => {
-                                if (val) {
-                                    selectOption(val)
-                                }
-                            }}
-                            value={selectedOption.value}
-                        />
-                        <div className="flex items-center gap-1">
+                    <div className="flex flex-row gap-6">
+                        <div>
+                            <LemonSelect
+                                data-attr={'feature-flag-instructions-select' + (dataAttr ? `-${dataAttr}` : '')}
+                                options={[
+                                    {
+                                        title: 'Client libraries',
+                                        options: OPTIONS.filter((option) => option.type == LibraryType.Client).map(
+                                            (option) => ({
+                                                value: option.value,
+                                                label: option.value,
+                                                'data-attr': `feature-flag-instructions-select-option-${option.value}`,
+                                            })
+                                        ),
+                                    },
+                                    {
+                                        title: 'Server libraries',
+                                        options: OPTIONS.filter((option) => option.type == LibraryType.Server).map(
+                                            (option) => ({
+                                                value: option.value,
+                                                label: option.value,
+                                                'data-attr': `feature-flag-instructions-select-option-${option.value}`,
+                                            })
+                                        ),
+                                    },
+                                ]}
+                                onChange={(val) => {
+                                    if (val) {
+                                        selectOption(val)
+                                    }
+                                }}
+                                value={selectedOption.value}
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1 max-w-60">
                             <LemonCheckbox
                                 label="Show payload option"
                                 onChange={() => setShowPayloadCode(!showPayloadCode)}
@@ -201,20 +202,16 @@ export function CodeInstructions({
                                     )
                                 }
                             />
-                            <Tooltip
-                                title={
-                                    <>
-                                        {`Feature flag payloads are only available in these libraries: ${PAYLOAD_OPTIONS.map(
-                                            (payloadOption) => ` ${payloadOption.value}`
-                                        )}`}
-                                    </>
-                                }
-                            >
-                                <IconInfo className="text-xl text-muted-alt shrink-0" />
-                            </Tooltip>
+                            {!PAYLOAD_OPTIONS.map((payloadOption) => payloadOption.value).includes(
+                                selectedOption.value
+                            ) && (
+                                <span className="text-muted">{`Feature flag payloads are only available in these libraries: ${PAYLOAD_OPTIONS.map(
+                                    (payloadOption) => ` ${payloadOption.value}`
+                                )}`}</span>
+                            )}
                         </div>
                         <>
-                            <div className="flex items-center gap-1">
+                            <div className="flex flex-col gap-1 max-w-60">
                                 <LemonCheckbox
                                     label="Show bootstrap option"
                                     data-attr="flags-code-example-bootstrap-option"
@@ -225,15 +222,14 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <Tooltip
-                                    title={
-                                        'If you need your flags available immediately, you can initialize the PostHog library with a distinct user ID and their feature flag values. This avoids the delay between the library loading and feature flags becoming available to use. Bootstrapping is only available client side in our JavaScript and ReactNative libraries.'
-                                    }
-                                >
-                                    <IconInfo className="text-xl text-muted-alt shrink-0" />
-                                </Tooltip>
+                                {!BOOTSTRAPPING_OPTIONS.map((bo) => bo.value).includes(selectedOption.value) && (
+                                    <span className="text-muted">
+                                        Bootstrapping is only available client side in our JavaScript and ReactNative
+                                        libraries.
+                                    </span>
+                                )}
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex flex-col gap-1 max-w-60">
                                 <LemonCheckbox
                                     label="Show local evaluation option"
                                     data-attr="flags-code-example-local-eval-option"
@@ -245,13 +241,12 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <Tooltip
-                                    title={
-                                        'Improve performance by evaluating feature flags without making API requests each time. Local evaluation is only available in server side libraries and without flag persistence across authentication steps.'
-                                    }
-                                >
-                                    <IconInfo className="text-xl text-muted-alt shrink-0" />
-                                </Tooltip>
+                                {selectedOption.type !== LibraryType.Server && (
+                                    <span className="text-muted">
+                                        Local evaluation is only available in server side libraries and without flag
+                                        persistence.
+                                    </span>
+                                )}
                             </div>
                         </>
                     </div>
