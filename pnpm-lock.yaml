@@ -70,7 +70,6 @@ specifiers:
   antd-dayjs-webpack-plugin: ^1.0.6
   autoprefixer: ^10.4.7
   axe-core: ^4.4.3
-  babel-eslint: ^10.1.0
   babel-loader: ^8.0.6
   babel-plugin-import: ^1.13.0
   babel-preset-nano-react-app: ^0.1.0
@@ -333,7 +332,6 @@ devDependencies:
   '@typescript-eslint/parser': 5.55.0_jofidmxrjzhj7l6vknpw5ecvfe
   autoprefixer: 10.4.13_postcss@8.4.18
   axe-core: 4.5.1
-  babel-eslint: 10.1.0_eslint@7.32.0
   babel-loader: 8.3.0_tktscwi5cl3qcx6vcfwkvrwn6i
   babel-plugin-import: 1.13.5
   concurrently: 5.3.0
@@ -2478,7 +2476,7 @@ packages:
       collect-v8-coverage: 1.0.1
       exit: 0.1.2
       glob: 7.2.3
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
       istanbul-lib-coverage: 3.2.0
       istanbul-lib-instrument: 5.2.1
       istanbul-lib-report: 3.0.0
@@ -2524,7 +2522,7 @@ packages:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.17
       callsites: 3.1.0
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
     dev: true
 
   /@jest/test-result/28.1.3:
@@ -2562,7 +2560,7 @@ packages:
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
     dependencies:
       '@jest/test-result': 29.3.1
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
       jest-haste-map: 29.3.1
       slash: 3.0.0
     dev: true
@@ -2624,7 +2622,7 @@ packages:
       chalk: 4.1.2
       convert-source-map: 2.0.0
       fast-json-stable-stringify: 2.1.0
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
       jest-haste-map: 29.3.1
       jest-regex-util: 29.2.0
       jest-util: 29.3.1
@@ -6203,24 +6201,6 @@ packages:
       - debug
     dev: true
 
-  /babel-eslint/10.1.0_eslint@7.32.0:
-    resolution: {integrity: sha512-ifWaTHQ0ce+448CYop8AdrQiBsGrnC+bMgfyKFdi6EsPLTAWG+QfyDeM6OH+FmWnKvEq5NnBMLvlBUPKQZoDSg==}
-    engines: {node: '>=6'}
-    deprecated: babel-eslint is now @babel/eslint-parser. This package will no longer receive updates.
-    peerDependencies:
-      eslint: '>= 4.12.1'
-    dependencies:
-      '@babel/code-frame': 7.18.6
-      '@babel/parser': 7.20.2
-      '@babel/traverse': 7.20.1
-      '@babel/types': 7.20.2
-      eslint: 7.32.0
-      eslint-visitor-keys: 1.3.0
-      resolve: 1.22.1
-    transitivePeerDependencies:
-      - supports-color
-    dev: true
-
   /babel-jest/28.1.3_@babel+core@7.20.2:
     resolution: {integrity: sha512-epUaPOEWMk3cWX0M/sPvCHHCe9fMFAa/9hXEgKP8nFfNl/jlGkE9ucq9NqkZGXLDduCJYS0UvSlPUwC0S+rH6Q==}
     engines: {node: ^12.13.0 || ^14.15.0 || ^16.10.0 || >=17.0.0}
@@ -6251,7 +6231,7 @@ packages:
       babel-plugin-istanbul: 6.1.1
       babel-preset-jest: 29.2.0_@babel+core@7.20.2
       chalk: 4.1.2
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
       slash: 3.0.0
     transitivePeerDependencies:
       - supports-color
@@ -11816,7 +11796,7 @@ packages:
       ci-info: 3.5.0
       deepmerge: 4.2.2
       glob: 7.2.3
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
       jest-circus: 29.3.1
       jest-environment-node: 29.3.1
       jest-get-type: 29.2.0
@@ -11999,7 +11979,7 @@ packages:
       '@types/node': 18.11.9
       anymatch: 3.1.2
       fb-watchman: 2.0.2
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
       jest-regex-util: 29.2.0
       jest-util: 29.3.1
       jest-worker: 29.3.1
@@ -12240,7 +12220,7 @@ packages:
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
     dependencies:
       chalk: 4.1.2
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
       jest-haste-map: 29.3.1
       jest-pnp-resolver: 1.2.2_jest-resolve@29.3.1
       jest-util: 29.3.1
@@ -12291,7 +12271,7 @@ packages:
       '@types/node': 18.11.9
       chalk: 4.1.2
       emittery: 0.13.1
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
       jest-docblock: 29.2.0
       jest-environment-node: 29.3.1
       jest-haste-map: 29.3.1
@@ -12354,7 +12334,7 @@ packages:
       cjs-module-lexer: 1.2.2
       collect-v8-coverage: 1.0.1
       glob: 7.2.3
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
       jest-haste-map: 29.3.1
       jest-message-util: 29.3.1
       jest-mock: 29.3.1
@@ -12431,7 +12411,7 @@ packages:
       babel-preset-current-node-syntax: 1.0.1_@babel+core@7.20.2
       chalk: 4.1.2
       expect: 29.3.1
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
       jest-diff: 29.3.1
       jest-get-type: 29.2.0
       jest-haste-map: 29.3.1
@@ -12763,7 +12743,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
 
   /jsprim/2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
