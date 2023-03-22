@@ -15,7 +15,7 @@ import {
     IconMessages,
     IconFlare,
     IconTrendingUp,
-    IconLive,
+    IconSlack,
 } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react'
@@ -23,6 +23,7 @@ import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppProm
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -88,27 +89,13 @@ export function HelpButton({
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { toggleActivationSideBar } = useActions(navigationLogic)
+    const { billing } = useValues(billingLogic)
 
     return (
         <>
             <Popover
                 overlay={
                     <>
-                        {!contactOnly && (
-                            <LemonButton
-                                icon={<IconLive />}
-                                status="stealth"
-                                fullWidth
-                                onClick={() => {
-                                    reportHelpButtonUsed(HelpType.Updates)
-                                    hideHelp()
-                                }}
-                                to={`https://posthog.com/blog/categories/posthog-news`}
-                                targetBlank
-                            >
-                                What's new?
-                            </LemonButton>
-                        )}
                         <LemonButton
                             icon={<IconQuestionAnswer />}
                             status="stealth"
@@ -135,18 +122,33 @@ export function HelpButton({
                         >
                             Create an issue on GitHub
                         </LemonButton>
+                        {billing?.current_total_amount_usd > 0 && (
+                            <LemonButton
+                                icon={<IconMail />}
+                                status="stealth"
+                                fullWidth
+                                onClick={() => {
+                                    reportHelpButtonUsed(HelpType.Email)
+                                    hideHelp()
+                                }}
+                                to={'mailto:hey@posthog.com'}
+                                targetBlank
+                            >
+                                Send us an email
+                            </LemonButton>
+                        )}
                         <LemonButton
-                            icon={<IconMail />}
+                            icon={<IconSlack color="currentColor" />}
                             status="stealth"
                             fullWidth
                             onClick={() => {
-                                reportHelpButtonUsed(HelpType.Email)
+                                reportHelpButtonUsed(HelpType.Slack)
                                 hideHelp()
                             }}
-                            to={'mailto:hey@posthog.com'}
+                            to={'https://posthog.com/slack'}
                             targetBlank
                         >
-                            Send us an email
+                            Join our Slack
                         </LemonButton>
                         {!contactOnly && (
                             <LemonButton
@@ -163,18 +165,20 @@ export function HelpButton({
                                 Read the docs
                             </LemonButton>
                         )}
-                        <LemonButton
-                            icon={<IconTrendingUp />}
-                            status="stealth"
-                            fullWidth
-                            onClick={() => {
-                                toggleActivationSideBar()
-                                hideHelp()
-                            }}
-                        >
-                            Open Quick Start
-                        </LemonButton>
-                        {validProductTourSequences.length > 0 && (
+                        {!contactOnly && (
+                            <LemonButton
+                                icon={<IconTrendingUp />}
+                                status="stealth"
+                                fullWidth
+                                onClick={() => {
+                                    toggleActivationSideBar()
+                                    hideHelp()
+                                }}
+                            >
+                                Open Quick Start
+                            </LemonButton>
+                        )}
+                        {!contactOnly && validProductTourSequences.length > 0 && (
                             <LemonButton
                                 icon={<IconMessages />}
                                 status="stealth"
@@ -191,17 +195,19 @@ export function HelpButton({
                                 {isPromptVisible ? 'Stop tutorial' : 'Explain this page'}
                             </LemonButton>
                         )}
-                        <LemonButton
-                            icon={<IconFlare />}
-                            status="stealth"
-                            fullWidth
-                            onClick={() => {
-                                setHedgehogModeEnabled(!hedgehogModeEnabled)
-                                hideHelp()
-                            }}
-                        >
-                            {hedgehogModeEnabled ? 'Disable' : 'Enable'} Hedgehog Mode
-                        </LemonButton>
+                        {!contactOnly && (
+                            <LemonButton
+                                icon={<IconFlare />}
+                                status="stealth"
+                                fullWidth
+                                onClick={() => {
+                                    setHedgehogModeEnabled(!hedgehogModeEnabled)
+                                    hideHelp()
+                                }}
+                            >
+                                {hedgehogModeEnabled ? 'Disable' : 'Enable'} Hedgehog Mode
+                            </LemonButton>
+                        )}
                     </>
                 }
                 onClickOutside={hideHelp}
