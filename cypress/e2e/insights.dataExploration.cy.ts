@@ -20,6 +20,7 @@ describe('Insights (with data exploration on)', () => {
                 decideResponse({
                     'data-exploration-query-tab': true,
                     'data-exploration-insights': true,
+                    'data-exploration-live-events': true,
                 })
             )
         )
@@ -185,7 +186,7 @@ describe('Insights (with data exploration on)', () => {
     })
 
     it('does not show the json tab usually', () => {
-        cy.clickNavMenu('insights')
+        cy.clickNavMenu('savedinsights')
         cy.get('[data-attr="insight-json-tab"]').should('not.exist')
     })
 })
