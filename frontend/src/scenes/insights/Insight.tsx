@@ -34,10 +34,12 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         filtersKnown,
         filters,
         isUsingDataExploration,
+        isUsingDashboardQueries,
         erroredQueryId,
         isFilterBasedInsight,
     } = useValues(logic)
     const { reportInsightViewedForRecentInsights, abortAnyRunningQuery, loadResults } = useActions(logic)
+
     // insightDataLogic
     const { query, isQueryBasedInsight, showQueryEditor } = useValues(insightDataLogic(insightProps))
     const { setQuery } = useActions(insightDataLogic(insightProps))
@@ -75,7 +77,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 
-            {isUsingDataExploration ? (
+            {isUsingDataExploration || (isUsingDashboardQueries && isQueryBasedInsight) ? (
                 <>
                     <Query
                         query={query}

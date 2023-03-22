@@ -67,9 +67,7 @@ function Pages(): JSX.Element {
     const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
     const [isNewInsightMenuShown, setIsNewInsightMenuShown] = useState(false)
 
-    const isUsingDataExplorationQueries =
-        !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS] &&
-        !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
+    const isUsingDataExplorationQueries = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
 
     return (
         <ul>
