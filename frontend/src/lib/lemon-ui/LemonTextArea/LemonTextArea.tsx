@@ -13,6 +13,9 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonTabs } from '../LemonTabs'
+import image_blob_reduce from 'image-blob-reduce'
+
+const reduce = image_blob_reduce()
 
 export interface LemonTextAreaProps
     extends Pick<
@@ -88,7 +91,8 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
             try {
                 setUploading(true)
                 const formData = new FormData()
-                formData.append('image', filesToUpload[0])
+                const reducedBlob = await reduce.toBlob(filesToUpload[0], { max: 2000 })
+                formData.append('image', reducedBlob)
                 const media = await api.media.upload(formData)
                 onChange?.(value + `\n\n![${media.name}](${media.image_location})`)
                 posthog.capture('markdown image uploaded', { name: media.name })
