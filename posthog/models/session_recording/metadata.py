@@ -70,7 +70,7 @@ class RecordingMatchingEvents(TypedDict):
 
 class PersistedRecordingV1(TypedDict):
     version: str  # "2022-12-22"
-    snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, SessionRecordingEventSummary]]]
+    snapshot_data_by_window_id: Dict[WindowId, DecompressedSnapshotDataEventsSummary]
     distinct_id: str
     segments: List[RecordingSegment]
     start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]

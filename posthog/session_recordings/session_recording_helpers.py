@@ -194,7 +194,7 @@ def decompress_chunked_snapshot_data(
     if len(all_recording_events) == 0:
         return DecompressedRecordingData(has_next=False, snapshot_data_by_window_id={})
 
-    snapshot_data_by_window_id: DecompressedSnapshotDataEventsSummary = {}
+    snapshot_data_by_window_id: Dict[WindowId, DecompressedSnapshotDataEventsSummary] = {}
 
     # Split decompressed recording events into their chunks
     chunks_collector: DefaultDict[str, List[SnapshotDataTaggedWithWindowId]] = defaultdict(list)
@@ -243,7 +243,7 @@ def decompress_chunked_snapshot_data(
         # This pares down the data returned, so we're not passing around a massive object
         if return_only_activity_data:
             events_with_only_activity_data = get_events_summary_from_snapshot_data(decompressed_data)
-            snapshot_data_by_window_id[chunks[0]["window_id"]]["snapshot_data"].extend(events_with_only_activity_data)
+            snapshot_data_by_window_id[chunks[0]["window_id"]]["snapshot_data"].extend(events_with_only_activity_data)  # type: ignore
         else:
             snapshot_data_by_window_id[chunks[0]["window_id"]]["snapshot_data"].extend(decompressed_data)
 
