@@ -74,10 +74,11 @@ $sidebar-width: 40%;
         }
 
         .NotebookSidebar__floater {
-            height: calc(100vh - 3rem);
-            top: 3rem;
+            position: absolute;
+            height: 100%;
+            top: 0;
             background-color: var(--bg-3000);
-            width: calc(40% - 1rem);
+            width: 100%;
         }
 
         &--show {

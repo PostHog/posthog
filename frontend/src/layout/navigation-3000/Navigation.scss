@@ -20,11 +20,12 @@
         display: flex;
         flex: 1;
         padding-top: 3rem; // Offset the breadcrumbs
-        overflow-y: auto;
+        overflow: hidden;
 
         .Navigation3000__content {
             flex: 1;
-            margin: 0 1rem;
+            padding: 0 1rem;
+            overflow-y: auto;
         }
     }
 }
