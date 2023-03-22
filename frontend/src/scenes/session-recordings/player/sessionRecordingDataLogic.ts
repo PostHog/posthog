@@ -55,9 +55,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             person: null,
             metadata: {
                 pinnedCount: 0,
-                segments: [],
                 startAndEndTimesByWindowId: {},
-                recordingDurationMs: 0,
+                startTimeEpochMs: 0,
+                endTimeEpochMs: 0,
+                duration: 0,
             },
             bufferedTo: null,
         } as SessionPlayerMetaData,
@@ -280,7 +281,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     events.forEach((event: EventType) => {
                         // Events from other $session_ids should already be filtered out here so we don't need to worry about that
                         const eventEpochTimeOfEvent = +dayjs(event.timestamp)
-                        let eventPlayerPosition: PlayerPosition | null = null
+                        let eventPlayerPosition: PlayerPosition | null
 
                         // 1. If it doesn't have a $window_id, then it is likely server side - include it on any window where the time overlaps
                         if (!event.properties.$window_id) {
@@ -378,10 +379,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         recordingTimeWindow: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData): { start: Dayjs; end: Dayjs } | undefined => {
-                const recordingStartTime = (sessionPlayerData.segments ?? []).slice(0, 1).pop()?.startTimeEpochMs
-                const recordingEndTime = (sessionPlayerData.segments ?? []).slice(-1).pop()?.endTimeEpochMs
+            (s) => [s.sessionPlayerMetaData],
+            (sessionPlayerMetaData): { start: Dayjs; end: Dayjs } | undefined => {
+                const recordingStartTime = sessionPlayerMetaData.metadata.startTimeEpochMs
+                const recordingEndTime = sessionPlayerMetaData.metadata.endTimeEpochMs
 
                 if (!recordingStartTime || !recordingEndTime) {
                     return undefined

@@ -5,11 +5,9 @@ import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
 import { RecordingSegment } from '~/types'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 import { Timestamp } from './PlayerControllerTime'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { autoCaptureEventToDescription, capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
-import { playerInspectorLogic } from './inspector/playerInspectorLogic'
+import { colonDelimitedDuration } from 'lib/utils'
 
 function PlayerSeekbarInspector({ minMs, maxMs }: { minMs: number; maxMs: number }): JSX.Element {
     const [percentage, setPercentage] = useState<number>(0)
@@ -47,55 +45,6 @@ function PlayerSeekbarInspector({ minMs, maxMs }: { minMs: number; maxMs: number
             >
                 <div className="PlayerSeekBarInspector__tooltip__content">{content}</div>
             </div>
-        </div>
-    )
-}
-
-function PlayerSeekbarTicks(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { seekbarItems } = useValues(playerInspectorLogic(props))
-    const { endTimeMs } = useValues(seekbarLogic(props))
-    const { seekToTime } = useActions(sessionRecordingPlayerLogic(props))
-
-    return (
-        <div className="PlayerSeekbar__ticks">
-            {seekbarItems.map((item, i) => (
-                <div
-                    key={i}
-                    className={clsx(
-                        'PlayerSeekbarTick',
-                        item.highlightColor && `PlayerSeekbarTick--${item.highlightColor}`
-                    )}
-                    title={item.data.event}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        left: `${(item.timeInRecording / endTimeMs) * 100}%`,
-                        zIndex: i + (item.highlightColor ? 1000 : 0),
-                    }}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        seekToTime(item.timeInRecording)
-                    }}
-                >
-                    <div className="PlayerSeekbarTick__info">
-                        <PropertyKeyInfo
-                            className="font-medium"
-                            disableIcon
-                            disablePopover
-                            ellipsis={true}
-                            value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
-                        />
-                        {item.data.event === '$autocapture' ? (
-                            <span className="opacity-75 ml-2">(Autocapture)</span>
-                        ) : null}
-                        {item.data.event === '$pageview' ? (
-                            <span className="ml-2 opacity-75">
-                                {item.data.properties.$pathname || item.data.properties.$current_url}
-                            </span>
-                        ) : null}
-                    </div>
-                    <div className="PlayerSeekbarTick__line" />
-                </div>
-            ))}
         </div>
     )
 }
@@ -160,8 +109,6 @@ export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
 
                     <PlayerSeekbarInspector minMs={0} maxMs={sessionPlayerData.recordingDurationMs ?? 0} />
                 </div>
-
-                <PlayerSeekbarTicks {...props} />
             </div>
         </div>
     )

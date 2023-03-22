@@ -181,6 +181,9 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionR
     return {
         startAndEndTimesByWindowId,
         pinnedCount: recording.pinned_count ?? 0,
+        startTimeEpochMs: +dayjs(recording.start_time),
+        endTimeEpochMs: +dayjs(recording.end_time),
+        duration: recording.recording_duration ?? 0,
     }
 }
 

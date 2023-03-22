@@ -468,7 +468,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.sessionPlayerData.segments
                 ) > 0
             ) {
-                // console.log('BLAH3', !values.sessionPlayerData?.bufferedTo, !playerPosition, !values.currentSegment)
                 values.player?.replayer?.pause()
                 actions.startBuffer()
                 actions.setErrorPlayerState(false)
@@ -476,14 +475,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
-                // console.log('BLAH4')
                 values.player?.replayer?.pause(playerPosition.time)
                 actions.endBuffer()
                 actions.setErrorPlayerState(false)
             }
             // Otherwise play
             else {
-                // console.log('BLAH5')
                 values.player?.replayer?.play(playerPosition.time)
                 actions.updateAnimation()
                 actions.endBuffer()
@@ -563,8 +560,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.sessionPlayerData.segments
                 ) >= 0
             ) {
-                // console.log('BLAHBLAH1', values.currentSegment?.endPlayerPosition, values.sessionPlayerData.segments, nextPlayerPosition)
-                const nextSegmentIndex = (values.sessionPlayerData.segments ?? []).indexOf(values.currentSegment) + 1
+                const nextSegmentIndex =
+                    (values.sessionPlayerData.segments ?? []).findIndex((segment) => {
+                        // Check equality via contents instead of reference, since segments is immutably changed
+                        return equal(segment, values.currentSegment)
+                    }) + 1
                 if (nextSegmentIndex < (values.sessionPlayerData.segments ?? []).length) {
                     const nextSegment = (values.sessionPlayerData.segments ?? [])[nextSegmentIndex]
                     actions.setCurrentPlayerPosition(nextSegment.startPlayerPosition)
@@ -586,7 +586,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 ) > 0 &&
                 !values.sessionPlayerSnapshotDataLoading
             ) {
-                // console.log('BLAHBLAH2')
                 values.player?.replayer?.pause()
                 actions.endBuffer()
                 console.error('PostHog Recording Playback Error: Tried to access snapshot that is not loaded yet')
@@ -604,14 +603,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.sessionPlayerData.segments
                 ) > 0
             ) {
-                // console.log('BLAHBLAH3')
                 // Pause only the animation, not our player, so it will restart
                 // when the buffering progresses
                 values.player?.replayer?.pause()
                 actions.startBuffer()
                 actions.setErrorPlayerState(false)
             } else {
-                // console.log('BLAHBLAH4')
                 // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentPlayerPosition(nextPlayerPosition)
                 cache.timer = requestAnimationFrame(actions.updateAnimation)

@@ -599,6 +599,9 @@ export interface RecordingStartAndEndTime {
 export interface SessionRecordingMeta {
     pinnedCount: number
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
+    startTimeEpochMs: number
+    endTimeEpochMs: number
+    duration: number // same duration seen in recordings list
 }
 
 export interface SessionSnapshotsByWindowId {

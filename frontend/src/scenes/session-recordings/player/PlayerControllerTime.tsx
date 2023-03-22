@@ -17,7 +17,9 @@ export function Timestamp(props: SessionRecordingPlayerLogicProps): JSX.Element 
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(props))
 
     const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
-    const endTimeSeconds = Math.floor((sessionPlayerData?.metadata?.recordingDurationMs ?? 0) / 1000)
+    const endTimeSeconds = Math.floor(
+        (sessionPlayerData?.recordingDurationMs ?? sessionPlayerData.metadata.duration ?? 0) / 1000
+    )
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
 

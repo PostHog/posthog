@@ -497,23 +497,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
-        seekbarItems: [
-            (s) => [s.allItems, s.showOnlyMatching, s.showMatchingEventsFilter],
-            (allItems, showOnlyMatching, showMatchingEventsFilter): InspectorListItemEvent[] => {
-                return allItems.filter((item) => {
-                    if (item.type !== SessionRecordingPlayerTab.EVENTS) {
-                        return false
-                    }
-
-                    if (showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary') {
-                        return false
-                    }
-
-                    return true
-                }) as InspectorListItemEvent[]
-            },
-        ],
-
         tabsState: [
             (s) => [
                 s.sessionEventsDataLoading,
