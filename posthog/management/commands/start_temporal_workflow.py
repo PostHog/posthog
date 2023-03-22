@@ -6,7 +6,7 @@ from uuid import uuid4
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from posthog.temporal.runner import connect
+from posthog.temporal.client import connect
 from posthog.temporal.workflows import NoOpWorkflow
 
 
