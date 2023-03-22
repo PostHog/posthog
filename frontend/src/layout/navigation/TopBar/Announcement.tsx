@@ -1,4 +1,3 @@
-import ReactMarkdown from 'react-markdown'
 import clsx from 'clsx'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/announcementLogic'
@@ -41,7 +40,7 @@ export function Announcement(): JSX.Element | null {
             </div>
         )
     } else if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {
-        message = <ReactMarkdown className="strong">{cloudAnnouncement}</ReactMarkdown>
+        message = <div className="strong" dangerouslySetInnerHTML={{ __html: cloudAnnouncement }} />
     } else if (shownAnnouncementType === AnnouncementType.NewFeature) {
         message = <NewFeatureBanner />
     }

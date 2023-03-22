@@ -6,6 +6,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '../navigationLogic'
+import posthog from 'posthog-js'
 
 import type { announcementLogicType } from './announcementLogicType'
 
@@ -112,10 +113,14 @@ export const announcementLogic = kea<announcementLogicType>([
         cloudAnnouncement: [
             (s) => [s.featureFlags],
             (featureFlags): string | null => {
-                const flagValue = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
-                return !!flagValue && typeof flagValue === 'string'
-                    ? String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]).replace(/_/g, ' ')
-                    : null
+                const flagPayload = posthog.getFeatureFlagPayload(FEATURE_FLAGS.CLOUD_ANNOUNCEMENT)
+                const flagEnabled = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
+
+                if (flagEnabled && !flagPayload) {
+                    // Default to standard cloud announcement if no payload is set
+                    return "<p>Test</p><a href='/home'> test</a>"
+                }
+                return !!flagPayload && typeof flagPayload === 'string' ? flagPayload : null
             },
         ],
     }),
