@@ -336,7 +336,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     ].filter((x) => !!x)
 
     const secondRowLeft = [
-        showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null,
+        showReload ? <Reload /> : null,
+        showReload && canLoadNewData ? <AutoLoad /> : null,
         showElapsedTime ? <ElapsedTime /> : null,
     ].filter((x) => !!x)
 
