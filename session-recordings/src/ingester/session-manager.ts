@@ -42,9 +42,9 @@ export class SessionManager {
 
         const capacity = this.buffer.size / (config.sessions.maxEventGroupKb * 1024)
         logger.info(
-            `Buffer ${this.sessionId}: (count: ${this.buffer.count}, KB: ${Math.round(
-                this.buffer.size / 1024
-            )}, capacity: ${(capacity * 100).toFixed(2)}%) chunks: ${this.chunks.size}`
+            `Buffer ${this.sessionId}:: capacity: ${(capacity * 100).toFixed(2)}% count: ${
+                this.buffer.count
+            } ${Math.round(this.buffer.size / 1024)}KB chunks: ${this.chunks.size})`
         )
 
         const shouldFlush =
