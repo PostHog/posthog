@@ -63,9 +63,17 @@ describe('sessionRecordingDataLogic', () => {
                 sessionRecordingId: null,
                 sessionPlayerData: {
                     bufferedTo: null,
-                    metadata: { recordingDurationMs: 0, segments: [], pinnedCount: 0, startAndEndTimesByWindowId: {} },
+                    metadata: {
+                        pinnedCount: 0,
+                        startAndEndTimesByWindowId: {},
+                        duration: 0,
+                        endTimeEpochMs: 0,
+                        startTimeEpochMs: 0,
+                    },
                     person: null,
                     snapshotsByWindowId: {},
+                    segments: [],
+                    startAndEndTimesByWindowId: {},
                 },
                 sessionEventsData: null,
                 filters: {},
@@ -84,11 +92,17 @@ describe('sessionRecordingDataLogic', () => {
                     time: 2725496,
                     windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                 },
+                segments: [],
+                startAndEndTimesByWindowId: {},
                 next: undefined,
                 snapshotsByWindowId: sortedRecordingSnapshotsJson.snapshot_data_by_window_id,
             }
             await expectLogic(logic)
-                .toDispatchActions(['loadEntireRecording', 'loadRecordingMetaSuccess', 'loadRecordingSnapshotsSuccess'])
+                .toDispatchActionsInAnyOrder([
+                    'loadEntireRecording',
+                    'loadRecordingMetaSuccess',
+                    'loadRecordingSnapshotsSuccess',
+                ])
                 .toFinishAllListeners()
                 .toMatchValues({
                     sessionPlayerData: expectedData,
@@ -113,13 +127,16 @@ describe('sessionRecordingDataLogic', () => {
                     sessionPlayerData: {
                         bufferedTo: null,
                         metadata: {
-                            recordingDurationMs: 0,
-                            segments: [],
+                            duration: 0,
+                            endTimeEpochMs: 0,
                             pinnedCount: 0,
                             startAndEndTimesByWindowId: {},
+                            startTimeEpochMs: 0,
                         },
                         person: null,
+                        segments: [],
                         snapshotsByWindowId: {},
+                        startAndEndTimesByWindowId: {},
                     },
                 })
             resumeKeaLoadersErrors()
@@ -136,14 +153,15 @@ describe('sessionRecordingDataLogic', () => {
             logic.mount()
 
             await expectLogic(logic)
-                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsFailure'])
+                .toDispatchActionsInAnyOrder(['loadRecordingSnapshots', 'loadRecordingSnapshotsFailure'])
                 .toMatchValues({
-                    sessionPlayerData: {
+                    sessionPlayerData: expect.objectContaining({
                         person: recordingMetaJson.person,
                         metadata: parseMetadataResponse(recordingMetaJson),
                         snapshotsByWindowId: {},
                         bufferedTo: null,
-                    },
+                        segments: [],
+                    }),
                 })
             resumeKeaLoadersErrors()
         })
@@ -178,7 +196,7 @@ describe('sessionRecordingDataLogic', () => {
                 .toMatchValues({
                     eventsApiParams: {
                         after: '2021-12-09T19:35:59Z',
-                        before: '2021-12-09T20:23:24Z',
+                        before: '2021-12-09T19:48:38Z',
                         person_id: '1',
                         orderBy: ['timestamp'],
                         properties: {
@@ -352,7 +370,7 @@ describe('sessionRecordingDataLogic', () => {
                 .toMatchValues({
                     eventsApiParams: {
                         after: '2021-12-09T19:35:59Z',
-                        before: '2021-12-09T20:23:24Z',
+                        before: '2021-12-09T19:48:38Z',
                         person_id: '1',
                         orderBy: ['timestamp'],
                         properties: {

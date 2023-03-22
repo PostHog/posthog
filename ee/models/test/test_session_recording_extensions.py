@@ -5,6 +5,7 @@ from unittest.mock import patch
 from freezegun import freeze_time
 
 from ee.models.session_recording_extensions import load_persisted_recording, persist_recording
+from posthog.models.session_recording.metadata import PersistedRecordingV1
 from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.session_recording_playlist_item.session_recording_playlist_item import SessionRecordingPlaylistItem
@@ -61,7 +62,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
         assert recording.keypress_count == 0
         assert recording.start_url == "https://app.posthog.com/my-url"
 
-        assert load_persisted_recording(recording) == {
+        expected: PersistedRecordingV1 = {
             "version": "2022-12-22",
             "distinct_id": "distinct_id_1",
             "snapshot_data_by_window_id": {
@@ -106,6 +107,8 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             },
             "segments": [],
         }
+
+        assert load_persisted_recording(recording) == expected
 
     @patch("ee.models.session_recording_extensions.report_team_action")
     def test_persist_tracks_correct_to_posthog(self, mock_capture):
