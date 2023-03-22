@@ -204,17 +204,17 @@ class QueryContext:
         if excluded_properties:
             excluded_properties = json.loads(excluded_properties)
 
-        excluded_properties = tuple(
+        excluded_list = tuple(
             set.union(set(excluded_properties or []), EVENTS_HIDDEN_PROPERTY_DEFINITIONS if type == "event" else [])
         )
         return dataclasses.replace(
             self,
             excluded_properties_filter="AND posthog_propertydefinition.name NOT IN %(excluded_properties)s"
-            if len(excluded_properties) > 0
+            if len(excluded_list) > 0
             else "",
             params={
                 **self.params,
-                "excluded_properties": excluded_properties,
+                "excluded_properties": excluded_list,
             },
         )
 
