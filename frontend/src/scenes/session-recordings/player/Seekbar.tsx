@@ -127,7 +127,7 @@ export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
                     onTouchStart={handleDown}
                 >
                     <div className="PlayerSeekbar__segments">
-                        {sessionPlayerData?.metadata?.segments?.map((segment: RecordingSegment) => (
+                        {sessionPlayerData?.segments?.map((segment: RecordingSegment) => (
                             <div
                                 key={`${segment.windowId}-${segment.startTimeEpochMs}`}
                                 className={clsx(
@@ -138,7 +138,9 @@ export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     width: `${
-                                        (100 * segment.durationMs) / sessionPlayerData.metadata.recordingDurationMs
+                                        sessionPlayerData.recordingDurationMs
+                                            ? (100 * segment.durationMs) / sessionPlayerData.recordingDurationMs
+                                            : '100'
                                     }%`,
                                 }}
                             />
@@ -156,7 +158,7 @@ export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
 
-                    <PlayerSeekbarInspector minMs={0} maxMs={sessionPlayerData.metadata.recordingDurationMs} />
+                    <PlayerSeekbarInspector minMs={0} maxMs={sessionPlayerData.recordingDurationMs ?? 0} />
                 </div>
 
                 <PlayerSeekbarTicks {...props} />

@@ -91,7 +91,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
         endTimeMs: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
-                return sessionPlayerData?.metadata?.recordingDurationMs ?? 0
+                return sessionPlayerData?.recordingDurationMs ?? 0
             },
         ],
 
@@ -100,12 +100,12 @@ export const seekbarLogic = kea<seekbarLogicType>({
             (sessionPlayerData) => {
                 if (
                     sessionPlayerData?.bufferedTo &&
-                    sessionPlayerData?.metadata?.segments &&
-                    sessionPlayerData?.metadata?.recordingDurationMs
+                    sessionPlayerData?.segments &&
+                    sessionPlayerData?.recordingDurationMs
                 ) {
                     const bufferedToPlayerTime =
                         getPlayerTimeFromPlayerPosition(sessionPlayerData.bufferedTo, sessionPlayerData.segments) ?? 0
-                    return (100 * bufferedToPlayerTime) / sessionPlayerData.metadata.recordingDurationMs
+                    return (100 * bufferedToPlayerTime) / sessionPlayerData.recordingDurationMs
                 }
                 return 0
             },
@@ -113,11 +113,8 @@ export const seekbarLogic = kea<seekbarLogicType>({
         scrubbingTime: [
             (selectors) => [selectors.thumbLeftPos, selectors.slider, selectors.sessionPlayerData],
             (thumbLeftPos, slider, sessionPlayerData) => {
-                if (thumbLeftPos && slider && sessionPlayerData?.metadata?.recordingDurationMs) {
-                    return (
-                        ((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth) *
-                        sessionPlayerData.metadata.recordingDurationMs
-                    )
+                if (thumbLeftPos && slider && sessionPlayerData?.recordingDurationMs) {
+                    return ((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth) * sessionPlayerData.recordingDurationMs
                 }
                 return 0
             },
@@ -133,14 +130,14 @@ export const seekbarLogic = kea<seekbarLogicType>({
             // scrubs to the end of the recording while playing, and then the player loop restarts the recording.
             if (
                 !values.isSeeking ||
-                values.currentPlayerPosition === values.sessionPlayerData?.metadata?.segments[0]?.startPlayerPosition
+                values.currentPlayerPosition === values.sessionPlayerData?.segments?.[0]?.startPlayerPosition
             ) {
                 const xValue = values.currentPlayerPosition
                     ? convertPlayerPositionToX(
                           values.currentPlayerPosition,
                           values.slider.offsetWidth,
                           values.sessionPlayerData.segments,
-                          values.sessionPlayerData.metadata.recordingDurationMs
+                          values.sessionPlayerData.recordingDurationMs ?? 0
                       )
                     : 0
 
@@ -157,7 +154,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
                     thumbLeftPos + THUMB_OFFSET,
                     values.slider.offsetWidth,
                     values.sessionPlayerData.segments,
-                    values.sessionPlayerData.metadata.recordingDurationMs
+                    values.sessionPlayerData.recordingDurationMs ?? 0
                 )
                 actions.seek(playerPosition)
             }
@@ -214,7 +211,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
                         playerPosition,
                         values.slider.offsetWidth,
                         values.sessionPlayerData.segments,
-                        values.sessionPlayerData.metadata.recordingDurationMs
+                        values.sessionPlayerData.recordingDurationMs ?? 0
                     )
                 )
             }
