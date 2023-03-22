@@ -10,6 +10,7 @@ export interface OpenEditorButtonProps extends LemonButtonProps {
 export function OpenEditorButton({ query, ...props }: OpenEditorButtonProps): JSX.Element {
     return (
         <LemonButton
+            data-attr={'open-json-editor-button'}
             type="secondary"
             status="primary-alt"
             to={query ? urls.insightNew(undefined, undefined, JSON.stringify(query)) : undefined}
