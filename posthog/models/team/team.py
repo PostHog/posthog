@@ -232,26 +232,6 @@ class Team(UUIDClassicModel):
         return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
 
     @property
-    def recordings_list_v2_query_enabled(self) -> bool:
-        if is_cloud():
-            return posthoganalytics.feature_enabled(
-                "recordings-list-v2-enabled",
-                str(self.uuid),
-                groups={"organization": str(self.organization_id)},
-                group_properties={
-                    "organization": {
-                        "id": str(self.organization_id),
-                        "created_at": self.organization.created_at,
-                        "name": self.organization.name,
-                    }
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-
-        return False
-
-    @property
     def _person_on_events_v2_querying_enabled(self) -> bool:
         if settings.PERSON_ON_EVENTS_V2_OVERRIDE is not None:
             return settings.PERSON_ON_EVENTS_V2_OVERRIDE

@@ -92,7 +92,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
-        return Response(list_recordings(filter, request, self.team))
+        use_v2_list = request.GET.get("version") == "2"
+
+        return Response(list_recordings(filter, request, self.team, v2=use_v2_list))
 
     # Returns meta data about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -206,7 +208,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return Response({"results": session_recording_serializer.data})
 
 
-def list_recordings(filter: SessionRecordingsFilter, request: request.Request, team: Team) -> dict:
+def list_recordings(filter: SessionRecordingsFilter, request: request.Request, team: Team, v2=False) -> dict:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -220,6 +222,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
     all_session_ids = filter.session_ids
     recordings: List[SessionRecording] = []
     more_recordings_available = False
+    can_use_v2 = v2 and not any(entity.has_hogql_property for entity in filter.entities)
 
     if all_session_ids:
         # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
@@ -241,10 +244,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
 
         # TODO: once person on events is deployed, we can remove the check for hogql properties https://github.com/PostHog/posthog/pull/14458#discussion_r1135780372
         session_recording_list_instance: Type[SessionRecordingList] = (
-            SessionRecordingListV2
-            if team.recordings_list_v2_query_enabled
-            and not any(entity.has_hogql_property for entity in filter.entities)
-            else SessionRecordingList
+            SessionRecordingListV2 if can_use_v2 else SessionRecordingList
         )
         (ch_session_recordings, more_recordings_available) = session_recording_list_instance(
             filter=filter, team=team
@@ -285,4 +285,4 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
     session_recording_serializer = SessionRecordingSerializer(recordings, many=True)
     results = session_recording_serializer.data
 
-    return {"results": results, "has_next": more_recordings_available}
+    return {"results": results, "has_next": more_recordings_available, "version": 2 if can_use_v2 else 1}
