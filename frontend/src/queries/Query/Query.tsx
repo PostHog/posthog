@@ -15,10 +15,8 @@ import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyIns
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
-import { AddToNotebook, AddToNotebookWrapper } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
+import { AddToNotebookWrapper } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
