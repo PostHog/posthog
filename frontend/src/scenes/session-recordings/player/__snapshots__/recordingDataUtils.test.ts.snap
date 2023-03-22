@@ -1,0 +1,91 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`generateInactiveSegmentsForRange for last segment 1`] = `
+[
+  {
+    "durationMs": 20000,
+    "endPlayerPosition": {
+      "time": 20000,
+      "windowId": "2",
+    },
+    "endTimeEpochMs": 1679496386461,
+    "isActive": false,
+    "startPlayerPosition": {
+      "time": 0,
+      "windowId": "2",
+    },
+    "startTimeEpochMs": 1679496366462,
+    "windowId": "2",
+  },
+]
+`;
+
+exports[`generateInactiveSegmentsForRange for range that cannot be filled 1`] = `
+[
+  {
+    "durationMs": 20000,
+    "endPlayerPosition": {
+      "time": 20000,
+      "windowId": "2",
+    },
+    "endTimeEpochMs": 1679496386461,
+    "isActive": false,
+    "startPlayerPosition": {
+      "time": 0,
+      "windowId": "2",
+    },
+    "startTimeEpochMs": 1679496366462,
+    "windowId": "2",
+  },
+  {
+    "durationMs": 40000,
+    "endPlayerPosition": {
+      "time": 95000,
+      "windowId": "3",
+    },
+    "endTimeEpochMs": 1679496426460,
+    "isActive": false,
+    "startPlayerPosition": {
+      "time": 55000,
+      "windowId": "3",
+    },
+    "startTimeEpochMs": 1679496386462,
+    "windowId": "3",
+  },
+]
+`;
+
+exports[`generateInactiveSegmentsForRange happy case 1`] = `
+[
+  {
+    "durationMs": 20000,
+    "endPlayerPosition": {
+      "time": 20000,
+      "windowId": "2",
+    },
+    "endTimeEpochMs": 1679496386461,
+    "isActive": false,
+    "startPlayerPosition": {
+      "time": 0,
+      "windowId": "2",
+    },
+    "startTimeEpochMs": 1679496366462,
+    "windowId": "2",
+  },
+  {
+    "durationMs": 40000,
+    "endPlayerPosition": {
+      "time": 95000,
+      "windowId": "3",
+    },
+    "endTimeEpochMs": 1679496426460,
+    "isActive": false,
+    "startPlayerPosition": {
+      "time": 55000,
+      "windowId": "3",
+    },
+    "startTimeEpochMs": 1679496386462,
+    "windowId": "3",
+  },
+]
+`;
