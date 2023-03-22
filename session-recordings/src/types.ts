@@ -60,6 +60,10 @@ export type RecordingMessage = {
 
 // This is the incoming message from Kafka
 export type IncomingRecordingMessage = {
+    kafkaTopic: KafkaTopic
+    kafkaPartition: number
+    kafkaOffset: string
+
     team_id: number
     distinct_id: string
     session_id: string

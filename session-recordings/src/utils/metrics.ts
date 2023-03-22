@@ -8,28 +8,12 @@
  * together.
  */
 
-import { PrometheusSerializer } from '@opentelemetry/exporter-prometheus'
-import { AggregationTemporality, MeterProvider, MetricReader } from '@opentelemetry/sdk-metrics-base'
+import { PrometheusExporter, PrometheusSerializer } from '@opentelemetry/exporter-prometheus'
+import { MeterProvider } from '@opentelemetry/sdk-metrics'
 import { Router } from 'express'
 
 export const meterProvider = new MeterProvider()
-
-class Exporter extends MetricReader {
-    selectAggregationTemporality() {
-        return AggregationTemporality.CUMULATIVE
-    }
-
-    protected onForceFlush(): Promise<void> {
-        return
-    }
-
-    protected onShutdown(): Promise<void> {
-        return
-    }
-}
-
-const exporter = new Exporter()
-
+const exporter = new PrometheusExporter()
 meterProvider.addMetricReader(exporter)
 
 export const metricRoutes = Router()

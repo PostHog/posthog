@@ -1,9 +1,9 @@
-import { IncomingRecordingMessage, KafkaTopic } from './types'
-import { meterProvider } from './utils/metrics'
+import { IncomingRecordingMessage, KafkaTopic } from '../types'
+import { meterProvider } from '../utils/metrics'
 import pino from 'pino'
-import { consumer, producer } from './utils/kafka'
-import { config } from './config'
-import { GlobalSessionManager } from './ingester/session-manager'
+import { consumer, producer } from '../utils/kafka'
+import { config } from '../config'
+import { Orchestrator } from './orchestrator'
 
 const logger = pino({ name: 'ingester', level: process.env.LOG_LEVEL || 'info' })
 
@@ -29,6 +29,15 @@ const meter = meterProvider.getMeter('ingester')
 const messagesReceived = meter.createCounter('messages_received')
 const snapshotMessagesProcessed = meter.createCounter('snapshot_messages_processed')
 
+// TODO: Add timeout for buffers to be flushed
+// TODO: Decompress buffered data
+// TODO: Compress file before uploading to S3
+// TODO: Configure TTL for S3 items
+
+// TODO: Forward minimal event info to Kafka topic to Clickhouse
+
+const orchestrator = new Orchestrator()
+
 export const startConsumer = (): void => {
     consumer.connect()
     consumer.subscribe({ topics: RECORDING_EVENTS_TOPICS })
@@ -37,10 +46,7 @@ export const startConsumer = (): void => {
     consumer.run({
         autoCommit: false,
         eachMessage: async ({ topic, partition, message }) => {
-            // We need to parse the event to get team_id and session_id although
-            // ideally we'd put this into the key instead to avoid needing to parse
             // TODO: handle seeking to first chunk offset
-            // TODO: write data to file instead to reduce memory footprint
             // TODO: Handle duplicated data being stored in the case of a consumer restart
             messagesReceived.add(1)
 
@@ -48,13 +54,17 @@ export const startConsumer = (): void => {
             const parsedData = JSON.parse(parsedMessage.data)
 
             if (parsedData.event !== '$snapshot') {
-                logger.info('Received non-snapshot message, ignoring')
+                logger.debug('Received non-snapshot message, ignoring')
                 return
             }
 
             const $snapshot_data = parsedData.properties.$snapshot_data
 
             const recordingMessage: IncomingRecordingMessage = {
+                kafkaOffset: message.offset,
+                kafkaPartition: partition,
+                kafkaTopic: topic,
+
                 team_id: parsedMessage.team_id,
                 distinct_id: parsedMessage.distinct_id,
                 session_id: parsedData.properties.$session_id,
@@ -70,7 +80,7 @@ export const startConsumer = (): void => {
                 events_summary: $snapshot_data.events_summary,
             }
 
-            GlobalSessionManager.consume(recordingMessage)
+            orchestrator.consume(recordingMessage)
 
             // 1. Parse the message
             // 2. Get or create the SessionManager by sessionId

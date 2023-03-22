@@ -1,3 +1,5 @@
+import path from 'path'
+
 export const config = {
     topics: {
         sessionRecordingEvents: process.env.SESSION_RECORDING_EVENTS || 'session_recording_events',
@@ -22,11 +24,11 @@ export const config = {
     },
 
     sessions: {
-        // NOTE: 30 seconds in dev, 10 minutes in prod
-        maxEventGroupAgeSeconds:
-            Number.parseInt(process.env.MAX_EVENT_GROUP_AGE) || (process.env.NODE_ENV === 'dev' ? 60 : 60 * 10),
+        directory: process.env.SESSIONS_DIRECTORY || path.join(__dirname, '.tmp/sessions'),
+        // NOTE: 10 minutes
+        maxEventGroupAgeSeconds: Number.parseInt(process.env.MAX_EVENT_GROUP_AGE) || 60 * 10,
         // NOTE: ~1MB in dev, ~50MB in prod
         maxEventGroupKb:
-            Number.parseInt(process.env.MAX_EVENT_GROUP_SIZE) || (process.env.NODE_ENV === 'dev' ? 1000 : 1000 * 50),
+            Number.parseInt(process.env.MAX_EVENT_GROUP_SIZE) || (process.env.NODE_ENV === 'dev' ? 100 : 1000 * 50),
     },
 }

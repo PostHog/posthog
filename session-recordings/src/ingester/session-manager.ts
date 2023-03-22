@@ -2,9 +2,12 @@ import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { randomUUID } from 'crypto'
 import pino from 'pino'
 import { s3Client } from '../utils/s3'
-import { IncomingRecordingMessage, PersistedRecordingMessage } from '../types'
+import { IncomingRecordingMessage } from '../types'
 import { config } from '../config'
 import { convertToPersitedMessage } from './utils'
+import { writeFileSync, mkdirSync, createReadStream } from 'node:fs'
+import { appendFile } from 'node:fs/promises'
+import path from 'path'
 
 // The buffer is a list of messages grouped
 type SessionBuffer = {
@@ -12,9 +15,7 @@ type SessionBuffer = {
     count: number
     size: number
     createdAt: Date
-
-    // NOTE: This will eventually be moved to a file
-    fileData: PersistedRecordingMessage[]
+    file: string
 }
 
 const logger = pino({ name: 'SessionManager', level: process.env.LOG_LEVEL || 'info' })
@@ -24,23 +25,31 @@ export class SessionManager {
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
 
-    constructor(public readonly teamId: number, public readonly sessionId: string) {
-        this.buffer = this.createBuffer()
+    constructor(
+        public readonly teamId: number,
+        public readonly sessionId: string,
+        private readonly onFinish: () => void
+    ) {
+        this.createBuffer()
     }
 
-    public add(message: IncomingRecordingMessage): void {
+    public async add(message: IncomingRecordingMessage): Promise<void> {
         if (message.chunk_count === 1) {
-            this.addToBuffer(message)
+            await this.addToBuffer(message)
         } else {
             this.addToChunks(message)
         }
+
+        const capacity = this.buffer.size / (config.sessions.maxEventGroupKb * 1024)
         logger.info(
-            `Added message to buffer ${this.sessionId} (count: ${this.buffer.count}, size: ${this.buffer.size}), chunks: ${this.chunks.size}`
+            `Buffer ${this.sessionId}: (count: ${this.buffer.count}, KB: ${Math.round(
+                this.buffer.size / 1024
+            )}, capacity: ${(capacity * 100).toFixed(2)}%) chunks: ${this.chunks.size}`
         )
 
         const shouldFlush =
-            this.buffer.size >= config.sessions.maxEventGroupKb * 1024 ||
-            Date.now() - this.buffer.createdAt.getTime() >= config.sessions.maxEventGroupAgeSeconds
+            capacity > 1 ||
+            Date.now() - this.buffer.createdAt.getTime() >= config.sessions.maxEventGroupAgeSeconds * 1000
 
         if (shouldFlush) {
             logger.info(`Buffer size exceeded, flushing`)
@@ -59,43 +68,58 @@ export class SessionManager {
         }
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
-        this.buffer = this.createBuffer()
+        this.createBuffer()
 
         try {
             const baseKey = `${config.s3.sessionRecordingFolder}/team_id/${this.teamId}/session_id/${this.sessionId}`
-            const dataKey = `${baseKey}/data/${this.flushBuffer.createdAt}` // TODO: Change to be based on events times
+            const dataKey = `${baseKey}/data/${this.flushBuffer.createdAt.getTime()}` // TODO: Change to be based on events times
+            const fileStream = createReadStream(this.flushBuffer.file)
 
             await s3Client.send(
                 new PutObjectCommand({
                     Bucket: config.s3.bucket,
                     Key: dataKey,
-                    Body: JSON.stringify(this.flushBuffer.fileData),
+                    Body: fileStream,
                 })
             )
+
+            // TODO: Increment file count and size metric
         } catch (error) {
             // TODO: If we fail to write to S3 we should be do something about it
             logger.error(error)
         } finally {
             this.flushBuffer = undefined
+
+            if (this.buffer.count === 0 && this.chunks.size === 0) {
+                // TODO: We should probably time out on chunks?
+                this.onFinish()
+            }
         }
     }
 
-    private createBuffer(): SessionBuffer {
-        // The buffer is always created
-        return {
-            id: `${this.teamId}-${this.sessionId}-${randomUUID()}`,
+    private createBuffer(): void {
+        const id = randomUUID()
+        this.buffer = {
+            id,
             count: 0,
             size: 0,
             createdAt: new Date(),
-            fileData: [],
+            file: path.join(config.sessions.directory, `${this.teamId}.${this.sessionId}.${id}.json`),
         }
+
+        // NOTE: We should move this to do once on startup
+        mkdirSync(config.sessions.directory, { recursive: true })
+        // NOTE: We may want to figure out how to safely do this async
+        writeFileSync(this.buffer.file, '', 'utf-8')
     }
 
     /**
      * Full messages (all chunks) are added to the buffer directly
      */
-    private addToBuffer(message: IncomingRecordingMessage): void {
-        this.buffer.fileData.push(convertToPersitedMessage(message))
+    private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
+        await appendFile(this.buffer.file, JSON.stringify(convertToPersitedMessage(message)) + '\n', 'utf-8')
+
+        // this.buffer.fileData.push(convertToPersitedMessage(message))
         this.buffer.count += 1
         this.buffer.size += Buffer.byteLength(message.data)
     }
@@ -106,7 +130,6 @@ export class SessionManager {
      *
      */
     private addToChunks(message: IncomingRecordingMessage): void {
-        console.log('Adding chunk', message)
         // If it is a chunked message we add to the collected chunks
         let chunks: IncomingRecordingMessage[] = []
 
@@ -129,19 +152,5 @@ export class SessionManager {
             })
             this.chunks.delete(message.chunk_id)
         }
-    }
-}
-
-export class GlobalSessionManager {
-    private static sessions: Map<string, SessionManager> = new Map()
-
-    public static consume(event: IncomingRecordingMessage): void {
-        const key = `${event.team_id}-${event.session_id}`
-
-        if (!this.sessions.has(key)) {
-            this.sessions.set(key, new SessionManager(event.team_id, event.session_id))
-        }
-
-        this.sessions.get(key).add(event)
     }
 }
