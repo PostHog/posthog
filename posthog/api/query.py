@@ -181,7 +181,7 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
             date_to=parse_as_date_or(recent_performance_query.dateRange.date_to, now()),
         )
 
-        return results
+        return {"results": results}
     elif query_kind == "TimeToSeeDataSessionsQuery":
         sessions_query_serializer = SessionsQuerySerializer(data=query_json)
         sessions_query_serializer.is_valid(raise_exception=True)
