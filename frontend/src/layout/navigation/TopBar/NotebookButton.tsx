@@ -13,16 +13,17 @@ export function NotebookButton(): JSX.Element {
     const overrides3000: Partial<LemonButtonWithSideActionProps> = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
         ? {
               size: 'small',
+              type: 'secondary',
           }
         : {}
     return (
         <LemonButton
-            type="secondary"
             icon={<IconJournal />}
             onClick={() => setNotebookSideBarShown(!notebookSideBarShown)}
+            status="primary-alt"
             {...overrides3000}
         >
-            Notebooks
+            {featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'Notebooks' : null}
         </LemonButton>
     )
 }
