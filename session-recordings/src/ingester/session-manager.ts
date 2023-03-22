@@ -52,8 +52,8 @@ export class SessionManager {
             Date.now() - this.buffer.createdAt.getTime() >= config.sessions.maxEventGroupAgeSeconds * 1000
 
         if (shouldFlush) {
-            logger.info(`Buffer size exceeded, flushing`)
-            this.flush()
+            logger.info(`Flushing buffer ${this.sessionId}...`)
+            await this.flush()
         }
     }
 
