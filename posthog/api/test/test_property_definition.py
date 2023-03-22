@@ -37,6 +37,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         PropertyDefinition.objects.get_or_create(team=self.team, name="plan", defaults={"query_usage_30_day": 1})
         PropertyDefinition.objects.get_or_create(team=self.team, name="purchase_value", defaults={"is_numerical": True})
         PropertyDefinition.objects.get_or_create(team=self.team, name="purchase", defaults={"is_numerical": True})
+        PropertyDefinition.objects.create(
+            team=self.team, name="$initial_referrer", property_type="String"
+        )  # We want to hide this property on events, but not on persons
 
         EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="$browser")
         EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="first_visit")
@@ -230,12 +233,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             team=self.team, name="person property", property_type="String", type=PropertyDefinition.Type.PERSON
         )
         PropertyDefinition.objects.create(
+            team=self.team, name="$initial_referrer", property_type="String", type=PropertyDefinition.Type.PERSON
+        )  # We want to hide this property on events, but not on persons
+        PropertyDefinition.objects.create(
             team=self.team, name="another", property_type="String", type=PropertyDefinition.Type.PERSON
         )
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([row["name"] for row in response.json()["results"]], ["another", "person property"])
+        self.assertEqual(
+            [row["name"] for row in response.json()["results"]], ["$initial_referrer", "another", "person property"]
+        )
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=prop")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
