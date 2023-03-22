@@ -36,17 +36,27 @@ function TemplateItem({
             onMouseLeave={() => setIsHovering(false)}
             data-attr={dataAttr}
         >
-            <div
-                className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30')}
-            >
-                <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} imageClassName="h-30" />
-            </div>
+            <div className={'overflow-hidden'}>
+                <div
+                    className={clsx(
+                        'transition-all w-full overflow-hidden',
+                        isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30'
+                    )}
+                >
+                    <FallbackCoverImage
+                        src={template?.image_url}
+                        alt="cover photo"
+                        index={index}
+                        imageClassName="h-30"
+                    />
+                </div>
 
-            <h5 className="px-2 mb-1">{template?.template_name}</h5>
-            <div className="px-2 py-1 overflow-y-auto grow">
-                <p className={clsx('text-muted-alt text-xs', isHovering ? '' : 'line-clamp-2')}>
-                    {template?.dashboard_description ?? ' '}
-                </p>
+                <h5 className="px-2 mb-1">{template?.template_name}</h5>
+                <div className="px-2 py-1 overflow-y-auto grow">
+                    <p className={clsx('text-muted-alt text-xs', isHovering ? '' : 'line-clamp-2')}>
+                        {template?.dashboard_description ?? ' '}
+                    </p>
+                </div>
             </div>
         </div>
     )
