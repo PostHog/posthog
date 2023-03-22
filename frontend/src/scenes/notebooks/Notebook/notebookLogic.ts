@@ -1,7 +1,12 @@
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
-import { Editor } from '@tiptap/core'
+
 import type { notebookLogicType } from './notebookLogicType'
+
+// NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we jusz use Any
+// import type { Editor } from '@tiptap/core'
+
+export type Editor = any
 
 const START_CONTENT = `
 <h2>Introducing Notebook!</h2>
