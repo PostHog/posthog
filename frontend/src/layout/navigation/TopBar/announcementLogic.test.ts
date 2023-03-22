@@ -3,7 +3,7 @@ import { initKeaTests } from '~/test/init'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { announcementLogic, AnnouncementType } from './announcementLogic'
+import { announcementLogic, AnnouncementType, DefaultCloudAnnouncement } from './announcementLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '../navigationLogic'
@@ -20,14 +20,14 @@ describe('announcementLogic', () => {
         logic.mount()
         await expectLogic(logic).toMount([featureFlagLogic, preflightLogic, userLogic, navigationLogic])
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CLOUD_ANNOUNCEMENT], {
-            [FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]: MOCK_CLOUD_ANNOUNCEMENT,
+            [FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]: true,
         })
     })
 
     afterEach(() => logic.unmount())
     it('shows a cloud announcement', async () => {
         await expectLogic(logic).toMatchValues({
-            cloudAnnouncement: MOCK_CLOUD_ANNOUNCEMENT,
+            cloudAnnouncement: DefaultCloudAnnouncement,
             shownAnnouncementType: AnnouncementType.CloudFlag,
         })
     })
@@ -35,8 +35,18 @@ describe('announcementLogic', () => {
     it('hides announcements during the ingestion phase', async () => {
         router.actions.push(urls.ingestion())
         await expectLogic(logic).toMatchValues({
-            cloudAnnouncement: MOCK_CLOUD_ANNOUNCEMENT,
+            cloudAnnouncement: DefaultCloudAnnouncement,
             shownAnnouncementType: null,
+        })
+    })
+
+    it('shows a customised cloud announcement from payload', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CLOUD_ANNOUNCEMENT], {
+            [FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]: true, // not sure how to add payload
+        })
+        await expectLogic(logic).toMatchValues({
+            cloudAnnouncement: MOCK_CLOUD_ANNOUNCEMENT,
+            shownAnnouncementType: AnnouncementType.CloudFlag,
         })
     })
 })
