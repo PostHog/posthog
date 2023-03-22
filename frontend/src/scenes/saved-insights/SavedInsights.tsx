@@ -40,7 +40,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonButtonWithSideAction, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { summariseInsight } from 'scenes/insights/utils'
+
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -57,6 +57,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
+import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -108,7 +109,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
     [InsightType.SQL]: {
         name: 'SQL',
-        description: 'Use SQL to query your data',
+        description: 'Use PostHog SQL to query your data',
         icon: InsightSQLIcon,
         inMenu: true,
     },
@@ -116,7 +117,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         name: 'JSON',
         description: 'Build custom insights with our JSON query language',
         icon: InsightSQLIcon,
-        inMenu: false, // until data exploration is released
+        inMenu: true,
     },
 }
 
@@ -350,6 +351,7 @@ function SavedInsightsGrid(): JSX.Element {
 export function SavedInsights(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const isUsingDataExploration = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+    const isUsingDashboardQueries = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
 
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
@@ -385,14 +387,13 @@ export function SavedInsights(): JSX.Element {
                             <Link to={urls.insightView(insight.short_id)}>
                                 {name || (
                                     <i>
-                                        {summariseInsight(
+                                        {summarizeInsight(insight.query, insight.filters, {
                                             isUsingDataExploration,
-                                            insight.query,
                                             aggregationLabel,
                                             cohortsById,
                                             mathDefinitions,
-                                            insight.filters
-                                        )}
+                                            isUsingDashboardQueries,
+                                        })}
                                     </i>
                                 )}
                             </Link>

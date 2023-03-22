@@ -27,6 +27,12 @@ beforeEach(() => {
         )
     )
 
+    // un-intercepted sometimes this doesn't work and the page gets stuck on the SpinnerOverlay
+    cy.intercept(/app.posthog.com\/api\/projects\/@current\/feature_flags\/my_flags.*/, (req) => req.reply([]))
+    cy.intercept('https://www.gravatar.com/avatar/**', (req) =>
+        req.reply({ statusCode: 404, body: 'Cypress forced 404' })
+    )
+
     if (Cypress.spec.name.includes('Premium')) {
         cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
 

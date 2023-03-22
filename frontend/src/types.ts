@@ -1200,7 +1200,7 @@ export interface InsightModel extends Cacheable {
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
     filters: Partial<FilterType>
-    query?: Node
+    query?: Node | null
 }
 
 export interface DashboardType {

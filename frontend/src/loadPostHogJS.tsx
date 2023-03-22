@@ -26,6 +26,13 @@ export function loadPostHogJS(): void {
                 persistence: 'localStorage+cookie',
                 bootstrap: !!window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
                 opt_in_site_apps: true,
+                loaded: (posthog) => {
+                    if (window.IMPERSONATED_SESSION) {
+                        posthog.opt_out_capturing()
+                    } else {
+                        posthog.opt_in_capturing()
+                    }
+                },
             })
         )
 

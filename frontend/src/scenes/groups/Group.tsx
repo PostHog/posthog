@@ -1,28 +1,22 @@
-import { Tabs } from 'antd'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { EventsTable } from 'scenes/events/EventsTable'
 import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { Group as IGroup, PersonsTabType, PropertyFilterType, PropertyOperator } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { Query } from '~/queries/Query/Query'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { NodeKind } from '~/queries/schema'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { IconInfo } from 'lib/lemon-ui/icons'
-
-const { TabPane } = Tabs
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: Group,
@@ -54,7 +48,17 @@ function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTy
 }
 
 export function Group(): JSX.Element {
-    const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex, groupType } = useValues(groupLogic)
+    const {
+        groupData,
+        groupDataLoading,
+        groupTypeName,
+        groupKey,
+        groupTypeIndex,
+        groupType,
+        groupTab,
+        groupEventsQuery,
+    } = useValues(groupLogic)
+    const { setGroupTab, setGroupEventsQuery } = useActions(groupLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
@@ -68,24 +72,35 @@ export function Group(): JSX.Element {
                 title={groupDisplayId(groupData.group_key, groupData.group_properties)}
                 caption={<GroupCaption groupData={groupData} groupTypeName={groupTypeName} />}
             />
-
-            <Tabs>
-                <TabPane
-                    tab={<span data-attr="persons-properties-tab">Properties</span>}
-                    key={PersonsTabType.PROPERTIES}
-                >
-                    <PropertiesTable properties={groupData.group_properties || {}} embedded={false} searchable />
-                </TabPane>
-                <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
-                    {featureDataExploration ? (
-                        <Query
-                            query={{
-                                kind: NodeKind.DataTableNode,
-                                full: true,
-                                source: {
-                                    kind: NodeKind.EventsQuery,
-                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                    fixedProperties: [
+            <LemonTabs
+                activeKey={groupTab ?? PersonsTabType.PROPERTIES}
+                onChange={(tab) => setGroupTab(tab)}
+                tabs={[
+                    {
+                        key: PersonsTabType.PROPERTIES,
+                        label: <span data-attr="persons-properties-tab">Properties</span>,
+                        content: (
+                            <PropertiesTable
+                                properties={groupData.group_properties || {}}
+                                embedded={false}
+                                searchable
+                            />
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.EVENTS,
+                        label: <span data-attr="persons-events-tab">Events</span>,
+                        content: featureDataExploration ? (
+                            groupEventsQuery ? (
+                                <Query query={groupEventsQuery} setQuery={setGroupEventsQuery} />
+                            ) : (
+                                <Spinner />
+                            )
+                        ) : (
+                            <EventsTable
+                                pageKey={`${groupTypeIndex}::${groupKey}`}
+                                fixedFilters={{
+                                    properties: [
                                         {
                                             key: `$group_${groupTypeIndex}`,
                                             value: groupKey,
@@ -93,50 +108,31 @@ export function Group(): JSX.Element {
                                             operator: PropertyOperator.Exact,
                                         },
                                     ],
-                                },
-                            }}
-                        />
-                    ) : (
-                        <EventsTable
-                            pageKey={`${groupTypeIndex}::${groupKey}`}
-                            fixedFilters={{
-                                properties: [
-                                    {
-                                        key: `$group_${groupTypeIndex}`,
-                                        value: groupKey,
-                                        type: PropertyFilterType.Event,
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                ],
-                            }}
-                            sceneUrl={urls.group(groupTypeIndex.toString(), groupKey)}
-                            showCustomizeColumns={false}
-                        />
-                    )}
-                </TabPane>
-
-                <TabPane
-                    tab={
-                        <div className="flex items-center" data-attr="group-related-tab">
-                            Related people & groups
-                            <Tooltip
-                                title={`People and groups that have shared events with this ${groupTypeName} in the last 90 days.`}
-                            >
-                                <IconInfo className="ml-1 text-base shrink-0" />
-                            </Tooltip>
-                        </div>
-                    }
-                    key={PersonsTabType.RELATED}
-                >
-                    <RelatedGroups id={groupKey} groupTypeIndex={groupTypeIndex} />
-                </TabPane>
-                <TabPane
-                    tab={<span data-attr="groups-related-flags-tab">Feature flags</span>}
-                    key={PersonsTabType.FEATURE_FLAGS}
-                >
-                    <RelatedFeatureFlags distinctId={groupData.group_key} groups={{ [groupType]: groupKey }} />
-                </TabPane>
-            </Tabs>
+                                }}
+                                sceneUrl={urls.group(groupTypeIndex.toString(), groupKey)}
+                                showCustomizeColumns={false}
+                            />
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.RELATED,
+                        label: (
+                            <div className="flex items-center" data-attr="group-related-tab">
+                                Related people & groups
+                            </div>
+                        ),
+                        tooltip: `People and groups that have shared events with this ${groupTypeName} in the last 90 days.`,
+                        content: <RelatedGroups id={groupKey} groupTypeIndex={groupTypeIndex} />,
+                    },
+                    {
+                        key: PersonsTabType.FEATURE_FLAGS,
+                        label: <span data-attr="groups-related-flags-tab">Feature flags</span>,
+                        content: (
+                            <RelatedFeatureFlags distinctId={groupData.group_key} groups={{ [groupType]: groupKey }} />
+                        ),
+                    },
+                ]}
+            />
         </>
     )
 }

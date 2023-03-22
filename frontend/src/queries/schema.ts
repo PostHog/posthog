@@ -271,10 +271,10 @@ export interface DataTableNode extends Node {
     expandable?: boolean
     /** Link properties via the URL (default: false) */
     propertiesViaUrl?: boolean
-    /** Show warning about live events being buffered max 60 sec (default: false) */
-    showEventsBufferWarning?: boolean
     /** Can the user click on column headers to sort the table? (default: true) */
     allowSorting?: boolean
+    /** Show a button to open the current query as a new insight. (default: true) */
+    showOpenEditorButton?: boolean
 }
 
 // Insight viz node
@@ -494,6 +494,9 @@ export interface BreakdownFilter {
 export interface QueryContext {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
+    /** used to override the value in the query */
+    showOpenEditorButton?: boolean
+    showQueryEditor?: boolean
 }
 
 interface QueryContextColumn {

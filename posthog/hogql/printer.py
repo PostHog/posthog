@@ -9,9 +9,11 @@ from posthog.hogql.database import Table, create_hogql_database
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_refs
 from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
+from posthog.hogql.transforms.macros import expand_macros
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
+from posthog.utils import PersonOnEventsMode
 
 
 def team_id_guard_for_table(table_ref: Union[ast.TableRef, ast.TableAliasRef], context: HogQLContext) -> ast.Expr:
@@ -32,19 +34,37 @@ def print_ast(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> str:
-    """Print an AST into a string. Does not modify the node."""
+    prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack)
+    return print_prepared_ast(node=prepared_ast, context=context, dialect=dialect, stack=stack)
+
+
+def prepare_ast_for_printing(
+    node: ast.Expr,
+    context: HogQLContext,
+    dialect: Literal["hogql", "clickhouse"],
+    stack: Optional[List[ast.SelectQuery]] = None,
+) -> ast.Expr:
     ref = stack[-1].ref if stack else None
 
-    # resolve refs
     context.database = context.database or create_hogql_database(context.team_id)
+    node = expand_macros(node, stack)
     resolve_refs(node, context.database, ref)
-
-    # modify the cloned tree as needed
+    expand_asterisks(node)
     if dialect == "clickhouse":
+        # This makes printed "hogql" nicer.
         node = resolve_property_types(node, context)
-        expand_asterisks(node)
         resolve_lazy_tables(node, stack, context)
 
+    # We add a team_id guard right before printing. It's not a separate step here.
+    return node
+
+
+def print_prepared_ast(
+    node: ast.Expr,
+    context: HogQLContext,
+    dialect: Literal["hogql", "clickhouse"],
+    stack: Optional[List[ast.SelectQuery]] = None,
+) -> str:
     # _Printer also adds a team_id guard if printing clickhouse
     return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
 
@@ -176,7 +196,12 @@ class _Printer(Visitor):
                 raise ValueError(f"Table alias {node.ref.name} does not resolve!")
             if not isinstance(table_ref, ast.TableRef):
                 raise ValueError(f"Table alias {node.ref.name} does not resolve to a table!")
-            join_strings.append(self._print_identifier(table_ref.table.clickhouse_table()))
+
+            if self.dialect == "clickhouse":
+                table_name = table_ref.table.clickhouse_table()
+            else:
+                table_name = table_ref.table.hogql_table()
+            join_strings.append(self._print_identifier(table_name))
 
             if node.alias is not None:
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
@@ -186,7 +211,10 @@ class _Printer(Visitor):
                 extra_where = team_id_guard_for_table(node.ref, self.context)
 
         elif isinstance(node.ref, ast.TableRef):
-            join_strings.append(self._print_identifier(node.ref.table.clickhouse_table()))
+            if self.dialect == "clickhouse":
+                join_strings.append(self._print_identifier(node.ref.table.clickhouse_table()))
+            else:
+                join_strings.append(self._print_identifier(node.ref.table.hogql_table()))
 
             if node.sample is not None:
                 sample_clause = self.visit_sample_expr(node.sample)
@@ -314,10 +342,6 @@ class _Printer(Visitor):
             return ".".join([self._print_identifier(identifier) for identifier in node.chain])
 
         if node.ref is not None:
-            select_query = self._last_select()
-            select: Optional[ast.SelectQueryRef] = select_query.ref if select_query else None
-            if select is None:
-                raise ValueError(f"Can't find SelectQueryRef for field: {original_field}")
             return self.visit(node.ref)
         else:
             raise ValueError(f"Unknown Ref, can not print {type(node.ref).__name__}")
@@ -365,7 +389,10 @@ class _Printer(Visitor):
         return f"{inside} AS {self._print_identifier(node.alias)}"
 
     def visit_table_ref(self, ref: ast.TableRef):
-        return self._print_identifier(ref.table.clickhouse_table())
+        if self.dialect == "clickhouse":
+            return self._print_identifier(ref.table.clickhouse_table())
+        else:
+            return self._print_identifier(ref.table.hogql_table())
 
     def visit_table_alias_ref(self, ref: ast.TableAliasRef):
         return self._print_identifier(ref.name)
@@ -402,28 +429,26 @@ class _Printer(Visitor):
                 and ref.name == "properties"
                 and ref.table.field == "poe"
             ):
-                if self.context.using_person_on_events:
+                if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
 
             else:
                 field_sql = self._print_identifier(resolved_field.name)
-
-                # If the field is called on a table that has an alias, prepend the table alias.
-                # If there's another field with the same name in the scope that's not this, prepend the full table name.
-                # Note: we don't prepend a table name for the special "person" fields.
-                if isinstance(ref.table, ast.TableAliasRef) or ref_with_name_in_scope != ref:
-                    field_sql = f"{self.visit(ref.table)}.{field_sql}"
+                if self.context.within_non_hogql_query and ref_with_name_in_scope == ref:
+                    # Do not prepend table name in non-hogql context. We don't know what it actually is.
+                    return field_sql
+                field_sql = f"{self.visit(ref.table)}.{field_sql}"
 
         elif isinstance(ref.table, ast.SelectQueryRef) or isinstance(ref.table, ast.SelectQueryAliasRef):
             field_sql = self._print_identifier(ref.name)
-            if isinstance(ref.table, ast.SelectQueryAliasRef) or ref_with_name_in_scope != ref:
+            if isinstance(ref.table, ast.SelectQueryAliasRef):
                 field_sql = f"{self.visit(ref.table)}.{field_sql}"
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.using_person_on_events:
+                if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -449,7 +474,10 @@ class _Printer(Visitor):
             table = table.table_ref
 
         if isinstance(table, ast.TableRef):
-            table_name = table.table.clickhouse_table()
+            if self.dialect == "clickhouse":
+                table_name = table.table.clickhouse_table()
+            else:
+                table_name = table.table.hogql_table()
             if field is None:
                 raise ValueError(f"Can't resolve field {field_ref.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
@@ -469,7 +497,7 @@ class _Printer(Visitor):
             or (isinstance(table, ast.VirtualTableRef) and table.field == "poe")
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-            if self.context.using_person_on_events:
+            if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
                 materialized_column = self._get_materialized_column("events", ref.name, "person_properties")
             else:
                 materialized_column = self._get_materialized_column("person", ref.name, "properties")

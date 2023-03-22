@@ -14,5 +14,5 @@ class HogQLParamMixin:
             "hogql_context", HogQLContext(within_non_hogql_query=True, team_id=team.pk if team else None)
         )
         if team:
-            context.using_person_on_events = team.person_on_events_querying_enabled
+            context.person_on_events_mode = self.kwargs["team"].person_on_events_mode
         return context

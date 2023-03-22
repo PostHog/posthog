@@ -10,8 +10,9 @@ from posthog.constants import (
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
+from posthog.queries.util import get_person_properties_mode
+from posthog.utils import PersonOnEventsMode
 
 
 class PathEventQuery(EventQuery):
@@ -24,9 +25,7 @@ class PathEventQuery(EventQuery):
         funnel_paths_join = ""
         funnel_paths_filter = ""
 
-        person_id = (
-            f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id"
-        )
+        person_id = f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id"
 
         if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP or self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP:
             # used when looking for paths up to a dropoff point to account for events happening between the latest even and when the person is deemed dropped off
@@ -87,9 +86,7 @@ class PathEventQuery(EventQuery):
 
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=get_person_properties_mode(self._team),
             person_id_joined_alias=f"{person_id}",
         )
 
@@ -104,7 +101,11 @@ class PathEventQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
-        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
+        null_person_filter = (
+            f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
+            if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+            else ""
+        )
 
         sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})
@@ -112,7 +113,7 @@ class PathEventQuery(EventQuery):
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_distinct_id_query()}
+            {self._get_person_ids_query()}
             {person_query}
             {groups_query}
             {funnel_paths_join}
@@ -131,7 +132,7 @@ class PathEventQuery(EventQuery):
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._using_person_on_events:
+        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
             self._should_join_distinct_ids = False
             self._should_join_persons = False
 

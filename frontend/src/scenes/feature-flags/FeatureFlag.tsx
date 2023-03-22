@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
-import { featureFlagLogic } from './featureFlagLogic'
+import { defaultEntityFilterOnFlag, featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { FeatureFlagInstructions, FeatureFlagPayloadInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -37,6 +37,7 @@ import {
     PropertyOperator,
     Resource,
     FeatureFlagType,
+    SessionRecordingsTabs,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -44,7 +45,6 @@ import { Field } from 'lib/forms/Field'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { urls } from 'scenes/urls'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -61,7 +61,6 @@ import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
-import { FeatureFlagRecordings } from './FeatureFlagRecordingsCard'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
@@ -181,7 +180,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Link>
                             </AlertMessage>
                         )}
-                        <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons. To sidestep this, you can choose to override server properties when requesting the feature flag" />
                         <Row gutter={16} style={{ marginBottom: 32 }}>
                             <Col span={12} className="space-y-4">
                                 <Field
@@ -448,6 +446,23 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     buttons={
                                         <>
                                             <div className="flex items-center gap-2 mb-2">
+                                                {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
+                                                    <>
+                                                        <LemonButton
+                                                            to={urls.sessionRecordings(SessionRecordingsTabs.Recent, {
+                                                                events: defaultEntityFilterOnFlag(featureFlag.key)
+                                                                    .events,
+                                                            })}
+                                                            type="secondary"
+                                                        >
+                                                            <LemonTag type="warning" className="uppercase ml-2 mr-2">
+                                                                Beta
+                                                            </LemonTag>
+                                                            View Recordings
+                                                        </LemonButton>
+                                                        <LemonDivider vertical />
+                                                    </>
+                                                )}
                                                 <LemonButton
                                                     data-attr="delete-feature-flag"
                                                     status="danger"
@@ -505,15 +520,19 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <Col span={11} className="pl-4">
                                                 <RecentFeatureFlagInsights />
                                                 <div className="my-4" />
-                                                {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] ? (
-                                                    <FeatureFlagRecordings flagKey={featureFlag.key || 'my-flag'} />
-                                                ) : (
+                                                {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
                                                     <FeatureFlagInstructions
                                                         featureFlagKey={featureFlag.key || 'my-flag'}
                                                     />
                                                 )}
                                             </Col>
                                         </Row>
+                                        {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
+                                            <>
+                                                <LemonDivider className="mb-4" />
+                                                <FeatureFlagCodeExample featureFlag={featureFlag} />
+                                            </>
+                                        )}
                                     </Tabs.TabPane>
                                     {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
                                         <Tabs.TabPane

@@ -68,9 +68,7 @@ function Pages(): JSX.Element {
     const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
     const [isNewInsightMenuShown, setIsNewInsightMenuShown] = useState(false)
 
-    const isUsingDataExplorationQueries =
-        !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS] &&
-        !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
+    const isUsingDataExplorationQueries = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
 
     return (
         <ul>
@@ -201,9 +199,6 @@ function Pages(): JSX.Element {
                             to={urls.webPerformance()}
                         />
                     )}
-                    {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
-                        <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
-                    )}
                     <div className="SideBar__heading">Data</div>
 
                     <PageButton
@@ -241,6 +236,9 @@ function Pages(): JSX.Element {
                             {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
                     ) : null}
+                    {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
+                        <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
+                    )}
                     <div className="SideBar__heading">Configuration</div>
 
                     <PageButton

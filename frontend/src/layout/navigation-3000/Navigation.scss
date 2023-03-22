@@ -82,6 +82,10 @@
     flex: 0 0 var(--sidebar-width);
     box-sizing: content-box;
 
+    [theme='dark'] & {
+        background: var(--accent-3000);
+    }
+
     &.Sidebar3000--resizing {
         transition: none; // Increase responsiveness when resizing
         will-change: flex-basis;
@@ -142,6 +146,7 @@
     justify-content: space-between;
     height: var(--sidebar-row-height);
     padding: 0 var(--sidebar-horizontal-padding);
+    background: var(--bg-3000);
     border-top-width: 1px;
     font-weight: 500;
     user-select: none;
@@ -203,13 +208,17 @@
     --accordion-row-height: 1.75rem;
     --accordion-arrow-size: 1rem;
     --accordion-inset: 1.25rem;
+    --accordion-header-background: var(--accent-3000);
+    [theme='dark'] & {
+        --accordion-header-background: var(--bg-3000);
+    }
 }
 
 .Accordion[aria-disabled='true'] {
     .Accordion__header {
         cursor: default;
         &:hover {
-            background: var(--accent-3000);
+            background: var(--accordion-header-background);
         }
         .LemonIcon {
             visibility: hidden;
@@ -221,7 +230,7 @@
     transition: 200ms ease background, 200ms ease border-color;
     display: flex;
     align-items: center;
-    background: var(--accent-3000);
+    background: var(--accordion-header-background);
     height: var(--accordion-row-height);
     padding: 0 var(--sidebar-horizontal-padding);
     border-bottom-width: 1px;
