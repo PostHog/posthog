@@ -1,7 +1,9 @@
 import json
+import uuid
 from datetime import datetime
 
 import pytz
+from django.test import override_settings
 from rest_framework import status
 
 from posthog.constants import (
@@ -20,6 +22,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
 
@@ -201,6 +204,167 @@ def retention_test_factory(retention):
                     [0, 0, 0, 0],
                     [1, 0, 0],
                     [0, 0],
+                    [1],
+                ],
+            )
+
+            self.assertEqual(
+                pluck(result, "date"),
+                [
+                    datetime(2020, 1, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 2, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 3, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 4, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 5, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 6, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 7, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 8, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 9, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 10, 10, 0, tzinfo=pytz.UTC),
+                    datetime(2020, 11, 10, 0, tzinfo=pytz.UTC),
+                ],
+            )
+
+        @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+        @snapshot_clickhouse_queries
+        def test_month_interval_with_person_on_events_v2(self):
+            _create_person(team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"})
+            _create_person(team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"})
+
+            person_id1 = str(uuid.uuid4())
+            person_id2 = str(uuid.uuid4())
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person1",
+                person_id=person_id1,
+                timestamp=_date(day=0, month=-5),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person2",
+                person_id=person_id2,
+                timestamp=_date(day=0, month=-4),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person1",
+                person_id=person_id1,
+                timestamp=_date(day=0, month=-3),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person2",
+                person_id=person_id2,
+                timestamp=_date(day=0, month=-2),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person1",
+                person_id=person_id1,
+                timestamp=_date(day=0, month=-1),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person2",
+                person_id=person_id2,
+                timestamp=_date(day=0, month=0),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person1",
+                person_id=person_id1,
+                timestamp=_date(day=0, month=1),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person2",
+                person_id=person_id2,
+                timestamp=_date(day=0, month=2),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person1",
+                person_id=person_id1,
+                timestamp=_date(day=0, month=3),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person2",
+                person_id=person_id2,
+                timestamp=_date(day=0, month=4),
+            )
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="person1",
+                person_id=person_id1,
+                timestamp=_date(day=0, month=5),
+            )
+
+            _create_events(
+                self.team,
+                [
+                    ("person1", _date(day=0, month=-5)),
+                    ("person2", _date(day=0, month=-4)),
+                    ("person1", _date(day=0, month=-3)),
+                    ("person2", _date(day=0, month=-2)),
+                    ("person1", _date(day=0, month=-1)),
+                    ("person2", _date(day=0, month=0)),
+                    ("person1", _date(day=0, month=1)),
+                    ("person2", _date(day=0, month=2)),
+                    ("person1", _date(day=0, month=3)),
+                    ("person2", _date(day=0, month=4)),
+                    ("person1", _date(day=0, month=5)),
+                ],
+            )
+
+            create_person_id_override_by_distinct_id("person1", "person2", self.team.pk)
+
+            filter = RetentionFilter(data={"date_to": _date(0, month=5, hour=0), "period": "Month"})
+
+            result = retention().run(filter, self.team, total_intervals=11)
+
+            self.assertEqual(
+                pluck(result, "label"),
+                [
+                    "Month 0",
+                    "Month 1",
+                    "Month 2",
+                    "Month 3",
+                    "Month 4",
+                    "Month 5",
+                    "Month 6",
+                    "Month 7",
+                    "Month 8",
+                    "Month 9",
+                    "Month 10",
+                ],
+            )
+
+            # We expect 1s across the board due to the override set up from person1 to person2, making them the same person
+            self.assertEqual(
+                pluck(result, "values", "count"),
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                    [1, 1, 1],
+                    [1, 1],
                     [1],
                 ],
             )

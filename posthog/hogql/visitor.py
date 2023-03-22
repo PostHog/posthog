@@ -3,9 +3,9 @@ from typing import Optional
 from posthog.hogql import ast
 
 
-def clone_expr(self: ast.Expr) -> ast.Expr:
-    """Clone an expression node. Removes all refs."""
-    return CloningVisitor().visit(self)
+def clone_expr(self: ast.Expr, clear_refs=False) -> ast.Expr:
+    """Clone an expression node."""
+    return CloningVisitor(clear_refs=clear_refs).visit(self)
 
 
 class Visitor(object):
@@ -20,6 +20,9 @@ class TraversingVisitor(Visitor):
 
     def visit_expr(self, node: ast.Expr):
         raise ValueError("Can not visit generic Expr node")
+
+    def visit_macro(self, node: ast.Macro):
+        pass
 
     def visit_alias(self, node: ast.Alias):
         self.visit(node.expr)
@@ -153,6 +156,12 @@ class CloningVisitor(Visitor):
     def visit_expr(self, node: ast.Expr):
         raise ValueError("Can not visit generic Expr node")
 
+    def visit_macro(self, node: ast.Macro):
+        return ast.Macro(
+            name=node.name,
+            expr=clone_expr(node.expr),
+        )
+
     def visit_alias(self, node: ast.Alias):
         return ast.Alias(
             ref=None if self.clear_refs else node.ref,
@@ -206,6 +215,7 @@ class CloningVisitor(Visitor):
             ref=None if self.clear_refs else node.ref,
             name=node.name,
             args=[self.visit(arg) for arg in node.args],
+            distinct=node.distinct,
         )
 
     def visit_ratio_expr(self, node: ast.RatioExpr):
@@ -235,6 +245,7 @@ class CloningVisitor(Visitor):
     def visit_select_query(self, node: ast.SelectQuery):
         return ast.SelectQuery(
             ref=None if self.clear_refs else node.ref,
+            macros={key: expr for key, expr in node.macros.items()} if node.macros else None,  # to not traverse
             select=[self.visit(expr) for expr in node.select] if node.select else None,
             select_from=self.visit(node.select_from),
             where=self.visit(node.where),

@@ -24,7 +24,7 @@ class StickinessEventsQuery(EventQuery):
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups),
             person_properties_mode=get_person_properties_mode(self._team),
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=self._person_id_alias,
         )
 
         self.params.update(prop_params)
@@ -56,7 +56,7 @@ class StickinessEventsQuery(EventQuery):
                 countDistinct({get_trunc_func_ch(self._filter.interval)}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s))) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_distinct_id_query()}
+            {self._get_person_ids_query()}
             {person_query}
             {groups_query}
             WHERE team_id = %(team_id)s
@@ -80,16 +80,18 @@ class StickinessEventsQuery(EventQuery):
         )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = True
+        if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+            self._should_join_distinct_ids = False
+        else:
+            self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
         if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
-            self._should_join_distinct_ids = False
             self._should_join_persons = False
 
     def aggregation_target(self):
-        return f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id"
+        return self._person_id_alias
 
     def get_actions_query(self) -> Tuple[str, Dict[str, Any]]:
         if self._entity.type == TREND_FILTER_TYPE_ACTIONS:

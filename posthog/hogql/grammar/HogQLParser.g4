@@ -25,7 +25,7 @@ selectStmt:
     settingsClause?
     ;
 
-withClause: WITH columnExprList;
+withClause: WITH withExprList;
 topClause: TOP DECIMAL_LITERAL (WITH TIES)?;
 fromClause: FROM joinExpr;
 arrayJoinClause: (LEFT | INNER)? ARRAY JOIN columnExprList;
@@ -160,6 +160,14 @@ columnLambdaExpr:
     )
     ARROW columnExpr
     ;
+
+withExprList: withExpr (COMMA withExpr)*;
+withExpr
+    : identifier AS LPAREN selectUnionStmt RPAREN    # WithExprSubquery
+    // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
+    | columnExpr AS identifier                       # WithExprColumn
+    ;
+
 
 // This is slightly different in HogQL compared to ClickHouse SQL
 // HogQL allows unlimited ("*") nestedIdentifier-s "properties.b.a.a.w.a.s".

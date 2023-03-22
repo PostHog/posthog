@@ -1306,10 +1306,6 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
-                "showEventsBufferWarning": {
-                    "description": "Show warning about live events being buffered max 60 sec (default: false)",
-                    "type": "boolean"
-                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
