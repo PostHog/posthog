@@ -1,4 +1,4 @@
-import { actions, defaults, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { Editor } from '@tiptap/core'
 import type { notebookLogicType } from './notebookLogicType'
@@ -28,9 +28,6 @@ export const notebookLogic = kea<notebookLogicType>([
         addNodeToNotebook: (type: NotebookNodeType, props: Record<string, any>) => ({ type, props }),
         syncContent: (content: string) => ({ content }),
     }),
-    defaults({
-        editor: null as Editor | null,
-    }),
     reducers({
         content: [
             START_CONTENT as string,
@@ -40,9 +37,12 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
-        editor: {
-            setEditorRef: (_, { editor }) => editor,
-        },
+        editor: [
+            null as Editor | null,
+            {
+                setEditorRef: (_, { editor }) => editor,
+            },
+        ],
     }),
     listeners(({ values }) => ({
         addNodeToNotebook: ({ type, props }) => {

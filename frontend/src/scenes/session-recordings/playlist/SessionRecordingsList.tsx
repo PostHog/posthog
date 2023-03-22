@@ -111,7 +111,6 @@ export function SessionRecordingsList({
                                     onClick={() => onRecordingClick(rec)}
                                     onPropertyClick={onPropertyClick}
                                     isActive={activeRecordingId === rec.id}
-                                    embedded={embedded}
                                 />
                             </Fragment>
                         ))}
