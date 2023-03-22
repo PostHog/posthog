@@ -11,6 +11,7 @@ export function OpenEditorButton({ query }: OpenEditorButtonProps): JSX.Element 
     return (
         <>
             <LemonButton
+                data-attr={'open-json-editor-button'}
                 type="secondary"
                 status="primary-alt"
                 to={urls.insightNew(undefined, undefined, JSON.stringify(query))}
