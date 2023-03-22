@@ -1061,7 +1061,7 @@ export const insightLogic = kea<insightLogicType>([
                     description,
                     favorited,
                     filters,
-                    query,
+                    query: !!query ? query : null,
                     deleted,
                     saved: true,
                     dashboards,
