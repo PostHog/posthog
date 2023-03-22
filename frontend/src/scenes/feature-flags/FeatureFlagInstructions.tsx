@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-
+import { useActions } from 'kea'
 import { Card, Row } from 'antd'
 import { IconFlag, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -15,6 +15,7 @@ import {
     OPTIONS,
     PAYLOAD_OPTIONS,
 } from './FeatureFlagCodeOptions'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function FeatureFlagInstructionsHeader({
     selectedOptionValue,
@@ -107,6 +108,8 @@ export function CodeInstructions({
     const [showLocalEvalCode, setShowLocalEvalCode] = useState(false)
     const [showBootstrapCode, setShowBootstrapCode] = useState(false)
 
+    const { reportFlagsCodeExampleInteraction } = useActions(eventUsageLogic)
+
     const selectOption = (selectedValue: string): void => {
         const option = options.find((option) => option.value === selectedValue)
 
@@ -193,7 +196,10 @@ export function CodeInstructions({
                         <div className="flex flex-col gap-1 max-w-60">
                             <LemonCheckbox
                                 label="Show payload option"
-                                onChange={() => setShowPayloadCode(!showPayloadCode)}
+                                onChange={() => {
+                                    setShowPayloadCode(!showPayloadCode)
+                                    reportFlagsCodeExampleInteraction({ optionType: 'payloads' })
+                                }}
                                 data-attr="flags-code-example-payloads-option"
                                 checked={showPayloadCode}
                                 disabled={
@@ -216,7 +222,10 @@ export function CodeInstructions({
                                     label="Show bootstrap option"
                                     data-attr="flags-code-example-bootstrap-option"
                                     checked={showBootstrapCode}
-                                    onChange={() => setShowBootstrapCode(!showBootstrapCode)}
+                                    onChange={() => {
+                                        setShowBootstrapCode(!showBootstrapCode)
+                                        reportFlagsCodeExampleInteraction({ optionType: 'bootstrap' })
+                                    }}
                                     disabled={
                                         !BOOTSTRAPPING_OPTIONS.map((bo) => bo.value).includes(selectedOption.value) ||
                                         !!featureFlag?.ensure_experience_continuity
@@ -234,7 +243,10 @@ export function CodeInstructions({
                                     label="Show local evaluation option"
                                     data-attr="flags-code-example-local-eval-option"
                                     checked={showLocalEvalCode}
-                                    onChange={() => setShowLocalEvalCode(!showLocalEvalCode)}
+                                    onChange={() => {
+                                        setShowLocalEvalCode(!showLocalEvalCode)
+                                        reportFlagsCodeExampleInteraction({ optionType: 'local evaluation' })
+                                    }}
                                     disabled={
                                         selectedOption.type !== LibraryType.Server ||
                                         selectedOption.value === 'API' ||
