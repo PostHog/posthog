@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.db import DatabaseError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
+from django.db.backends.utils import CursorWrapper
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from sentry_sdk.api import capture_exception
@@ -392,9 +393,10 @@ class FeatureFlagMatcher:
 
 def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
+    # TODO: Test this function with multiple teams, for the team, team_id filter :thinking:
     with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
         for feature_flag, override in FeatureFlagHashKeyOverride.objects.filter(
-            person_id=person_id, team=team_id
+            person_id=person_id, team_id=team_id
         ).values_list("feature_flag_key", "hash_key"):
             feature_flag_to_key_overrides[feature_flag] = override
 
@@ -492,20 +494,20 @@ def get_all_feature_flags(
         # make the entire hash key override logic a single transaction
         # with a small timeout
         try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as timeout_cursor:
                 # :TRICKY: Some ingestion delays may mean that `$identify` hasn't yet created
                 # the new person on which decide was called.
-                # In this case, we can try finding the person_id for the old distinct id.
-                # This is safe, since once `$identify` is processed, it would only add the distinct_id to this
-                # existing person. If, because of race conditions, a person merge is called for later,
-                # then https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
-                # will take care of it^.
+                # In all cases, we simply try to find all personIDs associated with the distinct_id
+                # and the hash_key_override, and add overrides for all these personIDs.
+                # On merge, if a person is deleted, it is fine because the below in plugin-server will take care of it.
+                # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
 
+                distinct_ids = [distinct_id, hash_key_override]
                 # Also, we disregard the person_id from L467 above and query again because it's possible that this person_id was deleted
                 # before we get here.
                 # Further, with the new merging logic, the merge can happen into either of the original persons.
                 person_id = (
-                    PersonDistinctId.objects.filter(distinct_id__in=[hash_key_override, distinct_id], team_id=team_id)
+                    PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team_id=team_id)
                     .values_list("person_id", flat=True)
                     .first()
                 )
@@ -514,7 +516,7 @@ def get_all_feature_flags(
                 # would fail server side anyway.
 
                 if person_id is not None:
-                    set_feature_flag_hash_key_overrides(all_feature_flags, team_id, person_id, hash_key_override)
+                    set_feature_flag_hash_key_overrides(timeout_cursor, team_id, distinct_ids, hash_key_override)
 
         except Exception as e:
             # If the database is in read-only mode, we can't handle experience continuity flags,
@@ -539,29 +541,31 @@ def get_all_feature_flags(
 
 
 def set_feature_flag_hash_key_overrides(
-    feature_flags: List[FeatureFlag], team_id: int, person_id: int, hash_key_override: str
+    cursor: CursorWrapper, team_id: int, distinct_ids: List[str], hash_key_override: str
 ) -> None:
-    existing_flag_overrides = set(
-        FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id).values_list(
-            "feature_flag_key", flat=True
-        )
-    )
-    new_overrides = []
-    for feature_flag in feature_flags:
-        if feature_flag.ensure_experience_continuity and feature_flag.key not in existing_flag_overrides:
-            new_overrides.append(
-                FeatureFlagHashKeyOverride(
-                    team_id=team_id,
-                    person_id=person_id,
-                    feature_flag_key=feature_flag.key,
-                    hash_key=hash_key_override,
-                )
-            )
 
-    if new_overrides:
-        # :TRICKY: regarding the ignore_conflicts parameter:
-        # This can happen if the same person is being processed by multiple workers
-        # / we got multiple requests for the same person
-        # at the same time. In this case, we can safely ignore the error.
-        # We don't want to return an error response for `/decide` just because of this.
-        FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides, ignore_conflicts=True)
+    query = """
+        WITH target_person_ids AS (
+            SELECT person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+        ),
+        existing_overrides AS (
+            SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
+            WHERE team_id = %(team_id)s AND person_id IN (
+                SELECT person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+            )
+        ),
+        flags_to_override AS (
+            SELECT key FROM posthog_featureflag WHERE team_id = %(team_id)s AND ensure_experience_continuity = TRUE
+            AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+        )
+        INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+            SELECT %(team_id)s, person_id, key, %(hash_key_override)s
+            FROM flags_to_override, target_person_ids
+            ON CONFLICT DO NOTHING
+    """
+
+    # :TRICKY: regarding the ON CONFLICT DO NOTHING clause:
+    # This can happen if the same person is being processed by multiple workers
+    # / we got multiple requests for the same person at the same time. In this case, we can safely ignore the error.
+    # We don't want to return an error response for `/decide` just because of this.
+    cursor.execute(query, {"team_id": team_id, "distinct_ids": tuple(distinct_ids), "hash_key_override": hash_key_override})  # type: ignore
