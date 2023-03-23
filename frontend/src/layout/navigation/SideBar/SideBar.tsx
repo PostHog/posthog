@@ -49,7 +49,6 @@ import Typography from 'antd/lib/typography'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -65,9 +64,6 @@ function Pages(): JSX.Element {
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
     const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
-    const [isNewInsightMenuShown, setIsNewInsightMenuShown] = useState(false)
-
-    const isUsingDataExplorationQueries = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
 
     return (
         <ul>
@@ -157,28 +153,10 @@ function Pages(): JSX.Element {
                         to={urls.savedInsights()}
                         sideAction={{
                             icon: <IconPlus />,
-                            identifier: Scene.Insight,
+                            to: urls.insightNew(),
                             tooltip: 'New insight',
-                            onClick: () => setIsNewInsightMenuShown((state) => !state),
-                            dropdown: {
-                                visible: isNewInsightMenuShown,
-                                onClickOutside: () => setIsNewInsightMenuShown(false),
-                                onClickInside: hideSideBarMobile,
-                                overlay: (
-                                    <div
-                                        className="SideBar__side-actions new-insight-overlay"
-                                        data-attr="sidebar-new-insights"
-                                    >
-                                        <h5>Creating a new insight</h5>
-                                        <LemonDivider />
-                                        {overlayForNewInsightMenu(
-                                            'sidebar-new-insights-overlay',
-                                            isUsingDataExplorationQueries,
-                                            () => setIsNewInsightMenuShown(false)
-                                        )}
-                                    </div>
-                                ),
-                            },
+                            identifier: Scene.Insight,
+                            onClick: hideSideBarMobile,
                         }}
                     />
                     <PageButton
