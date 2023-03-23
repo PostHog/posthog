@@ -83,7 +83,6 @@ class StructuredViewSetMixin(_GenericViewSet):
     @property
     def organization_id(self) -> str:
         try:
-            breakpoint()
             return self.parents_query_dict["organization_id"]
         except KeyError:
             return str(self.team.organization_id)
