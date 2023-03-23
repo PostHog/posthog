@@ -20,6 +20,7 @@ describe('Insights (with data exploration on)', () => {
                 decideResponse({
                     'data-exploration-query-tab': true,
                     'data-exploration-insights': true,
+                    'data-exploration-live-events': true,
                 })
             )
         )
@@ -92,31 +93,6 @@ describe('Insights (with data exploration on)', () => {
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
             cy.get('tr.DataTable__row').should('have.length.gte', 2)
         })
-
-        it('can open a new JSON insight', () => {
-            cy.intercept('POST', /api\/projects\/\d+\/query\//).as('query')
-
-            insight.newInsight('JSON')
-            cy.get('[data-attr="query-editor"]').should('exist')
-
-            // the default JSON query doesn't have any results, switch to one that does
-
-            insight.updateQueryEditorText(`
-{
-  "kind": "DataTableNode",
-  "full": true,
-  "source": {
-    "kind": "EventsQuery",
-    "select": [
-      "count()"
-    ]
-  }
-}`)
-
-            cy.wait('@query').then(() => {
-                cy.get('tr.DataTable__row').should('have.length', 1)
-            })
-        })
     })
 
     describe('opening a new insight after opening a new SQL insight', () => {
@@ -171,29 +147,6 @@ describe('Insights (with data exploration on)', () => {
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
             cy.get('tr.DataTable__row').should('have.length.gte', 2)
         })
-
-        it('can open a new JSON insight', () => {
-            cy.intercept('POST', /api\/projects\/\d+\/query\//).as('query')
-
-            insight.clickTab('JSON')
-            cy.get('[data-attr="query-editor"]').should('exist')
-
-            insight.updateQueryEditorText(`
-{
-  "kind": "DataTableNode",
-  "full": true,
-  "source": {
-    "kind": "EventsQuery",
-    "select": [
-      "count()"
-    ]
-  }
-}`)
-
-            cy.wait('@query').then(() => {
-                cy.get('tr.DataTable__row').should('have.length', 1)
-            })
-        })
     })
 
     it('can open a new SQL insight and navigate to a different one, then back to SQL, and back again', () => {
@@ -224,5 +177,16 @@ describe('Insights (with data exploration on)', () => {
         cy.get('.trends-insights-container canvas').should('exist')
         cy.get('tr').should('have.length.gte', 2)
         cy.contains('tr', 'No insight results').should('not.exist')
+    })
+
+    it('can open event explorer as an insight', () => {
+        cy.clickNavMenu('events')
+        cy.get('[data-attr="open-json-editor-button"]').click()
+        cy.get('[data-attr="insight-json-tab"]').should('exist')
+    })
+
+    it('does not show the json tab usually', () => {
+        cy.clickNavMenu('savedinsights')
+        cy.get('[data-attr="insight-json-tab"]').should('not.exist')
     })
 })
