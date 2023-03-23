@@ -211,6 +211,12 @@ export interface EventsQuery extends DataNode {
     response?: EventsQueryResponse
 }
 
+export interface PersonsNodeResponse {
+    results: any[]
+    limit: number
+    offset?: number
+}
+
 export interface PersonsNode extends DataNode {
     kind: NodeKind.PersonsNode
     search?: string
@@ -222,6 +228,7 @@ export interface PersonsNode extends DataNode {
     fixedProperties?: AnyPropertyFilter[]
     limit?: number
     offset?: number
+    response?: PersonsNodeResponse
 }
 
 // Data table node

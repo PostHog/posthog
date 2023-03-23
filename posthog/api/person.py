@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from datetime import datetime
 from typing import (
@@ -45,7 +46,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
 from posthog.models.person.util import delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.actor_base_query import ActorBaseQuery, get_people
+from posthog.queries.actor_base_query import ActorBaseQuery, get_people, SerializedPerson
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
@@ -73,7 +74,16 @@ from posthog.utils import (
 DEFAULT_PAGE_LIMIT = 100
 
 
-def list_persons(filter_data: Dict, team: Team, url_to_format: str) -> Dict[str, Any]:
+@dataclasses.dataclass(frozen=True)
+class PersonsListResults:
+    results: List[SerializedPerson]
+    should_paginate: bool
+    limit: int
+    next_offset: Optional[int]
+    previous_offset: Optional[int]
+
+
+def list_persons(filter_data: Dict, team: Team) -> PersonsListResults:
     filter = Filter(data=filter_data, team=team)
     query, params = PersonQuery(filter, team.pk).get_query(paginate=True, filter_future_persons=True)
     raw_result = insight_sync_execute(
@@ -82,15 +92,14 @@ def list_persons(filter_data: Dict, team: Team, url_to_format: str) -> Dict[str,
     actor_ids = [row[0] for row in raw_result]
     actors, serialized_actors = get_people(team.pk, actor_ids)
     _should_paginate = len(actor_ids) >= filter.limit
-    next_url = (
-        format_query_params_absolute_url_from(url_to_format, filter.offset + filter.limit) if _should_paginate else None
+
+    return PersonsListResults(
+        results=serialized_actors,
+        should_paginate=_should_paginate,
+        limit=filter.limit,
+        next_offset=filter.offset + filter.limit if _should_paginate else None,
+        previous_offset=filter.offset - filter.limit if filter.offset - filter.limit >= 0 else None,
     )
-    previous_url = (
-        format_query_params_absolute_url_from(url_to_format, filter.offset - filter.limit)
-        if filter.offset - filter.limit >= 0
-        else None
-    )
-    return {"results": serialized_actors, "next": next_url, "previous": previous_url}
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -230,9 +239,20 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         elif not data.get("limit", None):
             data["limit"] = DEFAULT_PAGE_LIMIT
 
-        response_body = list_persons(filter_data=data, team=team, url_to_format=request.build_absolute_uri())
+        persons_list_response = list_persons(filter_data=data, team=team)
 
-        return Response(response_body)
+        next_url = (
+            format_query_params_absolute_url_from(request.build_absolute_uri(), persons_list_response.next_offset)
+            if persons_list_response.should_paginate
+            else None
+        )
+        previous_url = (
+            format_query_params_absolute_url_from(request.build_absolute_uri(), persons_list_response.previous_offset)
+            if persons_list_response.previous_offset is not None
+            else None
+        )
+
+        return Response({"results": persons_list_response.results, "next": next_url, "previous": previous_url})
 
     @extend_schema(
         parameters=[

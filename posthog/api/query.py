@@ -170,7 +170,12 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
         if not data.get("limit", None):
             data["limit"] = 100
 
-        return list_persons(filter_data=data, team=team, url_to_format="TODO")  # request.build_absolute_uri())
+        person_list_results = list_persons(filter_data=data, team=team)
+        return {
+            "results": person_list_results.results,
+            "limit": person_list_results.limit,
+            "offset": person_list_results.next_offset,
+        }
     elif query_kind == "HogQLQuery":
         if not is_hogql_enabled:
             raise ValidationError("HogQL is not enabled for this organization")

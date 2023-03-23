@@ -15,7 +15,14 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNode } from '~/queries/schema'
+import {
+    AnyResponseType,
+    DataNode,
+    EventsQuery,
+    EventsQueryResponse,
+    PersonsNode,
+    PersonsNodeResponse,
+} from '~/queries/schema'
 import { query } from '~/queries/query'
 import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
@@ -148,17 +155,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             hasMore: newResponse?.hasMore,
                         }
                     } else if (isPersonsNode(props.query)) {
-                        const newResponse = (await query(values.nextQuery)) ?? null
+                        const newResponse = ((await query(values.nextQuery)) as PersonsNodeResponse) ?? null
                         actions.setElapsedTime(performance.now() - now)
-                        if (Array.isArray(values.response)) {
-                            // help typescript by asserting we can't have an array here
-                            throw new Error('Unexpected response type for persons node query')
-                        }
-                        return {
-                            ...values.response,
-                            results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
-                            next: newResponse?.next,
-                        }
+                        return newResponse
                     }
                     return values.response
                 },
@@ -331,11 +330,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                 }
                 if (isPersonsNode(query) && response && !responseError) {
-                    const personsResults = (response as PersonsNode['response'])?.results
+                    const personsNodeResponse = response as PersonsNode['response']
+                    if (!personsNodeResponse) {
+                        throw new Error('Invalid persons node response')
+                    }
                     const nextQuery: PersonsNode = {
                         ...query,
-                        limit: query.limit || 100,
-                        offset: personsResults.length,
+                        limit: personsNodeResponse.limit || 100,
+                        offset: personsNodeResponse.offset,
                     }
                     return nextQuery
                 }
