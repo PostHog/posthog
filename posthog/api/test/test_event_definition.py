@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from unittest.mock import ANY, patch
 from uuid import uuid4
 
@@ -12,7 +12,7 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import Action, EventDefinition, Organization, Team
+from posthog.models import Action, EventDefinition, Organization, Team, ActivityLog
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
@@ -82,7 +82,7 @@ class TestEventDefinitionAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_delete_event_definition(self, mock_capture):
-        event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
+        event_definition: EventDefinition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
         response = self.client.delete(f"/api/projects/@current/event_definitions/{event_definition.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(EventDefinition.objects.filter(id=event_definition.id).count(), 0)
@@ -92,6 +92,13 @@ class TestEventDefinitionAPI(APIBaseTest):
             properties={"name": "test_event"},
             groups={"instance": ANY, "organization": str(self.organization.id), "project": str(self.demo_team.uuid)},
         )
+
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
+        assert activity_log is not None
+        assert activity_log.activity == "deleted"
+        assert activity_log.item_id == str(event_definition.id)
+        assert activity_log.scope == "EventDefinition"
+        assert activity_log.detail["name"] == str(event_definition.name)
 
     def test_pagination_of_event_definitions(self):
         EventDefinition.objects.bulk_create(

@@ -12,7 +12,9 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventDefinition, TaggedItem
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
+from posthog.models.utils import UUIDT
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 from posthog.settings import EE_AVAILABLE
 
@@ -159,8 +161,19 @@ class EventDefinitionViewSet(
         return serializer_class
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        instance = self.get_object()
+        instance: EventDefinition = self.get_object()
+        instance_id: str = str(instance.id)
         self.perform_destroy(instance)
         # Casting, since an anonymous use CANNOT access this endpoint
         report_user_action(cast(User, request.user), "event definition deleted", {"name": instance.name})
+        user = cast(User, request.user)
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=user,
+            item_id=instance_id,
+            scope="EventDefinition",
+            activity="deleted",
+            detail=Detail(name=cast(str, instance.name), changes=None),
+        )
         return response.Response(status=status.HTTP_204_NO_CONTENT)

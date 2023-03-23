@@ -4,6 +4,7 @@ from rest_framework import serializers
 from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.models.activity_logging.activity_log import dict_changes_between, log_activity, Detail
 
 
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -80,6 +81,21 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
                 # Attempting to re-verify an already verified event, invalid action. Ignore attribute.
                 validated_data.pop("verified")
 
+        before_state = {
+            k: event_definition.__dict__[k] for k in validated_data.keys() if k in event_definition.__dict__
+        }
+
+        changes = dict_changes_between("EventDefinition", before_state, validated_data, True)
+
+        log_activity(
+            organization_id=self.context["organization_id"],
+            team_id=self.context["team_id"],
+            user=self.context["request"].user,
+            item_id=str(event_definition.id),
+            scope="EventDefinition",
+            activity="changed",
+            detail=Detail(name=str(event_definition.name), changes=changes),
+        )
         return super().update(event_definition, validated_data)
 
     def to_representation(self, instance):

@@ -151,7 +151,8 @@ class StructuredViewSetMixin(_GenericViewSet):
         return result
 
     def get_serializer_context(self) -> Dict[str, Any]:
-        return {**super().get_serializer_context(), **self.parents_query_dict}
+        add_organization_id = {"organization_id": self.organization_id} if self.organization_id else {}
+        return {**super().get_serializer_context(), **self.parents_query_dict, **add_organization_id}
 
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None
