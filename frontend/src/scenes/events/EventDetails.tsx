@@ -47,7 +47,7 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
             tabBarStyle={{ margin: 0, paddingLeft: 12 }}
         >
             <TabPane tab="Properties" key="properties">
-                <div className="ml-10">
+                <div className="ml-10 mt-2">
                     <PropertiesTable
                         properties={{
                             $timestamp: dayjs(event.timestamp).toISOString(),
@@ -56,6 +56,8 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
                         }}
                         useDetectedPropertyType={true}
                         tableProps={tableProps}
+                        filterable
+                        searchable
                     />
                     {hiddenPropsCount > 0 && (
                         <LemonButton className="mb-2" onClick={() => setShowHiddenProps(!showHiddenProps)} size="small">
