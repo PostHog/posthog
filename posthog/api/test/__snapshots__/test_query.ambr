@@ -10,7 +10,8 @@
   WHERE and(equals(events.team_id, 66), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_event_property_filter.1
@@ -25,7 +26,8 @@
   WHERE and(equals(events.team_id, 66), equals(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), 'test_val3'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_event_property_filter.2
@@ -40,7 +42,8 @@
   WHERE and(equals(events.team_id, 66), ilike(replaceRegexpAll(JSONExtractRaw(events.properties, 'path'), '^"|"$', ''), '%/%'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized
@@ -55,7 +58,8 @@
   WHERE and(equals(events.team_id, 67), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized.1
@@ -70,7 +74,8 @@
   WHERE and(equals(events.team_id, 67), equals(events.mat_key, 'test_val3'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized.2
@@ -85,7 +90,8 @@
   WHERE and(equals(events.team_id, 67), ilike(events.mat_path, '%/%'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_full_hogql_query
@@ -97,7 +103,8 @@
   FROM events
   WHERE equals(events.team_id, 68)
   ORDER BY events.timestamp ASC
-  LIMIT 100
+  LIMIT 100 SETTINGS readonly=1,
+                     max_execution_time=60
   '
 ---
 # name: TestQuery.test_full_hogql_query_materialized
@@ -109,7 +116,8 @@
   FROM events
   WHERE equals(events.team_id, 69)
   ORDER BY events.timestamp ASC
-  LIMIT 100
+  LIMIT 100 SETTINGS readonly=1,
+                     max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter
@@ -124,7 +132,8 @@
   WHERE and(equals(events.team_id, 70), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter.1
@@ -139,7 +148,8 @@
   WHERE and(equals(events.team_id, 70), equals('a%sd', 'foo'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter.2
@@ -154,7 +164,8 @@
   WHERE and(equals(events.team_id, 70), equals('a%sd', 'a%sd'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter.3
@@ -169,7 +180,8 @@
   WHERE and(equals(events.team_id, 70), equals(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), 'test_val2'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized
@@ -184,7 +196,8 @@
   WHERE and(equals(events.team_id, 71), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.1
@@ -199,7 +212,8 @@
   WHERE and(equals(events.team_id, 71), equals('a%sd', 'foo'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.2
@@ -214,7 +228,8 @@
   WHERE and(equals(events.team_id, 71), equals('a%sd', 'a%sd'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.3
@@ -229,7 +244,8 @@
   WHERE and(equals(events.team_id, 71), equals(events.mat_key, 'test_val2'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_person_property_filter
@@ -258,7 +274,8 @@
   WHERE and(equals(events.team_id, 75), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_person_property_filter_materialized
@@ -287,7 +304,8 @@
   WHERE and(equals(events.team_id, 76), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_property_filter_aggregations
@@ -300,7 +318,8 @@
   GROUP BY replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', '')
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_property_filter_aggregations.1
@@ -314,7 +333,8 @@
   HAVING and(greater(count(), 1))
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_property_filter_aggregations_materialized
@@ -327,7 +347,8 @@
   GROUP BY events.mat_key
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_property_filter_aggregations_materialized.1
@@ -341,7 +362,8 @@
   HAVING and(greater(count(), 1))
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_select_event_person
@@ -354,7 +376,8 @@
   WHERE and(equals(events.team_id, 79), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_select_hogql_expressions
@@ -368,7 +391,8 @@
   WHERE and(equals(events.team_id, 80), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', '') ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.1
@@ -380,7 +404,8 @@
   WHERE and(equals(events.team_id, 80), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY tuple(events.uuid, events.event, events.properties, events.timestamp, events.team_id, events.distinct_id, events.elements_chain, events.created_at) ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.2
@@ -393,7 +418,8 @@
   GROUP BY events.event
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.3
@@ -406,6 +432,7 @@
   GROUP BY events.event
   ORDER BY count() DESC, events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
