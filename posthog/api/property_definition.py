@@ -481,5 +481,9 @@ class PropertyDefinitionViewSet(
         instance = self.get_object()
         self.perform_destroy(instance)
         # Casting, since an anonymous use CANNOT access this endpoint
-        report_user_action(cast(User, request.user), "property definition deleted", {"name": instance.name})
+        report_user_action(
+            cast(User, request.user),
+            "property definition deleted",
+            {"name": instance.name, "type": instance.get_type_display()},
+        )
         return response.Response(status=status.HTTP_204_NO_CONTENT)
