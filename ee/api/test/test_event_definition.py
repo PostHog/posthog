@@ -116,9 +116,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
                 "type": "EventDefinition",
             },
             {
-                "action": "created",
+                "action": "changed",
                 "after": ["official", "internal"],
-                "before": None,
+                "before": [],
                 "field": "tags",
                 "type": "EventDefinition",
             },
