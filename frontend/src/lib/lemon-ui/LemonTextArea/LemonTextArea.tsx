@@ -14,9 +14,8 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonTabs } from '../LemonTabs'
 
-const lazyBlobReducer = async (f: File): Promise<any> => {
+const lazyBlobReducer = async (f: File): Promise<Blob> => {
     const blobReducer = (await import('image-blob-reduce')).default()
-
     return blobReducer.toBlob(f, { max: 2000 })
 }
 
