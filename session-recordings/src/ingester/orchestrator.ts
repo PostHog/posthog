@@ -1,6 +1,6 @@
 import { EachMessagePayload } from 'kafkajs'
 import { counterMessagesReceived } from '../utils/metrics'
-import { IncomingRecordingMessage } from '../types'
+import { IncomingRecordingMessage, OffsetMetadata } from '../types'
 import { SessionManager } from './session-manager'
 import { createLogger } from '../utils/logger'
 
@@ -16,8 +16,33 @@ const logger = createLogger('orchestrator')
 export class Orchestrator {
     sessions: Map<string, SessionManager> = new Map()
 
+    // We have to track every message's offset so that we can commit them only after they've been written to S3
+    offsetsByPartionTopic: Map<string, OffsetMetadata[]> = new Map()
+
+    private async addOffset(offset: OffsetMetadata): Promise<void> {
+        const key = `${offset.topic}-${offset.partition}`
+
+        if (!this.offsetsByPartionTopic.has(key)) {
+            this.offsetsByPartionTopic.set(key, [])
+        }
+
+        this.offsetsByPartionTopic.get(key).push(offset)
+    }
+
+    private async removeOffsets(offset: OffsetMetadata[]): Promise<void> {
+        const key = `${offset.topic}-${offset.partition}`
+
+        if (!this.offsetsByPartionTopic.has(key)) {
+            this.offsetsByPartionTopic.set(key, [])
+        }
+
+        this.offsetsByPartionTopic.get(key).push(offset)
+    }
+
     public async consume(event: IncomingRecordingMessage): Promise<void> {
         const key = `${event.team_id}-${event.session_id}`
+
+        this.addOffset(event.metadata)
 
         if (!this.sessions.has(key)) {
             this.sessions.set(
@@ -30,6 +55,9 @@ export class Orchestrator {
         }
 
         await this.sessions.get(key).add(event)
+        // TODO: If we error here, what should we do...?
+        // If it is unrecoverable we probably want to remove the offset
+        // If it is recoverable, we probably want to retry?
     }
 
     public async handleKafkaMessage({ topic, partition, message }: EachMessagePayload): Promise<void> {
@@ -49,9 +77,11 @@ export class Orchestrator {
         const $snapshot_data = parsedData.properties.$snapshot_data
 
         const recordingMessage: IncomingRecordingMessage = {
-            kafkaOffset: message.offset,
-            kafkaPartition: partition,
-            kafkaTopic: topic,
+            metadata: {
+                partition,
+                topic,
+                offset: message.offset,
+            },
 
             team_id: parsedMessage.team_id,
             distinct_id: parsedMessage.distinct_id,

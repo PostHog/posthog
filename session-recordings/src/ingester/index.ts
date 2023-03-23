@@ -27,6 +27,7 @@ export const startConsumer = (): void => {
     consumer.subscribe({ topics: RECORDING_EVENTS_TOPICS })
     producer.connect()
 
+    // TODO: Handle rebalancing event / consumer restart to ensure we don't double consume
     consumer.run({
         autoCommit: false,
         eachMessage: async (message) => {
@@ -37,7 +38,6 @@ export const startConsumer = (): void => {
             // 1. Parse the message
             // 2. Get or create the SessionManager by sessionId
             // 3. Add the message to the SessionManager (which writes the data to file and keeps track of the offsets)
-            // 3a. Chunked messages are handled in memory separately until the last chunk is received and then added to the "handled" messages
             // 3b. All message offsets are saved (somehow) so that we know where to start reading from if the consumer restarts
             // 4. When the time or size threshold is reached, the SessionManager is flushed and the data is uploaded to S3
             // 5. We remove all the flushed event offsets from the SessionManager offset tracker and then commit the oldest offset found

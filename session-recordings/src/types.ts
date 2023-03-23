@@ -56,11 +56,15 @@ export type RecordingMessage = {
     kafkaKey: string
 }
 
+export type OffsetMetadata = {
+    topic: KafkaTopic
+    partition: number
+    offset: string
+}
+
 // This is the incoming message from Kafka
 export type IncomingRecordingMessage = {
-    kafkaTopic: KafkaTopic
-    kafkaPartition: number
-    kafkaOffset: string
+    metadata: OffsetMetadata
 
     team_id: number
     distinct_id: string
