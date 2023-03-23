@@ -287,7 +287,7 @@ export function PropertiesTable({
             }
 
             if (filterable && filtered) {
-                entries = entries.filter(([key]) => !key.toLowerCase().startsWith('$'))
+                entries = entries.filter(([key]) => !key.toLowerCase().startsWith('$') && key !== 'distinct_id')
             }
 
             if (sortProperties) {
@@ -348,7 +348,26 @@ export function PropertiesTable({
                     embedded={embedded}
                     dataSource={objectProperties}
                     className={className}
-                    emptyState="This person doesn't have any properties"
+                    emptyState={
+                        <>
+                            {filtered || searchTerm ? (
+                                <span className="flex gap-2">
+                                    No properties found
+                                    <LemonButton
+                                        noPadding
+                                        onClick={() => {
+                                            setSearchTerm('')
+                                            setFiltered(false)
+                                        }}
+                                    >
+                                        Clear filters
+                                    </LemonButton>
+                                </span>
+                            ) : (
+                                'No properties set yet'
+                            )}
+                        </>
+                    }
                     inset={nestingLevel > 0}
                     onRow={(record) =>
                         highlightedKeys?.includes(record[0])

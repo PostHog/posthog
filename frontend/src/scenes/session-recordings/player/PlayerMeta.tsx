@@ -170,7 +170,7 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                     mountOnEnter
                     unmountOnExit
                 >
-                    <div className="PlayerMetaPersonProperties p-2">
+                    <div className="PlayerMetaPersonProperties">
                         {Object.keys(sessionPerson.properties).length ? (
                             <PropertiesTable properties={sessionPerson.properties} searchable filterable />
                         ) : (
