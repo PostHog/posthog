@@ -251,6 +251,10 @@ class ApiRequest {
             .addPathComponent(propertyDefinitionId)
     }
 
+    public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
+    }
+
     // # Cohorts
     public cohorts(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('cohorts')
@@ -536,6 +540,9 @@ const api = {
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
                     return new ApiRequest().pluginsActivity()
+                },
+                [ActivityScope.DATA_MANAGEMENT]: () => {
+                    return new ApiRequest().dataManagementActivity()
                 },
             }
 
