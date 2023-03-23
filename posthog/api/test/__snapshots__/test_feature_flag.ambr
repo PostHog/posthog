@@ -454,10 +454,7 @@
      WHERE team_id = 2
        AND person_id IN
          (SELECT person_id
-          FROM posthog_persondistinctid
-          WHERE team_id = 2
-            AND distinct_id IN ('example_id',
-                                'random') ) ),
+          FROM target_person_ids) ),
        flags_to_override AS
     (SELECT key
      FROM posthog_featureflag
