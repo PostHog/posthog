@@ -84,6 +84,10 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         before_state = {
             k: event_definition.__dict__[k] for k in validated_data.keys() if k in event_definition.__dict__
         }
+        # KLUDGE: if we get a None value for tags, and we're not adding any
+        # then we get an activity log that we went from null to the empty array ¯\_(ツ)_/¯
+        if "tags" not in before_state or before_state["tags"] is None:
+            before_state["tags"] = []
 
         changes = dict_changes_between("EventDefinition", before_state, validated_data, True)
 
