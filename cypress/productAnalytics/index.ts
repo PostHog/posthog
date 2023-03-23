@@ -99,7 +99,7 @@ export const insight = {
     create: (insightName: string, insightType: string = 'TRENDS'): void => {
         cy.clickNavMenu('savedinsights')
         cy.get('[data-attr="saved-insights-new-insight-dropdown"]').click()
-        cy.get(`.new-insights-overlay[data-attr-insight-type="${insightType}"]`).click()
+        cy.get(`[data-attr-insight-type="${insightType}"]`).click()
 
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
         cy.url().should('not.include', '/new') // wait for insight to complete and update URL
