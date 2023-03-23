@@ -92,7 +92,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         changes = dict_changes_between("EventDefinition", before_state, validated_data, True)
 
         log_activity(
-            organization_id=self.context["organization_id"],
+            organization_id=None,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
             item_id=str(event_definition.id),
