@@ -90,6 +90,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                             <QueryEditor
                                 query={JSON.stringify(query)}
                                 setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery))}
+                                context={queryContext}
                             />
                             <div className="my-4">
                                 <LemonDivider />

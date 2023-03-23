@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, OrderedDict
 
 import pytz
 from django.utils import timezone
@@ -196,7 +196,7 @@ class ListPerformanceEventQuerySerializer(serializers.Serializer):
         return data
 
 
-def load_performance_events_recent_pageviews(team_id: int, date_from: datetime, date_to: datetime) -> Dict:
+def load_performance_events_recent_pageviews(team_id: int, date_from: datetime, date_to: datetime) -> OrderedDict:
     results = RecentPageViewPerformanceEvents.query(team_id, date_from=date_from, date_to=date_to)
 
     try:
