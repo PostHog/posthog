@@ -160,7 +160,7 @@ export function CodeInstructions({
         <>
             {newCodeExample ? (
                 <div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-6">
                         <div>
                             <LemonSelect
                                 data-attr={'feature-flag-instructions-select' + (dataAttr ? `-${dataAttr}` : '')}
@@ -198,11 +198,6 @@ export function CodeInstructions({
                             title={`Feature flag payloads are only available in these libraries: ${PAYLOAD_OPTIONS.map(
                                 (payloadOption) => ` ${payloadOption.value}`
                             )}`}
-                            visible={
-                                !PAYLOAD_OPTIONS.map((payloadOption) => payloadOption.value).includes(
-                                    selectedOption.value
-                                )
-                            }
                         >
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
@@ -234,7 +229,6 @@ export function CodeInstructions({
                             <Tooltip
                                 title="Bootstrapping is only available client side in our JavaScript and ReactNative
                                         libraries."
-                                visible={!BOOTSTRAPPING_OPTIONS.map((bo) => bo.value).includes(selectedOption.value)}
                             >
                                 <div className="flex items-center gap-1">
                                     <LemonCheckbox
@@ -257,11 +251,6 @@ export function CodeInstructions({
                             <Tooltip
                                 title="Local evaluation is only available in server side libraries and without flag
                                         persistence."
-                                visible={
-                                    selectedOption.type !== LibraryType.Server ||
-                                    selectedOption.value === 'API' ||
-                                    !!featureFlag?.ensure_experience_continuity
-                                }
                             >
                                 <div className="flex items-center gap-1">
                                     <LemonCheckbox
