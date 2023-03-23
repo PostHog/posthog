@@ -270,7 +270,7 @@
             "prettier --write"
         ],
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
-            "ruff",
+            "ruff --fix",
             "black"
         ],
         "*.png": [
