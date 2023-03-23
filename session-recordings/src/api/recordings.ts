@@ -1,13 +1,10 @@
 import { Router } from 'express'
-import consumers from 'stream/consumers'
-import { ListObjectsCommand, GetObjectCommand } from '@aws-sdk/client-s3'
-import { Readable } from 'stream'
+import { ListObjectsCommand } from '@aws-sdk/client-s3'
 import { s3Client } from '../utils/s3'
-import pino from 'pino'
+import { createLogger } from '../utils/logger'
 
 const routes = Router()
-
-const logger = pino({ name: 'api', level: process.env.LOG_LEVEL || 'info' })
+const logger = createLogger('api')
 
 routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: { teamId, sessionId } }, res) => {
     // Fetch events for the specified session recording

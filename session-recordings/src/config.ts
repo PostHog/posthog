@@ -1,6 +1,9 @@
 import path from 'path'
 
 export const config = {
+    port: process.env.PORT || 8010,
+    logLevel: process.env.LOG_LEVEL || 'info',
+
     topics: {
         sessionRecordingEvents: process.env.SESSION_RECORDING_EVENTS || 'session_recording_events',
         sessionRecordingEventsDeadLetter:

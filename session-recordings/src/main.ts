@@ -1,20 +1,21 @@
 import express from 'express'
-import pino from 'pino'
 import { apiRecordingsRoutes } from './api/recordings'
+import { config } from './config'
 import { healthCheckRoutes } from './healthcheck'
 import { startConsumer } from './ingester'
 import { consumer } from './utils/kafka'
+import { createLogger } from './utils/logger'
 
 import { metricRoutes } from './utils/metrics'
 
-const logger = pino({ name: 'main', level: process.env.LOG_LEVEL || 'info' })
+const logger = createLogger('main')
 
 const app = express()
 app.use(healthCheckRoutes)
 app.use(metricRoutes)
 app.use(apiRecordingsRoutes)
 
-const server = app.listen(process.env.PORT || 3000)
+const server = app.listen(config.port)
 
 startConsumer()
 

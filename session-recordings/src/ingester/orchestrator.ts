@@ -1,10 +1,10 @@
 import { EachMessagePayload } from 'kafkajs'
-import pino from 'pino'
 import { counterMessagesReceived } from '../utils/metrics'
 import { IncomingRecordingMessage } from '../types'
 import { SessionManager } from './session-manager'
+import { createLogger } from '../utils/logger'
 
-const logger = pino({ name: 'orchestrator', level: process.env.LOG_LEVEL || 'info' })
+const logger = createLogger('orchestrator')
 
 // TODO: Add timeout for buffers to be flushed
 // TODO: Decompress buffered data

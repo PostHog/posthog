@@ -27,3 +27,4 @@ metricRoutes.get('/_metrics', async (req, res) => {
 // Define the metrics we'll be exposing at /metrics
 export const meter = meterProvider.getMeter('session-recordings-ingester')
 export const counterMessagesReceived = meter.createCounter('messages_received')
+export const counterS3FilesWritten = meter.createCounter('s3_files_written')

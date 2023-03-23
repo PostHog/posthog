@@ -1,13 +1,14 @@
+import path from 'path'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { randomUUID } from 'crypto'
-import pino from 'pino'
 import { s3Client } from '../utils/s3'
 import { IncomingRecordingMessage } from '../types'
 import { config } from '../config'
 import { convertToPersitedMessage } from './utils'
 import { writeFileSync, mkdirSync, createReadStream } from 'fs'
 import { appendFile, rm } from 'fs/promises'
-import path from 'path'
+import { counterS3FilesWritten } from '../utils/metrics'
+import { createLogger } from '../utils/logger'
 
 // The buffer is a list of messages grouped
 type SessionBuffer = {
@@ -18,7 +19,7 @@ type SessionBuffer = {
     file: string
 }
 
-const logger = pino({ name: 'SessionManager', level: process.env.LOG_LEVEL || 'info' })
+const logger = createLogger('session-manager')
 
 export class SessionManager {
     chunks: Map<string, IncomingRecordingMessage[]> = new Map()
@@ -82,6 +83,10 @@ export class SessionManager {
                     Body: fileStream,
                 })
             )
+
+            counterS3FilesWritten.add(1, {
+                bytes: this.flushBuffer.size,
+            })
 
             // TODO: Increment file count and size metric
         } catch (error) {

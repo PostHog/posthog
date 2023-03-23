@@ -12,12 +12,12 @@ import {
     getTopicAndPartitionFromKey,
     getTopicPartitionKey,
 } from './utils/utils'
-import pino from 'pino'
 import { randomUUID } from 'crypto'
 import { consumer, producer } from './utils/kafka'
 import { config } from './config'
+import { createLogger } from './utils/logger'
 
-const logger = pino({ name: 'ingester', level: process.env.LOG_LEVEL || 'info' })
+const logger = createLogger('ingester')
 
 const maxEventGroupAge = Number.parseInt(
     process.env.MAX_EVENT_GROUP_AGE || process.env.NODE_ENV === 'dev' ? '1000' : '300000'
