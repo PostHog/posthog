@@ -1,7 +1,7 @@
 import { initKeaTests } from '~/test/init'
 import { expectLogic, partial } from 'kea-test-utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind, PersonsNodeResponse } from '~/queries/schema'
 import { query } from '~/queries/query'
 
 jest.mock('~/queries/query', () => {
@@ -290,7 +290,7 @@ describe('dataNodeLogic', () => {
             query: { kind: NodeKind.PersonsNode },
         })
         const results = [{}, {}, {}]
-        mockedQuery.mockResolvedValueOnce({ results, next: 'next url' })
+        mockedQuery.mockResolvedValueOnce({ results, next: 'next url', offset: 3, limit: 99 } as PersonsNodeResponse)
         logic.mount()
         await expectLogic(logic)
             .toMatchValues({ responseLoading: true, canLoadNextData: false, nextQuery: null, response: null })
@@ -300,7 +300,7 @@ describe('dataNodeLogic', () => {
             canLoadNextData: true,
             nextQuery: {
                 kind: NodeKind.PersonsNode,
-                limit: 100,
+                limit: 99,
                 offset: 3,
             },
             response: partial({ results }),

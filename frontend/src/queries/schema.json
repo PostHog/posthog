@@ -2471,14 +2471,31 @@
                     "type": "array"
                 },
                 "response": {
-                    "description": "Cached query response",
-                    "type": "object"
+                    "$ref": "#/definitions/PersonsNodeResponse",
+                    "description": "Cached query response"
                 },
                 "search": {
                     "type": "string"
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "PersonsNodeResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "limit": {
+                    "type": "number"
+                },
+                "offset": {
+                    "type": "number"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["results", "limit"],
             "type": "object"
         },
         "PropertyFilterValue": {

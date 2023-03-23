@@ -331,6 +331,15 @@ class PathsFilter(BaseModel):
     step_limit: Optional[float] = None
 
 
+class PersonsNodeResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    limit: float
+    offset: Optional[float] = None
+    results: List
+
+
 class PropertyMathType(str, Enum):
     avg = "avg"
     sum = "sum"
@@ -814,7 +823,7 @@ class PersonsNode(BaseModel):
             ]
         ]
     ] = Field(None, description="Properties configurable in the interface")
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
+    response: Optional[PersonsNodeResponse] = Field(None, description="Cached query response")
     search: Optional[str] = None
 
 
