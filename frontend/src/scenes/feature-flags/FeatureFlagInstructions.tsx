@@ -215,14 +215,6 @@ export function CodeInstructions({
                                     }
                                 />
                                 <IconInfo className="text-xl text-muted-alt shrink-0" />
-
-                                {/* {!PAYLOAD_OPTIONS.map((payloadOption) => payloadOption.value).includes(
-                                selectedOption.value
-                            ) && (
-                                <span className="text-muted">{`Feature flag payloads are only available in these libraries: ${PAYLOAD_OPTIONS.map(
-                                    (payloadOption) => ` ${payloadOption.value}`
-                                )}`}</span>
-                            )} */}
                             </div>
                         </Tooltip>
                         <>
