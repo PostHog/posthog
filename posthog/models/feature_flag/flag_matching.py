@@ -391,14 +391,18 @@ class FeatureFlagMatcher:
         return current_match, current_index
 
 
-def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:
+def hash_key_overrides(team_id: int, person_ids: List[int]) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
-    # TODO: Test this function with multiple teams, for the team, team_id filter :thinking:
-    with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
-        for feature_flag, override in FeatureFlagHashKeyOverride.objects.filter(
-            person_id=person_id, team_id=team_id
-        ).values_list("feature_flag_key", "hash_key"):
-            feature_flag_to_key_overrides[feature_flag] = override
+
+    # priority to the first personID's values
+
+    for feature_flag, override, _ in sorted(
+        FeatureFlagHashKeyOverride.objects.filter(person_id__in=person_ids, team_id=team_id).values_list(
+            "feature_flag_key", "hash_key", "person_id"
+        ),
+        key=lambda x: 1 if x[2] == person_ids[0] else -1,
+    ):
+        feature_flag_to_key_overrides[feature_flag] = override
 
     return feature_flag_to_key_overrides
 
@@ -408,7 +412,7 @@ def _get_all_feature_flags(
     feature_flags: List[FeatureFlag],
     team_id: int,
     distinct_id: str,
-    person_id: Optional[int] = None,
+    person_overrides: Optional[Dict[str, str]] = None,
     groups: Dict[GroupTypeName, str] = {},
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
@@ -416,18 +420,13 @@ def _get_all_feature_flags(
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
     cache = FlagsMatcherCache(team_id)
 
-    if person_id is not None:
-        overrides = hash_key_overrides(team_id, person_id)
-    else:
-        overrides = {}
-
     if feature_flags:
         return FeatureFlagMatcher(
             feature_flags,
             distinct_id,
             groups,
             cache,
-            overrides,
+            person_overrides or {},
             property_value_overrides,
             group_property_value_overrides,
             skip_experience_continuity_flags,
@@ -464,15 +463,51 @@ def get_all_feature_flags(
             group_property_value_overrides=group_property_value_overrides,
         )
 
+    # For flags with experience continuity enabled, we want a consistent distinct_id that doesn't change,
+    # no matter what other distinct_ids the user has.
+    # FeatureFlagHashKeyOverride stores a distinct_id (hash_key_override) given a flag, person_id, and team_id.
+
+    # This is the write-path for experience continuity flags. When a hash_key_override is sent to decide,
+    # we want to store it in the database, and then use it in the read-path to get flags with experience continuity enabled.
+    if hash_key_override is not None:
+        try:
+            # make the entire hash key override logic a single transaction
+            # with a small timeout
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as timeout_cursor:
+                # :TRICKY: There are a few cases for write we need to handle:
+                # 1. Ingestion delays implying that `$identify` hasn't yet created the new person on which decide was called.
+                # 2. Merging of two different persons, which results in 1 person_id being deleted.
+                # 3. The person_id we queried above (L473) being deleted before we get here.
+                #
+                # In all cases, we simply try to find all personIDs associated with the distinct_id
+                # and the hash_key_override, and add overrides for all these personIDs.
+                # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
+                # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
+
+                set_feature_flag_hash_key_overrides(
+                    timeout_cursor, team_id, [distinct_id, hash_key_override], hash_key_override
+                )
+
+        except Exception as e:
+            # If the database is in read-only mode, we can't handle experience continuity flags,
+            # since the set_feature_flag_hash_key_overrides call will fail.
+
+            # For this case, and for any other case, do not error out on decide, we can handle it!
+            capture_exception(e)
+
+    # This is the write-path for experience continuity. We need to get the overrides, and to do that, we get the person_id.
     try:
+        person_overrides = {}
         with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
-            person_id = (
-                PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team_id)
+            person_ids = (
+                PersonDistinctId.objects.filter(distinct_id__in=[distinct_id, hash_key_override], team_id=team_id)
                 .values_list("person_id", flat=True)
-                .first()
+                .all()
             )
-    except DatabaseError:
-        # database is down, we can't handle experience continuity flags.
+            person_overrides = hash_key_overrides(team_id, person_ids)
+
+    except Exception:
+        # database is down, we can't handle experience continuity flags at all.
         # Treat this same as if there are no experience continuity flags.
         # This automatically sets 'errorsWhileComputingFlags' to True.
         return _get_all_feature_flags(
@@ -485,51 +520,11 @@ def get_all_feature_flags(
             skip_experience_continuity_flags=True,
         )
 
-    # setting overrides only when we get an override
-    if hash_key_override is not None:
-        # make the entire hash key override logic a single transaction
-        # with a small timeout
-        try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as timeout_cursor:
-                # :TRICKY: Some ingestion delays may mean that `$identify` hasn't yet created
-                # the new person on which decide was called.
-                # In all cases, we simply try to find all personIDs associated with the distinct_id
-                # and the hash_key_override, and add overrides for all these personIDs.
-                # On merge, if a person is deleted, it is fine because the below in plugin-server will take care of it.
-                # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
-
-                distinct_ids = [distinct_id, hash_key_override]
-                # Also, we disregard the person_id from L467 above and query again because it's possible that this person_id was deleted
-                # before we get here.
-                # Further, with the new merging logic, the merge can happen into either of the original persons.
-                person_id = (
-                    PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team_id=team_id)
-                    .values_list("person_id", flat=True)
-                    .first()
-                )
-                # If even this old person doesn't exist yet, we're facing severe ingestion delays
-                # and there's not much we can do, since all person properties based feature flags
-                # would fail server side anyway.
-
-                if person_id is not None:
-                    set_feature_flag_hash_key_overrides(timeout_cursor, team_id, distinct_ids, hash_key_override)
-
-        except Exception as e:
-            # If the database is in read-only mode, we can't handle experience continuity flags,
-            # since the set_feature_flag_hash_key_overrides call will fail.
-
-            # For this case, and for any other case, do not error out on decide, we can handle it!
-            capture_exception(e)
-
-    # :TRICKY: Consistency matters only when personIDs exist
-    # as overrides are stored on personIDs.
-    # We can optimise by not going down this path when person_id doesn't exist, or
-    # no flags have experience continuity enabled
     return _get_all_feature_flags(
         all_feature_flags,
         team_id,
         distinct_id,
-        person_id,
+        person_overrides,
         groups=groups,
         property_value_overrides=property_value_overrides,
         group_property_value_overrides=group_property_value_overrides,
