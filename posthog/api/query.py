@@ -211,7 +211,7 @@ def _is_hogql_enabled(user: User, organization_id: str, organization_created_at:
 
     # on PostHog Cloud, use the feature flag
     return posthoganalytics.feature_enabled(
-        "hogql-queries",
+        "hogql",
         str(user.distinct_id),
         person_properties={"email": user.email},
         groups={"organization": organization_id},

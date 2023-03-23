@@ -237,7 +237,7 @@ function InsightMeta({
         cohortsById,
         mathDefinitions,
         isUsingDataExploration: !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
-        isUsingDashboardQueries: !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB],
+        isUsingDashboardQueries: !!featureFlags[FEATURE_FLAGS.HOGQL],
     })
 
     return (

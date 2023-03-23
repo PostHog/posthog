@@ -67,7 +67,7 @@ function Pages(): JSX.Element {
     const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
     const [isNewInsightMenuShown, setIsNewInsightMenuShown] = useState(false)
 
-    const isUsingDataExplorationQueries = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
+    const isUsingDataExplorationQueries = !!featureFlags[FEATURE_FLAGS.HOGQL]
 
     return (
         <ul>
@@ -204,9 +204,7 @@ function Pages(): JSX.Element {
                         icon={<IconLive />}
                         identifier={Scene.Events}
                         to={urls.events()}
-                        title={
-                            featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS] ? 'Event Explorer' : 'Live Events'
-                        }
+                        title={featureFlags[FEATURE_FLAGS.HOGQL] ? 'Event Explorer' : 'Live Events'}
                     />
                     <PageButton
                         icon={<IconUnverifiedEvent />}

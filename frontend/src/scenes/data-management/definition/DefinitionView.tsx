@@ -60,7 +60,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const { setPageMode } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (definitionLoading) {
         return <SpinnerOverlay />
