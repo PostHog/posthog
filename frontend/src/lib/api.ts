@@ -617,6 +617,9 @@ const api = {
         }): Promise<EventDefinition> {
             return new ApiRequest().eventDefinitionDetail(eventDefinitionId).update({ data: eventDefinitionData })
         },
+        async delete({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<void> {
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).delete()
+        },
         async list({
             limit = EVENT_DEFINITIONS_PER_PAGE,
             teamId = getCurrentTeamId(),
@@ -667,6 +670,9 @@ const api = {
             return new ApiRequest()
                 .propertyDefinitionDetail(propertyDefinitionId)
                 .update({ data: propertyDefinitionData })
+        },
+        async delete({ propertyDefinitionId }: { propertyDefinitionId: PropertyDefinition['id'] }): Promise<void> {
+            return new ApiRequest().propertyDefinitionDetail(propertyDefinitionId).delete()
         },
         async list({
             limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,

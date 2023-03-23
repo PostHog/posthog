@@ -1,10 +1,10 @@
 import dataclasses
 import json
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, cast
 
 from django.db import connection
 from django.db.models import Prefetch
-from rest_framework import mixins, permissions, serializers, viewsets
+from rest_framework import mixins, permissions, serializers, viewsets, status, request, response
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 
@@ -12,9 +12,10 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
+from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import PropertyDefinition, TaggedItem
+from posthog.models import PropertyDefinition, TaggedItem, User
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 
 
@@ -359,6 +360,7 @@ class PropertyDefinitionViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     serializer_class = PropertyDefinitionSerializer
@@ -474,3 +476,14 @@ class PropertyDefinitionViewSet(
     @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        # Casting, since an anonymous use CANNOT access this endpoint
+        report_user_action(
+            cast(User, request.user),
+            "property definition deleted",
+            {"name": instance.name, "type": instance.get_type_display()},
+        )
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
