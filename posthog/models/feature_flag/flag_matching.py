@@ -546,9 +546,7 @@ def set_feature_flag_hash_key_overrides(
         ),
         existing_overrides AS (
             SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
-            WHERE team_id = %(team_id)s AND person_id IN (
-                SELECT person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
-            )
+            WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
         ),
         flags_to_override AS (
             SELECT key FROM posthog_featureflag WHERE team_id = %(team_id)s AND ensure_experience_continuity = TRUE AND active = TRUE AND deleted = FALSE
