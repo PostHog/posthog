@@ -9,9 +9,9 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Field } from 'lib/forms/Field'
 import { urls } from 'scenes/urls'
-import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps } from '../core/sessionRecordingPlayerLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from '../core/sessionRecordingDataLogic'
 
 export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const dataLogic = sessionRecordingDataLogic(props)

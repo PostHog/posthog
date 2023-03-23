@@ -1,8 +1,5 @@
 import { useActions, useValues } from 'kea'
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './core/sessionRecordingPlayerLogic'
 import { SessionPlayerState, SessionRecordingType } from '~/types'
 import { IconErrorOutline, IconPlay } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'

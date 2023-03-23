@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 import { LemonModal } from '@posthog/lemon-ui'
 import { PlayerMeta } from '../PlayerMeta'
-import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from '../core/sessionRecordingPlayerLogic'
 
 export function SessionPlayerModal(): JSX.Element | null {
     const { activeSessionRecording } = useValues(sessionPlayerModalLogic())

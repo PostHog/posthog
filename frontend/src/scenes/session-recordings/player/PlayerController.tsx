@@ -3,7 +3,7 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+} from './core/sessionRecordingPlayerLogic'
 import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip } from 'scenes/session-recordings/player/PlayerControllerTime'

@@ -5,7 +5,7 @@ import {
     ONE_FRAME_MS,
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+} from './core/sessionRecordingPlayerLogic'
 import { seekbarLogic } from './seekbarLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
@@ -13,12 +13,16 @@ import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 
 export function Timestamp(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic(props))
+    const { currentPlayerTime, sessionPlayerData, sessionPlayerSnapshotDataLoading } = useValues(
+        sessionRecordingPlayerLogic(props)
+    )
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(props))
 
     const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
     const endTimeSeconds = Math.floor(
-        (sessionPlayerData?.recordingDurationMs ?? sessionPlayerData.metadata.duration ?? 0) / 1000
+        ((sessionPlayerSnapshotDataLoading
+            ? sessionPlayerData.metadata.durationMs
+            : sessionPlayerData?.recordingDurationMs) ?? 0) / 1000
     )
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2

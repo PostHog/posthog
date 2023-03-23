@@ -6,13 +6,13 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
-} from './sessionRecordingPlayerLogic'
+} from './core/sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
 import { PlayerMeta } from './PlayerMeta'
-import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from './core/sessionRecordingDataLogic'
 import clsx from 'clsx'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'

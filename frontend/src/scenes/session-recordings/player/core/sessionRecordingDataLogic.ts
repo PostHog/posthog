@@ -58,7 +58,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 startAndEndTimesByWindowId: {},
                 startTimeEpochMs: 0,
                 endTimeEpochMs: 0,
-                duration: 0,
+                durationMs: 0,
             },
             bufferedTo: null,
         } as SessionPlayerMetaData,

@@ -2,18 +2,15 @@ import { kea, props, path, key, actions, reducers, selectors, listeners, connect
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../core/sessionRecordingPlayerLogic'
 
 import type { playlistPopoverLogicType } from './playlistPopoverLogicType'
 import { SessionRecordingPlaylistType } from '~/types'
 import { forms } from 'kea-forms'
-import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/playerUtils'
+import { addRecordingToPlaylist, removeRecordingFromPlaylist } from '../core/playerUtils'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from '../core/sessionRecordingDataLogic'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 export const playlistPopoverLogic = kea<playlistPopoverLogicType>([

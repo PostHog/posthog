@@ -14,19 +14,19 @@ import {
     SessionRecordingType,
 } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import {
     comparePlayerPositions,
     deleteRecording,
     getPlayerPositionFromPlayerTime,
     getPlayerTimeFromPlayerPosition,
 } from './playerUtils'
-import { playerSettingsLogic } from './playerSettingsLogic'
+import { playerSettingsLogic } from '../playerSettingsLogic'
 import equal from 'fast-deep-equal'
 import { downloadFile, fromParamsGivenUrl } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
 import { delay } from 'kea-test-utils'
-import { ExportedSessionRecordingFile } from '../file-playback/sessionRecordingFilePlaybackLogic'
+import { ExportedSessionRecordingFile } from '../../file-playback/sessionRecordingFilePlaybackLogic'
 import { userLogic } from 'scenes/userLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'

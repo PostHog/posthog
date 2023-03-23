@@ -1,5 +1,5 @@
 import './PlayerUpNext.scss'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './core/sessionRecordingPlayerLogic'
 import { SessionRecordingType } from '~/types'
 import { CSSTransition } from 'react-transition-group'
 import { useActions, useValues } from 'kea'
@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { router } from 'kea-router'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from './core/sessionRecordingDataLogic'
 
 export interface PlayerUpNextProps extends SessionRecordingPlayerLogicProps {
     nextSessionRecording?: Partial<SessionRecordingType>

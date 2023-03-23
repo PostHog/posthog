@@ -183,7 +183,7 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionR
         pinnedCount: recording.pinned_count ?? 0,
         startTimeEpochMs: +dayjs(recording.start_time),
         endTimeEpochMs: +dayjs(recording.end_time),
-        duration: recording.recording_duration ?? 0,
+        durationMs: (recording.recording_duration ?? 0) * 1000,
     }
 }
 

@@ -601,7 +601,7 @@ export interface SessionRecordingMeta {
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     startTimeEpochMs: number
     endTimeEpochMs: number
-    duration: number // same duration seen in recordings list
+    durationMs: number // same duration seen in recordings list
 }
 
 export interface SessionSnapshotsByWindowId {

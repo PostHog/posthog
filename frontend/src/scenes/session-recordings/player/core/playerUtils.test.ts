@@ -1,6 +1,6 @@
 import { RecordingSegment } from '~/types'
-import recordingMetaJson from '../__mocks__/recording_meta.json'
-import reordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
+import recordingMetaJson from '../../__mocks__/recording_meta.json'
+import reordingSnapshotsJson from '../../__mocks__/recording_snapshots.json'
 import {
     comparePlayerPositions,
     convertPlayerPositionToX,
@@ -12,7 +12,7 @@ import {
     getSegmentFromPlayerPosition,
     guessPlayerPositionFromEpochTimeWithoutWindowId,
 } from './playerUtils'
-import { parseMetadataResponse, parseSnapshotResponse } from 'scenes/session-recordings/player/recordingDataUtils'
+import { parseMetadataResponse, parseSnapshotResponse } from './recordingDataUtils'
 
 const metadata = parseMetadataResponse(recordingMetaJson)
 const snapshots = parseSnapshotResponse(reordingSnapshotsJson as any, null, metadata.startAndEndTimesByWindowId)

@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { generateInactiveSegmentsForRange } from 'scenes/session-recordings/player/recordingDataUtils'
+import { generateInactiveSegmentsForRange } from './recordingDataUtils'
 
 describe('generateInactiveSegmentsForRange', () => {
     it('happy case', () => {
