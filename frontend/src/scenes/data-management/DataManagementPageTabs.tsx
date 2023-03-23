@@ -46,7 +46,7 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED],
         ],
-        showDatabaseTab: [(s) => [s.featureFlags], (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.DATABASE]],
+        showDatabaseTab: [(s) => [s.featureFlags], (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.HOGQL]],
     },
     actionToUrl: () => ({
         setTab: ({ tab }) => tabUrls[tab as DataManagementTab] || urls.events(),
