@@ -111,20 +111,11 @@ export async function query<N extends DataNode = DataNode>(
     refresh?: boolean,
     queryId?: string
 ): Promise<N['response']> {
-    if (isEventsQuery(queryNode)) {
-        if (!queryNode.before && !queryNode.after) {
-            const earlyResults = await api.query(
-                { ...queryNode, after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString() },
-                methodOptions
-            )
-            if (earlyResults.results.length > 0) {
-                return earlyResults
-            }
-        }
-        return await api.query({ after: now().subtract(1, 'year').toISOString(), ...queryNode }, methodOptions)
-    } else if (isHogQLQuery(queryNode)) {
-        return api.query(queryNode, methodOptions)
-    } else if (isPersonsNode(queryNode)) {
+    if (isTimeToSeeDataSessionsNode(queryNode)) {
+        return query(queryNode.source)
+    }
+
+    if (isPersonsNode(queryNode)) {
         return await api.get(getPersonsEndpoint(queryNode), methodOptions)
     } else if (isInsightQueryNode(queryNode)) {
         const filters = queryNodeToFilter(queryNode)
@@ -148,8 +139,6 @@ export async function query<N extends DataNode = DataNode>(
             methodOptions,
         })
         return await response.json()
-    } else if (isTimeToSeeDataSessionsQuery(queryNode)) {
-        return await api.query(queryNode, methodOptions)
     } else if (isTimeToSeeDataQuery(queryNode)) {
         return await api.query(
             {
@@ -161,12 +150,9 @@ export async function query<N extends DataNode = DataNode>(
             },
             methodOptions
         )
-    } else if (isTimeToSeeDataSessionsNode(queryNode)) {
-        return query(queryNode.source)
-    } else if (isRecentPerformancePageViewNode(queryNode)) {
-        return await api.query(queryNode, methodOptions)
     }
-    throw new Error(`Unsupported query: ${queryNode.kind}`)
+
+    return await api.query(queryNode, methodOptions, queryId)
 }
 
 export function getEventsEndpoint(query: EventsQuery): string {

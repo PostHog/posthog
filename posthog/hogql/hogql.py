@@ -2,7 +2,7 @@ from typing import Literal
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import database
+from posthog.hogql.database import create_hogql_database
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import print_ast
 
@@ -16,9 +16,10 @@ def translate_hogql(query: str, context: HogQLContext, dialect: Literal["hogql",
 
     try:
         # Create a fake query that selects from "events" to have fields to select from.
-        select_query_symbol = ast.SelectQuerySymbol(tables={"events": ast.TableSymbol(table=database.events)})
+        context.database = context.database or create_hogql_database(context.team_id)
+        select_query_ref = ast.SelectQueryRef(tables={"events": ast.TableRef(table=context.database.events)})
         node = parse_expr(query, no_placeholders=True)
-        select_query = ast.SelectQuery(select=[node], symbol=select_query_symbol)
+        select_query = ast.SelectQuery(select=[node], ref=select_query_ref)
         return print_ast(node, context=context, dialect=dialect, stack=[select_query])
 
     except SyntaxError as err:

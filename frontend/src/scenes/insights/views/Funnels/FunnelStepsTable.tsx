@@ -2,7 +2,12 @@ import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
-import { FlattenedFunnelStepByBreakdown } from '~/types'
+import {
+    FlattenedFunnelStepByBreakdown,
+    FunnelStep,
+    FunnelStepWithConversionMetrics,
+    FunnelStepWithNestedBreakdown,
+} from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
@@ -16,24 +21,99 @@ import { getSeriesColor } from 'lib/colors'
 import { IconFlag } from 'lib/lemon-ui/icons'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { BreakdownFilter } from '~/queries/schema'
+import { cleanHiddenLegendSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+export function FunnelStepsTableDataExploration(): JSX.Element | null {
+    const { insightProps, insightLoading } = useValues(insightLogic)
+    const { breakdown } = useValues(insightVizDataLogic(insightProps))
+    const { steps, flattenedBreakdowns, funnelsFilter } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { openPersonsModalForSeries } = useActions(funnelLogic(insightProps))
+
+    return (
+        <FunnelStepsTableComponent
+            insightLoading={insightLoading}
+            breakdownFilter={breakdown ?? undefined}
+            steps={steps}
+            flattenedBreakdowns={flattenedBreakdowns}
+            isOnlySeries={flattenedBreakdowns.length <= 1}
+            hiddenLegendBreakdowns={funnelsFilter?.hidden_legend_breakdowns}
+            setHiddenLegendBreakdowns={(hidden_legend_breakdowns: string[]) => {
+                updateInsightFilter({ hidden_legend_breakdowns })
+            }}
+            openPersonsModalForSeries={openPersonsModalForSeries}
+        />
+    )
+}
 
 export function FunnelStepsTable(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const {
-        insightLoading,
-        filters,
-        steps,
-        flattenedBreakdowns,
-        hiddenLegendKeys,
-        visibleStepsWithConversionMetrics,
-        isOnlySeries,
-    } = useValues(logic)
-    const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForSeries } = useActions(logic)
+    const { insightProps, insightLoading } = useValues(insightLogic)
+    const { filters, steps, flattenedBreakdowns, hiddenLegendKeys, isOnlySeries } = useValues(funnelLogic(insightProps))
+    const { setFilters, openPersonsModalForSeries } = useActions(funnelLogic(insightProps))
+
+    return (
+        <FunnelStepsTableComponent
+            insightLoading={insightLoading}
+            breakdownFilter={filters}
+            steps={steps}
+            flattenedBreakdowns={flattenedBreakdowns}
+            setHiddenLegendBreakdowns={(hidden_legend_breakdowns: string[]) => {
+                const hidden_legend_keys = hidden_legend_breakdowns.reduce((k, b) => ({ ...k, [b]: true }), {})
+                setFilters({ ...filters, hidden_legend_keys })
+            }}
+            hiddenLegendBreakdowns={cleanHiddenLegendSeries(hiddenLegendKeys)}
+            isOnlySeries={isOnlySeries}
+            openPersonsModalForSeries={openPersonsModalForSeries}
+        />
+    )
+}
+
+type FunnelStepsTableComponentProps = {
+    insightLoading: boolean
+    breakdownFilter?: BreakdownFilter
+    steps: FunnelStepWithNestedBreakdown[]
+    flattenedBreakdowns: FlattenedFunnelStepByBreakdown[]
+    isOnlySeries: boolean
+    hiddenLegendBreakdowns: string[] | undefined
+    setHiddenLegendBreakdowns: (hidden_legend_breakdowns: string[]) => void
+    openPersonsModalForSeries: ({
+        step,
+        series,
+        converted,
+    }: {
+        step: FunnelStep
+        series: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>
+        converted: boolean
+    }) => void
+}
+
+export function FunnelStepsTableComponent({
+    insightLoading,
+    breakdownFilter,
+    steps,
+    flattenedBreakdowns,
+    hiddenLegendBreakdowns,
+    setHiddenLegendBreakdowns,
+    isOnlySeries,
+    openPersonsModalForSeries,
+}: FunnelStepsTableComponentProps): JSX.Element | null {
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const allChecked = flattenedBreakdowns?.every((b) => !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)])
+    const allChecked = flattenedBreakdowns?.every(
+        (b) => !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
+    )
+    const someChecked = flattenedBreakdowns?.some(
+        (b) => !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
+    )
+    const toggleLegendBreakdownVisibility = (breakdown: string): void => {
+        hiddenLegendBreakdowns?.includes(breakdown)
+            ? setHiddenLegendBreakdowns(hiddenLegendBreakdowns.filter((b) => b !== breakdown))
+            : setHiddenLegendBreakdowns([...(hiddenLegendBreakdowns || []), breakdown])
+    }
 
     const columnsGrouped = [
         {
@@ -43,25 +123,13 @@ export function FunnelStepsTable(): JSX.Element | null {
                         'Breakdown'
                     ) : (
                         <LemonCheckbox
-                            checked={
-                                allChecked ||
-                                (flattenedBreakdowns?.some(
-                                    (b) => !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]
-                                )
-                                    ? 'indeterminate'
-                                    : false)
-                            }
+                            checked={allChecked ? true : someChecked ? 'indeterminate' : false}
                             onChange={() => {
-                                // Either toggle all data on or off
-                                setHiddenById(
-                                    Object.fromEntries(
-                                        visibleStepsWithConversionMetrics.flatMap(() =>
-                                            flattenedBreakdowns.map((b) => [
-                                                getVisibilityKey(b.breakdown_value),
-                                                allChecked,
-                                            ])
-                                        )
-                                    )
+                                // Either toggle all breakdowns on or off
+                                setHiddenLegendBreakdowns(
+                                    allChecked
+                                        ? flattenedBreakdowns.map((b) => getVisibilityKey(b.breakdown_value))
+                                        : []
                                 )
                             }}
                             label={<span className="font-bold">Breakdown</span>}
@@ -84,14 +152,16 @@ export function FunnelStepsTable(): JSX.Element | null {
                             formatPropertyValueForDisplay,
                             value,
                             breakdown.breakdown,
-                            filters.breakdown_type
+                            breakdownFilter?.breakdown_type
                         )
                         return isOnlySeries ? (
                             <span className="font-medium">{label}</span>
                         ) : (
                             <LemonCheckbox
-                                checked={!hiddenLegendKeys[getVisibilityKey(breakdown.breakdown_value)]}
-                                onChange={() => toggleVisibilityByBreakdown(breakdown.breakdown_value)}
+                                checked={!hiddenLegendBreakdowns?.includes(getVisibilityKey(breakdown.breakdown_value))}
+                                onChange={() =>
+                                    toggleLegendBreakdownVisibility(getVisibilityKey(breakdown.breakdown_value))
+                                }
                                 label={label}
                             />
                         )

@@ -67,7 +67,7 @@ function MathTag({ math, mathProperty, mathGroupTypeIndex }: MathTagProps): JSX.
                 <Tag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</Tag>
                 {mathProperty && (
                     <>
-                        <span style={{ paddingLeft: 4, paddingRight: 2 }}>of</span>
+                        <span className="pl-1 pr-0.5">of</span>
                         <PropertyKeyInfo disableIcon value={mathProperty} />
                     </>
                 )}

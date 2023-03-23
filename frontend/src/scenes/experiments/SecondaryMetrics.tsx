@@ -58,6 +58,7 @@ export function SecondaryMetrics({
             render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                 return (
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             color: getSeriesColor(
                                 getIndexForVariant(item.variant, experiment.filters?.insight || InsightType.TRENDS)
@@ -115,7 +116,7 @@ export function SecondaryMetrics({
             <LemonModal
                 isOpen={isModalOpen}
                 onClose={closeModal}
-                width={650}
+                width={1000}
                 title={existingModalSecondaryMetric ? 'Edit secondary metric' : 'New secondary metric'}
                 footer={
                     <>

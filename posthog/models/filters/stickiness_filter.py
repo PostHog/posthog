@@ -17,6 +17,7 @@ from posthog.models.filters.mixins.common import (
     InsightMixin,
     LimitMixin,
     OffsetMixin,
+    SampleMixin,
     SearchMixin,
     ShownAsMixin,
 )
@@ -44,6 +45,7 @@ class StickinessFilter(
     SimplifyFilterMixin,
     LimitMixin,
     ClientQueryIdMixin,
+    SampleMixin,
     BaseFilter,
 ):
     get_earliest_timestamp: Optional[Callable]

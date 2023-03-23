@@ -16,6 +16,9 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
 
     if (isHogQLQuery(query.source)) {
         title = key
+        if (title.startsWith('`') && title.endsWith('`')) {
+            title = title.substring(1, title.length - 1)
+        }
     } else if (key === 'timestamp') {
         title = 'Time'
     } else if (key === 'created_at') {

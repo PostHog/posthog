@@ -82,6 +82,7 @@
         "vm2": "3.9.11"
     },
     "devDependencies": {
+        "0x": "^5.5.0",
         "@babel/cli": "^7.18.10",
         "@babel/types": "^7.20.2",
         "@sentry/types": "^7.17.4",

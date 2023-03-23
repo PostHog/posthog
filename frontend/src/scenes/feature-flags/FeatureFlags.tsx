@@ -30,11 +30,19 @@ export const scene: SceneExport = {
     logic: featureFlagsLogic,
 }
 
-function OverViewTab(): JSX.Element {
+export function OverViewTab({
+    flagPrefix = '',
+    searchPlaceholder = 'Search for feature flags',
+    nouns = ['feature flag', 'feature flags'],
+}: {
+    flagPrefix?: string
+    searchPlaceholder?: string
+    nouns?: [string, string]
+}): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } =
-        useValues(featureFlagsLogic)
-    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(featureFlagsLogic)
+    const flagLogic = featureFlagsLogic({ flagPrefix })
+    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } = useValues(flagLogic)
+    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(flagLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const columns: LemonTableColumns<FeatureFlagType> = [
@@ -214,11 +222,39 @@ function OverViewTab(): JSX.Element {
                 <div className="flex justify-between mb-4">
                     <LemonInput
                         type="search"
-                        placeholder="Search for feature flags"
+                        placeholder={searchPlaceholder || ''}
                         onChange={setSearchTerm}
-                        value={searchTerm}
+                        value={searchTerm || ''}
                     />
                     <div className="flex items-center gap-2">
+                        {hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
+                            <>
+                                <span>
+                                    <b>Type</b>
+                                </span>
+                                <LemonSelect
+                                    onChange={(type) => {
+                                        if (type) {
+                                            if (type === 'all') {
+                                                if (filters) {
+                                                    const { type, ...restFilters } = filters
+                                                    setFeatureFlagsFilters(restFilters, true)
+                                                }
+                                            } else {
+                                                setFeatureFlagsFilters({ type })
+                                            }
+                                        }
+                                    }}
+                                    options={[
+                                        { label: 'All', value: 'all' },
+                                        { label: 'Boolean', value: 'boolean' },
+                                        { label: 'Multiple variants', value: 'multivariant' },
+                                        { label: 'Experiment', value: 'experiment' },
+                                    ]}
+                                    value="all"
+                                />
+                            </>
+                        )}
                         <span>
                             <b>Status</b>
                         </span>
@@ -241,7 +277,6 @@ function OverViewTab(): JSX.Element {
                                 { label: 'Disabled', value: 'false' },
                             ]}
                             value="all"
-                            dropdownMaxContentWidth
                         />
                         <span className="ml-1">
                             <b>Created by</b>
@@ -276,7 +311,7 @@ function OverViewTab(): JSX.Element {
                 noSortingCancellation
                 loading={featureFlagsLoading}
                 pagination={{ pageSize: 100 }}
-                nouns={['feature flag', 'feature flags']}
+                nouns={nouns}
                 data-attr="feature-flag-table"
             />
         </>

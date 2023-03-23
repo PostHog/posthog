@@ -109,7 +109,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             spec = SimpleSpec(posthog_version.replace(" ", ""))
         except ValueError:
             raise ValidationError(f'Invalid PostHog semantic version requirement "{posthog_version}"!')
-        if not (Version(VERSION) in spec):
+        if Version(VERSION) not in spec:
             raise ValidationError(
                 f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "{posthog_version}".'
             )
@@ -218,7 +218,7 @@ class PluginConfig(models.Model):
     # Error when running this plugin on an event (frontend: PluginErrorType)
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
-    error: models.JSONField = models.JSONField(default=None, null=True)
+    error: models.JSONField = models.JSONField(default=None, null=True, blank=True)
     # Used to access site.ts from a public URL
     web_token: models.CharField = models.CharField(max_length=64, default=None, null=True)
 

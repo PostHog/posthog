@@ -522,3 +522,21 @@
   WHERE "posthog_grouptypemapping"."team_id" = 2
   '
 ---
+# name: TestResiliency.test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again
+  '
+  SELECT pg_sleep(1);
+  
+  SELECT (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'
+          AND "posthog_person"."properties" ? 'email'
+          AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
+         (("posthog_person"."properties" -> 'email') = '"tim@posthog.com"'
+          AND "posthog_person"."properties" ? 'email'
+          AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
+         (true) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---

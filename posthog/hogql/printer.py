@@ -1,29 +1,33 @@
+import re
 from dataclasses import dataclass
 from typing import List, Literal, Optional, Union, cast
 
+from clickhouse_driver.util.escape import escape_param
+
 from ee.clickhouse.materialized_columns.columns import TablesWithMaterializedColumns, get_materialized_columns
 from posthog.hogql import ast
-from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS, HogQLSettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import Table
+from posthog.hogql.database import Table, create_hogql_database
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
-from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_symbols
+from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_refs
 from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
+from posthog.hogql.transforms.macros import expand_macros
+from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
+from posthog.utils import PersonOnEventsMode
 
 
-def team_id_guard_for_table(
-    table_symbol: Union[ast.TableSymbol, ast.TableAliasSymbol], context: HogQLContext
-) -> ast.Expr:
+def team_id_guard_for_table(table_ref: Union[ast.TableRef, ast.TableAliasRef], context: HogQLContext) -> ast.Expr:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
-    if not context.select_team_id:
-        raise ValueError("context.select_team_id not found")
+    if not context.team_id:
+        raise ValueError("context.team_id not found")
 
     return ast.CompareOperation(
         op=ast.CompareOperationType.Eq,
-        left=ast.Field(chain=["team_id"], symbol=ast.FieldSymbol(name="team_id", table=table_symbol)),
-        right=ast.Constant(value=context.select_team_id),
+        left=ast.Field(chain=["team_id"], ref=ast.FieldRef(name="team_id", table=table_ref)),
+        right=ast.Constant(value=context.team_id),
     )
 
 
@@ -32,20 +36,42 @@ def print_ast(
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
+    settings: Optional[HogQLSettings] = None,
 ) -> str:
-    """Print an AST into a string. Does not modify the node."""
-    symbol = stack[-1].symbol if stack else None
+    prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack)
+    return print_prepared_ast(node=prepared_ast, context=context, dialect=dialect, stack=stack, settings=settings)
 
-    # resolve symbols
-    resolve_symbols(node, symbol)
 
-    # modify the cloned tree as needed
+def prepare_ast_for_printing(
+    node: ast.Expr,
+    context: HogQLContext,
+    dialect: Literal["hogql", "clickhouse"],
+    stack: Optional[List[ast.SelectQuery]] = None,
+) -> ast.Expr:
+    ref = stack[-1].ref if stack else None
+
+    context.database = context.database or create_hogql_database(context.team_id)
+    node = expand_macros(node, stack)
+    resolve_refs(node, context.database, ref)
+    expand_asterisks(node)
     if dialect == "clickhouse":
-        expand_asterisks(node)
-        resolve_lazy_tables(node, stack)
-        # TODO: add team_id checks (currently done in the printer)
+        # This makes printed "hogql" nicer.
+        node = resolve_property_types(node, context)
+        resolve_lazy_tables(node, stack, context)
 
-    return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
+    # We add a team_id guard right before printing. It's not a separate step here.
+    return node
+
+
+def print_prepared_ast(
+    node: ast.Expr,
+    context: HogQLContext,
+    dialect: Literal["hogql", "clickhouse"],
+    stack: Optional[List[ast.SelectQuery]] = None,
+    settings: Optional[HogQLSettings] = None,
+) -> str:
+    # _Printer also adds a team_id guard if printing clickhouse
+    return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings).visit(node)
 
 
 @dataclass
@@ -58,22 +84,56 @@ class _Printer(Visitor):
     # NOTE: Call "print_ast()", not this class directly.
 
     def __init__(
-        self, context: HogQLContext, dialect: Literal["hogql", "clickhouse"], stack: Optional[List[ast.AST]] = None
+        self,
+        context: HogQLContext,
+        dialect: Literal["hogql", "clickhouse"],
+        stack: Optional[List[ast.AST]] = None,
+        settings: Optional[HogQLSettings] = None,
     ):
         self.context = context
         self.dialect = dialect
-        # Keep track of all traversed nodes.
-        self.stack: List[ast.AST] = stack or []
+        self.stack: List[ast.AST] = stack or []  # Keep track of all traversed nodes.
+        self.settings = settings
 
     def visit(self, node: ast.AST):
         self.stack.append(node)
         response = super().visit(node)
         self.stack.pop()
+
+        if len(self.stack) == 0 and self.dialect == "clickhouse" and self.settings:
+            if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectUnionQuery):
+                raise ValueError("Settings can only be applied to SELECT queries")
+            settings = []
+            for key, value in self.settings:
+                if not isinstance(value, (int, float, str)):
+                    raise ValueError(f"Setting {key} must be a string, int, or float")
+                if not re.match(r"^[a-zA-Z0-9_]+$", key):
+                    raise ValueError(f"Setting {key} is not supported")
+                if isinstance(value, int) or isinstance(value, float):
+                    settings.append(f"{key}={value}")
+                else:
+                    settings.append(f"{key}={escape_param(value)}")
+            if len(settings) > 0:
+                response += f" SETTINGS {', '.join(settings)}"
+
         return response
 
+    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        query = " UNION ALL ".join([self.visit(expr) for expr in node.select_queries])
+        if len(self.stack) > 1:
+            return f"({query})"
+        return query
+
     def visit_select_query(self, node: ast.SelectQuery):
-        if self.dialect == "clickhouse" and not self.context.select_team_id:
-            raise ValueError("Full SELECT queries are disabled if context.select_team_id is not set")
+        if self.dialect == "clickhouse":
+            if not self.context.enable_select_queries:
+                raise ValueError("Full SELECT queries are disabled if context.enable_select_queries is False")
+            if not self.context.team_id:
+                raise ValueError("Full SELECT queries are disabled if context.team_id is not set")
+
+        # if we are the first parsed node in the tree, or a child of a SelectUnionQuery, mark us as a top level query
+        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectUnionQuery)
+        is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
 
         # We will add extra clauses onto this from the joined tables
         where = node.where
@@ -81,8 +141,8 @@ class _Printer(Visitor):
         joined_tables = []
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
-            if next_join.symbol is None:
-                raise ValueError("Printing queries with a FROM clause is not permitted before symbol resolution")
+            if next_join.ref is None:
+                raise ValueError("Printing queries with a FROM clause is not permitted before ref resolution")
 
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
@@ -121,7 +181,7 @@ class _Printer(Visitor):
         ]
 
         limit = node.limit
-        if self.context.limit_top_select and len(self.stack) == 1:
+        if self.context.limit_top_select and is_top_level_query:
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
                     limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
@@ -142,7 +202,7 @@ class _Printer(Visitor):
         response = " ".join([clause for clause in clauses if clause])
 
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
-        if len(self.stack) > 1:
+        if not part_of_select_union and not is_top_level_query:
             response = f"({response})"
 
         return response
@@ -152,34 +212,52 @@ class _Printer(Visitor):
         extra_where: Optional[ast.Expr] = None
 
         join_strings = []
+
         if node.join_type is not None:
             join_strings.append(node.join_type)
 
-        if isinstance(node.symbol, ast.TableAliasSymbol):
-            table_symbol = node.symbol.table_symbol
-            if table_symbol is None:
-                raise ValueError(f"Table alias {node.symbol.name} does not resolve!")
-            if not isinstance(table_symbol, ast.TableSymbol):
-                raise ValueError(f"Table alias {node.symbol.name} does not resolve to a table!")
-            join_strings.append(self._print_identifier(table_symbol.table.clickhouse_table()))
+        if isinstance(node.ref, ast.TableAliasRef):
+            table_ref = node.ref.table_ref
+            if table_ref is None:
+                raise ValueError(f"Table alias {node.ref.name} does not resolve!")
+            if not isinstance(table_ref, ast.TableRef):
+                raise ValueError(f"Table alias {node.ref.name} does not resolve to a table!")
+
+            if self.dialect == "clickhouse":
+                table_name = table_ref.table.clickhouse_table()
+            else:
+                table_name = table_ref.table.hogql_table()
+            join_strings.append(self._print_identifier(table_name))
+
             if node.alias is not None:
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
             if self.dialect == "clickhouse":
                 # TODO: do this in a separate pass before printing, along with person joins and other transforms
-                extra_where = team_id_guard_for_table(node.symbol, self.context)
+                extra_where = team_id_guard_for_table(node.ref, self.context)
 
-        elif isinstance(node.symbol, ast.TableSymbol):
-            join_strings.append(self._print_identifier(node.symbol.table.clickhouse_table()))
+        elif isinstance(node.ref, ast.TableRef):
+            if self.dialect == "clickhouse":
+                join_strings.append(self._print_identifier(node.ref.table.clickhouse_table()))
+            else:
+                join_strings.append(self._print_identifier(node.ref.table.hogql_table()))
+
+            if node.sample is not None:
+                sample_clause = self.visit_sample_expr(node.sample)
+                if sample_clause is not None:
+                    join_strings.append(sample_clause)
 
             if self.dialect == "clickhouse":
                 # TODO: do this in a separate pass before printing, along with person joins and other transforms
-                extra_where = team_id_guard_for_table(node.symbol, self.context)
+                extra_where = team_id_guard_for_table(node.ref, self.context)
 
-        elif isinstance(node.symbol, ast.SelectQuerySymbol):
+        elif isinstance(node.ref, ast.SelectQueryRef):
             join_strings.append(self.visit(node.table))
 
-        elif isinstance(node.symbol, ast.SelectQueryAliasSymbol) and node.alias is not None:
+        elif isinstance(node.ref, ast.SelectUnionQueryRef):
+            join_strings.append(self.visit(node.table))
+
+        elif isinstance(node.ref, ast.SelectQueryAliasRef) and node.alias is not None:
             join_strings.append(self.visit(node.table))
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
         else:
@@ -280,30 +358,33 @@ class _Printer(Visitor):
 
     def visit_field(self, node: ast.Field):
         original_field = ".".join([self._print_identifier(identifier) for identifier in node.chain])
-        if node.symbol is None:
-            raise ValueError(f"Field {original_field} has no symbol")
+        if node.ref is None:
+            raise ValueError(f"Field {original_field} has no ref")
 
         if self.dialect == "hogql":
+            if node.chain == ["*"]:
+                return "*"
             # When printing HogQL, we print the properties out as a chain as they are.
             return ".".join([self._print_identifier(identifier) for identifier in node.chain])
 
-        if node.symbol is not None:
-            select_query = self._last_select()
-            select: Optional[ast.SelectQuerySymbol] = select_query.symbol if select_query else None
-            if select is None:
-                raise ValueError(f"Can't find SelectQuerySymbol for field: {original_field}")
-            return self.visit(node.symbol)
+        if node.ref is not None:
+            return self.visit(node.ref)
         else:
-            raise ValueError(f"Unknown Symbol, can not print {type(node.symbol).__name__}")
+            raise ValueError(f"Unknown Ref, can not print {type(node.ref).__name__}")
 
     def visit_call(self, node: ast.Call):
         if node.name in HOGQL_AGGREGATIONS:
-            self.context.found_aggregation = True
             required_arg_count = HOGQL_AGGREGATIONS[node.name]
 
-            if required_arg_count != len(node.args):
+            if isinstance(required_arg_count, int) and required_arg_count != len(node.args):
                 raise ValueError(
                     f"Aggregation '{node.name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
+                )
+            if isinstance(required_arg_count, tuple) and (
+                len(node.args) < required_arg_count[0] or len(node.args) > required_arg_count[1]
+            ):
+                raise ValueError(
+                    f"Aggregation '{node.name}' requires between {required_arg_count[0]} and {required_arg_count[1]} arguments, found {len(node.args)}"
                 )
 
             # check that we're not running inside another aggregate
@@ -314,17 +395,10 @@ class _Printer(Visitor):
                     )
 
             translated_args = ", ".join([self.visit(arg) for arg in node.args])
-            if self.dialect == "hogql":
-                return f"{node.name}({translated_args})"
-            elif node.name == "count":
-                return "count(*)"
-            # TODO: rework these
-            elif node.name == "countDistinct":
-                return f"count(distinct {translated_args})"
-            elif node.name == "countDistinctIf":
-                return f"countIf(distinct {translated_args})"
-            else:
-                return f"{node.name}({translated_args})"
+            if node.distinct:
+                translated_args = f"DISTINCT {translated_args}"
+
+            return f"{node.name}({translated_args})"
 
         elif node.name in CLICKHOUSE_FUNCTIONS:
             return f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join([self.visit(arg) for arg in node.args])})"
@@ -340,125 +414,154 @@ class _Printer(Visitor):
             inside = f"({inside})"
         return f"{inside} AS {self._print_identifier(node.alias)}"
 
-    def visit_table_symbol(self, symbol: ast.TableSymbol):
-        return self._print_identifier(symbol.table.clickhouse_table())
+    def visit_table_ref(self, ref: ast.TableRef):
+        if self.dialect == "clickhouse":
+            return self._print_identifier(ref.table.clickhouse_table())
+        else:
+            return self._print_identifier(ref.table.hogql_table())
 
-    def visit_table_alias_symbol(self, symbol: ast.TableAliasSymbol):
-        return self._print_identifier(symbol.name)
+    def visit_table_alias_ref(self, ref: ast.TableAliasRef):
+        return self._print_identifier(ref.name)
 
-    def visit_field_symbol(self, symbol: ast.FieldSymbol):
+    def visit_field_ref(self, ref: ast.FieldRef):
         try:
             last_select = self._last_select()
-            symbol_with_name_in_scope = lookup_field_by_name(last_select.symbol, symbol.name) if last_select else None
+            ref_with_name_in_scope = lookup_field_by_name(last_select.ref, ref.name) if last_select else None
         except ResolverException:
-            symbol_with_name_in_scope = None
+            ref_with_name_in_scope = None
 
         if (
-            isinstance(symbol.table, ast.TableSymbol)
-            or isinstance(symbol.table, ast.TableAliasSymbol)
-            or isinstance(symbol.table, ast.VirtualTableSymbol)
+            isinstance(ref.table, ast.TableRef)
+            or isinstance(ref.table, ast.TableAliasRef)
+            or isinstance(ref.table, ast.VirtualTableRef)
         ):
-            resolved_field = symbol.resolve_database_field()
+            resolved_field = ref.resolve_database_field()
             if resolved_field is None:
-                raise ValueError(f'Can\'t resolve field "{symbol.name}" on table.')
+                raise ValueError(f'Can\'t resolve field "{ref.name}" on table.')
             if isinstance(resolved_field, Table):
-                if isinstance(symbol.table, ast.VirtualTableSymbol):
-                    return self.visit(ast.AsteriskSymbol(table=ast.TableSymbol(table=resolved_field)))
+                if isinstance(ref.table, ast.VirtualTableRef):
+                    return self.visit(ast.AsteriskRef(table=ast.TableRef(table=resolved_field)))
                 else:
                     return self.visit(
-                        ast.AsteriskSymbol(
-                            table=ast.TableAliasSymbol(
-                                table_symbol=ast.TableSymbol(table=resolved_field), name=symbol.table.name
-                            )
+                        ast.AsteriskRef(
+                            table=ast.TableAliasRef(table_ref=ast.TableRef(table=resolved_field), name=ref.table.name)
                         )
                     )
 
-            field_sql = self._print_identifier(resolved_field.name)
+            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
+            if (
+                self.context.within_non_hogql_query
+                and isinstance(ref.table, ast.VirtualTableRef)
+                and ref.name == "properties"
+                and ref.table.field == "poe"
+            ):
+                if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
+                    field_sql = "person_properties"
+                else:
+                    field_sql = "person_props"
 
-            # If the field is called on a table that has an alias, prepend the table alias.
-            # If there's another field with the same name in the scope that's not this, prepend the full table name.
-            # Note: we don't prepend a table name for the special "person" fields.
-            if isinstance(symbol.table, ast.TableAliasSymbol) or symbol_with_name_in_scope != symbol:
-                field_sql = f"{self.visit(symbol.table)}.{field_sql}"
+            else:
+                field_sql = self._print_identifier(resolved_field.name)
+                if self.context.within_non_hogql_query and ref_with_name_in_scope == ref:
+                    # Do not prepend table name in non-hogql context. We don't know what it actually is.
+                    return field_sql
+                field_sql = f"{self.visit(ref.table)}.{field_sql}"
 
-        elif isinstance(symbol.table, ast.SelectQuerySymbol) or isinstance(symbol.table, ast.SelectQueryAliasSymbol):
-            field_sql = self._print_identifier(symbol.name)
-            if isinstance(symbol.table, ast.SelectQueryAliasSymbol) or symbol_with_name_in_scope != symbol:
-                field_sql = f"{self.visit(symbol.table)}.{field_sql}"
+        elif isinstance(ref.table, ast.SelectQueryRef) or isinstance(ref.table, ast.SelectQueryAliasRef):
+            field_sql = self._print_identifier(ref.name)
+            if isinstance(ref.table, ast.SelectQueryAliasRef):
+                field_sql = f"{self.visit(ref.table)}.{field_sql}"
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.using_person_on_events:
+                if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
 
         else:
-            raise ValueError(f"Unknown FieldSymbol table type: {type(symbol.table).__name__}")
+            raise ValueError(f"Unknown FieldRef table type: {type(ref.table).__name__}")
 
         return field_sql
 
-    def visit_property_symbol(self, symbol: ast.PropertySymbol):
-        field_symbol = symbol.parent
-        field = field_symbol.resolve_database_field()
+    def visit_property_ref(self, ref: ast.PropertyRef):
+        if ref.joined_subquery is not None and ref.joined_subquery_field_name is not None:
+            return f"{self._print_identifier(ref.joined_subquery.name)}.{self._print_identifier(ref.joined_subquery_field_name)}"
+
+        field_ref = ref.parent
+        field = field_ref.resolve_database_field()
 
         key = f"hogql_val_{len(self.context.values)}"
-        self.context.values[key] = symbol.name
+        self.context.values[key] = ref.name
 
         # check for a materialised column
-        table = field_symbol.table
-        while isinstance(table, ast.TableAliasSymbol):
-            table = table.table_symbol
-        if isinstance(table, ast.TableSymbol):
-            table_name = table.table.clickhouse_table()
+        table = field_ref.table
+        while isinstance(table, ast.TableAliasRef):
+            table = table.table_ref
+
+        if isinstance(table, ast.TableRef):
+            if self.dialect == "clickhouse":
+                table_name = table.table.clickhouse_table()
+            else:
+                table_name = table.table.hogql_table()
             if field is None:
-                raise ValueError(f"Can't resolve field {field_symbol.name} on table {table_name}")
+                raise ValueError(f"Can't resolve field {field_ref.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            materialized_column = self._get_materialized_column(table_name, symbol.name, field_name)
+            materialized_column = self._get_materialized_column(table_name, ref.name, field_name)
             if materialized_column:
                 property_sql = self._print_identifier(materialized_column)
+                if not self.context.within_non_hogql_query:
+                    property_sql = f"{self.visit(field_ref.table)}.{property_sql}"
+                return property_sql
             else:
-                field_sql = self.visit(field_symbol)
-                property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
+                field_sql = self.visit(field_ref)
+                return trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
         elif (
             self.context.within_non_hogql_query
-            and isinstance(table, ast.SelectQueryAliasSymbol)
-            and table.name == "events__pdi__person"
+            and (isinstance(table, ast.SelectQueryAliasRef) and table.name == "events__pdi__person")
+            or (isinstance(table, ast.VirtualTableRef) and table.field == "poe")
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-            if self.context.using_person_on_events:
-                materialized_column = self._get_materialized_column("events", symbol.name, "person_properties")
+            if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
+                materialized_column = self._get_materialized_column("events", ref.name, "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", symbol.name, "properties")
+                materialized_column = self._get_materialized_column("person", ref.name, "properties")
             if materialized_column:
-                property_sql = self._print_identifier(materialized_column)
-            else:
-                field_sql = self.visit(field_symbol)
-                property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
-        else:
-            field_sql = self.visit(field_symbol)
-            property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
+                return self._print_identifier(materialized_column)
 
-        return property_sql
+        field_sql = self.visit(field_ref)
+        return trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
 
-    def visit_select_query_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
-        return self._print_identifier(symbol.name)
+    def visit_sample_expr(self, node: ast.SampleExpr):
+        sample_value = self.visit_ratio_expr(node.sample_value)
+        offset_clause = ""
+        if node.offset_value:
+            offset_value = self.visit_ratio_expr(node.offset_value)
+            offset_clause = f" OFFSET {offset_value}"
 
-    def visit_field_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
-        return self._print_identifier(symbol.name)
+        return f"SAMPLE {sample_value}{offset_clause}"
 
-    def visit_virtual_table_symbol(self, symbol: ast.VirtualTableSymbol):
-        return self.visit(symbol.table)
+    def visit_ratio_expr(self, node: ast.RatioExpr):
+        return self.visit(node.left) if node.right is None else f"{self.visit(node.left)}/{self.visit(node.right)}"
 
-    def visit_asterisk_symbol(self, symbol: ast.AsteriskSymbol):
-        raise ValueError("Unexpected ast.AsteriskSymbol. Make sure AsteriskExpander has run on the AST.")
+    def visit_select_query_alias_ref(self, ref: ast.SelectQueryAliasRef):
+        return self._print_identifier(ref.name)
 
-    def visit_lazy_table_symbol(self, symbol: ast.LazyTableSymbol):
-        raise ValueError("Unexpected ast.LazyTableSymbol. Make sure LazyTableResolver has run on the AST.")
+    def visit_field_alias_ref(self, ref: ast.SelectQueryAliasRef):
+        return self._print_identifier(ref.name)
 
-    def visit_field_traverser_symbol(self, symbol: ast.FieldTraverserSymbol):
-        raise ValueError("Unexpected ast.FieldTraverserSymbol. This should have been resolved.")
+    def visit_virtual_table_ref(self, ref: ast.VirtualTableRef):
+        return self.visit(ref.table)
+
+    def visit_asterisk_ref(self, ref: ast.AsteriskRef):
+        return "*"
+
+    def visit_lazy_table_ref(self, ref: ast.LazyTableRef):
+        raise ValueError("Unexpected ast.LazyTableRef. Make sure LazyTableResolver has run on the AST.")
+
+    def visit_field_traverser_ref(self, ref: ast.FieldTraverserRef):
+        raise ValueError("Unexpected ast.FieldTraverserRef. This should have been resolved.")
 
     def visit_unknown(self, node: ast.AST):
         raise ValueError(f"Unknown AST node {type(node).__name__}")

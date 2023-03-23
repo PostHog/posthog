@@ -16,7 +16,6 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     className?: string
-    bordered?: boolean
     onSet: CallableFunction
     value?: string | number | Array<string | number> | null
     operator: PropertyOperator
@@ -38,7 +37,6 @@ export function PropertyValue({
     endpoint = undefined,
     placeholder = undefined,
     className,
-    bordered = true,
     onSet,
     value,
     operator,
@@ -108,7 +106,6 @@ export function PropertyValue({
         },
         ['data-attr']: 'prop-val',
         dropdownMatchSelectWidth: 350,
-        bordered,
         placeholder,
         allowClear: Boolean(value),
         onKeyDown: (e: React.KeyboardEvent) => {
