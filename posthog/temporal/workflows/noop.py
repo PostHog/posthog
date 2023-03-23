@@ -18,7 +18,7 @@ async def noop_activity(input: NoopActivityArgs) -> str:
     return output
 
 
-@workflow.defn
+@workflow.defn(name="no-op")
 class NoOpWorkflow:
     @workflow.run
     async def run(self, time: str) -> str:

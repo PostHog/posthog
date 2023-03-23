@@ -7,13 +7,13 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from posthog.temporal.client import connect
-from posthog.temporal.workflows import NoOpWorkflow
 
 
 class Command(BaseCommand):
     help = "Execute Temporal Workflow"
 
     def add_arguments(self, parser):
+        parser.add_argument("workflow", metavar="<WORKFLOW>", help="The name of the workflow to execute")
         parser.add_argument(
             "--temporal_host", default=settings.TEMPORAL_SCHEDULER_HOST, help="Hostname for Temporal Scheduler"
         )
@@ -61,5 +61,5 @@ class Command(BaseCommand):
                 client_key=client_key,
             )
         )
-        result = asyncio.run(client.execute_workflow(NoOpWorkflow.run, ts, id=workflow_id, task_queue=task_queue))
+        result = asyncio.run(client.execute_workflow(options["workflow"], ts, id=workflow_id, task_queue=task_queue))
         logging.warning(f"Workflow output: {result}")
