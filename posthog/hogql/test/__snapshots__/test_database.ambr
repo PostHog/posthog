@@ -231,6 +231,24 @@
               "type": "lazy_table",
               "table": "persons"
           }
+      ],
+      "groups": [
+          {
+              "key": "index",
+              "type": "integer"
+          },
+          {
+              "key": "key",
+              "type": "string"
+          },
+          {
+              "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "properties",
+              "type": "json"
+          }
       ]
   }
   '
@@ -462,6 +480,24 @@
               "key": "person",
               "type": "lazy_table",
               "table": "persons"
+          }
+      ],
+      "groups": [
+          {
+              "key": "index",
+              "type": "integer"
+          },
+          {
+              "key": "key",
+              "type": "string"
+          },
+          {
+              "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "properties",
+              "type": "json"
           }
       ]
   }
