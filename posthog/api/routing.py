@@ -83,6 +83,7 @@ class StructuredViewSetMixin(_GenericViewSet):
     @property
     def organization_id(self) -> str:
         try:
+            breakpoint()
             return self.parents_query_dict["organization_id"]
         except KeyError:
             return str(self.team.organization_id)
@@ -151,8 +152,7 @@ class StructuredViewSetMixin(_GenericViewSet):
         return result
 
     def get_serializer_context(self) -> Dict[str, Any]:
-        add_organization_id = {"organization_id": self.organization_id} if self.organization_id else {}
-        return {**super().get_serializer_context(), **self.parents_query_dict, **add_organization_id}
+        return {**super().get_serializer_context(), **self.parents_query_dict}
 
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None
