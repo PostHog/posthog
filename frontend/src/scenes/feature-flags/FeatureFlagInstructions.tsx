@@ -198,7 +198,7 @@ export function CodeInstructions({
                                 label="Show payload option"
                                 onChange={() => {
                                     setShowPayloadCode(!showPayloadCode)
-                                    reportFlagsCodeExampleInteraction({ optionType: 'payloads' })
+                                    reportFlagsCodeExampleInteraction('payloads')
                                 }}
                                 data-attr="flags-code-example-payloads-option"
                                 checked={showPayloadCode}
@@ -224,7 +224,7 @@ export function CodeInstructions({
                                     checked={showBootstrapCode}
                                     onChange={() => {
                                         setShowBootstrapCode(!showBootstrapCode)
-                                        reportFlagsCodeExampleInteraction({ optionType: 'bootstrap' })
+                                        reportFlagsCodeExampleInteraction('bootstrap')
                                     }}
                                     disabled={
                                         !BOOTSTRAPPING_OPTIONS.map((bo) => bo.value).includes(selectedOption.value) ||
@@ -245,7 +245,7 @@ export function CodeInstructions({
                                     checked={showLocalEvalCode}
                                     onChange={() => {
                                         setShowLocalEvalCode(!showLocalEvalCode)
-                                        reportFlagsCodeExampleInteraction({ optionType: 'local evaluation' })
+                                        reportFlagsCodeExampleInteraction('local evaluation')
                                     }}
                                     disabled={
                                         selectedOption.type !== LibraryType.Server ||
