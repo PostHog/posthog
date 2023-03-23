@@ -1,11 +1,7 @@
-import { IncomingRecordingMessage, KafkaTopic } from '../types'
-import { meterProvider } from '../utils/metrics'
-import pino from 'pino'
+import { KafkaTopic } from '../types'
 import { consumer, producer } from '../utils/kafka'
 import { config } from '../config'
 import { Orchestrator } from './orchestrator'
-
-const logger = pino({ name: 'ingester', level: process.env.LOG_LEVEL || 'info' })
 
 const RECORDING_EVENTS_DEAD_LETTER_TOPIC = config.topics.sessionRecordingEventsDeadLetter
 
@@ -24,18 +20,6 @@ const RECORDING_EVENTS_TOPICS_CONFIGS: Record<KafkaTopic, TopicConfig> = {
 }
 const RECORDING_EVENTS_TOPICS = Object.keys(RECORDING_EVENTS_TOPICS_CONFIGS) as KafkaTopic[]
 
-// Define the metrics we'll be exposing at /metrics
-const meter = meterProvider.getMeter('ingester')
-const messagesReceived = meter.createCounter('messages_received')
-const snapshotMessagesProcessed = meter.createCounter('snapshot_messages_processed')
-
-// TODO: Add timeout for buffers to be flushed
-// TODO: Decompress buffered data
-// TODO: Compress file before uploading to S3
-// TODO: Configure TTL for S3 items
-
-// TODO: Forward minimal event info to Kafka topic to Clickhouse
-
 const orchestrator = new Orchestrator()
 
 export const startConsumer = (): void => {
@@ -45,42 +29,10 @@ export const startConsumer = (): void => {
 
     consumer.run({
         autoCommit: false,
-        eachMessage: async ({ topic, partition, message }) => {
+        eachMessage: async (message) => {
             // TODO: handle seeking to first chunk offset
             // TODO: Handle duplicated data being stored in the case of a consumer restart
-            messagesReceived.add(1)
-
-            const parsedMessage = JSON.parse(message.value.toString())
-            const parsedData = JSON.parse(parsedMessage.data)
-
-            if (parsedData.event !== '$snapshot') {
-                logger.debug('Received non-snapshot message, ignoring')
-                return
-            }
-
-            const $snapshot_data = parsedData.properties.$snapshot_data
-
-            const recordingMessage: IncomingRecordingMessage = {
-                kafkaOffset: message.offset,
-                kafkaPartition: partition,
-                kafkaTopic: topic,
-
-                team_id: parsedMessage.team_id,
-                distinct_id: parsedMessage.distinct_id,
-                session_id: parsedData.properties.$session_id,
-                window_id: parsedData.properties.$window_id,
-
-                // Properties data
-                chunk_id: $snapshot_data.chunk_id,
-                chunk_index: $snapshot_data.chunk_index,
-                chunk_count: $snapshot_data.chunk_count,
-                data: $snapshot_data.data,
-                compresssion: $snapshot_data.compression,
-                has_full_snapshot: $snapshot_data.has_full_snapshot,
-                events_summary: $snapshot_data.events_summary,
-            }
-
-            orchestrator.consume(recordingMessage)
+            orchestrator.handleKafkaMessage(message)
 
             // 1. Parse the message
             // 2. Get or create the SessionManager by sessionId

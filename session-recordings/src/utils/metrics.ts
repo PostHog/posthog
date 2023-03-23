@@ -23,3 +23,7 @@ metricRoutes.get('/_metrics', async (req, res) => {
     res.setHeader('content-type', 'text/plain')
     return res.send(new PrometheusSerializer().serialize(results.resourceMetrics))
 })
+
+// Define the metrics we'll be exposing at /metrics
+export const meter = meterProvider.getMeter('session-recordings-ingester')
+export const counterMessagesReceived = meter.createCounter('messages_received')

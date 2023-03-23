@@ -5,8 +5,8 @@ import { s3Client } from '../utils/s3'
 import { IncomingRecordingMessage } from '../types'
 import { config } from '../config'
 import { convertToPersitedMessage } from './utils'
-import { writeFileSync, mkdirSync, createReadStream } from 'node:fs'
-import { appendFile } from 'node:fs/promises'
+import { writeFileSync, mkdirSync, createReadStream } from 'fs'
+import { appendFile, rm } from 'fs/promises'
 import path from 'path'
 
 // The buffer is a list of messages grouped
@@ -37,7 +37,7 @@ export class SessionManager {
         if (message.chunk_count === 1) {
             await this.addToBuffer(message)
         } else {
-            this.addToChunks(message)
+            await this.addToChunks(message)
         }
 
         const capacity = this.buffer.size / (config.sessions.maxEventGroupKb * 1024)
@@ -88,6 +88,7 @@ export class SessionManager {
             // TODO: If we fail to write to S3 we should be do something about it
             logger.error(error)
         } finally {
+            await rm(this.flushBuffer.file)
             this.flushBuffer = undefined
 
             if (this.buffer.count === 0 && this.chunks.size === 0) {
@@ -117,11 +118,9 @@ export class SessionManager {
      * Full messages (all chunks) are added to the buffer directly
      */
     private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
-        await appendFile(this.buffer.file, JSON.stringify(convertToPersitedMessage(message)) + '\n', 'utf-8')
-
-        // this.buffer.fileData.push(convertToPersitedMessage(message))
         this.buffer.count += 1
         this.buffer.size += Buffer.byteLength(message.data)
+        await appendFile(this.buffer.file, JSON.stringify(convertToPersitedMessage(message)) + '\n', 'utf-8')
     }
 
     /**
@@ -129,7 +128,7 @@ export class SessionManager {
      * Once all chunks are received, the message is added to the buffer
      *
      */
-    private addToChunks(message: IncomingRecordingMessage): void {
+    private async addToChunks(message: IncomingRecordingMessage): Promise<void> {
         // If it is a chunked message we add to the collected chunks
         let chunks: IncomingRecordingMessage[] = []
 
@@ -143,7 +142,7 @@ export class SessionManager {
 
         if (chunks.length === message.chunk_count) {
             // If we have all the chunks, we can add the message to the buffer
-            this.addToBuffer({
+            await this.addToBuffer({
                 ...message,
                 data: chunks
                     .sort((a, b) => a.chunk_index - b.chunk_index)

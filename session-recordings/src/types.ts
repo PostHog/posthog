@@ -1,5 +1,3 @@
-import { KafkaMessage } from 'kafkajs'
-
 export type KafkaTopic = string
 // | 'recording_events'
 // | 'recording_events_retry_1'
@@ -75,7 +73,7 @@ export type IncomingRecordingMessage = {
     chunk_count: number
     data: string
     compresssion: string
-    has_full_snapshot: string
+    has_full_snapshot: boolean
     events_summary: {
         timestamp: number
         type: number

@@ -3,15 +3,17 @@ import { Kafka, Partitioners, Producer } from 'kafkajs'
 import http from 'http'
 import { v4 as uuidv4 } from 'uuid'
 
+import { config } from '../src/config'
+
 declare module 'vitest' {
     export interface TestContext {
         producer: Producer
     }
 }
 
-const RECORDING_EVENTS_TOPIC = 'recording_events'
+const RECORDING_EVENTS_TOPIC = config.topics.sessionRecordingEvents
 
-describe.concurrent('ingester', () => {
+describe.concurrent('e2e', () => {
     // TODO: add tests for:
     //
     //  * ensuring chunks are complete before committing them
