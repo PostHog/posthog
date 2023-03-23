@@ -5,24 +5,14 @@ import { ExporterFormat } from '~/types'
 import { DataNode, DataTableNode } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { isEventsQuery, isPersonsNode } from '~/queries/utils'
-import { getEventsEndpoint, getPersonsEndpoint } from '~/queries/query'
+import { queryExportContext } from '~/queries/query'
 import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 
 const EXPORT_LIMIT_EVENTS = 3500
 const EXPORT_LIMIT_PERSONS = 10000
 
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
-    const exportContext = isEventsQuery(query.source)
-        ? {
-              path: getEventsEndpoint({ ...query.source, limit: EXPORT_LIMIT_EVENTS }),
-              max_limit: query.source.limit ?? EXPORT_LIMIT_EVENTS,
-          }
-        : isPersonsNode(query.source)
-        ? { path: getPersonsEndpoint(query.source), max_limit: EXPORT_LIMIT_PERSONS }
-        : undefined
-    if (!exportContext) {
-        throw new Error('Unsupported node type')
-    }
+    const exportContext = queryExportContext(query)
 
     const columnMapping = {
         url: ['properties.$current_url', 'properties.$screen_name'],

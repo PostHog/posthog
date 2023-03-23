@@ -30,10 +30,10 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import PKorUUIDViewSet, StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.client import sync_execute
-from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
+from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
-from posthog.models import Cohort, Filter, Person, User
+from posthog.models import Cohort, Filter, Person, User, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -62,9 +62,35 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
-from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
+from posthog.utils import (
+    convert_property_value,
+    format_query_params_absolute_url,
+    is_anonymous_id,
+    relative_date_parse,
+    format_query_params_absolute_url_from,
+)
 
 DEFAULT_PAGE_LIMIT = 100
+
+
+def list_persons(filter_data: Dict, team: Team, url_to_format: str) -> Dict[str, Any]:
+    filter = Filter(data=filter_data, team=team)
+    query, params = PersonQuery(filter, team.pk).get_query(paginate=True, filter_future_persons=True)
+    raw_result = insight_sync_execute(
+        query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
+    )
+    actor_ids = [row[0] for row in raw_result]
+    actors, serialized_actors = get_people(team.pk, actor_ids)
+    _should_paginate = len(actor_ids) >= filter.limit
+    next_url = (
+        format_query_params_absolute_url_from(url_to_format, filter.offset + filter.limit) if _should_paginate else None
+    )
+    previous_url = (
+        format_query_params_absolute_url_from(url_to_format, filter.offset - filter.limit)
+        if filter.offset - filter.limit >= 0
+        else None
+    )
+    return {"results": serialized_actors, "next": next_url, "previous": previous_url}
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -195,32 +221,18 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         team = self.team
-        filter = Filter(request=request, team=self.team)
+        data = Filter.data_from_request(data=None, request=request)
 
         is_csv_request = self.request.accepted_renderer.format == "csv"
         if is_csv_request:
-            filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
-        elif not filter.limit:
-            filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
+            data["limit"] = CSV_EXPORT_LIMIT
+            data["offset"] = 0
+        elif not data.get("limit", None):
+            data["limit"] = DEFAULT_PAGE_LIMIT
 
-        query, params = PersonQuery(filter, team.pk).get_query(paginate=True, filter_future_persons=True)
+        response_body = list_persons(filter_data=data, team=team, url_to_format=request.build_absolute_uri())
 
-        raw_result = insight_sync_execute(
-            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
-        )
-
-        actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team.pk, actor_ids)
-
-        _should_paginate = len(actor_ids) >= filter.limit
-        next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
-        previous_url = (
-            format_query_params_absolute_url(request, filter.offset - filter.limit)
-            if filter.offset - filter.limit >= 0
-            else None
-        )
-
-        return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
+        return Response(response_body)
 
     @extend_schema(
         parameters=[

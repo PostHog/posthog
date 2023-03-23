@@ -17,12 +17,13 @@ from rest_framework.request import Request
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
+from posthog.api.person import list_persons
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.hogql.database import create_hogql_database, serialize_database
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import Team, User
+from posthog.models import Team, User, Filter
 from posthog.models.event.events_query import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
@@ -62,7 +63,10 @@ class QuerySchemaParser(JSONParser):
 
     def parse(self, stream, media_type=None, parser_context=None):
         data = super(QuerySchemaParser, self).parse(stream, media_type, parser_context)
-        QuerySchemaParser.validate_query(data.get("query"))
+        query_from_data = data.get("query", None)
+        if query_from_data is None:
+            raise ValidationError("Missing query in request")
+        QuerySchemaParser.validate_query(query_from_data)
         return data
 
 
@@ -158,6 +162,15 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
         events_query = EventsQuery.parse_obj(query_json)
         response = run_events_query(query=events_query, team=team)
         return _response_to_dict(response)
+    elif query_kind == "PersonsNode":
+
+        data = Filter.data_from_request(
+            data={**query_json, "properties": query_json.get("properties", []) + query_json.get("fixed_properties", [])}
+        )
+        if not data.get("limit", None):
+            data["limit"] = 100
+
+        return list_persons(filter_data=data, team=team, url_to_format="TODO")  # request.build_absolute_uri())
     elif query_kind == "HogQLQuery":
         if not is_hogql_enabled:
             raise ValidationError("HogQL is not enabled for this organization")

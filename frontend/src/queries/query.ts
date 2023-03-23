@@ -44,14 +44,13 @@ export function queryExportContext<N extends DataNode = DataNode>(
             path: api.queryURL(),
             method: 'POST',
             body: {
-                ...query,
-                after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString(),
+                query: { ...query, after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString() },
             },
         }
     } else if (isHogQLQuery(query)) {
-        return { path: api.queryURL(), method: 'POST', body: query }
+        return { path: api.queryURL(), method: 'POST', body: { query } }
     } else if (isPersonsNode(query)) {
-        return { path: getPersonsEndpoint(query) }
+        return { path: api.queryURL(), method: 'POST', body: { query } }
     } else if (isInsightQueryNode(query)) {
         return legacyInsightQueryExportContext({
             filters: queryNodeToFilter(query),
@@ -68,36 +67,27 @@ export function queryExportContext<N extends DataNode = DataNode>(
         })
     } else if (isTimeToSeeDataSessionsQuery(query)) {
         return {
-            path: '/api/time_to_see_data/sessions',
+            path: api.queryURL(),
             method: 'POST',
-            body: {
-                team_id: query.teamId ?? getCurrentTeamId(),
-            },
+            body: {},
         }
     } else if (isTimeToSeeDataQuery(query)) {
         return {
-            path: '/api/time_to_see_data/session_events',
+            path: api.queryURL(),
             method: 'POST',
             body: {
-                team_id: query.teamId ?? getCurrentTeamId(),
-                session_id: query.sessionId ?? currentSessionId(),
-                session_start: query.sessionStart ?? now().subtract(1, 'day').toISOString(),
-                session_end: query.sessionEnd ?? now().toISOString(),
+                query: {
+                    team_id: query.teamId ?? getCurrentTeamId(),
+                    session_id: query.sessionId ?? currentSessionId(),
+                    session_start: query.sessionStart ?? now().subtract(1, 'day').toISOString(),
+                    session_end: query.sessionEnd ?? now().toISOString(),
+                },
             },
         }
     } else if (isTimeToSeeDataSessionsNode(query)) {
-        return {
-            path: '/api/time_to_see_data/session_events',
-            method: 'POST',
-            body: {
-                team_id: query.source.teamId ?? getCurrentTeamId(),
-                session_id: query.source.sessionId ?? currentSessionId(),
-                session_start: query.source.sessionStart ?? now().subtract(1, 'day').toISOString(),
-                session_end: query.source.sessionEnd ?? now().toISOString(),
-            },
-        }
+        return queryExportContext(query.source, methodOptions, refresh)
     } else if (isRecentPerformancePageViewNode(query)) {
-        return { path: api.performanceEvents.recentPageViewsURL() }
+        return { path: api.queryURL(), method: 'POST', body: { query } }
     } else if (isDataTableNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
     }
@@ -115,9 +105,7 @@ export async function query<N extends DataNode = DataNode>(
         return query(queryNode.source)
     }
 
-    if (isPersonsNode(queryNode)) {
-        return await api.get(getPersonsEndpoint(queryNode), methodOptions)
-    } else if (isInsightQueryNode(queryNode)) {
+    if (isInsightQueryNode(queryNode)) {
         const filters = queryNodeToFilter(queryNode)
         const params = {
             ...filters,

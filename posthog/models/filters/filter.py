@@ -111,6 +111,25 @@ class Filter(
     ) -> None:
 
         if request:
+            data = self.data_from_request(data, request)
+
+        if data is None:
+            raise ValueError("You need to define either a data dict or a request")
+
+        self._data = data
+        self.kwargs = kwargs
+        if "team" in kwargs:
+            self.team = kwargs["team"]
+            if not self.is_simplified:
+                simplified_filter = self.simplify(kwargs["team"])
+                self._data = simplified_filter._data
+
+    @staticmethod
+    def data_from_request(
+        data: Optional[Dict[str, Any]] = None,
+        request: Optional[request.Request] = None,
+    ) -> Dict:
+        if request:
             properties = {}
             if request.GET.get(PROPERTIES):
                 try:
@@ -121,13 +140,8 @@ class Filter(
                 properties = request.data[PROPERTIES]
 
             data = {**request.GET.dict(), **request.data, **(data if data else {}), **({PROPERTIES: properties})}
-        elif data is None:
+
+        if data is None:
             raise ValueError("You need to define either a data dict or a request")
 
-        self._data = data
-        self.kwargs = kwargs
-        if "team" in kwargs:
-            self.team = kwargs["team"]
-            if not self.is_simplified:
-                simplified_filter = self.simplify(kwargs["team"])
-                self._data = simplified_filter._data
+        return data

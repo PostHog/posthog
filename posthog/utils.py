@@ -1018,8 +1018,8 @@ def get_helm_info_env() -> dict:
         return {}
 
 
-def format_query_params_absolute_url(
-    request: Request,
+def format_query_params_absolute_url_from(
+    url_to_format: str,
     offset: Optional[int] = None,
     limit: Optional[int] = None,
     offset_alias: Optional[str] = "offset",
@@ -1027,8 +1027,6 @@ def format_query_params_absolute_url(
 ) -> Optional[str]:
     OFFSET_REGEX = re.compile(rf"([&?]{offset_alias}=)(\d+)")
     LIMIT_REGEX = re.compile(rf"([&?]{limit_alias}=)(\d+)")
-
-    url_to_format = request.build_absolute_uri()
 
     if not url_to_format:
         return None
@@ -1046,6 +1044,25 @@ def format_query_params_absolute_url(
             url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{limit_alias}={limit}"
 
     return url_to_format
+
+
+def format_query_params_absolute_url(
+    request: Request,
+    offset: Optional[int] = None,
+    limit: Optional[int] = None,
+    offset_alias: Optional[str] = "offset",
+    limit_alias: Optional[str] = "limit",
+) -> Optional[str]:
+
+    url_to_format = request.build_absolute_uri()
+
+    return format_query_params_absolute_url_from(
+        url_to_format=url_to_format,
+        offset=offset,
+        limit=limit,
+        offset_alias=offset_alias,
+        limit_alias=limit_alias,
+    )
 
 
 def get_milliseconds_between_dates(d1: dt.datetime, d2: dt.datetime) -> int:
