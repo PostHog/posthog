@@ -3,14 +3,7 @@ import { Counter } from 'prom-client'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PipelineEvent } from '../../../types'
-import { status } from '../../../utils/status'
 import { EventPipelineRunner } from './runner'
-
-export const teamResolutionChecksCounter = new Counter({
-    name: 'ingestion_team_resolution_checks_total',
-    help: 'Temporary metric to compare the team_id resolved by ingestion and capture. Tagged by result of the check.',
-    labelNames: ['check_ok'],
-})
 
 export const tokenOrTeamPresentCounter = new Counter({
     name: 'ingestion_event_hasauthinfo_total',
@@ -24,10 +17,10 @@ export async function populateTeamDataStep(
 ): Promise<PluginEvent | null> {
     /**
      * Implements team_id resolution and applies the team's ingestion settings (dropping event.ip if requested).
+     * Resolution can fail if PG is unavailable, leading to the consumer taking lag until retries succeed.
      *
-     * If the event already has a team_id field set by capture, it is used, but plugin-server still runs
-     * the resolution logic to confirm no inconsistency exists. Once team_id resolution is fully removed
-     * from capture, that section should be resolved, and team_id not trusted anymore.
+     * Events captured by apps are directed injected in kafka with a team_id and not token, bypassing capture.
+     * For these, we trust the team_id field value.
      */
 
     // Collect statistics on the shape of events we are ingesting.
@@ -43,28 +36,8 @@ export async function populateTeamDataStep(
         token_present: event.token ? 'true' : 'false',
     })
 
-    // If a team_id is present (resolved at capture, or injected by an app), trust it but
-    // try resolving from the token if present, and compare results to detect inconsistencies.
-    // TODO: remove after lightweight capture is fully rolled-out and the
-    //       ingestion_event_hasauthinfo metric confirms all incoming events have a token.
+    // If a team_id is present (event captured from an app), trust it and return the event as is.
     if (event.team_id) {
-        if (event.token) {
-            const team = await runner.hub.teamManager.getTeamByToken(event.token)
-            let checkOk: string
-            if (team?.id === event.team_id) {
-                checkOk = 'true'
-            } else {
-                checkOk = 'false'
-                status.warn(
-                    '🔍',
-                    `Team resolution mismatch for event ${event.uuid}: token "${event.token}" ` +
-                        `resolves to team "${team?.id}" instead of "${event.team_id}"`
-                )
-            }
-            teamResolutionChecksCounter.labels({ check_ok: checkOk }).inc()
-            // statsd copy as prometheus is currently not supported in worker threads.
-            runner.hub.statsd?.increment('ingestion_team_resolution_checks', { check_ok: checkOk })
-        }
         return event as PluginEvent
     }
 

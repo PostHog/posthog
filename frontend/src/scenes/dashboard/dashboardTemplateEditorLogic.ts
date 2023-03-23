@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DashboardTemplateEditorType, DashboardTemplateType, MonacoMarker } from '~/types'
@@ -7,7 +7,6 @@ import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplat
 
 import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplateEditorLogic']),
@@ -83,12 +82,22 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                     const response = await api.dashboardTemplates.get(id)
                     return response
                 },
-                updateDashboardTemplate: async (id: string): Promise<DashboardTemplateType | undefined> => {
-                    if (!values.dashboardTemplate) {
+                updateDashboardTemplate: async ({
+                    id,
+                    dashboardTemplateUpdates,
+                }: {
+                    id: string
+                    dashboardTemplateUpdates?: Partial<DashboardTemplateType>
+                }): Promise<DashboardTemplateEditorType | undefined> => {
+                    let response = null
+                    if (dashboardTemplateUpdates) {
+                        response = await api.dashboardTemplates.update(id, dashboardTemplateUpdates)
+                    } else if (values.dashboardTemplate) {
+                        response = await api.dashboardTemplates.update(id, values.dashboardTemplate)
+                    } else {
                         lemonToast.error('Unable to update dashboard template')
                         return
                     }
-                    const response = await api.dashboardTemplates.update(id, values.dashboardTemplate)
                     lemonToast.success('Dashboard template updated')
                     return response
                 },
@@ -108,14 +117,6 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             },
         ],
     })),
-    selectors({
-        isUsingDashboardTemplates: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
-            },
-        ],
-    }),
     listeners(({ values, actions }) => ({
         createDashboardTemplateSuccess: async () => {
             actions.closeDashboardTemplateEditor()
@@ -166,9 +167,7 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             }
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.isUsingDashboardTemplates) {
-            actions.getTemplateSchema()
-        }
+    afterMount(({ actions }) => {
+        actions.getTemplateSchema()
     }),
 ])

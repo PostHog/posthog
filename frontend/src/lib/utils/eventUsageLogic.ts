@@ -481,6 +481,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             capture_console_log_opt_in: boolean,
             capture_performance_opt_in: boolean
         ) => ({ session_recording_opt_in, capture_console_log_opt_in, capture_performance_opt_in }),
+        reportIngestionAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
         reportIngestionTryWithDemoDataClicked: true,
@@ -516,6 +517,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRoleCustomAddedToAResource: (resourceType: Resource, rolesLength: number) => ({
             resourceType,
             rolesLength,
+        }),
+        reportFlagsCodeExampleInteraction: (optionType: string) => ({
+            optionType,
         }),
     },
     listeners: ({ values }) => ({
@@ -1169,6 +1173,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 capture_performance_opt_in,
             })
         },
+        reportIngestionAutocaptureToggled: ({ autocapture_opt_out }) => {
+            posthog.capture('ingestion autocapture toggled', {
+                autocapture_opt_out,
+            })
+        },
         reportIngestionHelpClicked: ({ type }) => {
             posthog.capture('ingestion help clicked', {
                 type: type,
@@ -1254,6 +1263,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('role custom added to a resource', {
                 resource_type: resourceType,
                 roles_length: rolesLength,
+            })
+        },
+        reportFlagsCodeExampleInteraction: ({ optionType }) => {
+            posthog.capture('flags code example option selected', {
+                option_type: optionType,
             })
         },
     }),

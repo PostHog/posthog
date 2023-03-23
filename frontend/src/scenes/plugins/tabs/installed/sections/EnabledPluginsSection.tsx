@@ -183,7 +183,7 @@ export function EnabledPluginSection(): JSX.Element {
         return (
             <>
                 <EnabledPluginsHeader />
-                {sectionsOpen.includes(PluginSection.Enabled) && <p style={{ margin: 10 }}>No apps enabled.</p>}
+                {sectionsOpen.includes(PluginSection.Enabled) && <p className="m-2.5">No apps enabled.</p>}
             </>
         )
     }
@@ -194,7 +194,7 @@ export function EnabledPluginSection(): JSX.Element {
             {sectionsOpen.includes(PluginSection.Enabled) && (
                 <>
                     {sortableEnabledPlugins.length === 0 && unsortableEnabledPlugins.length === 0 && (
-                        <p style={{ margin: 10 }}>No apps match your search.</p>
+                        <p className="m-2.5">No apps match your search.</p>
                     )}
                     {canRearrange || rearranging ? (
                         <>

@@ -71,7 +71,7 @@ export function NewActionButton(): JSX.Element {
                         </LemonButton>
                     </div>
                 ) : (
-                    <div style={{ maxWidth: '40rem' }}>
+                    <div className="max-w-160">
                         <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
                     </div>
                 )}

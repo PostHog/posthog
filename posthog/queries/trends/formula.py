@@ -50,14 +50,16 @@ class TrendsFormula:
             # Need to wrap aggregates in arrays so we can still use arrayMap
             selects=", ".join(
                 [
-                    (f"[sub_{letter}.data]" if is_aggregate else f"arrayResize(sub_{letter}.data, max_length, 0)")
+                    (f"[sub_{letter}.total]" if is_aggregate else f"arrayResize(sub_{letter}.total, max_length, 0)")
                     for letter in letters
                 ]
             ),
             breakdown_value=breakdown_value if filter.breakdown else "",
             max_length=""
             if is_aggregate
-            else ", arrayMax([{}]) as max_length".format(", ".join(f"length(sub_{letter}.data)" for letter in letters)),
+            else ", arrayMax([{}]) as max_length".format(
+                ", ".join(f"length(sub_{letter}.total)" for letter in letters)
+            ),
             first_query=queries[0],
             queries="".join(
                 [

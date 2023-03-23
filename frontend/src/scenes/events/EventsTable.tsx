@@ -28,7 +28,6 @@ import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { EventBufferNotice } from './EventBufferNotice'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
@@ -499,10 +498,6 @@ export function EventsTable({
                         </div>
                     </div>
                 ) : null}
-                <EventBufferNotice
-                    additionalInfo=" - this helps ensure accuracy of insights grouped by unique users"
-                    className="mb-4"
-                />
                 <LemonTable
                     data-attr={dataAttr}
                     dataSource={eventsFormatted}

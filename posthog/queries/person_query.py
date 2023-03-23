@@ -16,10 +16,10 @@ from posthog.models.property.util import (
     parse_prop_grouped_clauses,
     prop_filter_json_extract,
 )
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS
+from posthog.queries.util import PersonPropertiesMode
 
 
 class PersonQuery:
@@ -74,7 +74,9 @@ class PersonQuery:
             properties
         ).inner
 
-    def get_query(self, prepend: Optional[Union[str, int]] = None, paginate: bool = False) -> Tuple[str, Dict]:
+    def get_query(
+        self, prepend: Optional[Union[str, int]] = None, paginate: bool = False, filter_future_persons: bool = False
+    ) -> Tuple[str, Dict]:
         prepend = str(prepend) if prepend is not None else ""
 
         fields = "id" + " ".join(
@@ -95,6 +97,9 @@ class PersonQuery:
         search_clause, search_params = self._get_search_clause(prepend=prepend)
         distinct_id_clause, distinct_id_params = self._get_distinct_id_clause()
         email_clause, email_params = self._get_email_clause()
+        filter_future_persons_query = (
+            "and argMax(created_at, version) < now() + interval '1 day'" if filter_future_persons else ""
+        )
 
         return (
             f"""
@@ -109,7 +114,7 @@ class PersonQuery:
             )
             {cohort_filters}
             GROUP BY id
-            HAVING max(is_deleted) = 0
+            HAVING max(is_deleted) = 0 {filter_future_persons_query}
             {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
             {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
@@ -122,7 +127,7 @@ class PersonQuery:
             WHERE team_id = %(team_id)s
             {cohort_filters}
             GROUP BY id
-            HAVING max(is_deleted) = 0
+            HAVING max(is_deleted) = 0 {filter_future_persons_query}
             {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
             {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}

@@ -13,9 +13,7 @@ import { EditorFilters } from './EditorFilters/EditorFilters'
 import clsx from 'clsx'
 import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { isInsightVizNode } from '~/queries/utils'
+import { containsHogQLQuery } from '~/queries/utils'
 
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
@@ -23,23 +21,27 @@ export interface InsightSceneProps {
 
 export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
-    const { insightMode } = useValues(insightSceneLogic)
+    const { insightMode, insight } = useValues(insightSceneLogic)
 
     // insightLogic
-    const logic = insightLogic({ dashboardItemId: insightId || 'new' })
+    const logic = insightLogic({
+        dashboardItemId: insightId || 'new',
+        cachedInsight: insight?.short_id === insightId ? insight : null,
+    })
     const {
         insightProps,
         insightLoading,
         filtersKnown,
         filters,
         isUsingDataExploration,
+        isUsingDashboardQueries,
         erroredQueryId,
         isFilterBasedInsight,
     } = useValues(logic)
     const { reportInsightViewedForRecentInsights, abortAnyRunningQuery, loadResults } = useActions(logic)
 
     // insightDataLogic
-    const { query } = useValues(insightDataLogic(insightProps))
+    const { query, isQueryBasedInsight, showQueryEditor } = useValues(insightDataLogic(insightProps))
     const { setQuery } = useActions(insightDataLogic(insightProps))
 
     // other logics
@@ -69,7 +71,10 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         return <InsightSkeleton />
     }
 
-    const showQueryEditorPanel = insightMode === ItemMode.Edit && !!query && !isInsightVizNode(query)
+    const actuallyShowQueryEditor =
+        isUsingDashboardQueries &&
+        insightMode === ItemMode.Edit &&
+        ((isQueryBasedInsight && !containsHogQLQuery(query)) || showQueryEditor)
 
     const insightScene = (
         <div className={'insights-page'}>
@@ -77,20 +82,17 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 
-            {isUsingDataExploration && query !== null ? (
+            {isUsingDataExploration || (isUsingDashboardQueries && isQueryBasedInsight) ? (
                 <>
-                    {showQueryEditorPanel ? (
-                        <>
-                            <QueryEditor
-                                query={JSON.stringify(query)}
-                                setQuery={(stringQuery) => setQuery(JSON.parse(stringQuery))}
-                            />
-                            <div className="my-4">
-                                <LemonDivider />
-                            </div>
-                        </>
-                    ) : null}
-                    <Query query={query} setQuery={setQuery} />
+                    <Query
+                        query={query}
+                        setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
+                        context={{
+                            showOpenEditorButton: false,
+                            showQueryEditor: actuallyShowQueryEditor,
+                            showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
+                        }}
+                    />
                 </>
             ) : (
                 <>

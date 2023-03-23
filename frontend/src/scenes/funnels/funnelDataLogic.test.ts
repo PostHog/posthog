@@ -1,52 +1,61 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
+import timekeeper from 'timekeeper'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
-import { FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
-import { ActionsNode, DataNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
+import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
+import {
+    ActionsNode,
+    DataNode,
+    EventsNode,
+    FunnelsQuery,
+    InsightQueryNode,
+    NewEntityNode,
+    NodeKind,
+} from '~/queries/schema'
 import {
     funnelResult,
-    funnelResultWithBreakdown,
-    funnelResultWithMultiBreakdown,
     funnelResultTimeToConvert,
     funnelResultTimeToConvertWithoutConversions,
     funnelResultTrends,
+    funnelResultWithBreakdown,
+    funnelResultWithMultiBreakdown,
+    funnelInvalidExclusionError,
 } from './__mocks__/funnelDataLogicMocks'
 
+let logic: ReturnType<typeof funnelDataLogic.build>
+let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
+
+const insightProps: InsightLogicProps = {
+    dashboardItemId: undefined,
+}
+
+async function initFunnelDataLogic(): Promise<void> {
+    teamLogic.mount()
+    await expectLogic(teamLogic).toFinishAllListeners()
+
+    builtDataNodeLogic = dataNodeLogic({ key: 'InsightViz.new', query: {} as DataNode })
+    builtDataNodeLogic.mount()
+    await expectLogic(dataNodeLogic).toFinishAllListeners()
+
+    logic = funnelDataLogic(insightProps)
+    logic.mount()
+    await expectLogic(logic).toFinishAllListeners()
+}
+
 describe('funnelDataLogic', () => {
-    const insightProps: InsightLogicProps = {
-        dashboardItemId: undefined,
-    }
-    let logic: ReturnType<typeof funnelDataLogic.build>
-    let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
-
-    beforeEach(() => {
-        initKeaTests(false)
-    })
-
-    async function initFunnelDataLogic(): Promise<void> {
-        teamLogic.mount()
-        await expectLogic(teamLogic).toFinishAllListeners()
-
-        builtDataNodeLogic = dataNodeLogic({ key: 'InsightViz.new', query: {} as DataNode })
-        builtDataNodeLogic.mount()
-        await expectLogic(dataNodeLogic).toFinishAllListeners()
-
-        logic = funnelDataLogic(insightProps)
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-    }
     beforeEach(async () => {
+        initKeaTests(false)
         await initFunnelDataLogic()
     })
 
     describe('funnel viz types', () => {
         it('with non-funnel insight', async () => {
             await expectLogic(logic).toMatchValues({
-                querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
+                querySource: null,
                 isStepsFunnel: null,
                 isTimeToConvertFunnel: null,
                 isTrendsFunnel: null,
@@ -130,7 +139,7 @@ describe('funnelDataLogic', () => {
     describe('empty funnel', () => {
         it('with non-funnel insight', async () => {
             await expectLogic(logic).toMatchValues({
-                querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
+                querySource: null,
                 isEmptyFunnel: null,
             })
         })
@@ -201,6 +210,18 @@ describe('funnelDataLogic', () => {
                             }),
                         ]),
                     ]),
+                })
+            })
+
+            it('with breakdown and no results', async () => {
+                const insight: Partial<InsightModel> = {
+                    result: [],
+                }
+
+                await expectLogic(logic, () => {
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    results: expect.arrayContaining([]),
                 })
             })
 
@@ -640,8 +661,16 @@ describe('funnelDataLogic', () => {
                     },
                     result: funnelResultWithBreakdown.result,
                 }
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        hidden_legend_breakdowns: ['Firefox'],
+                    },
+                }
 
                 await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     visibleStepsWithConversionMetrics: [
@@ -668,10 +697,6 @@ describe('funnelDataLogic', () => {
                                     count: 66,
                                 }),
                                 expect.objectContaining({
-                                    breakdown_value: ['Firefox'],
-                                    count: 27,
-                                }),
-                                expect.objectContaining({
                                     breakdown_value: ['Safari'],
                                     count: 6,
                                 }),
@@ -688,8 +713,17 @@ describe('funnelDataLogic', () => {
                     },
                     result: funnelResultWithMultiBreakdown.result,
                 }
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        hidden_legend_breakdowns: ['Chrome::Mac OS X'],
+                    },
+                }
 
                 await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     visibleStepsWithConversionMetrics: [
@@ -712,10 +746,6 @@ describe('funnelDataLogic', () => {
                                     count: 37,
                                 }),
                                 expect.objectContaining({
-                                    breakdown_value: ['Chrome', 'Mac OS X'],
-                                    count: 26,
-                                }),
-                                expect.objectContaining({
                                     breakdown_value: ['Chrome', 'Linux'],
                                     count: 8,
                                 }),
@@ -729,10 +759,35 @@ describe('funnelDataLogic', () => {
                 })
             })
         })
+
+        describe('areExclusionFiltersValid', () => {
+            it('for standard funnel', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResult.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    areExclusionFiltersValid: true,
+                })
+            })
+
+            it('for invalid exclusion', async () => {
+                await expectLogic(logic, () => {
+                    builtDataNodeLogic.actions.loadDataFailure('', { status: 400, ...funnelInvalidExclusionError })
+                }).toMatchValues({
+                    areExclusionFiltersValid: false,
+                })
+            })
+        })
     })
 
-    describe('areFiltersValid', () => {
-        const queryWithSeries = (series: (ActionsNode | EventsNode)[]): FunnelsQuery => ({
+    describe('isFunnelWithEnoughSteps', () => {
+        const queryWithSeries = (series: (ActionsNode | EventsNode | NewEntityNode)[]): FunnelsQuery => ({
             kind: NodeKind.FunnelsQuery,
             series,
         })
@@ -740,21 +795,23 @@ describe('funnelDataLogic', () => {
         it('with enough/not enough steps', () => {
             expectLogic(logic, () => {
                 logic.actions.updateQuerySource({ kind: NodeKind.RetentionQuery } as InsightQueryNode)
-            }).toMatchValues({ areFiltersValid: false })
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {
                 logic.actions.updateQuerySource(queryWithSeries([]))
-            }).toMatchValues({ areFiltersValid: false })
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {
-                logic.actions.updateQuerySource(queryWithSeries([{ kind: NodeKind.EventsNode }]))
-            }).toMatchValues({ areFiltersValid: false })
+                logic.actions.updateQuerySource(
+                    queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.NewEntityNode }])
+                )
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {
                 logic.actions.updateQuerySource(
                     queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }])
                 )
-            }).toMatchValues({ areFiltersValid: true })
+            }).toMatchValues({ isFunnelWithEnoughSteps: true })
         })
     })
 
@@ -882,7 +939,7 @@ describe('funnelDataLogic', () => {
         })
     })
 
-    describe('isValidFunnel', () => {
+    describe('hasFunnelResults', () => {
         it('for steps viz', async () => {
             const query: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,
@@ -903,7 +960,7 @@ describe('funnelDataLogic', () => {
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
-                isValidFunnel: true,
+                hasFunnelResults: true,
             })
         })
 
@@ -927,7 +984,7 @@ describe('funnelDataLogic', () => {
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
-                isValidFunnel: true,
+                hasFunnelResults: true,
             })
         })
 
@@ -951,7 +1008,174 @@ describe('funnelDataLogic', () => {
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
-                isValidFunnel: true,
+                hasFunnelResults: true,
+            })
+        })
+    })
+
+    describe('conversionMetrics', () => {
+        it('for steps viz with multiple steps', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Steps,
+                },
+            }
+
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResult.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                conversionMetrics: {
+                    averageTime: 87098.67529697785,
+                    stepRate: 0.46048109965635736,
+                    totalRate: 0.46048109965635736,
+                },
+            })
+        })
+
+        it('for time to convert viz', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.TimeToConvert,
+                },
+            }
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTimeToConvert.result,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toMatchValues({
+                conversionMetrics: {
+                    averageTime: 86456.76, // from backend
+                    stepRate: 0,
+                    totalRate: 0,
+                },
+            })
+        })
+
+        it('for trends viz', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Trends,
+                },
+            }
+
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTrends.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                conversionMetrics: {
+                    averageTime: 0,
+                    stepRate: 0,
+                    totalRate: 0.7120000000000001, // avg(steps[0] / 100)
+                },
+            })
+        })
+    })
+
+    describe('conversionWindow', () => {
+        it('with defaults', async () => {
+            await expectLogic(logic).toMatchValues({
+                conversionWindow: {
+                    funnel_window_interval: 14,
+                    funnel_window_interval_unit: 'day',
+                },
+            })
+        })
+
+        it('with conversion window', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_window_interval: 3,
+                    funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Week,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                conversionWindow: {
+                    funnel_window_interval: 3,
+                    funnel_window_interval_unit: 'week',
+                },
+            })
+        })
+    })
+
+    describe('incompletenessOffsetFromEnd', () => {
+        beforeAll(() => {
+            const lastResponseDay = funnelResultTrends.result[0].days.slice(-1)[0]
+            timekeeper.freeze(new Date(lastResponseDay))
+        })
+
+        afterAll(() => {
+            timekeeper.reset()
+        })
+
+        it('with defaults', async () => {
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTrends.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toMatchValues({
+                incompletenessOffsetFromEnd: -7,
+            })
+        })
+
+        it('with conversion window', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_window_interval: 2,
+                    funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
+                },
+            }
+
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTrends.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                incompletenessOffsetFromEnd: -3,
             })
         })
     })
