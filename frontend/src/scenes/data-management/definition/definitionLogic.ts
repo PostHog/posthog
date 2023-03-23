@@ -42,7 +42,7 @@ export const definitionLogic = kea<definitionLogicType>([
         setPageMode: (mode: DefinitionPageMode) => ({ mode }),
     }),
     connect(() => ({
-        values: [userLogic, ['hasAvailableFeature', 'currentTeam']],
+        values: [userLogic, ['hasAvailableFeature']],
     })),
     reducers(() => ({
         mode: [
