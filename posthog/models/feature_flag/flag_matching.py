@@ -417,11 +417,7 @@ def _get_all_feature_flags(
     cache = FlagsMatcherCache(team_id)
 
     if person_id is not None:
-        try:
-            overrides = hash_key_overrides(team_id, person_id)
-        except Exception:
-            skip_experience_continuity_flags = True
-            overrides = {}
+        overrides = hash_key_overrides(team_id, person_id)
     else:
         overrides = {}
 
