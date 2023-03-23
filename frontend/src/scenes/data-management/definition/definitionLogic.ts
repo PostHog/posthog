@@ -10,6 +10,7 @@ import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 import { userLogic } from 'scenes/userLogic'
 import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'
 import { propertyDefinitionsTableLogic } from '../properties/propertyDefinitionsTableLogic'
+import posthog from 'posthog-js'
 
 export enum DefinitionPageMode {
     View = 'view',
@@ -42,7 +43,7 @@ export const definitionLogic = kea<definitionLogicType>([
         setPageMode: (mode: DefinitionPageMode) => ({ mode }),
     }),
     connect(() => ({
-        values: [userLogic, ['hasAvailableFeature']],
+        values: [userLogic, ['hasAvailableFeature', 'currentTeam']],
     })),
     reducers(() => ({
         mode: [
@@ -93,6 +94,10 @@ export const definitionLogic = kea<definitionLogicType>([
                     } else {
                         await api.propertyDefinitions.delete({ propertyDefinitionId: values.definition.id })
                     }
+                    posthog.capture(`${values.singular} definition deleted`, {
+                        name: values.definition.name,
+                        teamId: values.currentTeam?.id,
+                    })
                     router.actions.push(values.isEvent ? urls.eventDefinitions() : urls.propertyDefinitions())
                     if (values.isEvent) {
                         eventDefinitionsTableLogic.findMounted()?.actions.loadEventDefinitions()
