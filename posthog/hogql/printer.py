@@ -1,9 +1,12 @@
+import re
 from dataclasses import dataclass
 from typing import List, Literal, Optional, Union, cast
 
+from clickhouse_driver.util.escape import escape_param
+
 from ee.clickhouse.materialized_columns.columns import TablesWithMaterializedColumns, get_materialized_columns
 from posthog.hogql import ast
-from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS, HogQLSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database import Table, create_hogql_database
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
@@ -33,9 +36,10 @@ def print_ast(
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
+    settings: Optional[HogQLSettings] = None,
 ) -> str:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack)
-    return print_prepared_ast(node=prepared_ast, context=context, dialect=dialect, stack=stack)
+    return print_prepared_ast(node=prepared_ast, context=context, dialect=dialect, stack=stack, settings=settings)
 
 
 def prepare_ast_for_printing(
@@ -64,9 +68,10 @@ def print_prepared_ast(
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
+    settings: Optional[HogQLSettings] = None,
 ) -> str:
     # _Printer also adds a team_id guard if printing clickhouse
-    return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
+    return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings).visit(node)
 
 
 @dataclass
@@ -79,17 +84,38 @@ class _Printer(Visitor):
     # NOTE: Call "print_ast()", not this class directly.
 
     def __init__(
-        self, context: HogQLContext, dialect: Literal["hogql", "clickhouse"], stack: Optional[List[ast.AST]] = None
+        self,
+        context: HogQLContext,
+        dialect: Literal["hogql", "clickhouse"],
+        stack: Optional[List[ast.AST]] = None,
+        settings: Optional[HogQLSettings] = None,
     ):
         self.context = context
         self.dialect = dialect
-        # Keep track of all traversed nodes.
-        self.stack: List[ast.AST] = stack or []
+        self.stack: List[ast.AST] = stack or []  # Keep track of all traversed nodes.
+        self.settings = settings
 
     def visit(self, node: ast.AST):
         self.stack.append(node)
         response = super().visit(node)
         self.stack.pop()
+
+        if len(self.stack) == 0 and self.dialect == "clickhouse" and self.settings:
+            if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectUnionQuery):
+                raise ValueError("Settings can only be applied to SELECT queries")
+            settings = []
+            for key, value in self.settings:
+                if not isinstance(value, (int, float, str)):
+                    raise ValueError(f"Setting {key} must be a string, int, or float")
+                if not re.match(r"^[a-zA-Z0-9_]+$", key):
+                    raise ValueError(f"Setting {key} is not supported")
+                if isinstance(value, int) or isinstance(value, float):
+                    settings.append(f"{key}={value}")
+                else:
+                    settings.append(f"{key}={escape_param(value)}")
+            if len(settings) > 0:
+                response += f" SETTINGS {', '.join(settings)}"
+
         return response
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):

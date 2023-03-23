@@ -4,7 +4,7 @@ from pydantic import BaseModel, Extra
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLSettings
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
@@ -32,6 +32,7 @@ def execute_hogql_query(
     query_type: str = "hogql_query",
     placeholders: Optional[Dict[str, ast.Expr]] = None,
     workload: Workload = Workload.ONLINE,
+    settings: Optional[HogQLSettings] = None,
 ) -> HogQLQueryResponse:
     if isinstance(query, ast.SelectQuery):
         select_query = query
@@ -69,7 +70,9 @@ def execute_hogql_query(
     clickhouse_context = HogQLContext(
         team_id=team.pk, enable_select_queries=True, person_on_events_mode=team.person_on_events_mode
     )
-    clickhouse = print_ast(select_query, clickhouse_context, "clickhouse")
+    clickhouse = print_ast(
+        select_query, context=clickhouse_context, dialect="clickhouse", settings=settings or HogQLSettings()
+    )
 
     results, types = insight_sync_execute(
         clickhouse,
