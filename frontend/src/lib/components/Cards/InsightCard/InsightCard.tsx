@@ -466,7 +466,7 @@ export function InsightViz({
                     : undefined
             }
         >
-            {loading && !timedOut && <SpinnerOverlay />}
+            {loading && <SpinnerOverlay />}
             {tooFewFunnelSteps ? (
                 <FunnelSingleStepState actionable={false} />
             ) : invalidFunnelExclusion ? (
