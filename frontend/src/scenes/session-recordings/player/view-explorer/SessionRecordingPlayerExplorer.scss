@@ -1,0 +1,20 @@
+.SessionRecordingPlayerExplorer {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    height: calc(100vh - 3.5rem - 2rem);
+    padding: 0.5rem;
+    overflow: hidden;
+
+    .SessionRecordingPlayerExplorer__wrapper {
+        flex: 1;
+        border: 1px solid var(--border);
+        padding: 0.5rem;
+        background-color: var(--bg-depth);
+        overflow: hidden;
+
+        .SessionRecordingPlayerExplorer__iframe {
+            transform-origin: top left;
+        }
+    }
+}

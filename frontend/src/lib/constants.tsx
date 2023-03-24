@@ -147,6 +147,7 @@ export const FEATURE_FLAGS = {
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     DATABASE: 'database', // owner @mariusandra
     RECORDINGS_LIST_V2: 'recordings-list-v2-enabled', // owner: #team-session-recordings
+    RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
