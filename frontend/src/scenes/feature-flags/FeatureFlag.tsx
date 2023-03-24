@@ -170,6 +170,21 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
+                        {hasAvailableFeature(AvailableFeature.TAGGING) && (
+                            <Field name="tags">
+                                {({ value, onChange }) => {
+                                    return (
+                                        <ObjectTags
+                                            tags={value}
+                                            onChange={(_, tags) => onChange(tags)}
+                                            saving={featureFlagLoading}
+                                            tagsAvailable={tags.filter((tag) => !featureFlag.tags?.includes(tag))}
+                                            className="insight-metadata-tags"
+                                        />
+                                    )
+                                }}
+                            </Field>
+                        )}
                         <LemonDivider />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                             <AlertMessage type="warning">
@@ -227,30 +242,20 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     )}
                                 </Field>
 
-                                <Field name="name" label="Description">
+                                <Field
+                                    name="name"
+                                    label={
+                                        <div>
+                                            Description <span className="text-muted">(optional)</span>
+                                        </div>
+                                    }
+                                >
                                     <LemonTextArea
                                         className="ph-ignore-input"
                                         data-attr="feature-flag-description"
                                         defaultValue={featureFlag.name || ''}
                                     />
                                 </Field>
-                                {hasAvailableFeature(AvailableFeature.TAGGING) && (
-                                    <Field name="tags" label="Tags">
-                                        {({ value, onChange }) => {
-                                            return (
-                                                <ObjectTags
-                                                    tags={value}
-                                                    onChange={(_, tags) => onChange(tags)}
-                                                    saving={featureFlagLoading}
-                                                    tagsAvailable={tags.filter(
-                                                        (tag) => !featureFlag.tags?.includes(tag)
-                                                    )}
-                                                    className="insight-metadata-tags"
-                                                />
-                                            )
-                                        }}
-                                    </Field>
-                                )}
                                 <Field name="active">
                                     {({ value, onChange }) => (
                                         <div className="border rounded p-4">
@@ -829,7 +834,10 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
             )}
             {!multivariateEnabled && (
                 <div className="mb-6">
-                    <h3 className="l4">Payload</h3>
+                    <div className="flex flex-row">
+                        <h3 className="l4">Payload</h3>
+                        <span className="ml-1 text-muted">(optional)</span>
+                    </div>
                     {readOnly ? (
                         featureFlag.filters.payloads?.['true'] ? (
                             <JSONEditorInput readOnly={readOnly} value={featureFlag.filters.payloads?.['true']} />
@@ -912,7 +920,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                             <LemonInput
                                                 data-attr="feature-flag-variant-name"
                                                 className="ph-ignore-input"
-                                                placeholder="Description"
+                                                placeholder="Description (optional)"
                                             />
                                         </Field>
                                     </Col>
