@@ -2,12 +2,13 @@ import json
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import NamedTuple
+from typing import Iterable, NamedTuple
 from uuid import UUID
 
 import psycopg2
 from django.conf import settings
 from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 
 from posthog.clickhouse.client.execute import sync_execute
 
@@ -141,6 +142,26 @@ class PersonOverrideToDelete(NamedTuple):
     latest_version: int
     oldest_event_at: datetime
 
+    def _make_serializable(self) -> "SerializablePersonOverrideToDelete":
+        return SerializablePersonOverrideToDelete._make(
+            value.isoformat() if isinstance(value, datetime) else value for value in self
+        )
+
+    def is_in_partitions(self, partition_ids: list[str]):
+        """Check if this PersonOverrideToDelete's oldest_event_at is in a list of partitions."""
+        return self.oldest_event_at.strftime("%Y%m") in partition_ids
+
+
+class SerializablePersonOverrideToDelete(PersonOverrideToDelete):
+    """A JSON serializable version of PersonOverrideToDelete.
+
+    Only datetime types from PersonOverrideToDelete are not serializable by temporal's JSON
+    encoder.
+    """
+
+    latest_created_at: str
+    oldest_event_at: str
+
 
 @dataclass
 class QueryInputs:
@@ -151,18 +172,45 @@ class QueryInputs:
         person_overrides_to_delete: For delete queries, a list of PersonOverrideToDelete.
         database: The database where the query is supposed to run.
         join_table_name: The table name for a new join table.
-        last_created_at: A timestamp representing an upper bound for creation.
+        _latest_created_at: A timestamp representing an upper bound for creation.
     """
 
     partition_ids: list[str] = field(default_factory=list)
-    person_overrides_to_delete: list[PersonOverrideToDelete] = field(default_factory=list)
+    person_overrides_to_delete: list[SerializablePersonOverrideToDelete] = field(default_factory=list)
     database: str = "default"
     join_table_name: str = "person_overrides_join"
-    latest_created_at: datetime | None = None
+    _latest_created_at: str | datetime | None = None
+
+    def __post_init__(self):
+        if isinstance(self._latest_created_at, datetime):
+            self.latest_created_at = self._latest_created_at
+
+    @property
+    def latest_created_at(self) -> datetime | None:
+        if isinstance(self._latest_created_at, str):
+            return datetime.fromisoformat(self._latest_created_at)
+        return self._latest_created_at
+
+    @latest_created_at.setter
+    def latest_created_at(self, v: datetime | str | None):
+        if isinstance(v, datetime):
+            self._latest_created_at = v.isoformat()
+        else:
+            self._latest_created_at = v
+
+    def iter_person_overides_to_delete(self) -> Iterable[SerializablePersonOverrideToDelete]:
+        """Iterate over SerializablePersonOverrideToDelete ensuring they are of that type.
+
+        Looking at the types, this seems pointless, just iterate over person_overrides_to_delete!
+        However, as Temporal passes inputs to and from activities, namedtuples will be cast to
+        lists. This method thus exists to transform them back into namedtuples.
+        """
+        for person_override_to_delete in self.person_overrides_to_delete:
+            yield SerializablePersonOverrideToDelete(*person_override_to_delete)
 
 
 @activity.defn
-async def prepare_join_table(inputs: QueryInputs) -> datetime:
+async def prepare_join_table(inputs: QueryInputs) -> str:
     """Prepare the JOIN table to be used in the squash workflow.
 
     We also lock in the latest merged_at to ensure we do not process overrides that arrive after
@@ -181,11 +229,11 @@ async def prepare_join_table(inputs: QueryInputs) -> datetime:
         {"latest_created_at": latest_created_at},
     )
 
-    return latest_created_at
+    return latest_created_at.isoformat()
 
 
 @activity.defn
-async def select_persons_to_delete(inputs: QueryInputs) -> list[PersonOverrideToDelete]:
+async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePersonOverrideToDelete]:
     """Select the persons we'll override to lock them in and safely delete afterwards
 
     New overrides may come in while we are executing this workflow, so we need to
@@ -217,6 +265,7 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[PersonOverrideTo
     older_persons_to_delete = []
     for row in to_delete_rows:
         person_to_delete = PersonOverrideToDelete._make(row)
+        person_oldest_event_at = person_to_delete.oldest_event_at
 
         try:
             absolute_oldest_event_at = sync_execute(
@@ -224,7 +273,7 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[PersonOverrideTo
                 {
                     "team_id": person_to_delete.team_id,
                     "old_person_id": person_to_delete.old_person_id,
-                    "oldest_event_at": person_to_delete.oldest_event_at,
+                    "oldest_event_at": person_oldest_event_at,
                 },
             )[0][0]
 
@@ -236,15 +285,16 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[PersonOverrideTo
         # Granted, I'm assuming that we were not ingesting events in 1970...
         if absolute_oldest_event_at != EPOCH:
             min_oldest_event_at = min(
-                person_to_delete.oldest_event_at,
+                person_oldest_event_at,
                 absolute_oldest_event_at,
             )
-            person_to_delete = person_to_delete._replace(
-                oldest_event_at=min_oldest_event_at,
-            )
+        else:
+            min_oldest_event_at = person_oldest_event_at
 
-        if person_to_delete.oldest_event_at.strftime("%Y%m") in inputs.partition_ids:
-            persons_to_delete.append(person_to_delete)
+        person_to_delete = person_to_delete._replace(oldest_event_at=min_oldest_event_at)
+
+        if person_to_delete.is_in_partitions(inputs.partition_ids):
+            persons_to_delete.append(person_to_delete._make_serializable())
         else:
             older_persons_to_delete.append(person_to_delete)
 
@@ -254,11 +304,11 @@ async def select_persons_to_delete(inputs: QueryInputs) -> list[PersonOverrideTo
     # So, let's delete those too.
     persons_to_delete_ids = set(person.old_person_id for person in persons_to_delete)
     persons_to_delete.extend(
-        [
-            older_person
+        (
+            older_person._make_serializable()
             for older_person in older_persons_to_delete
             if older_person.old_person_id in persons_to_delete_ids
-        ]
+        )
     )
 
     return persons_to_delete
@@ -296,14 +346,14 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs):
     """Execute the query to delete persons from ClickHouse that have been squashed."""
     activity.logger.info("Deleting squashed persons from ClickHouse")
 
-    for person_override_to_delete in inputs.person_overrides_to_delete:
+    for person_override_to_delete in inputs.iter_person_overides_to_delete():
         activity.logger.debug("%s", person_override_to_delete)
         sync_execute(
             DELETE_SQUASHED_PERSON_OVERRIDES_QUERY.format(database=inputs.database),
             {
                 "team_id": person_override_to_delete.team_id,
                 "old_person_id": person_override_to_delete.old_person_id,
-                "latest_created_at": person_override_to_delete.latest_created_at,
+                "latest_created_at": datetime.fromisoformat(person_override_to_delete.latest_created_at),
             },
         )
 
@@ -319,7 +369,7 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs):
 
     with psycopg2.connect(settings.DATABASE_URL) as connection:
         with connection.cursor() as cursor:
-            for person_override_to_delete in inputs.person_overrides_to_delete:
+            for person_override_to_delete in inputs.iter_person_overides_to_delete():
                 activity.logger.debug("%s", person_override_to_delete)
 
                 cursor.execute(
@@ -387,8 +437,8 @@ class SquashPersonOverridesInputs:
 
     clickhouse_database: str = "default"
     postgres_database: str = "posthog"
-    join_table_name: str = "person_overrides_join"
     partition_ids: list[str] | None = None
+    join_table_name: str = "person_overrides_join"
     last_n_months: int = 1
 
     def iter_partition_ids(self) -> Iterator[str]:
@@ -492,10 +542,13 @@ class SquashPersonOverridesWorkflow:
         workflow.logger.info("Starting squash workflow")
         workflow.logger.debug("%s", json.dumps(asdict(inputs)))
 
+        retry_policy = RetryPolicy(maximum_attempts=3)
+
         latest_created_at = await workflow.execute_activity(
             prepare_join_table,
             QueryInputs(database=inputs.clickhouse_database, join_table_name=inputs.join_table_name),
-            start_to_close_timeout=timedelta(seconds=300),
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=retry_policy,
         )
 
         persons_to_delete = await workflow.execute_activity(
@@ -503,9 +556,10 @@ class SquashPersonOverridesWorkflow:
             QueryInputs(
                 partition_ids=list(inputs.iter_partition_ids()),
                 database=inputs.clickhouse_database,
-                latest_created_at=latest_created_at,
+                _latest_created_at=latest_created_at,
             ),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=retry_policy,
         )
 
         await workflow.execute_activity(
@@ -516,6 +570,7 @@ class SquashPersonOverridesWorkflow:
                 join_table_name=inputs.join_table_name,
             ),
             start_to_close_timeout=timedelta(seconds=300),
+            retry_policy=retry_policy,
         )
 
         workflow.logger.info("Squash finished for all requested partitions, running clean up activities")
@@ -523,6 +578,7 @@ class SquashPersonOverridesWorkflow:
             drop_join_table,
             QueryInputs(database=inputs.clickhouse_database, join_table_name=inputs.join_table_name),
             start_to_close_timeout=timedelta(seconds=300),
+            retry_policy=retry_policy,
         )
 
         if not persons_to_delete:
@@ -536,6 +592,7 @@ class SquashPersonOverridesWorkflow:
                 database=inputs.clickhouse_database,
             ),
             start_to_close_timeout=timedelta(seconds=300),
+            retry_policy=retry_policy,
         )
 
         await workflow.execute_activity(
@@ -545,6 +602,7 @@ class SquashPersonOverridesWorkflow:
                 database=inputs.postgres_database,
             ),
             start_to_close_timeout=timedelta(seconds=300),
+            retry_policy=retry_policy,
         )
 
-        workflow.logger.info("Done!")
+        workflow.logger.info("Done 🎉")
