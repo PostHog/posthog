@@ -10,14 +10,9 @@ export type Editor = any
 
 const START_CONTENT = `
 <h2>Introducing Notebook!</h2>
-<blockquote>This is experimental</blockquote>
+<blockquote>This is an experimental feature allowing you to bring multiple items from across PostHog into one place</blockquote>
 <ph-query></ph-query>
 
-<h3>An interesting recording I found</h3>
-<p>This recording highlights perectly why...</p>
-<br/>
-<ph-recording sessionRecordingId="186cafad53bdcb-05999ec7735ee7-1f525634-16a7f0-186cafad53df8a"></ph-recording>
-<ph-recording-playlist filters="{}"/>
 `
 
 export type NotebookLogicProps = {
