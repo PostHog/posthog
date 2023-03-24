@@ -466,16 +466,16 @@ export function InsightViz({
                     : undefined
             }
         >
-            {loading && !timedOut && <SpinnerOverlay />}
+            {loading && <SpinnerOverlay />}
             {tooFewFunnelSteps ? (
                 <FunnelSingleStepState actionable={false} />
             ) : invalidFunnelExclusion ? (
                 <FunnelInvalidExclusionState />
             ) : empty ? (
                 <InsightEmptyState />
-            ) : timedOut ? (
+            ) : !loading && timedOut ? (
                 <InsightTimeoutState
-                    isLoading={!!loading}
+                    isLoading={false}
                     insightProps={{ dashboardItemId: undefined }}
                     insightType={insight.filters.insight}
                 />
