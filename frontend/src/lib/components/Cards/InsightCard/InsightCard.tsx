@@ -473,9 +473,9 @@ export function InsightViz({
                 <FunnelInvalidExclusionState />
             ) : empty ? (
                 <InsightEmptyState />
-            ) : timedOut ? (
+            ) : !loading && timedOut ? (
                 <InsightTimeoutState
-                    isLoading={!!loading}
+                    isLoading={false}
                     insightProps={{ dashboardItemId: undefined }}
                     insightType={insight.filters.insight}
                 />
