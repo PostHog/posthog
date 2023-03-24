@@ -35,9 +35,9 @@ export const projectUsage = (
     return Math.round((usage / timeSoFar) * timeTotal)
 }
 
-export const convertUsageToAmount = (usage: number, tiers: BillingV2TierType[]): string => {
+export const convertUsageToAmount = (usage: number, tiers: BillingV2TierType[]): number => {
     if (!tiers) {
-        return ''
+        return 0
     }
     let remainingUsage = usage
     let amount = 0
@@ -56,7 +56,7 @@ export const convertUsageToAmount = (usage: number, tiers: BillingV2TierType[]):
         previousTier = tier
     }
 
-    return amount.toFixed(2)
+    return amount
 }
 
 export const convertAmountToUsage = (amount: string, tiers: BillingV2TierType[]): number => {

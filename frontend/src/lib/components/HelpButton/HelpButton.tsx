@@ -89,7 +89,7 @@ export function HelpButton({
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { toggleActivationSideBar } = useActions(navigationLogic)
-    const { billing } = useValues(billingLogic)
+    const { totalPredictedSpend } = useValues(billingLogic)
 
     return (
         <>
@@ -122,7 +122,7 @@ export function HelpButton({
                         >
                             Create an issue on GitHub
                         </LemonButton>
-                        {billing?.current_total_amount_usd > 0 && (
+                        {totalPredictedSpend > 1667 && (
                             <LemonButton
                                 icon={<IconMail />}
                                 status="stealth"

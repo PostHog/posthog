@@ -320,9 +320,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     useEffect(() => {
         setBillingLimitInput(
             parseInt(customLimitUsd || '0') ||
-                (product.tiers
-                    ? parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers))
-                    : 0) ||
+                (product.tiers ? convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers) : 0) ||
                 DEFAULT_BILLING_LIMIT
         )
     }, [customLimitUsd])
@@ -434,7 +432,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                     <div className="font-bold text-muted text-2xl">
                                         $
                                         {product.projected_usage
-                                            ? convertUsageToAmount(product.projected_usage, product.tiers)
+                                            ? convertUsageToAmount(product.projected_usage, product.tiers).toFixed(2)
                                             : '0.00'}
                                     </div>
                                 </div>
