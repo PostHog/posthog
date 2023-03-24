@@ -85,6 +85,7 @@ export function InsightTooltip({
                     className="mr-2"
                     hasBreakdown={hasBreakdown}
                     seriesIndex={datum?.action?.order ?? datum.id}
+                    seriesColor={datum.color}
                 />
                 {value}
             </div>
