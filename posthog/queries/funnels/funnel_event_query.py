@@ -35,7 +35,7 @@ class FunnelEventQuery(EventQuery):
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
 
         if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
-            _fields += [f"{self.EVENT_TABLE_ALIAS}.person_id as person_id"]
+            _fields += [f"{self._person_id_alias} as person_id"]
 
             _fields.extend(
                 f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
