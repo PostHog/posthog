@@ -8,15 +8,18 @@ import psycopg2
 import pytest
 from django.conf import settings
 from freezegun.api import freeze_time
+from temporalio.client import Client
 from temporalio.testing import ActivityEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.test.test_person_overrides import PersonOverrideValues
 from posthog.models.person_overrides.sql import PERSON_OVERRIDES_CREATE_TABLE_SQL
 from posthog.temporal.workflows.squash_person_overrides import (
-    PersonOverrideToDelete,
     QueryInputs,
+    SerializablePersonOverrideToDelete,
     SquashPersonOverridesInputs,
+    SquashPersonOverridesWorkflow,
     delete_squashed_person_overrides_from_clickhouse,
     delete_squashed_person_overrides_from_postgres,
     drop_join_table,
@@ -110,7 +113,7 @@ async def test_prepare_join_table(activity_environment, person_overrides_data):
 
     latest_merge_at = await activity_environment.run(prepare_join_table, query_inputs)
 
-    assert latest_merge_at == OVERRIDES_CREATED_AT
+    assert latest_merge_at == OVERRIDES_CREATED_AT.isoformat()
 
     for team_id, person_overrides in person_overrides_data.items():
         for person_override in person_overrides:
@@ -205,7 +208,7 @@ async def test_prepare_join_table_with_older_overrides_present(
 
     latest_merge_at = await activity_environment.run(prepare_join_table, query_inputs)
 
-    assert latest_merge_at == OVERRIDES_CREATED_AT
+    assert latest_merge_at == OVERRIDES_CREATED_AT.isoformat()
 
     for team_id, person_overrides in person_overrides_data.items():
         for person_override in person_overrides:
@@ -283,19 +286,19 @@ async def test_select_persons_to_delete(activity_environment, person_overrides_d
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
-        latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_created_at=OVERRIDES_CREATED_AT,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
 
     expected = [
-        PersonOverrideToDelete(
+        SerializablePersonOverrideToDelete(
             team_id,
             person_override.old_person_id,
             person_override.override_person_id,
-            OVERRIDES_CREATED_AT,
+            OVERRIDES_CREATED_AT.isoformat(),
             1,
-            OLDEST_EVENT_AT,
+            OLDEST_EVENT_AT.isoformat(),
         )
         for team_id, person_overrides in person_overrides_data.items()
         for person_override in person_overrides
@@ -319,19 +322,19 @@ async def test_select_persons_to_delete_selects_persons_in_older_partitions(
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
-        latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_created_at=OVERRIDES_CREATED_AT,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
 
     expected = [
-        PersonOverrideToDelete(
+        SerializablePersonOverrideToDelete(
             team_id,
             person_override.old_person_id,
             person_override.override_person_id,
-            OVERRIDES_CREATED_AT,
+            OVERRIDES_CREATED_AT.isoformat(),
             1,
-            OLDEST_EVENT_AT,
+            OLDEST_EVENT_AT.isoformat(),
         )
         for team_id, person_overrides in person_overrides_data.items()
         for person_override in person_overrides
@@ -339,13 +342,13 @@ async def test_select_persons_to_delete_selects_persons_in_older_partitions(
 
     expected.extend(
         [
-            PersonOverrideToDelete(
+            SerializablePersonOverrideToDelete(
                 team_id,
                 person_override.old_person_id,
                 person_override.override_person_id,
-                datetime.fromisoformat("2019-12-01T00:00:00+00:00"),
+                "2019-12-01T00:00:00+00:00",
                 1,
-                datetime.fromisoformat("2019-12-01T00:00:00+00:00"),
+                "2019-12-01T00:00:00+00:00",
             )
             for team_id, person_overrides in older_overrides.items()
             for person_override in person_overrides
@@ -367,7 +370,7 @@ async def test_select_persons_to_squash_with_empty_table(activity_environment, p
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
-        latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_created_at=OVERRIDES_CREATED_AT,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -387,7 +390,7 @@ async def test_select_persons_to_squash_with_different_partition(activity_enviro
     query_inputs = QueryInputs(
         partition_ids=["202002"],
         database=settings.CLICKHOUSE_DATABASE,
-        latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_created_at=OVERRIDES_CREATED_AT,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
@@ -431,19 +434,19 @@ async def test_select_persons_to_delete_with_newer_merges(activity_environment, 
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
         # Our latest_created_at is before the newer values happened
-        latest_created_at=OVERRIDES_CREATED_AT,
+        _latest_created_at=OVERRIDES_CREATED_AT,
     )
 
     to_delete = await activity_environment.run(select_persons_to_delete, query_inputs)
 
     expected = [
-        PersonOverrideToDelete(
+        SerializablePersonOverrideToDelete(
             team_id,
             person_override.old_person_id,
             person_override.override_person_id,
-            OVERRIDES_CREATED_AT,
+            OVERRIDES_CREATED_AT.isoformat(),
             1,
-            OLDEST_EVENT_AT,
+            OLDEST_EVENT_AT.isoformat(),
         )
         for team_id, person_overrides in person_overrides_data.items()
         for person_override in person_overrides
@@ -488,6 +491,37 @@ def events_to_override(person_overrides_data):
     sync_execute("TRUNCATE TABLE sharded_events")
 
 
+def assert_events_have_been_overriden(overriden_events, person_overrides):
+    """Assert each event in overriden_events has actually been overriden.
+
+    We use person_overrides to assert the person_id of each event now matches the
+    overriden_person_id.
+    """
+    for event in overriden_events:
+        rows = sync_execute(
+            "SELECT uuid, event, team_id, person_id FROM events WHERE uuid = %(uuid)s", {"uuid": event["uuid"]}
+        )
+        new_event = {
+            "uuid": rows[0][0],
+            "event": rows[0][1],
+            "team_id": rows[0][2],
+            "person_id": rows[0][3],
+        }
+
+        assert event["uuid"] == new_event["uuid"]  # Sanity check
+        assert event["person_id"] != new_event["person_id"]
+
+        # If all is well, we should have overriden old_person_id with an override_person_id.
+        # Let's find it first:
+        new_person_id = [
+            person_override.override_person_id
+            for person_override in person_overrides[new_event["team_id"]]
+            if person_override.old_person_id == event["person_id"]
+        ][0]
+
+        assert new_event["person_id"] == new_person_id
+
+
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_squash_events_partition(activity_environment, person_overrides_data, events_to_override):
@@ -510,29 +544,7 @@ async def test_squash_events_partition(activity_environment, person_overrides_da
 
     await activity_environment.run(drop_join_table, query_inputs)
 
-    for event in events_to_override:
-        rows = sync_execute(
-            "SELECT uuid, event, team_id, person_id FROM events WHERE uuid = %(uuid)s", {"uuid": event["uuid"]}
-        )
-        new_event = {
-            "uuid": rows[0][0],
-            "event": rows[0][1],
-            "team_id": rows[0][2],
-            "person_id": rows[0][3],
-        }
-
-        assert event["uuid"] == new_event["uuid"]  # Sanity check
-        assert event["person_id"] != new_event["person_id"]
-
-        # If all is well, we should have overriden old_person_id with an override_person_id.
-        # Let's find it first:
-        new_person_id = [
-            person_override.override_person_id
-            for person_override in person_overrides_data[new_event["team_id"]]
-            if person_override.old_person_id == event["person_id"]
-        ][0]
-
-        assert new_event["person_id"] == new_person_id
+    assert_events_have_been_overriden(events_to_override, person_overrides_data)
 
 
 @pytest.mark.django_db
@@ -558,29 +570,7 @@ async def test_squash_events_partition_with_older_overrides(
 
     await activity_environment.run(drop_join_table, query_inputs)
 
-    for event in events_to_override:
-        rows = sync_execute(
-            "SELECT uuid, event, team_id, person_id FROM events WHERE uuid = %(uuid)s", {"uuid": event["uuid"]}
-        )
-        new_event = {
-            "uuid": rows[0][0],
-            "event": rows[0][1],
-            "team_id": rows[0][2],
-            "person_id": rows[0][3],
-        }
-
-        assert event["uuid"] == new_event["uuid"]  # Sanity check
-        assert event["person_id"] != new_event["person_id"]
-
-        # If all is well, we should have overriden old_person_id with an override_person_id.
-        # Let's find it first:
-        new_person_id = [
-            person_override.override_person_id
-            for person_override in person_overrides_data[new_event["team_id"]]
-            if person_override.old_person_id == event["person_id"]
-        ][0]
-
-        assert new_event["person_id"] == new_person_id
+    assert_events_have_been_overriden(events_to_override, person_overrides_data)
 
 
 @pytest.mark.django_db
@@ -606,29 +596,7 @@ async def test_squash_events_partition_with_newer_overrides(
 
     await activity_environment.run(drop_join_table, query_inputs)
 
-    for event in events_to_override:
-        rows = sync_execute(
-            "SELECT uuid, event, team_id, person_id FROM events WHERE uuid = %(uuid)s", {"uuid": event["uuid"]}
-        )
-        new_event = {
-            "uuid": rows[0][0],
-            "event": rows[0][1],
-            "team_id": rows[0][2],
-            "person_id": rows[0][3],
-        }
-
-        assert event["uuid"] == new_event["uuid"]  # Sanity check
-        assert event["person_id"] != new_event["person_id"]
-
-        # If all is well, we should have overriden old_person_id with the latest available override_person_id.
-        # Let's find it first:
-        new_person_id = [
-            person_override.override_person_id
-            for person_override in newer_overrides[new_event["team_id"]]
-            if person_override.old_person_id == event["person_id"]
-        ][0]
-
-        assert new_event["person_id"] == new_person_id
+    assert_events_have_been_overriden(events_to_override, newer_overrides)
 
 
 @pytest.mark.django_db
@@ -643,13 +611,13 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
     delete.
     """
     persons_to_delete = [
-        PersonOverrideToDelete(
+        SerializablePersonOverrideToDelete(
             team_id,
             person_override.old_person_id,
             person_override.override_person_id,
-            OVERRIDES_CREATED_AT,
+            OVERRIDES_CREATED_AT.isoformat(),
             1,
-            OLDEST_EVENT_AT,
+            OLDEST_EVENT_AT.isoformat(),
         )
         for team_id, person_overrides in person_overrides_data.items()
         for person_override in person_overrides
@@ -702,7 +670,7 @@ def setup_postgres(request):
 
 
 @pytest.fixture
-def organization_uuid(setup_postgres):
+def organization_uuid():
     """Create an Organization and return its UUID.
 
     We cannot use the Django ORM safely in an async context, so we INSERT INTO directly
@@ -922,13 +890,13 @@ async def test_delete_squashed_person_overrides_from_postgres(activity_environme
 
     query_inputs = QueryInputs(
         person_overrides_to_delete=[
-            PersonOverrideToDelete(
+            SerializablePersonOverrideToDelete(
                 team_id,
                 person_overrides.old_person_id,
                 person_overrides.override_person_id,
-                OVERRIDES_CREATED_AT,
+                OVERRIDES_CREATED_AT.isoformat(),
                 1,
-                OLDEST_EVENT_AT,
+                OLDEST_EVENT_AT.isoformat(),
             )
         ],
     )
@@ -992,13 +960,13 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
     query_inputs = QueryInputs(
         person_overrides_to_delete=[
             # We are schedulling for deletion an override with lower version number, so nothing should happen.
-            PersonOverrideToDelete(
+            SerializablePersonOverrideToDelete(
                 team_id,
                 person_overrides.old_person_id,
                 person_overrides.override_person_id,
-                OVERRIDES_CREATED_AT,
+                OVERRIDES_CREATED_AT.isoformat(),
                 1,
-                OLDEST_EVENT_AT,
+                OLDEST_EVENT_AT.isoformat(),
             )
         ],
     )
@@ -1031,3 +999,85 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
                 == [mapping[0] for mapping in mappings if mapping[2] == person_overrides.override_person_id][0]
             )
             assert version == 2
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_squash_person_overrides_workflow(events_to_override, person_overrides_data, person_overrides):
+    """Test the squash_person_overrides workflow end-to-end."""
+    client = await Client.connect(
+        f"{settings.TEMPORAL_SCHEDULER_HOST}:{settings.TEMPORAL_SCHEDULER_PORT}",
+        namespace=settings.TEMPORAL_NAMESPACE,
+    )
+
+    workflow_id = str(uuid4())
+    inputs = SquashPersonOverridesInputs(
+        settings.CLICKHOUSE_DATABASE,
+        settings.DATABASES["default"]["NAME"],
+        ["202001"],
+    )
+
+    async with Worker(
+        client,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        workflows=[SquashPersonOverridesWorkflow],
+        activities=[
+            prepare_join_table,
+            select_persons_to_delete,
+            squash_events_partition,
+            drop_join_table,
+            delete_squashed_person_overrides_from_clickhouse,
+            delete_squashed_person_overrides_from_postgres,
+        ],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        await client.execute_workflow(
+            SquashPersonOverridesWorkflow.run,
+            inputs,
+            id=workflow_id,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+        )
+
+    assert_events_have_been_overriden(events_to_override, person_overrides_data)
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_squash_person_overrides_workflow_with_newer_overrides(
+    events_to_override, person_overrides_data, person_overrides, newer_overrides
+):
+    """Test the squash_person_overrides workflow end-to-end with newer overrides."""
+    client = await Client.connect(
+        f"{settings.TEMPORAL_SCHEDULER_HOST}:{settings.TEMPORAL_SCHEDULER_PORT}",
+        namespace=settings.TEMPORAL_NAMESPACE,
+    )
+
+    workflow_id = str(uuid4())
+    inputs = SquashPersonOverridesInputs(
+        settings.CLICKHOUSE_DATABASE,
+        settings.DATABASES["default"]["NAME"],
+        ["202001"],
+    )
+
+    async with Worker(
+        client,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        workflows=[SquashPersonOverridesWorkflow],
+        activities=[
+            prepare_join_table,
+            select_persons_to_delete,
+            squash_events_partition,
+            drop_join_table,
+            delete_squashed_person_overrides_from_clickhouse,
+            delete_squashed_person_overrides_from_postgres,
+        ],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        await client.execute_workflow(
+            SquashPersonOverridesWorkflow.run,
+            inputs,
+            id=workflow_id,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+        )
+
+    assert_events_have_been_overriden(events_to_override, newer_overrides)
