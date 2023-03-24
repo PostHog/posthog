@@ -270,8 +270,8 @@
             "prettier --write"
         ],
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
-            "ruff",
-            "black"
+            "black",
+            "ruff"
         ],
         "*.png": [
             "optipng -clobber -o4 -strip all"

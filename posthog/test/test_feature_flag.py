@@ -1846,17 +1846,17 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
                 cursor, team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
             )
 
-        hash_keys = hash_key_overrides(self.team.pk, [self.person.id])
+        hash_keys = hash_key_overrides(self.team.pk, ["example_id"])
 
         self.assertEqual(hash_keys, {"beta-feature": "other_id", "multivariate-flag": "other_id"})
 
     def test_hash_key_overrides_for_multiple_ids_when_people_are_not_merged(self):
 
-        person1 = Person.objects.create(
+        Person.objects.create(
             team=self.team, distinct_ids=["1"], properties={"email": "beuk@posthog.com", "team": "posthog"}
         )
 
-        person2 = Person.objects.create(
+        Person.objects.create(
             team=self.team, distinct_ids=["2"], properties={"email": "beuk2@posthog.com", "team": "posthog"}
         )
 
@@ -1868,7 +1868,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
                 cursor, team_id=self.team.pk, distinct_ids=["2"], hash_key_override="aother_id2"
             )
 
-        hash_keys = hash_key_overrides(self.team.pk, [person1.id, person2.id])
+        hash_keys = hash_key_overrides(self.team.pk, ["1", "2"])
 
         self.assertEqual(hash_keys, {"beta-feature": "other_id1", "multivariate-flag": "other_id1"})
 

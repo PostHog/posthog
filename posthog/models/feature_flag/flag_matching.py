@@ -391,16 +391,27 @@ class FeatureFlagMatcher:
         return current_match, current_index
 
 
-def hash_key_overrides(team_id: int, person_ids: List[int]) -> Dict[str, str]:
+def hash_key_overrides(team_id: int, distinct_ids: List[str]) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
 
-    # priority to the first personID's values
+    # Priority to the first distinctID's values, to keep this function deterministic
+
+    person_and_distinct_ids = list(
+        PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team_id=team_id).values_list(
+            "person_id", "distinct_id"
+        )
+    )
+
+    person_id_to_distinct_id = {person_id: distinct_id for person_id, distinct_id in person_and_distinct_ids}
+
+    person_ids = list(person_id_to_distinct_id.keys())
 
     for feature_flag, override, _ in sorted(
         FeatureFlagHashKeyOverride.objects.filter(person_id__in=person_ids, team_id=team_id).values_list(
             "feature_flag_key", "hash_key", "person_id"
         ),
-        key=lambda x: 1 if x[2] == person_ids[0] else -1,
+        key=lambda x: 1 if person_id_to_distinct_id.get(x[2], "") == distinct_ids[0] else -1,
+        # We want the highest priority to go last in sort order, so it's the latest update in the dict
     ):
         feature_flag_to_key_overrides[feature_flag] = override
 
@@ -475,14 +486,14 @@ def get_all_feature_flags(
             # with a small timeout
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as timeout_cursor:
                 # :TRICKY: There are a few cases for write we need to handle:
-                # 1. Ingestion delays implying that `$identify` hasn't yet created the new person on which decide was called.
-                # 2. Merging of two different persons, which results in 1 person_id being deleted.
-                # 3. The person_id we queried above (L473) being deleted before we get here.
+                # 1. Ingestion delay causing the person to not have been created yet or the distinct_id not yet associated
+                # 2. Merging of two different already existing persons, which results in 1 person_id being deleted and ff hash key overrides to be moved.
+                # 3. Person being deleted via UI or API (this is rare)
                 #
                 # In all cases, we simply try to find all personIDs associated with the distinct_id
                 # and the hash_key_override, and add overrides for all these personIDs.
                 # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
-                # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
+                # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L696 (addFeatureFlagHashKeysForMergedPerson)
 
                 set_feature_flag_hash_key_overrides(
                     timeout_cursor, team_id, [distinct_id, hash_key_override], hash_key_override
@@ -492,19 +503,17 @@ def get_all_feature_flags(
             # If the database is in read-only mode, we can't handle experience continuity flags,
             # since the set_feature_flag_hash_key_overrides call will fail.
 
-            # For this case, and for any other case, do not error out on decide, we can handle it!
+            # For this case, and for any other case, do not error out on decide, just continue assuming continuity couldn't happen.
             capture_exception(e)
 
-    # This is the write-path for experience continuity. We need to get the overrides, and to do that, we get the person_id.
+    # This is the read-path for experience continuity. We need to get the overrides, and to do that, we get the person_id.
     try:
         person_overrides = {}
         with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
-            person_ids = (
-                PersonDistinctId.objects.filter(distinct_id__in=[distinct_id, hash_key_override], team_id=team_id)
-                .values_list("person_id", flat=True)
-                .all()
-            )
-            person_overrides = hash_key_overrides(team_id, person_ids)
+            target_distinct_ids = [distinct_id]
+            if hash_key_override is not None:
+                target_distinct_ids.append(hash_key_override)
+            person_overrides = hash_key_overrides(team_id, target_distinct_ids)
 
     except Exception:
         # database is down, we can't handle experience continuity flags at all.
@@ -534,6 +543,8 @@ def get_all_feature_flags(
 def set_feature_flag_hash_key_overrides(
     cursor: CursorWrapper, team_id: int, distinct_ids: List[str], hash_key_override: str
 ) -> None:
+    # As a product decision, the first override wins, i.e consistency matters for the first walkthrough.
+    # Thus, we don't need to do upserts here.
 
     query = """
         WITH target_person_ids AS (
@@ -555,6 +566,9 @@ def set_feature_flag_hash_key_overrides(
 
     # :TRICKY: regarding the ON CONFLICT DO NOTHING clause:
     # This can happen if the same person is being processed by multiple workers
-    # / we got multiple requests for the same person at the same time. In this case, we can safely ignore the error.
+    # / we got multiple requests for the same person at the same time. In this case, we can safely ignore the error
+    # because they're all trying to add the same overrides.
     # We don't want to return an error response for `/decide` just because of this.
+    # There can be cases where it's a different override (like a person on two different browser sending the same request at the same time),
+    # but we don't care about that case because first override wins.
     cursor.execute(query, {"team_id": team_id, "distinct_ids": tuple(distinct_ids), "hash_key_override": hash_key_override})  # type: ignore
