@@ -110,7 +110,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
     yield {
         "key": "last_event_ingested_timestamp",
         "metric": "Last event ingested",
-        "value": last_event_ingested_timestamp,
+        "value": last_event_ingested_timestamp.astimezone(),
     }
 
     dead_letter_queue_size = get_dead_letter_queue_size()
