@@ -108,6 +108,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
+        CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
     }
 }
 

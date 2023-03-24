@@ -1200,7 +1200,7 @@ export interface InsightModel extends Cacheable {
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
     filters: Partial<FilterType>
-    query?: Node
+    query?: Node | null
 }
 
 export interface DashboardType {
@@ -1234,6 +1234,7 @@ export interface DashboardTemplateType {
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
+    scope?: 'team' | 'global'
 }
 
 export interface MonacoMarker {

@@ -8,6 +8,7 @@ class TestVisitor(BaseTest):
     def test_visitor_pattern(self):
         class ConstantVisitor(CloningVisitor):
             def __init__(self):
+                super().__init__()
                 self.constants = []
                 self.fields = []
                 self.operations = []

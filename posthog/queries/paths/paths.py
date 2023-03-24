@@ -166,7 +166,7 @@ class Paths:
             team=self._team,
             extra_fields=self._extra_event_fields,
             extra_event_properties=self._extra_event_properties,
-            using_person_on_events=self._team.person_on_events_querying_enabled,
+            person_on_events_mode=self._team.person_on_events_mode,
         ).get_query()
         self.params.update(params)
 

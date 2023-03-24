@@ -90,6 +90,14 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
+class DatabaseSchemaQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("DatabaseSchemaQuery", const=True)
+    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
+
+
 class DateRange(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -909,11 +917,11 @@ class DataTableNode(BaseModel):
     showEventFilter: Optional[bool] = Field(
         None, description="Include an event filter above the table (EventsNode only)"
     )
-    showEventsBufferWarning: Optional[bool] = Field(
-        None, description="Show warning about live events being buffered max 60 sec (default: false)"
-    )
     showExport: Optional[bool] = Field(None, description="Show the export button")
     showHogQLEditor: Optional[bool] = Field(None, description="Include a HogQL query editor above HogQL tables")
+    showOpenEditorButton: Optional[bool] = Field(
+        None, description="Show a button to open the current query as a new insight. (default: true)"
+    )
     showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(None, description="Show a reload button")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
@@ -1597,6 +1605,7 @@ class Model(BaseModel):
         LifecycleQuery,
         RecentPerformancePageViewNode,
         TimeToSeeDataSessionsQuery,
+        DatabaseSchemaQuery,
         Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery],
     ]
 

@@ -10,14 +10,14 @@ from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.util import get_persons_by_uuids
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.sql import LIFECYCLE_EVENTS_QUERY, LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.queries.trends.util import parse_response
-from posthog.utils import encode_get_request_params
+from posthog.queries.util import get_person_properties_mode
+from posthog.utils import PersonOnEventsMode, encode_get_request_params
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
 #
@@ -33,7 +33,7 @@ from posthog.utils import encode_get_request_params
 class Lifecycle:
     def _format_lifecycle_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
         event_query, event_params = LifecycleEventQuery(
-            team=team, filter=filter, using_person_on_events=team.person_on_events_querying_enabled
+            team=team, filter=filter, person_on_events_mode=team.person_on_events_mode
         ).get_query()
 
         return (
@@ -60,7 +60,7 @@ class Lifecycle:
 
     def get_people(self, filter: Filter, team: Team, target_date: datetime, lifecycle_type: str):
         event_query, event_params = LifecycleEventQuery(
-            team=team, filter=filter, using_person_on_events=team.person_on_events_querying_enabled
+            team=team, filter=filter, person_on_events_mode=team.person_on_events_mode
         ).get_query()
 
         result = insight_sync_execute(
@@ -115,10 +115,8 @@ class LifecycleEventQuery(EventQuery):
 
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
+            person_properties_mode=get_person_properties_mode(self._team),
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
         )
 
         self.params.update(prop_params)
@@ -133,27 +131,29 @@ class LifecycleEventQuery(EventQuery):
             allowed_entities=[self._filter.entities[0]],
             team_id=self._team_id,
             table_name=self.EVENT_TABLE_ALIAS,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=get_person_properties_mode(self._team),
             hogql_context=self._filter.hogql_context,
         )
         self.params.update(entity_params)
 
         entity_prop_query, entity_prop_params = self._get_prop_groups(
             self._filter.entities[0].property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
+            person_properties_mode=get_person_properties_mode(self._team),
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
             prepend="entity_props",
         )
 
         self.params.update(entity_prop_params)
 
-        created_at_clause = "person.created_at" if not self._using_person_on_events else "person_created_at"
+        created_at_clause = (
+            "person.created_at" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "person_created_at"
+        )
 
-        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
+        null_person_filter = (
+            ""
+            if self._person_on_events_mode == PersonOnEventsMode.DISABLED
+            else f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
+        )
 
         sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})
@@ -161,9 +161,9 @@ class LifecycleEventQuery(EventQuery):
         return (
             LIFECYCLE_EVENTS_QUERY.format(
                 event_table_alias=self.EVENT_TABLE_ALIAS,
-                person_column=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
+                person_column=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
                 created_at_clause=created_at_clause,
-                distinct_id_query=self._get_distinct_id_query(),
+                distinct_id_query=self._get_person_ids_query(),
                 person_query=person_query,
                 groups_query=groups_query,
                 prop_query=prop_query,
@@ -206,7 +206,7 @@ class LifecycleEventQuery(EventQuery):
         )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = True if not self._using_person_on_events else False
+        self._should_join_distinct_ids = True if self._person_on_events_mode == PersonOnEventsMode.DISABLED else False
 
     def _determine_should_join_persons(self) -> None:
-        self._should_join_persons = True if not self._using_person_on_events else False
+        self._should_join_persons = True if self._person_on_events_mode == PersonOnEventsMode.DISABLED else False

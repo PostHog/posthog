@@ -3,14 +3,13 @@ from typing import Set, cast
 
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
-from posthog.hogql.parser import parse_expr
 from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier
-from posthog.models.property.util import HogQLPropertyChecker, box_value, extract_tables_and_properties
+from posthog.models.property.util import box_value, count_hogql_properties, extract_tables_and_properties
 from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
 from posthog.queries.trends.util import is_series_group_based
 
@@ -60,18 +59,18 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
                 counter[
                     (self.filter.breakdown, self.filter.breakdown_type, self.filter.breakdown_group_type_index)
                 ] += 1
+            elif self.filter.breakdown_type == "hogql":
+                if isinstance(self.filter.breakdown, list):
+                    expr = str(self.filter.breakdown[0])
+                else:
+                    expr = str(self.filter.breakdown)
+                count_hogql_properties(expr, counter)
 
             # If we have a breakdowns attribute then make sure we pull in everything we
             # need to calculate it
             for breakdown in self.filter.breakdowns or []:
                 if breakdown["type"] == "hogql":
-                    node = parse_expr(breakdown["property"])
-                    property_checker = HogQLPropertyChecker()
-                    property_checker.visit(node)
-                    for field in property_checker.event_properties:
-                        counter[(field, "event", None)] += 1
-                    for field in property_checker.person_properties:
-                        counter[(field, "person", None)] += 1
+                    count_hogql_properties(breakdown["property"], counter)
                 else:
                     counter[(breakdown["property"], breakdown["type"], self.filter.breakdown_group_type_index)] += 1
 

@@ -12,7 +12,7 @@ import { ChartParams, FunnelStepReference, FunnelStepWithConversionMetrics, Step
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { FunnelStepMore } from '../FunnelStepMore'
+import { FunnelStepMoreDataExploration, FunnelStepMore } from '../FunnelStepMore'
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 import { Bar } from './Bar'
@@ -33,6 +33,7 @@ export function FunnelBarGraphDataExploration(props: ChartParams): JSX.Element {
             stepReference={funnelsFilter?.funnel_step_reference || FunnelStepReference.total}
             aggregationTargetLabel={aggregationTargetLabel}
             funnelsFilter={funnelsFilter}
+            isUsingDataExploration
             {...props}
         />
     )
@@ -56,6 +57,7 @@ type FunnelBarGraphComponentProps = {
     stepReference: FunnelStepReference
     aggregationTargetLabel: Noun
     funnelsFilter?: FunnelsFilter | null
+    isUsingDataExploration?: boolean
 } & ChartParams
 
 export function FunnelBarGraphComponent({
@@ -63,10 +65,11 @@ export function FunnelBarGraphComponent({
     stepReference,
     aggregationTargetLabel,
     funnelsFilter,
+    isUsingDataExploration,
     ...props
 }: FunnelBarGraphComponentProps): JSX.Element {
     const { isInDashboardContext } = useValues(funnelLogic)
-    const { openPersonsModalForStep } = useActions(funnelLogic)
+    const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelLogic)
 
     const { ref: graphRef, width } = useResizeObserver()
 
@@ -118,7 +121,11 @@ export function FunnelBarGraphComponent({
                                 {funnelsFilter?.funnel_order_type !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
-                                <FunnelStepMore stepIndex={stepIndex} />
+                                {isUsingDataExploration ? (
+                                    <FunnelStepMoreDataExploration stepIndex={stepIndex} />
+                                ) : (
+                                    <FunnelStepMore stepIndex={stepIndex} />
+                                )}
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${FunnelLayout.horizontal}`}>
                                 {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (
@@ -151,8 +158,9 @@ export function FunnelBarGraphComponent({
                                                     percentage={barSizePercentage}
                                                     name={breakdown.name}
                                                     onBarClick={() =>
-                                                        openPersonsModalForStep({
+                                                        openPersonsModalForSeries({
                                                             step,
+                                                            series: breakdown,
                                                             converted: true,
                                                         })
                                                     }

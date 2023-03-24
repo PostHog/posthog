@@ -1306,16 +1306,16 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
-                "showEventsBufferWarning": {
-                    "description": "Show warning about live events being buffered max 60 sec (default: false)",
-                    "type": "boolean"
-                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
                 },
                 "showHogQLEditor": {
                     "description": "Include a HogQL query editor above HogQL tables",
+                    "type": "boolean"
+                },
+                "showOpenEditorButton": {
+                    "description": "Show a button to open the current query as a new insight. (default: true)",
                     "type": "boolean"
                 },
                 "showPropertyFilter": {
@@ -1359,6 +1359,21 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "DatabaseSchemaQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "DatabaseSchemaQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         },
         "DateRange": {
@@ -2590,6 +2605,9 @@
                 },
                 {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaQuery"
                 }
             ]
         },

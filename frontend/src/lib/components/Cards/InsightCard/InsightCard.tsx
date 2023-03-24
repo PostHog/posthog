@@ -41,7 +41,7 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { summariseInsight } from 'scenes/insights/utils'
+
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -66,6 +66,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -231,14 +232,13 @@ function InsightMeta({
     // not all interactions are currently implemented for queries
     const allInteractionsAllowed = !insight.query
 
-    const summary = summariseInsight(
-        !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
-        insight.query,
+    const summary = summarizeInsight(insight.query, insight.filters, {
         aggregationLabel,
         cohortsById,
         mathDefinitions,
-        insight.filters
-    )
+        isUsingDataExploration: !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
+        isUsingDashboardQueries: !!featureFlags[FEATURE_FLAGS.HOGQL],
+    })
 
     return (
         <CardMeta
@@ -523,7 +523,7 @@ function InsightCardInternal(
         doNotLoad: true,
     }
 
-    const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueryTiles } = useValues(
+    const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueries } = useValues(
         insightLogic(insightLogicProps)
     )
     const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
@@ -604,7 +604,7 @@ function InsightCardInternal(
                     >
                         {exportedAndCached || sharedAndCached ? (
                             <Query query={insight.query} cachedResults={insight.result} />
-                        ) : isUsingDashboardQueryTiles && canMakeQueryAPICalls ? (
+                        ) : isUsingDashboardQueries && canMakeQueryAPICalls ? (
                             <Query query={insight.query} />
                         ) : (
                             <QueriesUnsupportedHere />

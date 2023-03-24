@@ -46,7 +46,7 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
 
-    const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
+    const { insight, insightProps } = useValues(insightLogic)
     const { isTrends, isFunnels, isRetention, isPaths, isLifecycle, isTrendsLike, display, breakdown } = useValues(
         insightVizDataLogic(insightProps)
     )
@@ -129,7 +129,6 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
         },
         {
             title: 'Filters',
-            count: filterPropertiesCount,
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {
