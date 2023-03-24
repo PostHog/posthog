@@ -131,11 +131,9 @@ export const FEATURE_FLAGS = {
     ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth
     FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
-    DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
-    DATA_EXPLORATION_QUERY_TAB: 'data-exploration-query-tab', // owner: @pauldambra
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
     PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
     REQUIRE_EMAIL_VERIFICATION: 'require-email-verification', // owner: @raquelmsmith
@@ -145,9 +143,9 @@ export const FEATURE_FLAGS = {
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FF_CODE_EXAMPLE: 'ff-code-example', // owner: @liyiy
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
-    DATABASE: 'database', // owner @mariusandra
-    NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
     RECORDINGS_LIST_V2: 'recordings-list-v2-enabled', // owner: #team-session-recordings
+    HOGQL: 'hogql', // owner: #team-product-analytics
+    NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

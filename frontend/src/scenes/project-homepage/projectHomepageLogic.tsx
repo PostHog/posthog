@@ -24,10 +24,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                 placement: DashboardPlacement.ProjectHomepage,
             }),
         ],
-        allowQueryInsights: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB],
-        ],
+        allowQueryInsights: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL]],
     }),
 
     loaders(({ values }) => ({

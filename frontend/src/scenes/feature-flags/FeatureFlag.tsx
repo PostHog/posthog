@@ -455,10 +455,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                             })}
                                                             type="secondary"
                                                         >
+                                                            View Recordings
                                                             <LemonTag type="warning" className="uppercase ml-2 mr-2">
                                                                 Beta
                                                             </LemonTag>
-                                                            View Recordings
                                                         </LemonButton>
                                                         <LemonDivider vertical />
                                                     </>

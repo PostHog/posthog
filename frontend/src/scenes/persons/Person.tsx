@@ -101,7 +101,7 @@ export function Person(): JSX.Element | null {
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (!person) {
         return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
