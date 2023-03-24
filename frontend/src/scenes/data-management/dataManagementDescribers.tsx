@@ -77,15 +77,31 @@ function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
     )
 }
 
+function DescribeType({ logItem }: { logItem: ActivityLogItem }): JSX.Element {
+    const typeDescription = logItem.scope === ActivityScope.EVENT_DEFINITION ? 'event' : 'property'
+    if (typeDescription === 'property') {
+        return (
+            <>
+                <span className="highlighted-activity">{logItem.detail?.type}</span> property definition
+            </>
+        )
+    }
+    return <>{typeDescription} definition</>
+}
+
 export function dataManagementActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
-    if (logItem.scope !== ActivityScope.EVENT_DEFINITION) {
+    if (logItem.scope !== ActivityScope.EVENT_DEFINITION && logItem.scope !== ActivityScope.PROPERTY_DEFINITION) {
         console.error('data management describer received a non-data-management activity')
         return { description: null }
     }
 
     if (logItem.activity == 'changed') {
         let changes: Description[] = []
-        let changeSuffix: Description = <>on {nameAndLink(logItem)}</>
+        let changeSuffix: Description = (
+            <>
+                on <DescribeType logItem={logItem} /> {nameAndLink(logItem)}
+            </>
+        )
 
         for (const change of logItem.detail.changes || []) {
             if (!change?.field || !dataManagementActionsMapping[change.field]) {
@@ -126,7 +142,7 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem): Human
             description: (
                 <>
                     <strong>{logItem.user.first_name}</strong> <div className="highlighted-activity">deleted</div>{' '}
-                    {nameAndLink(logItem)}
+                    <DescribeType logItem={logItem} /> {nameAndLink(logItem)}
                 </>
             ),
         }

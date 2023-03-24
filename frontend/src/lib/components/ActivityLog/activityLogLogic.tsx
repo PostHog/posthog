@@ -36,6 +36,7 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.PERSON:
             return personActivityDescriber
         case ActivityScope.EVENT_DEFINITION:
+        case ActivityScope.PROPERTY_DEFINITION:
             return dataManagementActivityDescriber
         default:
             return undefined
