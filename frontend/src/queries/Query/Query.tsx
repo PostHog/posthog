@@ -31,11 +31,12 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
+    /** Disable any changes to the query */
+    readOnly?: boolean
 }
 
 export function Query(props: QueryProps): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery } = props
-    const readOnly = propsSetQuery === undefined
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
