@@ -86,12 +86,12 @@ export const insight = {
         if (insightType === 'JSON') {
             cy.clickNavMenu('savedinsights')
             cy.get('[data-attr="saved-insights-new-insight-dropdown"]').click()
-            cy.get('.new-insights-overlay[data-attr-insight-type="TRENDS"]').click()
+            cy.get('[data-attr-insight-type="TRENDS"]').click()
             insight.clickTab('JSON')
         } else {
             cy.clickNavMenu('savedinsights')
             cy.get('[data-attr="saved-insights-new-insight-dropdown"]').click()
-            cy.get(`.new-insights-overlay[data-attr-insight-type="${insightType}"]`).click()
+            cy.get(`[data-attr-insight-type="${insightType}"]`).click()
         }
 
         cy.wait(`@${networkInterceptAlias}`)
