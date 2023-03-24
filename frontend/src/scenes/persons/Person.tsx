@@ -172,6 +172,7 @@ export function Person(): JSX.Element | null {
                                     kind: NodeKind.EventsQuery,
                                     select: defaultDataTableColumns(NodeKind.EventsQuery),
                                     personId: person.id,
+                                    after: '-24h',
                                 },
                             }}
                         />
