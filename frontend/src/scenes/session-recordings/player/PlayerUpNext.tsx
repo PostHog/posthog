@@ -1,6 +1,5 @@
 import './PlayerUpNext.scss'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
-import { SessionRecordingType } from '~/types'
+import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { CSSTransition } from 'react-transition-group'
 import { useActions, useValues } from 'kea'
 import { IconPlay } from 'lib/lemon-ui/icons'
@@ -11,25 +10,20 @@ import { router } from 'kea-router'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 
-export interface PlayerUpNextProps extends SessionRecordingPlayerLogicProps {
-    nextSessionRecording?: Partial<SessionRecordingType>
+export interface PlayerUpNextProps {
     interrupted?: boolean
     clearInterrupted?: () => void
 }
 
-export function PlayerUpNext({
-    sessionRecordingId,
-    playerKey,
-    nextSessionRecording,
-    interrupted,
-    clearInterrupted,
-}: PlayerUpNextProps): JSX.Element | null {
+export function PlayerUpNext({ interrupted, clearInterrupted }: PlayerUpNextProps): JSX.Element | null {
     const timeoutRef = useRef<any>()
     const unmountNextRecordingDataLogicRef = useRef<() => void>()
-    const { endReached } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const { reportNextRecordingTriggered } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const { endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { reportNextRecordingTriggered } = useActions(sessionRecordingPlayerLogic)
     const [animate, setAnimate] = useState(false)
     const { autoplayEnabled } = useValues(playerSettingsLogic)
+
+    let nextSessionRecording = logicProps.nextSessionRecording
 
     if (!autoplayEnabled) {
         nextSessionRecording = undefined

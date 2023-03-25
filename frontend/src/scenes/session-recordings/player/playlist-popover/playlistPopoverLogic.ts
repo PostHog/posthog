@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
+    SessionRecordingLogicProps,
     sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import type { playlistPopoverLogicType } from './playlistPopoverLogicType'
@@ -18,13 +18,13 @@ import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/s
 
 export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popover', 'playlistPopoverLogic', key]),
-    props({} as SessionRecordingPlayerLogicProps),
-    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect((props: SessionRecordingPlayerLogicProps) => ({
+    props({} as SessionRecordingLogicProps),
+    key((props: SessionRecordingLogicProps) => `${props.sessionRecordingId}`),
+    connect(({ sessionRecordingId }: SessionRecordingLogicProps) => ({
         actions: [
-            sessionRecordingPlayerLogic(props),
+            sessionRecordingPlayerLogic,
             ['setPause'],
-            sessionRecordingDataLogic(props),
+            sessionRecordingDataLogic({ sessionRecordingId }),
             ['addDiffToRecordingMetaPinnedCount'],
             eventUsageLogic,
             ['reportRecordingPinnedToList', 'reportRecordingPlaylistCreated'],

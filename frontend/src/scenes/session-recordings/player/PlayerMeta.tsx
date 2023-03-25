@@ -19,9 +19,11 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
-import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
-export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
+export function PlayerMeta(): JSX.Element {
+    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+
     const {
         sessionPerson,
         resolution,
@@ -31,7 +33,7 @@ export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
         recordingStartTime,
         sessionPlayerMetaDataLoading,
         windowIds,
-    } = useValues(playerMetaLogic(props))
+    } = useValues(playerMetaLogic({ sessionRecordingId }))
 
     const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
     const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
@@ -144,7 +146,7 @@ export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
                     </div>
                 </div>
 
-                {!props.embedded && (
+                {!logicProps.embedded && (
                     <>
                         <LemonButton
                             className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
@@ -161,7 +163,7 @@ export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
                                 <IconUnfoldMore className="text-lg text-muted-alt" />
                             )}
                         </LemonButton>
-                        {props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}
+                        {sessionRecordingId ? <PlayerMetaLinks /> : null}
                     </>
                 )}
             </div>

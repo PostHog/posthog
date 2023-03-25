@@ -1,24 +1,25 @@
 import { kea } from 'kea'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PersonType } from '~/types'
 import { ceilMsToClosestSecond, findLastIndex } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
 
+export type PlayerMetaLogicProps = {
+    sessionRecordingId: string
+}
+
 export const playerMetaLogic = kea<playerMetaLogicType>({
     path: (key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key],
-    props: {} as SessionRecordingPlayerLogicProps,
-    key: (props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`,
-    connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps) => ({
+    props: {} as PlayerMetaLogicProps,
+    key: (props: PlayerMetaLogicProps) => `${props.sessionRecordingId}`,
+    connect: ({ sessionRecordingId }: PlayerMetaLogicProps) => ({
         values: [
             sessionRecordingDataLogic({ sessionRecordingId }),
             ['sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaDataLoading', 'windowIds'],
-            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
+            sessionRecordingPlayerLogic,
             ['currentPlayerPosition', 'scale', 'currentPlayerTime'],
         ],
         actions: [sessionRecordingDataLogic({ sessionRecordingId }), ['loadRecordingMetaSuccess']],

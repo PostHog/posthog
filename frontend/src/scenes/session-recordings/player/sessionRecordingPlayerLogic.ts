@@ -43,13 +43,19 @@ export interface Player {
     windowId: string
 }
 
-export interface SessionRecordingPlayerLogicProps {
+// This is the basic props used by most sub-logics
+export interface SessionRecordingLogicProps {
     sessionRecordingId: SessionRecordingId
+}
+
+export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicProps {
     sessionRecordingData?: SessionPlayerData
     playlistShortId?: string
     playerKey: string
     matching?: MatchedRecording[]
     recordingStartTime?: string
+    embedded?: boolean // hides unimportant meta information and no border
+    nextSessionRecording?: Partial<SessionRecordingType>
 }
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
@@ -59,12 +65,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             sessionRecordingDataLogic(props),
-            [
-                'sessionRecordingId',
-                'sessionPlayerData',
-                'sessionPlayerSnapshotDataLoading',
-                'sessionPlayerMetaDataLoading',
-            ],
+            ['sessionPlayerData', 'sessionPlayerSnapshotDataLoading', 'sessionPlayerMetaDataLoading'],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'isFullScreen'],
             userLogic,
@@ -186,6 +187,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     })),
     selectors({
+        sessionRecordingId: [() => [(_, props) => props], (props): string => props.sessionRecordingId],
+        logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
+
         currentPlayerState: [
             (selectors) => [
                 selectors.playingState,
