@@ -9,7 +9,7 @@ describe('session-manager', () => {
     let sessionManager: SessionManager
     const mockFinish = vi.fn()
     beforeEach(async () => {
-        sessionManager = new SessionManager(1, 'session_id_1', mockFinish)
+        sessionManager = new SessionManager(1, 'session_id_1', 1, 'topic', mockFinish)
         mockFinish.mockClear()
     })
 
@@ -26,6 +26,7 @@ describe('session-manager', () => {
             file: expect.any(String),
             id: expect.any(String),
             size: 72, // The size of the event payload - this may change when test data changes
+            offsets: [1],
         })
         const fileContents = JSON.parse(fs.readFileSync(sessionManager.buffer.file, 'utf-8'))
         expect(fileContents.data).toEqual(payload)
@@ -50,7 +51,7 @@ describe('session-manager', () => {
         expect(fs.existsSync(file)).toEqual(false)
     })
 
-    it('flushes messages and remains if others added in the mean time', async () => {
+    it('flushes messages and whilst collecting new ones', async () => {
         const event = createIncomingRecordingMessage()
         const event2 = createIncomingRecordingMessage()
         await sessionManager.add(event)
@@ -65,8 +66,9 @@ describe('session-manager', () => {
         await flushPromise
 
         expect(sessionManager.flushBuffer).toEqual(undefined)
-        expect(mockFinish).toBeCalledTimes(0)
+        expect(sessionManager.buffer.count).toEqual(1)
     })
+    offsets: [1]
 
     it('chunks incoming messages', async () => {
         const events = createChunkedIncomingRecordingMessage(3, {

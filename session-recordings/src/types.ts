@@ -59,7 +59,7 @@ export type RecordingMessage = {
 export type OffsetMetadata = {
     topic: KafkaTopic
     partition: number
-    offset: string
+    offset: number
 }
 
 // This is the incoming message from Kafka

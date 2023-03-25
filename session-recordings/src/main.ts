@@ -2,8 +2,7 @@ import express from 'express'
 import { apiRecordingsRoutes } from './api/recordings'
 import { config } from './config'
 import { healthCheckRoutes } from './healthcheck'
-import { startConsumer } from './ingester'
-import { consumer } from './utils/kafka'
+import { Ingester } from './ingester'
 import { createLogger } from './utils/logger'
 
 import { metricRoutes } from './utils/metrics'
@@ -17,7 +16,9 @@ app.use(apiRecordingsRoutes)
 
 const server = app.listen(config.port)
 
-startConsumer()
+// NOTE: We could
+const ingester = new Ingester()
+ingester.start()
 
 // Make sure we log any errors we haven't handled
 const errorTypes = ['unhandledRejection', 'uncaughtException']
@@ -27,7 +28,7 @@ errorTypes.map((type) => {
         try {
             logger.debug(`process.on ${type}`)
             logger.error(e)
-            await Promise.all([consumer.disconnect(), server.close()])
+            await Promise.all([ingester.stop(), server.close()])
             process.exit(0)
         } catch (_) {
             process.exit(1)
@@ -43,7 +44,7 @@ const signalTraps = ['SIGTERM', 'SIGINT', 'SIGUSR2']
 signalTraps.map((type) => {
     process.once(type, async () => {
         try {
-            await Promise.all([consumer.disconnect(), server.close()])
+            await Promise.all([ingester.stop(), server.close()])
         } finally {
             process.kill(process.pid, type)
         }

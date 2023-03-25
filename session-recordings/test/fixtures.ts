@@ -8,9 +8,11 @@ import { randomUUID } from 'node:crypto'
 
 export function createIncomingRecordingMessage(data: Partial<IncomingRecordingMessage> = {}): IncomingRecordingMessage {
     return {
-        kafkaOffset: '1',
-        kafkaPartition: 1,
-        kafkaTopic: config.topics.sessionRecordingEvents,
+        metadata: {
+            topic: config.topics.sessionRecordingEvents,
+            partition: 1,
+            offset: 1,
+        },
 
         team_id: 1,
         distinct_id: 'distinct_id',

@@ -17,6 +17,7 @@ type SessionBuffer = {
     size: number
     createdAt: Date
     file: string
+    offsets: number[]
 }
 
 const logger = createLogger('session-manager')
@@ -25,11 +26,14 @@ export class SessionManager {
     chunks: Map<string, IncomingRecordingMessage[]> = new Map()
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
+    flushTimer?: NodeJS.Timeout
 
     constructor(
         public readonly teamId: number,
         public readonly sessionId: string,
-        private readonly onFinish: () => void
+        public readonly partition: number,
+        public readonly topic: string,
+        private readonly onFinish: (offsetsToRemove: number[]) => void
     ) {
         this.createBuffer()
     }
@@ -56,6 +60,10 @@ export class SessionManager {
             logger.info(`Flushing buffer ${this.sessionId}...`)
             await this.flush()
         }
+    }
+
+    public get isEmpty(): boolean {
+        return this.buffer.count === 0 && this.chunks.size === 0
     }
 
     /**
@@ -94,12 +102,11 @@ export class SessionManager {
             logger.error(error)
         } finally {
             await rm(this.flushBuffer.file)
+
+            const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
 
-            if (this.buffer.count === 0 && this.chunks.size === 0) {
-                // TODO: We should probably time out on chunks?
-                this.onFinish()
-            }
+            this.onFinish(offsets)
         }
     }
 
@@ -111,6 +118,7 @@ export class SessionManager {
             size: 0,
             createdAt: new Date(),
             file: path.join(config.sessions.directory, `${this.teamId}.${this.sessionId}.${id}.json`),
+            offsets: [],
         }
 
         // NOTE: We should move this to do once on startup
@@ -125,6 +133,7 @@ export class SessionManager {
     private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
         this.buffer.count += 1
         this.buffer.size += Buffer.byteLength(message.data)
+        this.buffer.offsets.push(message.metadata.offset)
         await appendFile(this.buffer.file, JSON.stringify(convertToPersitedMessage(message)) + '\n', 'utf-8')
     }
 
@@ -146,6 +155,11 @@ export class SessionManager {
         chunks.push(message)
 
         if (chunks.length === message.chunk_count) {
+            // We want to add all the chunk offsets as well so that they are tracked correctly
+            chunks.forEach((x) => {
+                this.buffer.offsets.push(x.metadata.offset)
+            })
+
             // If we have all the chunks, we can add the message to the buffer
             await this.addToBuffer({
                 ...message,
@@ -154,7 +168,14 @@ export class SessionManager {
                     .map((c) => c.data)
                     .join(''),
             })
+
             this.chunks.delete(message.chunk_id)
         }
+    }
+
+    public async destroy(): Promise<void> {
+        clearTimeout(this.flushTimer)
+        // TODO: Should we delete the buffer files??
+        this.onFinish([])
     }
 }
