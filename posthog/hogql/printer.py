@@ -557,8 +557,8 @@ class _Printer(Visitor):
     def visit_asterisk_ref(self, ref: ast.AsteriskRef):
         return "*"
 
-    def visit_lazy_table_ref(self, ref: ast.LazyTableRef):
-        raise ValueError("Unexpected ast.LazyTableRef. Make sure LazyTableResolver has run on the AST.")
+    def visit_lazy_join_ref(self, ref: ast.LazyJoinRef):
+        raise ValueError("Unexpected ast.LazyJoinRef. Make sure LazyJoinResolver has run on the AST.")
 
     def visit_field_traverser_ref(self, ref: ast.FieldTraverserRef):
         raise ValueError("Unexpected ast.FieldTraverserRef. This should have been resolved.")

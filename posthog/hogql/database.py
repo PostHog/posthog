@@ -65,8 +65,7 @@ class Table(BaseModel):
                 asterisk[key] = database_field
             elif (
                 isinstance(database_field, Table)
-                or isinstance(database_field, LazyTable)
-                or isinstance(database_field, VirtualTable)
+                or isinstance(database_field, LazyJoin)
                 or isinstance(database_field, FieldTraverser)
             ):
                 pass  # ignore virtual tables for now
@@ -75,13 +74,21 @@ class Table(BaseModel):
         return asterisk
 
 
-class LazyTable(BaseModel):
+class LazyJoin(BaseModel):
     class Config:
         extra = Extra.forbid
 
     join_function: Callable[[str, str, Dict[str, Any]], Any]
-    table: Table
+    join_table: Table
     from_field: str
+
+
+class LazyTable(Table):
+    class Config:
+        extra = Extra.forbid
+
+    def lazy_select(self, requested_fields: Dict[str, Any]) -> Any:
+        raise NotImplementedError("LazyTable.lazy_select not overridden")
 
 
 class VirtualTable(Table):
@@ -124,7 +131,7 @@ class PersonsTable(Table):
         return "persons"
 
 
-def join_with_persons_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+def select_from_persons_table(requested_fields: Dict[str, Any]):
     from posthog.hogql import ast
 
     if not requested_fields:
@@ -143,7 +150,6 @@ def join_with_persons_table(from_table: str, to_table: str, requested_fields: Di
     id = ast.Field(chain=["id"])
 
     return ast.JoinExpr(
-        join_type="INNER JOIN",
         table=ast.SelectQuery(
             select=fields_to_select + [id],
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
@@ -153,14 +159,48 @@ def join_with_persons_table(from_table: str, to_table: str, requested_fields: Di
                 left=argmax_version(ast.Field(chain=["is_deleted"])),
                 right=ast.Constant(value=0),
             ),
-        ),
-        alias=to_table,
-        constraint=ast.CompareOperation(
-            op=ast.CompareOperationType.Eq,
-            left=ast.Field(chain=[from_table, "person_id"]),
-            right=ast.Field(chain=[to_table, "id"]),
-        ),
+        )
     )
+
+
+def join_with_persons_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+    from posthog.hogql import ast
+
+    if not requested_fields:
+        raise ValueError("No fields requested from persons table. Why are we joining it?")
+    join_expr = select_from_persons_table(requested_fields)
+    join_expr.join_type = "INNER JOIN"
+    join_expr.alias = to_table
+    join_expr.constraint = ast.CompareOperation(
+        op=ast.CompareOperationType.Eq,
+        left=ast.Field(chain=[from_table, "person_id"]),
+        right=ast.Field(chain=[to_table, "id"]),
+    )
+    return join_expr
+
+
+class LazyPersonsTable(LazyTable):
+    id: StringDatabaseField = StringDatabaseField(name="id")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
+    is_identified: BooleanDatabaseField = BooleanDatabaseField(name="is_identified")
+
+    is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
+    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
+
+    def lazy_select(self, requested_fields: Dict[str, Any]):
+        return select_from_persons_table(requested_fields)
+
+    def avoid_asterisk_fields(self):
+        return ["is_deleted", "version"]
+
+    # def clickhouse_table(self):
+    #     raise
+    #     # return "person"
+
+    def hogql_table(self):
+        return "lazy_persons"
 
 
 class PersonDistinctIdTable(Table):
@@ -170,7 +210,9 @@ class PersonDistinctIdTable(Table):
     is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
 
-    person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
+    person: LazyJoin = LazyJoin(
+        from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table
+    )
 
     def avoid_asterisk_fields(self):
         return ["is_deleted", "version"]
@@ -232,8 +274,10 @@ class EventsTable(Table):
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
 
     # lazy table that adds a join to the persons table
-    pdi: LazyTable = LazyTable(
-        from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
+    pdi: LazyJoin = LazyJoin(
+        from_field="distinct_id",
+        join_table=PersonDistinctIdTable(),
+        join_function=join_with_max_person_distinct_id_table,
     )
     # person fields on the event itself
     poe: EventsPersonSubTable = EventsPersonSubTable()
@@ -267,8 +311,10 @@ class SessionRecordingEvents(Table):
     last_event_timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="last_event_timestamp")
     urls: StringDatabaseField = StringDatabaseField(name="urls", array=True)
 
-    pdi: LazyTable = LazyTable(
-        from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
+    pdi: LazyJoin = LazyJoin(
+        from_field="distinct_id",
+        join_table=PersonDistinctIdTable(),
+        join_function=join_with_max_person_distinct_id_table,
     )
 
     person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
@@ -290,7 +336,9 @@ class CohortPeople(Table):
 
     # TODO: automatically add "HAVING SUM(sign) > 0" to fields selected from this table?
 
-    person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
+    person: LazyJoin = LazyJoin(
+        from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table
+    )
 
     def clickhouse_table(self):
         return "cohortpeople"
@@ -304,7 +352,9 @@ class StaticCohortPeople(Table):
     cohort_id: IntegerDatabaseField = IntegerDatabaseField(name="cohort_id")
     team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
 
-    person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
+    person: LazyJoin = LazyJoin(
+        from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table
+    )
 
     def avoid_asterisk_fields(self):
         return ["_timestamp", "_offset"]
@@ -337,6 +387,7 @@ class Database(BaseModel):
     # Users can query from the tables below
     events: EventsTable = EventsTable()
     persons: PersonsTable = PersonsTable()
+    lazy_persons: LazyPersonsTable = LazyPersonsTable()
     person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
     cohort_people: CohortPeople = CohortPeople()
@@ -384,8 +435,8 @@ def serialize_database(database: Database) -> dict:
                     fields.append({"key": field_key, "type": "boolean"})
                 elif isinstance(field, StringJSONDatabaseField):
                     fields.append({"key": field_key, "type": "json"})
-            elif isinstance(field, LazyTable):
-                fields.append({"key": field_key, "type": "lazy_table", "table": field.table.hogql_table()})
+            elif isinstance(field, LazyJoin):
+                fields.append({"key": field_key, "type": "lazy_table", "table": field.join_table.hogql_table()})
             elif isinstance(field, VirtualTable):
                 fields.append(
                     {

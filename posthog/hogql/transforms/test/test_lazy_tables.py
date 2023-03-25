@@ -6,7 +6,7 @@ from posthog.hogql.printer import print_ast
 from posthog.test.base import BaseTest
 
 
-class TestLazyTables(BaseTest):
+class TestLazyJoins(BaseTest):
     def test_resolve_lazy_tables(self):
         printed = self._print_select("select event, pdi.person_id from events")
         expected = (
@@ -108,6 +108,22 @@ class TestLazyTables(BaseTest):
             f"AS properties___name, person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
             f"HAVING equals(argMax(person.is_deleted, person.version), 0)) AS events__pdi__person ON "
             f"equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
+        )
+        self.assertEqual(printed, expected)
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
+    def test_resolve_lazy_table_as_select_table(self):
+        printed = self._print_select("select id, properties.email, properties.$browser from lazy_persons")
+        expected = (
+            "SELECT person_distinct_ids__person.`properties___$browser` "
+            "FROM person_distinct_id2 INNER JOIN "
+            "(SELECT argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), person.version) "
+            "AS `properties___$browser`, person.id FROM person "
+            f"WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
+            "HAVING equals(argMax(person.is_deleted, person.version), 0)"
+            ") AS person_distinct_ids__person ON equals(person_distinct_id2.person_id, person_distinct_ids__person.id) "
+            f"WHERE equals(person_distinct_id2.team_id, {self.team.pk}) "
+            "LIMIT 65535"
         )
         self.assertEqual(printed, expected)
 
