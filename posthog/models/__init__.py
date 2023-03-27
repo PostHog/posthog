@@ -8,6 +8,7 @@ from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatu
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile, Text
+from .database import DataTable, DataTableEngine, DataField, DataFieldType
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
