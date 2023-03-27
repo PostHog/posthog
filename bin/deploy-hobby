@@ -75,7 +75,23 @@ sudo apt install -y git
 # try to clone - if folder is already there pull latest for that branch
 git clone https://github.com/PostHog/posthog.git &> /dev/null || true
 cd posthog
-git pull
+
+if [ "$POSTHOG_APP_TAG" = "latest-release"]
+then
+    # Checkout the latest RELEASED version
+    git fetch --tags
+    git checkout $(git rev-list --tags --max-count=1)
+elif [ "$POSTHOG_APP_TAG" = "latest"]
+then
+    # Pull latest for current branch
+    git pull
+else
+    # Checkout a specific release tag
+    # Docker tags have the form release-X.Y.Z, but git tags don't have the prefix
+    git fetch --tags
+    git checkout "${POSTHOG_APP_TAG/release-/""}"
+fi
+
 cd ..
 
 if [ -n "$3" ]
