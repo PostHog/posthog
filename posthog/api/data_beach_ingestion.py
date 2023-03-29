@@ -117,6 +117,15 @@ def ship_s3_to_beach(request: HttpRequest, table_name: str):
     # We extract the _airbyte_data field and insert that into the
     # data_beach_appendable as the data column, the _airbyte_ab_id as the id
 
+    # NOTE: this is sync atm which isn't going to scale.
+    # TODO: return immediately with the query id, then add a status endpoint to
+    # monitor it.
+    # TODO: don't use ClickHouse s3 function, or at least ensure the ClickHouse
+    # cluster that we're querying is isolated from other customers. I suspect
+    # that orcestrating outside of ClickHouse would be more maintainable and
+    # scaleable here. It's possibly easy to get in to a situation where there
+    # are things running in ClickHouse that are tricky to run operationally e.g.
+    # needing to pause ingestion, or needing to restart the cluster.
     sync_execute(
         """
         INSERT INTO data_beach_appendable (
@@ -128,7 +137,7 @@ def ship_s3_to_beach(request: HttpRequest, table_name: str):
             %(team_id)d, 
             %(table_name)s, 
             _airbyte_ab_id,
-            _airbyte_data
+            toJSONString(_airbyte_data)
         FROM s3(
             %(s3_pattern)s, 
             %(aws_access_key_id)s, 

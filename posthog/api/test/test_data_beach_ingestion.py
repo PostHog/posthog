@@ -143,7 +143,10 @@ def test_can_trigger_insert_from_s3(client: Client):
         client=client,
         token=team.api_token,
         table_name="stripe_customers",
-        uri_pattern=f"s3://{bucket}/{key}",
+        # Hack: we need to use object_storage here instead of localhost as the
+        # host as ClickHouse is running within the docker compose network and
+        # will not be able to resolve localhost to minio.
+        uri_pattern=f"http://object-storage:19000/{bucket}/{key}",
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
     )
@@ -153,12 +156,11 @@ def test_can_trigger_insert_from_s3(client: Client):
     # Check that the data is actually in the table
     results = sync_execute(
         f"""
-        SELECT *
+        SELECT data
         FROM data_beach_appendable
         WHERE table_name = 'stripe_customers'
             AND team_id = {team.pk}
-            AND data = '{data}'
     """
     )
 
-    assert len(results) == 1
+    assert results == [('{"email":"tim@posthog.com"}',)]

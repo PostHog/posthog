@@ -31,7 +31,9 @@
         "--privileged",
         "--init",
         "--add-host",
-        "kafka:127.0.0.1"
+        "kafka:127.0.0.1",
+        "--add-host",
+        "minio:127.0.0.1"
     ],
 
     "workspaceFolder": "/workspace",
