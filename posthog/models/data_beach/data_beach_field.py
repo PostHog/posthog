@@ -1,7 +1,7 @@
 from django.db import models
 
 
-class DatabaseFieldType(models.TextChoices):
+class DataBeachFieldType(models.TextChoices):
     Datetime = "DateTime", "DateTime"
     String = "String", "String"
     Boolean = "Boolean", "Boolean"
@@ -9,12 +9,12 @@ class DatabaseFieldType(models.TextChoices):
     Float = "Float", "Float"
 
 
-class DatabaseField(models.Model):
+class DataBeachField(models.Model):
     team: models.ForeignKey = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     table: models.ForeignKey = models.ForeignKey(
-        "posthog.DatabaseTable", related_name="fields", on_delete=models.CASCADE
+        "posthog.DataBeachTable", related_name="fields", on_delete=models.CASCADE
     )
     name: models.CharField = models.CharField(max_length=255, null=False, blank=False)
     type: models.CharField = models.CharField(
-        max_length=100, null=False, blank=False, choices=DatabaseFieldType.choices, default=None
+        max_length=100, null=False, blank=False, choices=DataBeachFieldType.choices, default=None
     )

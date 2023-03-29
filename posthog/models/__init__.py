@@ -8,7 +8,7 @@ from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatu
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile, Text
-from .database import DatabaseTable, DatabaseTableEngine, DatabaseField, DatabaseFieldType
+from .data_beach import DataBeachTable, DataBeachTableEngine, DataBeachField, DataBeachFieldType
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -58,6 +58,8 @@ __all__ = [
     "CohortPeople",
     "Dashboard",
     "DashboardTile",
+    "DataBeachField",
+    "DataBeachTable",
     "DeletionType",
     "Element",
     "ElementGroup",

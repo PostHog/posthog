@@ -6,15 +6,15 @@ from rest_framework.settings import api_settings
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication
-from posthog.models import DatabaseTable, DatabaseField
+from posthog.models import DataBeachTable, DataBeachField
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
-class DatabaseFieldSerializer(serializers.ModelSerializer):
+class DataBeachFieldSerializer(serializers.ModelSerializer):
     id = serializers.CharField(read_only=False, required=False)
 
     class Meta:
-        model = DatabaseField
+        model = DataBeachField
         fields = [
             "id",
             "name",
@@ -22,11 +22,11 @@ class DatabaseFieldSerializer(serializers.ModelSerializer):
         ]
 
 
-class DatabaseTableSerializer(serializers.ModelSerializer):
-    fields = DatabaseFieldSerializer(many=True, required=False)
+class DataBeachTableSerializer(serializers.ModelSerializer):
+    fields = DataBeachFieldSerializer(many=True, required=False)
 
     class Meta:
-        model = DatabaseTable
+        model = DataBeachTable
         fields = [
             "id",
             "name",
@@ -39,7 +39,7 @@ class DatabaseTableSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         instance = super().create(validated_data)
         for field in fields:
-            DatabaseField.objects.create(
+            DataBeachField.objects.create(
                 table=instance,
                 team_id=self.context["team_id"],
                 **{key: value for key, value in field.items()},
@@ -57,11 +57,11 @@ class DatabaseTableSerializer(serializers.ModelSerializer):
 
             for field in fields:
                 if field.get("id"):
-                    field_instance = DatabaseField.objects.get(pk=field["id"])
-                    field_serializer = DatabaseFieldSerializer(instance=field_instance)
+                    field_instance = DataBeachField.objects.get(pk=field["id"])
+                    field_serializer = DataBeachFieldSerializer(instance=field_instance)
                     field_serializer.update(field_instance, field)
                 else:
-                    DatabaseField.objects.create(
+                    DataBeachField.objects.create(
                         table=instance,
                         team_id=self.context["team_id"],
                         **{key: value for key, value in field.items()},
@@ -72,10 +72,10 @@ class DatabaseTableSerializer(serializers.ModelSerializer):
         return instance
 
 
-class DatabaseTableViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class DataBeachTableViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES)
-    queryset = DatabaseTable.objects.all()
-    serializer_class = DatabaseTableSerializer
+    queryset = DataBeachTable.objects.all()
+    serializer_class = DataBeachTableSerializer
     authentication_classes = [
         JwtAuthentication,
         PersonalAPIKeyAuthentication,

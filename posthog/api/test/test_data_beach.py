@@ -1,6 +1,6 @@
 from rest_framework import status
 
-from posthog.models import DatabaseTable, DatabaseTableEngine
+from posthog.models import DataBeachTable, DataBeachTableEngine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -8,10 +8,10 @@ from posthog.test.base import (
 )
 
 
-class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+class TestDataBeachApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_create_data_table(self, *args):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/data_tables/",
+            f"/api/projects/{self.team.id}/data_beach_tables/",
             data={
                 "name": "login_attempts",
                 "fields": [
@@ -22,9 +22,9 @@ class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        data_table = DatabaseTable.objects.get()
+        data_table = DataBeachTable.objects.get()
         self.assertEqual(data_table.name, "login_attempts")
-        self.assertEqual(data_table.engine, DatabaseTableEngine.APPENDABLE)
+        self.assertEqual(data_table.engine, DataBeachTableEngine.APPENDABLE)
         self.assertEqual(data_table.team, self.team)
 
         fields = data_table.fields.all()
@@ -39,7 +39,7 @@ class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_update_data_table(self, *args):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/data_tables/",
+            f"/api/projects/{self.team.id}/data_beach_tables/",
             data={
                 "name": "login_attempts",
                 "fields": [
@@ -48,14 +48,14 @@ class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             },
         )
-        data_table = DatabaseTable.objects.get()
+        data_table = DataBeachTable.objects.get()
         self.assertEqual(data_table.name, "login_attempts")
         initial_fields = data_table.fields.all()
         self.assertEqual(initial_fields[0].name, "username")
 
         # add a field, change the name
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/data_tables/{data_table.pk}/",
+            f"/api/projects/{self.team.id}/data_beach_tables/{data_table.pk}/",
             data={
                 "name": "login_log",
                 "fields": [
@@ -67,7 +67,7 @@ class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        data_table = DatabaseTable.objects.get()
+        data_table = DataBeachTable.objects.get()
         self.assertEqual(data_table.name, "login_log")
         fields = data_table.fields.all()
         self.assertEqual(len(fields), 3)
@@ -86,7 +86,7 @@ class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # remove all fields
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/data_tables/{data_table.pk}/",
+            f"/api/projects/{self.team.id}/data_beach_tables/{data_table.pk}/",
             data={
                 "name": "login_log",
                 "fields": [
@@ -95,13 +95,13 @@ class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        fields = DatabaseTable.objects.get().fields.all()
+        fields = DataBeachTable.objects.get().fields.all()
         self.assertEqual(len(fields), 1)
         self.assertEqual(fields[0].name, "totally_new")
 
     def test_delete_data_table(self, *args):
         self.client.post(
-            f"/api/projects/{self.team.id}/data_tables/",
+            f"/api/projects/{self.team.id}/data_beach_tables/",
             data={
                 "name": "login_attempts",
                 "fields": [
@@ -110,10 +110,10 @@ class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             },
         )
-        data_table = DatabaseTable.objects.get()
+        data_table = DataBeachTable.objects.get()
         response = self.client.delete(
-            f"/api/projects/{self.team.id}/data_tables/{data_table.pk}/",
+            f"/api/projects/{self.team.id}/data_beach_tables/{data_table.pk}/",
         )
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        tables = DatabaseTable.objects.all()
+        tables = DataBeachTable.objects.all()
         self.assertEqual(len(tables), 0)
