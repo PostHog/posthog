@@ -10,7 +10,6 @@ import {
     IconCohort,
     IconComment,
     IconExperiment,
-    IconAutomation,
     IconFlag,
     IconGauge,
     IconLive,
@@ -171,7 +170,6 @@ function Pages(): JSX.Element {
                         !preflight?.instance_preferences?.disable_paid_fs) && (
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
                     )}
-                    <PageButton icon={<IconAutomation />} identifier={Scene.Automations} to={urls.automations()} />
                     {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                         <PageButton
                             icon={<IconCoffee />}

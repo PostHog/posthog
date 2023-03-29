@@ -9,6 +9,7 @@ import {
     IconCottage,
     IconDarkMode,
     IconExperiment,
+    IconAutomation,
     IconFlag,
     IconGauge,
     IconHelpOutline,
@@ -66,6 +67,11 @@ export function Navbar(): JSX.Element {
                             icon={<IconExperiment />}
                             identifier={Scene.Experiments}
                             to={urls.experiments()}
+                        />
+                        <NavbarButton
+                            icon={<IconAutomation />}
+                            identifier={Scene.Automations}
+                            to={urls.automations()}
                         />
                     </ul>
                     <ul>
