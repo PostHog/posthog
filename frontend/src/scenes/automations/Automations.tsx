@@ -1,28 +1,187 @@
-import { useEffect } from 'react'
+import { useValues } from 'kea'
 
-import api from 'lib/api'
 import { PageHeader } from 'lib/components/PageHeader'
 import { urls } from 'scenes/urls'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { automationsLogic } from './automationsLogic'
+import { Automation } from './schema'
+import { normalizeColumnTitle } from 'lib/components/Table/utils'
+import stringWithWBR from 'lib/utils/stringWithWBR'
+import { AutomationsTabs } from '~/types'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export function Automations(): JSX.Element {
-    useEffect(() => {
-        const getAutomations = async (): Promise<void> => {
-            const response = await api.getResponse('/api/projects/1/automations')
-            console.log('response: ', response)
-        }
-        getAutomations()
-    }, [])
+    const { automations, automationsLoading } = useValues(automationsLogic)
+
+    const columns: LemonTableColumns<Automation> = [
+        {
+            title: normalizeColumnTitle('Name'),
+            dataIndex: 'name',
+            className: 'ph-no-capture',
+            sticky: true,
+            width: '40%',
+            render: function Render(_, automation: Automation) {
+                return (
+                    <>
+                        <Link to={automation.id ? urls.automation(automation.id) : undefined}>
+                            <span className="row-name">{stringWithWBR(automation.name, 17)}</span>
+                        </Link>
+                        {automation.description && <span className="row-description">{automation.description}</span>}
+                    </>
+                )
+            },
+        },
+        createdByColumn<Automation>() as LemonTableColumn<Automation, keyof Automation | undefined>,
+        createdAtColumn<Automation>() as LemonTableColumn<Automation, keyof Automation | undefined>,
+        // {
+        //     title: 'Duration',
+        //     key: 'duration',
+        //     render: function Render(_, experiment: Experiment) {
+        //         const duration = getExperimentDuration(experiment)
+
+        //         return <div>{duration !== undefined ? `${duration} day${duration !== 1 ? 's' : ''}` : '--'}</div>
+        //     },
+        //     sorter: (a, b) => {
+        //         const durationA = getExperimentDuration(a) ?? -1
+        //         const durationB = getExperimentDuration(b) ?? -1
+        //         return durationA > durationB ? 1 : -1
+        //     },
+        //     align: 'right',
+        // },
+        // {
+        //     title: 'Status',
+        //     key: 'status',
+        //     render: function Render(_, experiment: Experiment) {
+        //         const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
+        //         const status = getExperimentStatus(experiment)
+        //         return (
+        //             <Tag color={statusColors[status]} style={{ fontWeight: 600 }}>
+        //                 {status.toUpperCase()}
+        //             </Tag>
+        //         )
+        //     },
+        //     align: 'center',
+        //     sorter: (a, b) => {
+        //         const statusA = getExperimentStatus(a)
+        //         const statusB = getExperimentStatus(b)
+
+        //         const score = {
+        //             draft: 1,
+        //             running: 2,
+        //             complete: 3,
+        //         }
+        //         return score[statusA] > score[statusB] ? 1 : -1
+        //     },
+        // },
+        // {
+        //     width: 0,
+        //     render: function Render(_, experiment: Experiment) {
+        //         return (
+        //             <More
+        //                 overlay={
+        //                     <>
+        //                         <LemonButton
+        //                             status="stealth"
+        //                             to={urls.experiment(`${experiment.id}`)}
+        //                             size="small"
+        //                             fullWidth
+        //                         >
+        //                             View
+        //                         </LemonButton>
+        //                         <LemonDivider />
+        //                         <LemonButton
+        //                             status="danger"
+        //                             onClick={() => deleteExperiment(experiment.id as number)}
+        //                             data-attr={`experiment-${experiment.id}-dropdown-remove`}
+        //                             fullWidth
+        //                         >
+        //                             Delete experiment
+        //                         </LemonButton>
+        //                     </>
+        //                 }
+        //             />
+        //         )
+        //     },
+        // },
+    ]
 
     return (
         <>
             <PageHeader
-                title={<div className="flex items-center">Experiments</div>}
+                title={<div className="flex items-center">Automations</div>}
+                caption={
+                    <>
+                        A nice text{' '}
+                        <Link
+                            data-attr="automation-info"
+                            to="https://github.com/PostHog/posthog/pull/14914"
+                            target="_blank"
+                        >
+                            More info
+                        </Link>
+                    </>
+                }
                 buttons={
                     <LemonButton type="primary" data-attr="create-experiment" to={urls.automation('new')}>
                         New automation
                     </LemonButton>
                 }
+                tabbedPage
+            />
+            <LemonTabs
+                activeKey={AutomationsTabs.All}
+                // activeKey={tab}
+                // onChange={(newKey) => setExperimentsTab(newKey)}
+                tabs={[
+                    { key: AutomationsTabs.All, label: 'All automations' },
+                    { key: AutomationsTabs.Yours, label: 'Your automations' },
+                    { key: AutomationsTabs.Archived, label: 'Archived automations' },
+                ]}
+            />
+            <div className="flex justify-between mb-4">
+                {/* <LemonInput
+                    type="search"
+                    placeholder="Search for Experiments"
+                    onChange={setSearchTerm}
+                    value={searchTerm}
+                /> */}
+                {/* <div className="flex items-center gap-2">
+                    <span>
+                        <b>Status</b>
+                    </span>
+                    <LemonSelect
+                        onChange={(status) => {
+                            if (status) {
+                                setSearchStatus(status as ExperimentStatus | 'all')
+                            }
+                        }}
+                        options={[
+                            { label: 'All', value: 'all' },
+                            { label: 'Draft', value: ExperimentStatus.Draft },
+                            { label: 'Running', value: ExperimentStatus.Running },
+                            { label: 'Complete', value: ExperimentStatus.Complete },
+                        ]}
+                        value="all"
+                        dropdownMaxContentWidth
+                    />
+                </div> */}
+            </div>
+            <LemonTable
+                // dataSource={filteredExperiments}
+                dataSource={automations}
+                columns={columns}
+                // rowKey="id"
+                // loading={automationsLoading}
+                // defaultSorting={{
+                //     columnKey: 'created_at',
+                //     order: -1,
+                // }}
+                // noSortingCancellation
+                // pagination={{ pageSize: 100 }}
+                // nouns={['automation', 'automations']}
+                // data-attr="automation-table"
             />
         </>
     )

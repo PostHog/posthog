@@ -1,8 +1,9 @@
 import { actions, afterMount, kea, path, reducers } from 'kea'
 import { Edge, Node } from 'reactflow'
 
-import type { automationsLogicType } from './automationsLogicType'
 import { AnyAutomationStep, AutomationEdge, AutomationStepKind } from './schema'
+
+import type { automationLogicType } from './automationLogicType'
 
 const savedSteps: AnyAutomationStep[] = [
     // {
@@ -24,7 +25,7 @@ const savedEdges: Edge[] = [
     },
 ]
 
-export const automationsLogic = kea<automationsLogicType>([
+export const automationLogic = kea<automationLogicType>([
     path(['scenes', 'automations', 'automationsLogic']),
     actions({
         setFlowSteps: (flowSteps: Node[]) => ({ flowSteps }),

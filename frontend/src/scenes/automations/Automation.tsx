@@ -17,7 +17,7 @@ import edgeTypes from './EdgeTypes'
 
 import 'reactflow/dist/style.css'
 import { useValues } from 'kea'
-import { automationsLogic } from './automationsLogic'
+import { automationLogic } from './automationLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
@@ -31,7 +31,7 @@ const fitViewOptions = {
 
 function ReactFlowPro(): JSX.Element {
     // this hook call ensures that the layout is re-calculated every time the graph changes
-    const { flowSteps, flowEdges } = useValues(automationsLogic)
+    const { flowSteps, flowEdges } = useValues(automationLogic)
     useLayout()
 
     return (

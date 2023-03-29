@@ -451,6 +451,12 @@ export enum ExperimentStatus {
     Complete = 'complete',
 }
 
+export enum AutomationsTabs {
+    All = 'all',
+    Yours = 'yours',
+    Archived = 'archived',
+}
+
 export enum PropertyFilterType {
     /** Event metadata and fields on the clickhouse events table */
     Meta = 'meta',
