@@ -258,10 +258,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_beach_tables')
     }
 
-    public dataBeachTableDetail(
-        dataBeachTableId: Required<DataBeachTableType['id']>,
-        teamId?: TeamType['id']
-    ): ApiRequest {
+    public dataBeachTableDetail(dataBeachTableId: number, teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_beach_tables').addPathComponent(dataBeachTableId)
     }
 
@@ -834,7 +831,7 @@ const api = {
             return await new ApiRequest().dataBeachTables().get()
         },
 
-        async get(dataBeachTableId: DataBeachTableType['id']): Promise<DataBeachTableType> {
+        async get(dataBeachTableId: number): Promise<DataBeachTableType> {
             return await new ApiRequest().dataBeachTableDetail(dataBeachTableId).get()
         },
 
@@ -843,13 +840,13 @@ const api = {
         },
 
         async update(
-            dataBeachTableId: DataBeachTableType['id'],
+            dataBeachTableId: number,
             dataBeachTableData: Partial<DataBeachTableType>
-        ): Promise<DashboardTemplateType> {
+        ): Promise<DataBeachTableType> {
             return await new ApiRequest().dataBeachTableDetail(dataBeachTableId).update({ data: dataBeachTableData })
         },
 
-        async delete(dataBeachTableId: DataBeachTableType['id']): Promise<void> {
+        async delete(dataBeachTableId: number): Promise<void> {
             await new ApiRequest().dataBeachTableDetail(dataBeachTableId).delete()
         },
     },

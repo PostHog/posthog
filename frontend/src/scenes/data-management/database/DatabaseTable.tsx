@@ -14,6 +14,8 @@ export function DatabaseTable({ table }: DatabaseTableProps): JSX.Element {
 
     return (
         <LemonTable
+            embedded
+            size="small"
             dataSource={filteredTables.find(({ name }) => name === table)?.columns ?? []}
             columns={[
                 {

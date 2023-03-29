@@ -9,7 +9,8 @@ import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 
 export function DatabaseScene(): JSX.Element {
     const { addingDataBeachTable, searchTerm } = useValues(databaseSceneLogic)
-    const { showAddDataBeachTable, hideAddDataBeachTable, setSearchTerm } = useActions(databaseSceneLogic)
+    const { showAddDataBeachTable, hideAddDataBeachTable, setSearchTerm, appendDataBeachTable } =
+        useActions(databaseSceneLogic)
 
     return (
         <div data-attr="database-scene">
@@ -46,7 +47,14 @@ export function DatabaseScene(): JSX.Element {
                     onClose={hideAddDataBeachTable}
                     width={560}
                 >
-                    <DataBeachTableForm dataBeachTable={null} onCancel={hideAddDataBeachTable} />
+                    <DataBeachTableForm
+                        dataBeachTable={null}
+                        onCancel={hideAddDataBeachTable}
+                        onSave={(newTable) => {
+                            appendDataBeachTable(newTable)
+                            hideAddDataBeachTable()
+                        }}
+                    />
                 </LemonModal>
                 <LemonButton
                     type="secondary"

@@ -12,7 +12,8 @@ import { useValues, useActions } from 'kea'
 
 export interface DataBeachTableFormProps {
     dataBeachTable: DataBeachTableType | null
-    onCancel?: () => void
+    onCancel: () => void
+    onSave: (dataBeachTable: DataBeachTableType) => void
 }
 
 const fieldTypes = [
@@ -26,7 +27,7 @@ const fieldTypes = [
 export function DataBeachTableForm(props: DataBeachTableFormProps): JSX.Element {
     const logicProps: DataBeachTableFormLogicProps = {
         dataBeachTable: props.dataBeachTable,
-        onSave: () => {},
+        onSave: props.onSave,
         onCancel: props.onCancel,
     }
     const logic = dataBeachTableFormLogic(logicProps)

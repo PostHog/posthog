@@ -39,14 +39,12 @@ export const dataBeachTableFormLogic = kea<dataBeachTableFormLogicType>([
 
             submit: async (dataBeachTable: DataBeachTableType, breakpoint) => {
                 const { id, ...table } = dataBeachTable
-                console.log(table)
-                const newDataBeachTable = dataBeachTable.id
+                const newDataBeachTable: DataBeachTableType = dataBeachTable.id
                     ? await api.dataBeachTables.update(dataBeachTable.id, table)
                     : await api.dataBeachTables.create(table)
                 breakpoint()
-
-                console.log(newDataBeachTable)
                 lemonToast.success('Table saved')
+                props.onSave(newDataBeachTable)
             },
 
             showErrorsOnTouch: true,
