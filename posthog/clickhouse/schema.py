@@ -5,7 +5,7 @@ from posthog.clickhouse.dead_letter_queue import *
 from posthog.clickhouse.plugin_log_entries import *
 from posthog.models.app_metrics.sql import *
 from posthog.models.cohort.sql import *
-from posthog.models.data_beach import CREATE_DATA_BEACH_APPENDABLE_SQL
+from posthog.models.data_beach_ingestion import CREATE_DATA_BEACH_APPENDABLE_SQL
 from posthog.models.event.sql import *
 from posthog.models.group.sql import *
 from posthog.models.ingestion_warnings.sql import (
