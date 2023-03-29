@@ -49,6 +49,9 @@ function useLayout(): void {
         const nodes = getNodes()
         const edges = getEdges()
 
+        console.log('nodes', nodes)
+        console.log('edges', edges)
+
         // run the layout and get back the nodes with their updated positions
         const targetNodes = layoutNodes(nodes, edges)
 

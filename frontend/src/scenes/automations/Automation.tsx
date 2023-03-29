@@ -27,13 +27,13 @@ const fitViewOptions = {
 
 function ReactFlowPro(): JSX.Element {
     // this hook call ensures that the layout is re-calculated every time the graph changes
-    const { nodes, edges } = useValues(automationsLogic)
+    const { steps, edges } = useValues(automationsLogic)
     useLayout()
 
     return (
         <>
             <ReactFlow
-                defaultNodes={nodes}
+                defaultNodes={steps}
                 defaultEdges={edges}
                 proOptions={proOptions}
                 fitView

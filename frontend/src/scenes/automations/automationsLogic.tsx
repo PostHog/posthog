@@ -4,7 +4,7 @@ import { Edge, Node } from 'reactflow'
 
 import type { automationsLogicType } from './automationsLogicType'
 
-const defaultNodes: Node[] = [
+const defaultSteps: Node[] = [
     {
         id: '1',
         data: { label: '🌮 Taco' },
@@ -31,10 +31,10 @@ const defaultEdges: Edge[] = [
 export const automationsLogic = kea<automationsLogicType>([
     path(['scenes', 'automations', 'automationsLogic']),
     reducers({
-        nodes: [
-            defaultNodes,
+        steps: [
+            defaultSteps,
             {
-                setNodes: (state, { nodes }) => nodes,
+                setSteps: (state, { steps }) => steps,
             },
         ],
         edges: [
