@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, Extra
 
@@ -332,7 +332,7 @@ class Groups(Table):
 
 class Database(BaseModel):
     class Config:
-        extra = Extra.forbid
+        extra = Extra.allow
 
     # Users can query from the tables below
     events: EventsTable = EventsTable()
@@ -352,14 +352,59 @@ class Database(BaseModel):
         raise ValueError(f'Table "{table_name}" not found in database')
 
 
+if TYPE_CHECKING:
+    from posthog.models import DataBeachTable
+
+
+class DataBeachTableAppendable(Table):
+    class Config:
+        extra = Extra.allow
+
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    id: StringDatabaseField = StringDatabaseField(name="id")
+    table_name: StringDatabaseField = StringDatabaseField(name="table_name")
+    data: StringJSONDatabaseField = StringJSONDatabaseField(name="data")
+
+    def __init__(self, table: "DataBeachTable", **kwargs):
+        super().__init__(**kwargs)
+        self._table = table
+        self._table_name = table.name
+        self._field_names = [field.name for field in table.fields.all()]
+
+    def clickhouse_table(self):
+        return "data_beach_appendable"
+
+    def hogql_table(self):
+        return self._table_name
+
+    def get_asterisk(self) -> Dict[str, DatabaseField]:
+        asterisk: Dict[str, DatabaseField] = {}
+        for field in ["id"] + self._field_names:
+            asterisk[field] = self.__getattribute__(field)
+        return asterisk
+
+
 def create_hogql_database(team_id: Optional[int]) -> Database:
-    from posthog.models import Team
+    from posthog.models import Team, DataBeachTable
 
     database = Database()
     team = Team.objects.get(pk=team_id)
     if team.person_on_events_querying_enabled:
         database.events.person = FieldTraverser(chain=["poe"])
         database.events.person_id = StringDatabaseField(name="person_id")
+
+    tables = DataBeachTable.objects.filter(team_id=team_id).prefetch_related("fields")
+
+    for table in tables:
+        if table.engine == "appendable":
+            fields = {}
+            for field in table.fields.all():
+                fields[field.name] = FieldTraverser(chain=["data", field.name])
+            pydantic_table = DataBeachTableAppendable(table=table, **fields)
+            for field in table.fields.all():
+                pydantic_table.__setattr__(field.name, fields[field.name])
+            database.__setattr__(table.name, pydantic_table)
+
     return database
 
 
