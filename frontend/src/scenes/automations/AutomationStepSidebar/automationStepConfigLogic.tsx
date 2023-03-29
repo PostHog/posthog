@@ -18,41 +18,6 @@ import {
 import { EventSentConfig } from './AutomationStepConfig'
 import { uuid } from 'lib/utils'
 
-import type { automationStepConfigLogicType } from './automationStepConfigLogicType'
-
-const stepOptions: AnyAutomationStep[] = [
-    {
-        kind: AutomationStepKind.EventSource,
-        id: 'new',
-        category: AutomationStepCategory.Source,
-        filters: [],
-    },
-    // { kind: AutomationStepKind.ActionSource, category: AutomationStepCategory.Source },
-    // { kind: AutomationStepKind.PauseForLogic, category: AutomationStepCategory.Logic },
-    // { kind: AutomationStepKind.PauseUntilLogic, category: AutomationStepCategory.Logic },
-    // {
-    //     kind: AutomationStepKind.GithubIssueDestination,
-    //     category: AutomationStepCategory.Destination,
-    // },
-    // {
-    //     kind: AutomationStepKind.UserPropertyDestination,
-    //     category: AutomationStepCategory.Destination,
-    // },
-    // { kind: AutomationStepKind.CohortDestination, category: AutomationStepCategory.Destination },
-    // {
-    //     kind: AutomationStepKind.FeatureFlagDestination,
-    //     category: AutomationStepCategory.Destination,
-    // },
-    { kind: AutomationStepKind.WebhookDestination, id: 'new', category: AutomationStepCategory.Destination },
-    // { kind: AutomationStepKind.SlackDestination, category: AutomationStepCategory.Destination },
-    // { kind: AutomationStepKind.ZapierDestination, category: AutomationStepCategory.Destination },
-    // { kind: AutomationStepKind.EmailDestination, category: AutomationStepCategory.Destination },
-    // {
-    //     kind: AutomationStepKind.InAppMessageDestination,
-    //     category: AutomationStepCategory.Destination,
-    // },
-]
-
 export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> = {
     [AutomationStepKind.EventSource]: {
         icon: <IconEvent />,
@@ -73,7 +38,7 @@ export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> 
     // 'In-app message': { icon: <IconMonitor />, label: 'In-app message' },
 }
 
-export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
+export const automationStepConfigLogic = kea([
     path(['scenes', 'automations', 'AutomationStepSidebar', 'automationStepConfigLogic']),
     actions({
         setActiveStepId: (id: string) => ({ id }),
@@ -111,7 +76,6 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
                 closeStepConfig: () => null,
             },
         ],
-        stepOptions: [stepOptions as AnyAutomationStep[], {}],
         stepCategories: [Object.values(AutomationStepCategory), {}],
     }),
     selectors({
