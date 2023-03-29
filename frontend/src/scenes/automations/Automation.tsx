@@ -18,6 +18,8 @@ import edgeTypes from './EdgeTypes'
 import 'reactflow/dist/style.css'
 import { useValues } from 'kea'
 import { automationsLogic } from './automationsLogic'
+import { AutomationStepConfig } from './AutomationStepConfig'
+import { automationStepConfigLogic } from './automationStepConfigLogic'
 
 const proOptions: ProOptions = { account: 'paid-pro', hideAttribution: true }
 
@@ -50,10 +52,20 @@ function ReactFlowPro(): JSX.Element {
 }
 
 function ReactFlowWrapper(): JSX.Element {
+    const { stepConfigOpen } = useValues(automationStepConfigLogic)
     return (
-        <ReactFlowProvider>
-            <ReactFlowPro />
-        </ReactFlowProvider>
+        <div className="flex w-full h-full">
+            <div className="flex-1">
+                <ReactFlowProvider>
+                    <ReactFlowPro />
+                </ReactFlowProvider>
+            </div>
+            {stepConfigOpen && (
+                <div className="flex-1">
+                    <AutomationStepConfig />
+                </div>
+            )}
+        </div>
     )
 }
 
