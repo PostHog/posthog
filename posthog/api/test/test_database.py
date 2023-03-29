@@ -1,6 +1,6 @@
 from rest_framework import status
 
-from posthog.models import DataTable, DataTableEngine
+from posthog.models import DatabaseTable, DatabaseTableEngine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -22,9 +22,9 @@ class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        data_table = DataTable.objects.get()
+        data_table = DatabaseTable.objects.get()
         self.assertEqual(data_table.name, "login_attempts")
-        self.assertEqual(data_table.engine, DataTableEngine.APPENDABLE)
+        self.assertEqual(data_table.engine, DatabaseTableEngine.APPENDABLE)
         self.assertEqual(data_table.team, self.team)
 
         fields = data_table.fields.all()
@@ -48,7 +48,7 @@ class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             },
         )
-        data_table = DataTable.objects.get()
+        data_table = DatabaseTable.objects.get()
         self.assertEqual(data_table.name, "login_attempts")
         initial_fields = data_table.fields.all()
         self.assertEqual(initial_fields[0].name, "username")
@@ -66,7 +66,7 @@ class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        data_table = DataTable.objects.get()
+        data_table = DatabaseTable.objects.get()
         self.assertEqual(data_table.name, "login_log")
         fields = data_table.fields.all()
         self.assertEqual(len(fields), 3)

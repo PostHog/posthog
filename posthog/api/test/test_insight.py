@@ -1863,7 +1863,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {
                 "short_id": "3456",
                 "query": {
-                    "kind": "DataTableNode",
+                    "kind": "DatabaseTableNode",
                     "source": {
                         "kind": "EventsQuery",
                         "select": [
@@ -1897,7 +1897,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {
                 "short_id": "3456",
                 "query": {
-                    "kind": "DataTableNode",
+                    "kind": "DatabaseTableNode",
                     "source": {
                         "kind": "EventsQuery",
                         "select": [

@@ -41,7 +41,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {
                 "name": "Insight with events table query",
                 "query": {
-                    "kind": "DataTableNode",
+                    "kind": "DatabaseTableNode",
                     "source": {
                         "kind": "EventsQuery",
                         "select": [
@@ -65,7 +65,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {
                 "name": "Insight with persons table query",
                 "query": {
-                    "kind": "DataTableNode",
+                    "kind": "DatabaseTableNode",
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
                         "kind": "PersonsNode",
@@ -81,7 +81,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {
                 "name": "Insight with persons table query",
                 "query": {
-                    "kind": "DataTableNode",
+                    "kind": "DatabaseTableNode",
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
                         "kind": "PersonsNode",
@@ -174,7 +174,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {
                 "name": "Insight with persons table query",
                 "query": {
-                    "kind": "DataTableNode",
+                    "kind": "DatabaseTableNode",
                     "source": {
                         "kind": "PersonsNode",
                         "properties": [{"type": "person", "key": "$browser", "operator": "exact", "value": "Chrome"}],
@@ -190,7 +190,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {
                 "name": "Insight with persons table query",
                 "query": {
-                    "kind": "DataTableNode",
+                    "kind": "DatabaseTableNode",
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
                         "kind": "PersonsNode",
@@ -213,7 +213,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {
                 "name": "Insight with persons table query",
                 "query": {
-                    "kind": "DataTableNode",
+                    "kind": "DatabaseTableNode",
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
                         "kind": "PersonsNode",

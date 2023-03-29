@@ -1029,7 +1029,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             **valid_template,
             # client provides an incorrect "empty" filter alongside a query
             "tiles": [
-                {"type": "INSIGHT", "query": {"kind": "a datatable"}, "filters": {"date_from": None}, "layouts": {}}
+                {"type": "INSIGHT", "query": {"kind": "a DatabaseTable"}, "filters": {"date_from": None}, "layouts": {}}
             ],
         }
 
@@ -1065,7 +1065,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "name": None,
                     "next_allowed_client_refresh": None,
                     "order": None,
-                    "query": {"kind": "a datatable"},
+                    "query": {"kind": "a DatabaseTable"},
                     "result": None,
                     "saved": False,
                     "short_id": ANY,

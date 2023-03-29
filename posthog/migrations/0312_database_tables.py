@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="DataTable",
+            name="DatabaseTable",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("name", models.CharField(max_length=255)),
@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
-            name="DataField",
+            name="DatabaseField",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("name", models.CharField(max_length=255)),
@@ -42,7 +42,7 @@ class Migration(migrations.Migration):
                         max_length=100,
                     ),
                 ),
-                ("table", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.datatable")),
+                ("table", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.DatabaseTable")),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
         ),
