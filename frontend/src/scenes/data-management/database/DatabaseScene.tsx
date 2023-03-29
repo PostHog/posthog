@@ -5,13 +5,13 @@ import { databaseSceneLogic } from './databaseSceneLogic'
 import { useActions, useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { DataBeachTableForm } from './DataBeachTableForm'
 
 export function DatabaseScene(): JSX.Element {
-    const { database, addingDataBeachTable } = useValues(databaseSceneLogic)
-    const { showAddDataBeachTable, hideAddDataBeachTable } = useActions(databaseSceneLogic)
+    const { database, addingDataBeachTable, searchTerm } = useValues(databaseSceneLogic)
+    const { showAddDataBeachTable, hideAddDataBeachTable, setSearchTerm } = useActions(databaseSceneLogic)
     const tables = database ? Object.keys(database) : []
 
     return (
@@ -22,23 +22,41 @@ export function DatabaseScene(): JSX.Element {
                 tabbedPage
             />
             <DataManagementPageTabs tab={DataManagementTab.Database} />
-
-            <div className="mb-4">
-                These are the database tables you can query in PostHog through{' '}
-                <a href="https://posthog.com/manual/hogql" target="_blank">
-                    HogQL
-                </a>
-                .
+            <div className="flex items-center justify-between gap-2 mb-4">
+                <LemonInput type="search" placeholder="Search for tables" onChange={setSearchTerm} value={searchTerm} />
+                <LemonSegmentedButton
+                    size={'small'}
+                    onChange={() => {}}
+                    value={''}
+                    options={[
+                        { label: 'All tables', value: '' },
+                        { label: 'PostHog tables', value: 'posthog' },
+                        { label: 'DataBeach tables', value: 'databeach' },
+                    ]}
+                />
             </div>
-
-            <div className="mb-4">
-                {addingDataBeachTable ? (
+            <div className="flex items-center justify-between gap-2 mb-4">
+                <div>
+                    These are the database tables you can query in PostHog with{' '}
+                    <a href="https://posthog.com/manual/hogql" target="_blank">
+                        HogQL
+                    </a>{' '}
+                    under SQL insights.
+                </div>
+                <LemonModal
+                    title={'Add new DataBeach table'}
+                    isOpen={addingDataBeachTable}
+                    onClose={hideAddDataBeachTable}
+                    width={560}
+                >
                     <DataBeachTableForm dataBeachTable={null} onCancel={hideAddDataBeachTable} />
-                ) : (
-                    <LemonButton type="secondary" onClick={showAddDataBeachTable}>
-                        Add DataBeach table
-                    </LemonButton>
-                )}
+                </LemonModal>
+                <LemonButton
+                    type="secondary"
+                    onClick={addingDataBeachTable ? hideAddDataBeachTable : showAddDataBeachTable}
+                >
+                    Add DataBeach table
+                </LemonButton>
             </div>
 
             {tables.length === 0 ? <LemonTable loading={true} dataSource={[]} columns={[]} /> : null}

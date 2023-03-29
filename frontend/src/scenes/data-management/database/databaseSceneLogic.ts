@@ -12,9 +12,11 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
     actions({
         showAddDataBeachTable: true,
         hideAddDataBeachTable: true,
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     reducers({
         addingDataBeachTable: [false, { showAddDataBeachTable: () => true, hideAddDataBeachTable: () => false }],
+        searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
     }),
     loaders({
         database: [
@@ -26,7 +28,7 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
         dataBeachTables: [
             null as DataBeachTableType[] | null,
             {
-                loadDataBeachTables: () => api.dataBeachTables.list(),
+                loadDataBeachTables: async () => (await api.dataBeachTables.list())?.results,
             },
         ],
     }),
