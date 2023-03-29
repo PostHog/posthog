@@ -157,37 +157,47 @@ class LazyTableResolver(TraversingVisitor):
                     chain=[new_join.lazy_join.from_field]
                 )
 
-        # Move the "last_join" pointer to the last join in the SELECT query
-        last_join = node.select_from
-        while last_join and last_join.next_join is not None:
-            last_join = last_join.next_join
-
         # For all the collected joins, create the join subqueries, and add them to the table.
-        for to_table, scope in joins_to_add.items():
-            next_join = scope.lazy_join.join_function(scope.from_table, scope.to_table, scope.fields_accessed)
-            resolve_refs(next_join, self.context.database, select_ref)
-            select_ref.tables[to_table] = next_join.ref
+        for to_table, join_scope in joins_to_add.items():
+            join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
+                join_scope.from_table, join_scope.to_table, join_scope.fields_accessed
+            )
+            resolve_refs(join_to_add, self.context.database, select_ref)
+            select_ref.tables[to_table] = join_to_add.ref
 
-            # Link up the joins properly
-            if last_join is None:
-                node.select_from = next_join
-                last_join = next_join
-            else:
-                last_join.next_join = next_join
-            while last_join.next_join is not None:
-                last_join = last_join.next_join
+            join_ptr = node.select_from
+            added = False
+            while join_ptr:
+                if join_scope.from_table == join_ptr.alias or (
+                    isinstance(join_ptr.table, ast.Field) and join_scope.from_table == join_ptr.table.chain[0]
+                ):
+                    join_to_add.next_join = join_ptr.next_join
+                    join_ptr.next_join = join_to_add
+                    added = True
+                    break
+                if join_ptr.next_join:
+                    join_ptr = join_ptr.next_join
+                else:
+                    break
+            if not added:
+                if join_ptr:
+                    join_ptr.next_join = join_to_add
+                elif node.select_from:
+                    node.select_from.next_join = join_to_add
+                else:
+                    node.select_from = join_to_add
 
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
-            added_table = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed)
-            resolve_refs(added_table, self.context.database, select_ref)
+            subquery = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed)
+            resolve_refs(subquery, self.context.database, select_ref)
             old_table_ref = select_ref.tables[table_name]
-            select_ref.tables[table_name] = ast.SelectQueryAliasRef(name=table_name, ref=added_table.ref)
+            select_ref.tables[table_name] = ast.SelectQueryAliasRef(name=table_name, ref=subquery.ref)
 
             join_ptr = node.select_from
             while join_ptr:
                 if join_ptr.table.ref == old_table_ref:
-                    join_ptr.table = added_table
+                    join_ptr.table = subquery
                     join_ptr.ref = select_ref.tables[table_name]
                     join_ptr.alias = table_name
                     break

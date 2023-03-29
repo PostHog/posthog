@@ -338,6 +338,8 @@ class Call(Expr):
 
 
 class JoinExpr(Expr):
+    ref: Optional[BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef]
+
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
     alias: Optional[str] = None
