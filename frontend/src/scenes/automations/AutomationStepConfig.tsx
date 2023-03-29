@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { FilterType, InsightType } from '~/types'
+import { automationLogic } from './automationLogic'
 import './AutomationStepConfig.scss'
 import { automationStepConfigLogic, kindToConfig } from './automationStepConfigLogic'
 import { AnyAutomationStep, AutomationStepCategory } from './schema'
@@ -72,6 +73,7 @@ export function AutomationStepChooser(): JSX.Element {
 
 export function AutomationStepForm(): JSX.Element {
     const { activeStep, activeStepConfig } = useValues(automationStepConfigLogic)
+    const { addStep } = useActions(automationLogic)
     if (!activeStep) {
         return <h2>Error loading step</h2>
     }
@@ -80,7 +82,13 @@ export function AutomationStepForm(): JSX.Element {
             <h2>New step: {activeStepConfig.label}</h2>
             <LemonDivider />
             {activeStepConfig.configComponent}
-            <LemonButton type="primary" onClick={() => console.log('Saving', activeStep)}>
+            <LemonButton
+                type="primary"
+                onClick={() => {
+                    console.debug('Saving', activeStep)
+                    addStep(activeStep)
+                }}
+            >
                 Save
             </LemonButton>
         </>

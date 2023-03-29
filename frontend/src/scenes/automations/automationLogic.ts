@@ -1,6 +1,7 @@
 import { Edge, Node } from 'reactflow'
-import { actions, kea, path, reducers, props, key, selectors, connect } from 'kea'
+import { actions, kea, path, reducers, props, key, selectors, connect, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
+import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
@@ -34,6 +35,7 @@ export const automationLogic = kea<automationLogicType>([
     }),
 
     actions({
+        addStep: (step: Node) => ({ step }),
         setEditAutomation: (editing: boolean) => ({ editing }),
     }),
     reducers({
@@ -112,6 +114,29 @@ export const automationLogic = kea<automationLogicType>([
             },
         ],
     }),
+    forms(({ actions, values }) => ({
+        automation: {
+            defaults: { ...NEW_AUTOMATION } as Automation,
+            errors: ({ name }) => ({
+                name: !name && 'You have to enter a name.',
+            }),
+            submit: () => {
+                console.debug('submit')
+                // actions.createExperiment(true, exposure, sampleSize)
+            },
+        },
+    })),
+    listeners(({ actions, values }) => ({
+        addStep: ({ step }) => {
+            console.debug('listeners.addStep: ', step)
+            console.debug('values.steps: ', values.steps)
+
+            actions.setAutomationValues({
+                steps: [...values.steps, step],
+                edges: [{ source: 'Event sent', target: 'placeholder', type: 'workflow' }],
+            })
+        },
+    })),
     urlToAction(({ actions, values }) => ({
         '/automations/:id': ({ id }, _, __, currentLocation, previousLocation) => {
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
