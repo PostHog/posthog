@@ -1,5 +1,4 @@
 import { actions, afterMount, kea, path, reducers } from 'kea'
-
 import { Edge, Node } from 'reactflow'
 
 import type { automationsLogicType } from './automationsLogicType'
@@ -28,8 +27,8 @@ const savedEdges: Edge[] = [
 export const automationsLogic = kea<automationsLogicType>([
     path(['scenes', 'automations', 'automationsLogic']),
     actions({
-        setSteps: (steps: Node[]) => ({ steps }),
-        setEdges: (edges: Edge[]) => ({ edges }),
+        setFlowSteps: (flowSteps: Node[]) => ({ flowSteps }),
+        setFlowEdges: (flowEdges: Edge[]) => ({ flowEdges }),
         fromAutomationSteps: (steps: AnyAutomationStep[]) => ({ steps }),
         fromAutomationEdges: (edges: AutomationEdge[]) => ({ edges }),
     }),
@@ -37,21 +36,23 @@ export const automationsLogic = kea<automationsLogicType>([
         flowSteps: [
             [] as Node[],
             {
-                setSteps: (state, { steps }) => steps,
+                setFlowSteps: (state, { flowSteps }) => flowSteps,
                 fromAutomationSteps: (state, { steps }) => {
-                    return steps.map((step) => ({
-                        id: step.id,
-                        data: { label: step.kind },
-                        position: { x: 0, y: 0 },
-                        type: 'workflow',
-                    }))
+                    return steps.map((step: AnyAutomationStep) => {
+                        return {
+                            id: step.id,
+                            data: { label: step.kind },
+                            position: { x: 0, y: 0 },
+                            type: 'workflow',
+                        } as Node
+                    })
                 },
             },
         ],
         flowEdges: [
             [] as Edge[],
             {
-                setEdges: (_, { edges }) => edges,
+                setFlowEdges: (_, { flowEdges }) => flowEdges,
                 fromAutomationEdges: (_, { edges }) => {
                     return edges.map((edge: AutomationEdge, index: number) => ({
                         id: index.toString(),

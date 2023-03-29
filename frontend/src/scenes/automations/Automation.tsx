@@ -31,26 +31,21 @@ function ReactFlowPro(): JSX.Element {
     useLayout()
 
     return (
-        <>
-            {' '}
-            {flowSteps && (
-                <ReactFlow
-                    defaultNodes={flowSteps}
-                    defaultEdges={flowEdges}
-                    proOptions={proOptions}
-                    fitView
-                    nodeTypes={nodeTypes}
-                    edgeTypes={edgeTypes}
-                    fitViewOptions={fitViewOptions}
-                    minZoom={0.2}
-                    nodesDraggable={false}
-                    nodesConnectable={false}
-                    zoomOnDoubleClick={false}
-                >
-                    <Background />
-                </ReactFlow>
-            )}
-        </>
+        <ReactFlow
+            defaultNodes={flowSteps}
+            defaultEdges={flowEdges}
+            proOptions={proOptions}
+            fitView
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            fitViewOptions={fitViewOptions}
+            minZoom={0.2}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            zoomOnDoubleClick={false}
+        >
+            <Background />
+        </ReactFlow>
     )
 }
 
