@@ -86,10 +86,17 @@ export const Issues = (): JSX.Element => {
                         properties: query.properties,
                     },
                 }}
+                context={{
+                    emptyStateHeading: 'Yay! No issues to report!',
+                    emptyStateDetail: '',
+                }}
             />
             <LemonDivider />
             <h2>Open issues</h2>
-            <Query query={tableQuery} />
+            <Query
+                query={tableQuery}
+                context={{ emptyStateHeading: 'Yay! No issues to report', emptyStateDetail: '' }}
+            />
         </div>
     )
 }

@@ -11,7 +11,11 @@ import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { isFilterWithDisplay, isLifecycleFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
-export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
+export function ActionsLineGraph({
+    inSharedMode = false,
+    showPersonsModal = true,
+    context,
+}: ChartParams): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(
         trendsLogic(insightProps)
@@ -98,6 +102,6 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
             }
         />
     ) : (
-        <InsightEmptyState />
+        <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     )
 }
