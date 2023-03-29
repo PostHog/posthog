@@ -2,12 +2,6 @@ import { actions, kea, path, reducers, selectors } from 'kea'
 import type { automationStepConfigLogicType } from './automationStepConfigLogicType'
 import { AnyAutomationStep, AutomationStepCategory, AutomationStepConfigType, AutomationStepKind } from './schema'
 
-const FALLBACK_EVENT: ActionFilter = {
-    id: '$pageview',
-    math: 'dau',
-    type: 'events',
-}
-
 import {
     GithubIcon,
     IconAction,
@@ -23,14 +17,13 @@ import {
     IconWebhook,
 } from 'lib/lemon-ui/icons'
 import { EventSentConfig } from './AutomationStepConfig'
-import { ActionFilter } from '~/types'
 
 const stepOptions: AnyAutomationStep[] = [
     {
         kind: AutomationStepKind.EventSource,
         id: 'Event sent',
         category: AutomationStepCategory.Source,
-        filters: [FALLBACK_EVENT],
+        filters: [],
     },
     { kind: AutomationStepKind.ActionSource, id: 'Action triggered', category: AutomationStepCategory.Source },
     { kind: AutomationStepKind.PauseForLogic, id: 'Pause for', category: AutomationStepCategory.Logic },
@@ -79,7 +72,6 @@ export const kindToConfig: Record<string, AutomationStepConfigType> = {
 }
 
 export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
-    connect([]),
     path(['scenes', 'automations', 'automationStepConfigLogic']),
     actions({
         openStepConfig: true,
@@ -101,7 +93,7 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
                     kind: AutomationStepKind.EventSource,
                     id: 'Event sent',
                     category: AutomationStepCategory.Source,
-                    filters: [FALLBACK_EVENT],
+                    filters: [],
                 },
             ] as AnyAutomationStep[],
             {
