@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonInput, LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonDivider, LemonInput, LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -71,8 +71,8 @@ export function EventSentConfig(): JSX.Element {
 }
 
 export function WebhookDestinationConfig(): JSX.Element {
-    const { activeStep, activeStepConfig } = useValues(automationStepConfigLogic)
-    const { updateActiveStep } = useActions(automationStepConfigLogic)
+    const { activeStep, activeStepConfig, exampleEvent, previewPayload } = useValues(automationStepConfigLogic)
+    const { updateActiveStep, setExampleEvent } = useActions(automationStepConfigLogic)
     return (
         <>
             {/* <PureField label={'Destination url'}>
@@ -85,21 +85,34 @@ export function WebhookDestinationConfig(): JSX.Element {
                 />
             </PureField> */}
             <div className="mt-4" />
-            <PureField label={'Payload'} className="w-100">
+            <PureField label={'Payload'} className="max-w-160">
                 <JSONEditorInput
                     defaultNumberOfLines={4}
-                    value={JSON.stringify(activeStep.payload, null, 4)}
+                    value={activeStep.payload}
                     onChange={(payload) => {
                         updateActiveStep(activeStep.id, { payload })
                     }}
                 />
             </PureField>
             <div className="mt-4" />
-            <PureField label={'Preview'} className="w-100">
-                <JSONEditorInput
-                    defaultNumberOfLines={4}
-                    value={JSON.stringify(activeStep.payload, null, 4)}
-                    readOnly
+            <PureField label={'Preview'} className="max-w-160">
+                <JSONEditorInput defaultNumberOfLines={4} value={JSON.stringify(previewPayload, null, 4)} readOnly />
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: '1',
+                            header: <span>Example event</span>,
+                            content: (
+                                <JSONEditorInput
+                                    defaultNumberOfLines={4}
+                                    value={exampleEvent}
+                                    onChange={(val) => {
+                                        setExampleEvent(val)
+                                    }}
+                                />
+                            ),
+                        },
+                    ]}
                 />
             </PureField>
             <div className="mt-4" />

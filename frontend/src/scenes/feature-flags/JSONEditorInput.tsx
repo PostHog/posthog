@@ -78,10 +78,10 @@ export function JSONEditorInput({
                     quickSuggestions: false,
                     contextmenu: false,
                 }}
-                // onChange={(val) => {
-                //     updateHeight(val)
-                //     onChange?.(val)
-                // }}
+                onChange={(val) => {
+                    updateHeight(val)
+                    onChange?.(val)
+                }}
                 loading={<Spinner />}
             />
             {!focused && !value?.toString() && placeholder && (
