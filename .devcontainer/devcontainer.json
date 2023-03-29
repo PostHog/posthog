@@ -36,7 +36,7 @@
         "minio:127.0.0.1"
     ],
 
-    "workspaceFolder": "/workspace",
+    "workspaceFolder": "/workspaces/posthog",
 
     // Set *default* container specific settings.json values on container create.
     "settings": {

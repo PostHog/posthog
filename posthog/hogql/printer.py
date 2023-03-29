@@ -260,6 +260,10 @@ class _Printer(Visitor):
         elif isinstance(node.ref, ast.SelectQueryAliasRef) and node.alias is not None:
             join_strings.append(self.visit(node.table))
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
+
+        elif isinstance(node.ref, ast.LazyTableRef) and self.dialect == "hogql":
+            join_strings.append(self._print_identifier(node.ref.table.hogql_table()))
+
         else:
             raise ValueError("Only selecting from a table or a subquery is supported")
 
@@ -557,8 +561,11 @@ class _Printer(Visitor):
     def visit_asterisk_ref(self, ref: ast.AsteriskRef):
         return "*"
 
-    def visit_lazy_table_ref(self, ref: ast.LazyTableRef):
-        raise ValueError("Unexpected ast.LazyTableRef. Make sure LazyTableResolver has run on the AST.")
+    def visit_lazy_join_ref(self, ref: ast.LazyJoinRef):
+        raise ValueError("Unexpected ast.LazyJoinRef. Make sure LazyJoinResolver has run on the AST.")
+
+    def visit_lazy_table_ref(self, ref: ast.LazyJoinRef):
+        raise ValueError("Unexpected ast.LazyTableRef. Make sure LazyJoinResolver has run on the AST.")
 
     def visit_field_traverser_ref(self, ref: ast.FieldTraverserRef):
         raise ValueError("Unexpected ast.FieldTraverserRef. This should have been resolved.")

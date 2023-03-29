@@ -88,6 +88,32 @@
               "type": "integer"
           }
       ],
+      "lazy_persons": [
+          {
+              "key": "id",
+              "type": "string"
+          },
+          {
+              "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "properties",
+              "type": "json"
+          },
+          {
+              "key": "is_identified",
+              "type": "boolean"
+          },
+          {
+              "key": "is_deleted",
+              "type": "boolean"
+          },
+          {
+              "key": "version",
+              "type": "integer"
+          }
+      ],
       "person_distinct_ids": [
           {
               "key": "distinct_id",
@@ -313,6 +339,32 @@
           }
       ],
       "persons": [
+          {
+              "key": "id",
+              "type": "string"
+          },
+          {
+              "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "properties",
+              "type": "json"
+          },
+          {
+              "key": "is_identified",
+              "type": "boolean"
+          },
+          {
+              "key": "is_deleted",
+              "type": "boolean"
+          },
+          {
+              "key": "version",
+              "type": "integer"
+          }
+      ],
+      "lazy_persons": [
           {
               "key": "id",
               "type": "string"
