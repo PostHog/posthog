@@ -72,4 +72,5 @@ export type AutomationStepConfigType = {
     label: string
     description?: string
     icon: JSX.Element
+    configComponent?: JSX.Element
 }

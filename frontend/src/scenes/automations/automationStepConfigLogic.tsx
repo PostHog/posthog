@@ -2,6 +2,12 @@ import { actions, kea, path, reducers, selectors } from 'kea'
 import type { automationStepConfigLogicType } from './automationStepConfigLogicType'
 import { AnyAutomationStep, AutomationStepCategory, AutomationStepConfigType, AutomationStepKind } from './schema'
 
+const FALLBACK_EVENT: ActionFilter = {
+    id: '$pageview',
+    math: 'dau',
+    type: 'events',
+}
+
 import {
     GithubIcon,
     IconAction,
@@ -16,6 +22,8 @@ import {
     IconSlack,
     IconWebhook,
 } from 'lib/lemon-ui/icons'
+import { EventSentConfig } from './AutomationStepConfig'
+import { ActionFilter } from '~/types'
 
 const stepOptions: AnyAutomationStep[] = [
     { kind: AutomationStepKind.EventSource, id: 'Event sent', category: AutomationStepCategory.Source },
@@ -50,7 +58,7 @@ const stepOptions: AnyAutomationStep[] = [
 ]
 
 export const kindToConfig: Record<string, AutomationStepConfigType> = {
-    'Event sent': { icon: <IconEvent />, label: 'Event sent' },
+    'Event sent': { icon: <IconEvent />, label: 'Event sent', configComponent: <EventSentConfig /> },
     'Action triggered': { icon: <IconAction />, label: 'Action triggered' },
     'Pause for': { icon: <IconCoffee />, label: 'Pause for' },
     'Pause until': { icon: <IconCoffee />, label: 'Pause until' },
@@ -71,17 +79,18 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
         openStepConfig: true,
         closeStepConfig: true,
         setActiveStepId: (id: string) => ({ id }),
+        setEvent: (event: ActionFilter) => ({ event }), // TODO: correct type
     }),
     reducers({
         stepConfigOpen: [
-            false as boolean,
+            true as boolean,
             {
                 openStepConfig: () => true,
                 closeStepConfig: () => false,
             },
         ],
         activeStepId: [
-            null as null | string,
+            'Event sent' as null | string,
             {
                 setActiveStepId: (_, { id }) => id,
                 closeStepConfig: () => null,
@@ -89,6 +98,12 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
         ],
         stepOptions: [stepOptions as AnyAutomationStep[], {}],
         stepCategories: [Object.values(AutomationStepCategory), {}],
+        event: [
+            FALLBACK_EVENT as ActionFilter | null | undefined,
+            {
+                setEvent: (_, { event }) => event,
+            },
+        ],
     }),
     selectors({
         activeStep: [
