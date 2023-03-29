@@ -28,7 +28,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.data_beach import deploy_towels_to
+from posthog.api.data_beach_ingestion import deploy_towels_to
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.prompt import prompt_webhook
 from posthog.cloud_utils import is_cloud
