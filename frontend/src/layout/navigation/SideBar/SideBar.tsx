@@ -10,6 +10,7 @@ import {
     IconCohort,
     IconComment,
     IconExperiment,
+    IconAutomation,
     IconFlag,
     IconGauge,
     IconLive,
@@ -170,6 +171,7 @@ function Pages(): JSX.Element {
                         !preflight?.instance_preferences?.disable_paid_fs) && (
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
                     )}
+                    <PageButton icon={<IconAutomation />} identifier={Scene.Automations} to={urls.automations()} />
                     {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                         <PageButton
                             icon={<IconCoffee />}
@@ -178,7 +180,6 @@ function Pages(): JSX.Element {
                         />
                     )}
                     <div className="SideBar__heading">Data</div>
-
                     <PageButton
                         icon={<IconLive />}
                         identifier={Scene.Events}
@@ -216,7 +217,6 @@ function Pages(): JSX.Element {
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
                     )}
                     <div className="SideBar__heading">Configuration</div>
-
                     <PageButton
                         icon={<IconTools />}
                         identifier={Scene.ToolbarLaunch}

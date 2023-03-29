@@ -126,6 +126,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Experiment',
     },
+    [Scene.Automations]: {
+        projectBased: true,
+        name: 'Automations',
+    },
+    [Scene.Automation]: {
+        projectBased: true,
+        name: 'Automation',
+    },
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature Flags',
@@ -245,12 +253,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Feedback',
     },
-    [Scene.Automations]: {
-        projectBased: true,
-    },
-    [Scene.Automation]: {
-        projectBased: true,
-    },
 }
 
 export const redirects: Record<
@@ -324,6 +326,8 @@ export const routes: Record<string, Scene> = {
     [urls.cohorts()]: Scene.Cohorts,
     [urls.experiments()]: Scene.Experiments,
     [urls.experiment(':id')]: Scene.Experiment,
+    [urls.automations()]: Scene.Automations,
+    [urls.automation(':id')]: Scene.Automation,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,
@@ -371,6 +375,4 @@ export const routes: Record<string, Scene> = {
     [urls.debugQuery()]: Scene.DebugQuery,
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
-    [urls.automations()]: Scene.Automations,
-    [urls.automation()]: Scene.Automation,
 }
