@@ -1,23 +1,31 @@
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { communicationDetailsLogic } from './CommunicationDetailsLogic'
 import { useActions, useValues } from 'kea'
 import { IconComment, IconMail } from 'lib/lemon-ui/icons/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton/LemonButton'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton/LemonSegmentedButton'
 
 export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
-    const { publicReplyEnabled, noteContent } = useValues(communicationDetailsLogic({ eventUUID: uuid }))
-    const { togglePublicReply, saveNote, setNoteContent } = useActions(communicationDetailsLogic({ eventUUID: uuid }))
+    const { publicReplyEnabled, replyType, noteContent } = useValues(communicationDetailsLogic({ eventUUID: uuid }))
+    const { setReplyType, saveNote, setNoteContent } = useActions(communicationDetailsLogic({ eventUUID: uuid }))
 
     return (
         <>
-            <LemonSwitch
-                bordered
-                data-attr="reply-to-customer-toggle"
-                id="reply-to-customer-toggle"
-                label="Public reply (off means internal note)"
-                checked={publicReplyEnabled}
-                onChange={togglePublicReply}
+            <LemonSegmentedButton
+                onChange={(value) => setReplyType(value)}
+                options={[
+                    {
+                        icon: <IconComment />,
+                        label: 'Internal note',
+                        value: 'internal',
+                    },
+                    {
+                        icon: <IconMail />,
+                        label: 'Public reply',
+                        value: 'public',
+                    },
+                ]}
+                value={replyType}
             />
             <LemonTextArea
                 id="user-context reply"

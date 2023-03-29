@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { communicationDetailsLogicType } from './CommunicationDetailsLogicType'
 
@@ -11,15 +11,15 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
     props({ eventUUID: null } as CommunicationDetailsLogicProps),
     key((props) => `communicationDetailsLogic-${props.eventUUID}`),
     actions({
-        togglePublicReply: (publicReplyEnabled: boolean) => ({ publicReplyEnabled }),
         saveNote: (content: string) => ({ content }),
+        setReplyType: (type: 'internal' | 'public') => ({ type }),
         setNoteContent: (content: string) => ({ content }),
     }),
     reducers({
-        publicReplyEnabled: [
-            false,
+        replyType: [
+            'internal' as 'internal' | 'public',
             {
-                togglePublicReply: (previousState) => !previousState,
+                setReplyType: (_, { type }) => type,
             },
         ],
         noteContent: [
@@ -28,6 +28,9 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
                 setNoteContent: (_, { content }) => content,
             },
         ],
+    }),
+    selectors({
+        publicReplyEnabled: [(s) => [s.replyType], (type) => type === 'public'],
     }),
     listeners({
         saveNote: async ({ content }: { content: string }) => {
