@@ -66,7 +66,7 @@ export const Issues = (): JSX.Element => {
                 <EventPropertyFilters query={query} setQuery={(q) => setQuery(q as EventsQuery)} />
             </div>
             <LemonDivider />
-            <h2>Bug count</h2>
+            <h2>Issue count</h2>
             <Query
                 query={{
                     kind: NodeKind.LegacyQuery,
