@@ -22,6 +22,8 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { AutomationStepConfig } from './AutomationStepConfig'
+import { automationStepConfigLogic } from './automationStepConfigLogic'
 
 const proOptions: ProOptions = { account: 'paid-pro', hideAttribution: true }
 
@@ -54,6 +56,7 @@ function ReactFlowPro(): JSX.Element {
 }
 
 function Automation(): JSX.Element {
+    const { stepConfigOpen } = useValues(automationStepConfigLogic)
     const editingExistingAutomation = true
     const automationLoading = false
     return (
@@ -90,9 +93,18 @@ function Automation(): JSX.Element {
                 }
             />
             <LemonDivider />
-            <ReactFlowProvider>
-                <ReactFlowPro />
-            </ReactFlowProvider>
+            <div className="flex w-full h-full">
+                <div className="flex-1">
+                    <ReactFlowProvider>
+                        <ReactFlowPro />
+                    </ReactFlowProvider>
+                </div>
+                {stepConfigOpen && (
+                    <div className="flex-1">
+                        <AutomationStepConfig />
+                    </div>
+                )}
+            </div>
         </>
     )
 }

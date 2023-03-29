@@ -1,3 +1,5 @@
+import { automationStepConfigLogic } from './../automationStepConfigLogic'
+import { useActions } from 'kea'
 import { NodeProps, useReactFlow } from 'reactflow'
 
 import { uuid, randomLabel } from '../utils'
@@ -5,6 +7,7 @@ import { uuid, randomLabel } from '../utils'
 // this hook implements the logic for clicking a placeholder node
 // on placeholder node click: turn the placeholder and connecting edge into a workflow node
 export function usePlaceholderClick(id: NodeProps['id']): () => void {
+    const { openStepConfig } = useActions(automationStepConfigLogic)
     const { getNode, setNodes, setEdges } = useReactFlow()
 
     const onClick = (): void => {
@@ -14,6 +17,8 @@ export function usePlaceholderClick(id: NodeProps['id']): () => void {
         if (!parentNode) {
             return
         }
+
+        openStepConfig()
 
         // create a unique id for the placeholder node that will be added as a child of the clicked node
         const childPlaceholderId = uuid()
