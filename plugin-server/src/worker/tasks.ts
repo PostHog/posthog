@@ -23,6 +23,7 @@ export const workerTasks: Record<string, TaskRunner> = {
     runEveryDay: (hub, args: { pluginConfigId: number }) => {
         return runPluginTask(hub, 'runEveryDay', PluginTaskType.Schedule, args.pluginConfigId)
     },
+
     getPluginSchedule: (hub) => {
         return hub.pluginSchedule
     },

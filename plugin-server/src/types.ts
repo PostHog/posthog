@@ -17,6 +17,7 @@ import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
+import { AutomationManager } from './worker/automations/automation-manager'
 
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
@@ -164,6 +165,7 @@ export interface PluginsServerConfig {
         | 'scheduler'
         | 'analytics-ingestion'
         | 'recordings-ingestion'
+        | 'automation'
         | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
@@ -208,6 +210,7 @@ export interface Hub extends PluginsServerConfig {
     rootAccessManager: RootAccessManager
     promiseManager: PromiseManager
     actionManager: ActionManager
+    automationManager: AutomationManager
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
@@ -230,11 +233,12 @@ export interface PluginServerCapabilities {
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean
     sessionRecordingIngestion?: boolean
+    processAutomationJobs?: boolean
     http?: boolean
     mmdb?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
+export type EnqueuedJob = EnqueuedPluginJob | EnqueuedAutomationJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
@@ -249,9 +253,28 @@ export interface GraphileWorkerCronScheduleJob {
     jobKey?: string
 }
 
+// This represents the overall job being run
+// It contains information about the job itself as well as the trigger
+// and the state it is in
+export interface EnqueuedAutomationJob {
+    timestamp: number
+    jobKey?: string
+    automation: Action
+    event: PostIngestionEvent
+    state: AutomationJobState
+}
+
+export enum AutomationJobState {
+    SCHEDULED = 'scheduled',
+    RUNNING = 'running',
+    SUCCESS = 'success',
+    FAILED = 'failed',
+}
+
 export enum JobName {
     PLUGIN_JOB = 'pluginJob',
     BUFFER_JOB = 'bufferJob',
+    AUTOMATION_JOB = 'automationJob',
 }
 
 export type PluginId = Plugin['id']

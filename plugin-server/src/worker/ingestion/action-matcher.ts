@@ -144,6 +144,31 @@ export class ActionMatcher {
         return matches
     }
 
+    /** Converts an automation to an action in order to re-use the matching logic. */
+    public async matchAutomation(automation: Action, event: PostIngestionEvent): Promise<boolean> {
+        // TODO
+
+        return true
+        // const matchingStart = new Date()
+        // const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
+        // if (!elements) {
+        //     const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
+        //     elements = rawElements ? extractElements(rawElements) : []
+        // }
+        // const teamActionsMatching: boolean[] = await Promise.all(
+        //     teamActions.map((action) => this.checkAction(event, elements, person, action))
+        // )
+        // const matches: Action[] = []
+        // for (let i = 0; i < teamActionsMatching.length; i++) {
+        //     if (teamActionsMatching[i]) {
+        //         matches.push(teamActions[i])
+        //     }
+        // }
+        // this.statsd?.timing('action_matching_for_automation', matchingStart)
+        // this.statsd?.increment('action_matches_automation_found', matches.length)
+        // return matches
+    }
+
     /**
      * Base level of action matching.
      *
