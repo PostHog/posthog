@@ -1,7 +1,7 @@
-export function Automations(): JSX.Element {
+export function Automation(): JSX.Element {
     return (
         <>
-            <h1>Automations</h1>
+            <h1>Automation</h1>
         </>
     )
 }

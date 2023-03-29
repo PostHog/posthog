@@ -29,7 +29,7 @@ const defaultEdges: Edge[] = [
 ]
 
 export const automationsLogic = kea<automationsLogicType>([
-    path(['scenes', 'automations-luke', 'automationsLogic']),
+    path(['scenes', 'automations', 'automationsLogic']),
     reducers({
         nodes: [
             defaultNodes,

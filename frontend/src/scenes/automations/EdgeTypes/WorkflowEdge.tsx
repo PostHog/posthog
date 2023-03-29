@@ -2,7 +2,7 @@ import React from 'react'
 import { EdgeProps, getBezierPath } from 'reactflow'
 
 import useEdgeClick from '../hooks/useEdgeClick'
-import styles from './EdgeTypes.module.css'
+import './EdgeTypes.scss'
 
 export default function CustomEdge({
     id,
@@ -30,19 +30,10 @@ export default function CustomEdge({
 
     return (
         <>
-            <path id={id} style={style} className={styles.edgePath} d={edgePath} markerEnd={markerEnd} />
+            <path id={id} style={style} className="edgePath" d={edgePath} markerEnd={markerEnd} />
             <g transform={`translate(${edgeCenterX}, ${edgeCenterY})`}>
-                <rect
-                    onClick={onClick}
-                    x={-10}
-                    y={-10}
-                    width={20}
-                    ry={4}
-                    rx={4}
-                    height={20}
-                    className={styles.edgeButton}
-                />
-                <text className={styles.edgeButtonText} y={5} x={-4}>
+                <rect onClick={onClick} x={-10} y={-10} width={20} ry={4} rx={4} height={20} className="edgeButton" />
+                <text className="edgeButtonText" y={5} x={-4}>
                     +
                 </text>
             </g>
