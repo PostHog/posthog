@@ -260,6 +260,10 @@ class _Printer(Visitor):
         elif isinstance(node.ref, ast.SelectQueryAliasRef) and node.alias is not None:
             join_strings.append(self.visit(node.table))
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
+
+        elif isinstance(node.ref, ast.LazyTableRef) and self.dialect == "hogql":
+            join_strings.append(self._print_identifier(node.ref.table.hogql_table()))
+
         else:
             raise ValueError("Only selecting from a table or a subquery is supported")
 
