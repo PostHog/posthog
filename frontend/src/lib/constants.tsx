@@ -146,6 +146,7 @@ export const FEATURE_FLAGS = {
     RECORDINGS_LIST_V2: 'recordings-list-v2-enabled', // owner: #team-session-recordings
     HOGQL: 'hogql', // owner: #team-product-analytics
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
+    ARUBUG: 'arubug', // owner: #team-arubug
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
