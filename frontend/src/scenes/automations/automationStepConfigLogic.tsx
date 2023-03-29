@@ -26,7 +26,12 @@ import { EventSentConfig } from './AutomationStepConfig'
 import { ActionFilter } from '~/types'
 
 const stepOptions: AnyAutomationStep[] = [
-    { kind: AutomationStepKind.EventSource, id: 'Event sent', category: AutomationStepCategory.Source },
+    {
+        kind: AutomationStepKind.EventSource,
+        id: 'Event sent',
+        category: AutomationStepCategory.Source,
+        filters: [FALLBACK_EVENT],
+    },
     { kind: AutomationStepKind.ActionSource, id: 'Action triggered', category: AutomationStepCategory.Source },
     { kind: AutomationStepKind.PauseForLogic, id: 'Pause for', category: AutomationStepCategory.Logic },
     { kind: AutomationStepKind.PauseUntilLogic, id: 'Pause until', category: AutomationStepCategory.Logic },
@@ -79,7 +84,7 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
         openStepConfig: true,
         closeStepConfig: true,
         setActiveStepId: (id: string) => ({ id }),
-        setEvent: (event: ActionFilter) => ({ event }), // TODO: correct type
+        updateActiveStep: (id: string, activeStepUpdates: Partial<AnyAutomationStep>) => ({ id, activeStepUpdates }),
     }),
     reducers({
         stepConfigOpen: [
@@ -87,6 +92,30 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
             {
                 openStepConfig: () => true,
                 closeStepConfig: () => false,
+            },
+        ],
+        activeSteps: [
+            [
+                {
+                    kind: AutomationStepKind.EventSource,
+                    id: 'Event sent',
+                    category: AutomationStepCategory.Source,
+                    filters: [FALLBACK_EVENT],
+                },
+            ] as AnyAutomationStep[],
+            {
+                updateActiveStep: (activeSteps, { id, activeStepUpdates }) => {
+                    return activeSteps.map((activeStep: AnyAutomationStep) => {
+                        if (activeStep.id === id) {
+                            return {
+                                ...activeStep,
+                                ...activeStepUpdates,
+                            }
+                        } else {
+                            return activeStep
+                        }
+                    })
+                },
             },
         ],
         activeStepId: [
@@ -98,18 +127,12 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
         ],
         stepOptions: [stepOptions as AnyAutomationStep[], {}],
         stepCategories: [Object.values(AutomationStepCategory), {}],
-        event: [
-            FALLBACK_EVENT as ActionFilter | null | undefined,
-            {
-                setEvent: (_, { event }) => event,
-            },
-        ],
     }),
     selectors({
         activeStep: [
-            (selectors) => [selectors.activeStepId],
-            (activeStepId: string): AnyAutomationStep | null => {
-                return stepOptions.find((step) => step.id === activeStepId) || null
+            (selectors) => [selectors.activeStepId, selectors.activeSteps],
+            (activeStepId: string, activeSteps: AnyAutomationStep[]): AnyAutomationStep | null => {
+                return activeSteps.find((step: AnyAutomationStep) => step.id === activeStepId) || null
             },
         ],
         activeStepConfig: [

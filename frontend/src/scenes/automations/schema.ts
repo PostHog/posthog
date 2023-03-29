@@ -1,3 +1,4 @@
+import { ActionFilter } from './../../types'
 import { UserBasicType } from '~/types'
 
 export enum AutomationStepCategory {
@@ -40,6 +41,7 @@ export type AutomationGenericStep = AutomationStep & {
 export type AutomationEventSourceStep = AutomationStep & {
     kind: AutomationStepKind.EventSource
     category: AutomationStepCategory.Source
+    filters: ActionFilter[]
     // event
     // filters
 }

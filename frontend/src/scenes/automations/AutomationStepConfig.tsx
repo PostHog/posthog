@@ -8,8 +8,9 @@ import { automationStepConfigLogic, kindToConfig } from './automationStepConfigL
 import { AnyAutomationStep, AutomationStepCategory } from './schema'
 
 export function EventSentConfig(): JSX.Element {
-    const { event } = useValues(automationStepConfigLogic)
-    const { setEvent } = useActions(automationStepConfigLogic)
+    const { activeStep } = useValues(automationStepConfigLogic)
+    const { updateActiveStep } = useActions(automationStepConfigLogic)
+
     return (
         <div className="mb-6">
             <div className="mb-2">
@@ -20,10 +21,10 @@ export function EventSentConfig(): JSX.Element {
                 <ActionFilter
                     filters={{
                         insight: InsightType.TRENDS,
-                        events: [event],
+                        events: activeStep.filters,
                     }}
                     setFilters={(filters: FilterType) => {
-                        setEvent(filters.events[0])
+                        updateActiveStep(activeStep.id, { filters: filters.events })
                     }}
                     typeKey={'automation_step_event_sent_config'}
                     buttonCopy={''}
@@ -71,7 +72,6 @@ export function AutomationStepChooser(): JSX.Element {
 
 export function AutomationStepForm(): JSX.Element {
     const { activeStep, activeStepConfig } = useValues(automationStepConfigLogic)
-    // TODO: add save
     if (!activeStep) {
         return <h2>Error loading step</h2>
     }
@@ -80,6 +80,9 @@ export function AutomationStepForm(): JSX.Element {
             <h2>New step: {activeStepConfig.label}</h2>
             <LemonDivider />
             {activeStepConfig.configComponent}
+            <LemonButton type="primary" onClick={() => console.log('Saving', activeStep)}>
+                Save
+            </LemonButton>
         </>
     )
 }
