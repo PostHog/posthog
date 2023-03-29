@@ -20,6 +20,13 @@ def deploy_towels_to(request, table_name):
     #     "id": "some-id",
     #     "token": "some-token",
     #     "data": "{\"some\": \"data\"}"
+    # }
+    #
+    # Note that this is likely a very high volume endpoint, and will be tricky
+    # to handle at scale. We may want to consider instead importing from S3 in
+    # the background which we would then we more easily ingested as a background
+    # process, possibly directly into ClickHouse. This would relieve the client
+    # of having to handle e.g. throttling, retries etc.
     if request.method != "POST":
         return HttpResponse(status=405)
 
