@@ -169,14 +169,14 @@ export const addPlaceholderFlowSteps = (flowSteps: Node[]) => {
 
 export const addPlaceholderFlowEdges = (flowEdges: Edge[], flowSteps: Node[]) => {
     // TODO: add placeholder steps for all branches
-    if (flowEdges.length > 1) {
+    if (flowSteps.length > 1) {
         return [
             ...flowEdges,
             {
                 type: 'placeholder',
                 id: uuid(),
                 source: flowSteps[flowSteps.length - 2].id,
-                target: 'placeholder',
+                target: flowSteps[flowSteps.length - 1].id,
             },
         ]
     }

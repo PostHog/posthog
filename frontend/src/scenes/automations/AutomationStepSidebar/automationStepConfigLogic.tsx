@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, key, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { AnyAutomationStep, AutomationStepCategory, AutomationStepConfigType, AutomationStepKind } from '../schema'
 
 import {
@@ -16,7 +16,7 @@ import {
     IconWebhook,
 } from 'lib/lemon-ui/icons'
 import { EventSentConfig } from './AutomationStepConfig'
-import { automationLogic } from '../automationLogic'
+import { automationLogic, AutomationLogicProps } from '../automationLogic'
 
 import type { automationStepConfigLogicType } from './automationStepConfigLogicType'
 
@@ -41,10 +41,12 @@ export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> 
 }
 
 export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
+    props({} as AutomationLogicProps),
+    // key((props) => props.automationId || 'new'),
     path(['scenes', 'automations', 'AutomationStepSidebar', 'automationStepConfigLogic']),
-    connect({
-        values: [automationLogic, ['steps']],
-    }),
+    connect((props: AutomationLogicProps) => ({
+        values: [automationLogic(props), ['flowSteps']],
+    })),
     actions({
         setActiveStepId: (id: string) => ({ id }),
         updateActiveStep: (id: string, activeStepUpdates: Partial<AnyAutomationStep>) => ({ id, activeStepUpdates }),
@@ -84,12 +86,13 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
     }),
     selectors({
         activeStep: [
-            (s) => [s.activeStepId, s.steps],
-            (activeStepId, steps): AnyAutomationStep | null => {
+            (s) => [s.activeStepId, s.flowSteps],
+            (activeStepId, flowSteps): AnyAutomationStep | null => {
                 console.debug('activeStep.activeStepId: ', activeStepId)
-                console.debug('activeStep.steps: ', steps)
-                return steps.find((step: AnyAutomationStep) => step.id === activeStepId) || null
+                console.debug('activeStep.flowSteps: ', flowSteps)
+                return flowSteps.find((step: AnyAutomationStep) => step.id === activeStepId) || null
             },
+            { resultEqualityCheck: () => false, equalityCheck: () => false },
         ],
         activeStepConfig: [
             (s) => [s.activeStep],
@@ -101,4 +104,10 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
             },
         ],
     }),
+    // listeners(({ actions }) => ({
+    //     addStep: (step) => {
+    //         console.debug('listeners.addStep', step)
+    //         actions.setActiveStepId(step.id)
+    //     },
+    // })),
 ])

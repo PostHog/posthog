@@ -63,10 +63,10 @@ export function AutomationStepMenu(): JSX.Element {
                                     key={key}
                                     onClick={() => {
                                         console.debug('clicked', option)
-
-                                        addStep({ ...option, id: uuid() })
+                                        const id = uuid()
+                                        addStep({ ...option, id })
                                         closeMenu()
-                                        setActiveStepId(option.id)
+                                        setActiveStepId(id)
                                     }}
                                 >
                                     {kindToConfig[option.kind].label}

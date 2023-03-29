@@ -78,9 +78,9 @@ export function AutomationStepConfig(): JSX.Element {
         <AutomationStepSidebar onClose={() => setActiveStepId(null)}>
             {activeStep ? (
                 <>
-                    <h2>New step: {activeStepConfig.label}</h2>
+                    <h2>New step: {activeStepConfig?.label}</h2>
                     <LemonDivider />
-                    {activeStepConfig.configComponent}
+                    {activeStepConfig?.configComponent}
                     <LemonButton
                         type="primary"
                         onClick={() => {

@@ -12,6 +12,7 @@ import { Automation } from './schema'
 import type { automationLogicType } from './automationLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { addPlaceholderFlowEdges, addPlaceholderFlowSteps, edgesToFlowEdges, stepsToFlowSteps } from './utils'
+import { automationStepConfigLogic } from './AutomationStepSidebar/automationStepConfigLogic'
 
 const NEW_AUTOMATION: Automation = {
     id: 'new',
@@ -28,10 +29,11 @@ export interface AutomationLogicProps {
 
 export const automationLogic = kea<automationLogicType>([
     props({} as AutomationLogicProps),
-    key((props) => props.automationId || 'new'),
-    path((key) => ['scenes', 'automations', 'automationLogic', key]),
+    // key((props) => props.automationId || 'new'),
+    path(['scenes', 'automations', 'automationLogic']),
     connect({
         values: [teamLogic, ['currentTeamId']],
+        // actions: [automationStepConfigLogic, ['setActiveStepId']],
     }),
 
     actions({
@@ -129,11 +131,14 @@ export const automationLogic = kea<automationLogicType>([
     })),
     listeners(({ actions, values }) => ({
         addStep: ({ step }) => {
-            const source = values.flowSteps[values.flowSteps.length - 1].id
+            console.debug('addStep...')
+            // const source = values.flowSteps[values.flowSteps.length - 1].id
             actions.setAutomationValues({
-                steps: [...values.steps, step, {}],
-                edges: [{ source, target: step.id, type: 'workflow' }],
+                steps: [...values.steps, step],
+                edges: [],
+                //{ source, target: step.id, type: 'workflow' }
             })
+            // actions.setActiveStepId(step.id)
         },
         updateStep: ({ step }) => {
             console.debug('listeners.updateStep: ', step)
