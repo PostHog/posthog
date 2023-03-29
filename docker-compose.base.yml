@@ -49,6 +49,7 @@ services:
     object_storage:
         image: minio/minio:RELEASE.2022-06-25T15-50-16Z
         restart: on-failure
+        hostname: object-storage
         environment:
             MINIO_ROOT_USER: object_storage_root_user
             MINIO_ROOT_PASSWORD: object_storage_root_password

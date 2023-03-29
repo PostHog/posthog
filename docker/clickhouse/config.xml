@@ -677,7 +677,7 @@
             Regexps are not aligned: don't forget to add ^ and $. Also don't forget to escape dot (.) metacharacter
             (forgetting to do so is a common source of error).
         -->
-        <host>localhost</host>
+        <host>object-storage</host>
     </remote_url_allow_hosts>
 
     <!-- If element has 'incl' attribute, then for it's value will be used corresponding substitution from another file.
