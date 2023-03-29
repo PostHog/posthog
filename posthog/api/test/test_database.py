@@ -53,6 +53,7 @@ class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         initial_fields = data_table.fields.all()
         self.assertEqual(initial_fields[0].name, "username")
 
+        # add a field, change the name
         response = self.client.patch(
             f"/api/projects/{self.team.id}/data_tables/{data_table.pk}/",
             data={
@@ -82,3 +83,37 @@ class TestDatabaseApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(fields[2].name, "gatorade")
         self.assertEqual(fields[2].type, "Boolean")
         self.assertEqual(fields[2].team, self.team)
+
+        # remove all fields
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/data_tables/{data_table.pk}/",
+            data={
+                "name": "login_log",
+                "fields": [
+                    {"name": "totally_new", "type": "Boolean"},
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        fields = DatabaseTable.objects.get().fields.all()
+        self.assertEqual(len(fields), 1)
+        self.assertEqual(fields[0].name, "totally_new")
+
+    def test_delete_data_table(self, *args):
+        self.client.post(
+            f"/api/projects/{self.team.id}/data_tables/",
+            data={
+                "name": "login_attempts",
+                "fields": [
+                    {"name": "username", "type": "String"},
+                    {"name": "password", "type": "String"},
+                ],
+            },
+        )
+        data_table = DatabaseTable.objects.get()
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/data_tables/{data_table.pk}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        tables = DatabaseTable.objects.all()
+        self.assertEqual(len(tables), 0)

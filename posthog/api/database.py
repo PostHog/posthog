@@ -9,8 +9,6 @@ from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import DatabaseTable, DatabaseField
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
-from .forbid_destroy_model import ForbidDestroyModel
-
 
 class DatabaseFieldSerializer(serializers.ModelSerializer):
     id = serializers.CharField(read_only=False, required=False)
@@ -74,7 +72,7 @@ class DatabaseTableSerializer(serializers.ModelSerializer):
         return instance
 
 
-class DatabaseTableViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class DatabaseTableViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES)
     queryset = DatabaseTable.objects.all()
     serializer_class = DatabaseTableSerializer
