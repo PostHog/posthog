@@ -1,6 +1,7 @@
 import json
 
 from django.http import HttpResponse
+import pydantic
 from posthog.api.utils import get_event_ingestion_context
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -33,19 +34,13 @@ def deploy_towels_to(request, table_name):
     except json.JSONDecodeError:
         return HttpResponse(status=400)
 
-    if not isinstance(data, dict):
-        return HttpResponse(status=400)
-
-    # Check that the data contains the required fields
-    if not all(key in data for key in ["id", "token", "data"]):
-        return HttpResponse(status=400)
-
-    # Check id and token are not empty
-    if not data["id"] or not data["token"]:
+    try:
+        payload = RequestPayload(**data)
+    except pydantic.ValidationError:
         return HttpResponse(status=400)
 
     # Get the team_id from the token in the payload body
-    ingestion_context, _, _ = get_event_ingestion_context(request, data, data["token"])
+    ingestion_context, _, _ = get_event_ingestion_context(request, data, payload.token)
 
     if ingestion_context is None:
         return HttpResponse(status=403)
@@ -62,7 +57,13 @@ def deploy_towels_to(request, table_name):
             data
         ) VALUES
     """,
-        [(team_id, table_name, data["id"], data["data"])],
+        [(team_id, table_name, payload.id, payload.data)],
     )
 
     return HttpResponse(status=200)
+
+
+class RequestPayload(pydantic.BaseModel):
+    id: str = pydantic.Field(..., min_length=1)
+    token: str = pydantic.Field(..., min_length=1)
+    data: str = pydantic.Field(..., min_length=1)
