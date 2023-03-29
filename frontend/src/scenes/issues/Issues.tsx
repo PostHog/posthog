@@ -95,7 +95,7 @@ export const Issues = (): JSX.Element => {
             <h2>Open issues</h2>
             <Query
                 query={tableQuery}
-                context={{ emptyStateHeading: 'Yay! No issues to report', emptyStateDetail: '' }}
+                context={{ emptyStateHeading: 'Yay! No issues found', emptyStateDetail: '' }}
             />
         </div>
     )
