@@ -1,4 +1,4 @@
-import { afterMount, kea, path } from 'kea'
+import { actions, afterMount, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { query } from '~/queries/query'
 
@@ -9,6 +9,13 @@ import { DataBeachTableType } from '~/types'
 
 export const databaseSceneLogic = kea<databaseSceneLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseSceneLogic']),
+    actions({
+        showAddDataBeachTable: true,
+        hideAddDataBeachTable: true,
+    }),
+    reducers({
+        addingDataBeachTable: [false, { showAddDataBeachTable: () => true, hideAddDataBeachTable: () => false }],
+    }),
     loaders({
         database: [
             null as any,

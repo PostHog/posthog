@@ -258,7 +258,10 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_beach_tables')
     }
 
-    public dataBeachTableDetail(dataBeachTableId: DataBeachTableType['id'], teamId?: TeamType['id']): ApiRequest {
+    public dataBeachTableDetail(
+        dataBeachTableId: Required<DataBeachTableType['id']>,
+        teamId?: TeamType['id']
+    ): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_beach_tables').addPathComponent(dataBeachTableId)
     }
 
@@ -835,7 +838,7 @@ const api = {
             return await new ApiRequest().dataBeachTableDetail(dataBeachTableId).get()
         },
 
-        async create(dataBeachTableData: DataBeachTableType): Promise<DataBeachTableType> {
+        async create(dataBeachTableData: Omit<DataBeachTableType, 'id'>): Promise<DataBeachTableType> {
             return await new ApiRequest().dataBeachTables().create({ data: dataBeachTableData })
         },
 

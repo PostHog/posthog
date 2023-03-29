@@ -2,14 +2,16 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { databaseSceneLogic } from './databaseSceneLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
+import { DataBeachTableForm } from './DataBeachTableForm'
 
 export function DatabaseScene(): JSX.Element {
-    const { database } = useValues(databaseSceneLogic)
+    const { database, addingDataBeachTable } = useValues(databaseSceneLogic)
+    const { showAddDataBeachTable, hideAddDataBeachTable } = useActions(databaseSceneLogic)
     const tables = database ? Object.keys(database) : []
 
     return (
@@ -27,6 +29,16 @@ export function DatabaseScene(): JSX.Element {
                     HogQL
                 </a>
                 .
+            </div>
+
+            <div className="mb-4">
+                {addingDataBeachTable ? (
+                    <DataBeachTableForm dataBeachTable={null} onCancel={hideAddDataBeachTable} />
+                ) : (
+                    <LemonButton type="secondary" onClick={showAddDataBeachTable}>
+                        Add DataBeach table
+                    </LemonButton>
+                )}
             </div>
 
             {tables.length === 0 ? <LemonTable loading={true} dataSource={[]} columns={[]} /> : null}

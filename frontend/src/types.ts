@@ -2095,13 +2095,13 @@ export type HotKey =
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export interface DataBeachFieldType {
-    id: number
+    id?: number
     name: string
     type: string
 }
 
 export interface DataBeachTableType {
-    id: number
+    id?: number
     name: string
     engine: string
     fields: DataBeachFieldType[]
