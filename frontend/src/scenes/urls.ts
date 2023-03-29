@@ -83,7 +83,7 @@ export const urls = {
     experiment: (id: string | number): string => `/experiments/${id}`,
     experiments: (): string => '/experiments',
     automations: (): string => '/automations',
-    automation: (id: string | number): string => `/automation/${id}`,
+    automation: (id: string | number): string => `/automations/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     annotations: (): string => '/annotations',

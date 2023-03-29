@@ -18,6 +18,10 @@ import edgeTypes from './EdgeTypes'
 import 'reactflow/dist/style.css'
 import { useValues } from 'kea'
 import { automationsLogic } from './automationsLogic'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 const proOptions: ProOptions = { account: 'paid-pro', hideAttribution: true }
 
@@ -49,12 +53,48 @@ function ReactFlowPro(): JSX.Element {
     )
 }
 
-function ReactFlowWrapper(): JSX.Element {
+function Automation(): JSX.Element {
+    const editingExistingAutomation = true
+    const automationLoading = false
     return (
-        <ReactFlowProvider>
-            <ReactFlowPro />
-        </ReactFlowProvider>
+        <>
+            <PageHeader
+                title={editingExistingAutomation ? 'Edit automation' : 'New automation'}
+                buttons={
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            data-attr="cancel-automation"
+                            type="secondary"
+                            onClick={() => {
+                                if (editingExistingAutomation) {
+                                    // setEditAutomation(false)
+                                    // loadAutomation()
+                                } else {
+                                    router.actions.push(urls.automations())
+                                }
+                            }}
+                            disabled={automationLoading}
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            data-attr="save-automation"
+                            htmlType="submit"
+                            loading={automationLoading}
+                            disabled={automationLoading}
+                        >
+                            Save
+                        </LemonButton>
+                    </div>
+                }
+            />
+            <LemonDivider />
+            <ReactFlowProvider>
+                <ReactFlowPro />
+            </ReactFlowProvider>
+        </>
     )
 }
 
-export default ReactFlowWrapper
+export default Automation

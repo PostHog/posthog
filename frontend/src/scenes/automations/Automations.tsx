@@ -1,6 +1,9 @@
 import { useEffect } from 'react'
 
 import api from 'lib/api'
+import { PageHeader } from 'lib/components/PageHeader'
+import { urls } from 'scenes/urls'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export function Automations(): JSX.Element {
     useEffect(() => {
@@ -13,7 +16,14 @@ export function Automations(): JSX.Element {
 
     return (
         <>
-            <h1>Automation</h1>
+            <PageHeader
+                title={<div className="flex items-center">Experiments</div>}
+                buttons={
+                    <LemonButton type="primary" data-attr="create-experiment" to={urls.automation('new')}>
+                        New automation
+                    </LemonButton>
+                }
+            />
         </>
     )
 }
