@@ -115,15 +115,10 @@ class TestLazyJoins(BaseTest):
     def test_resolve_lazy_table_as_select_table(self):
         printed = self._print_select("select id, properties.email, properties.$browser from lazy_persons")
         expected = (
-            "SELECT person_distinct_ids__person.`properties___$browser` "
-            "FROM person_distinct_id2 INNER JOIN "
-            "(SELECT argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), person.version) "
-            "AS `properties___$browser`, person.id FROM person "
-            f"WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-            "HAVING equals(argMax(person.is_deleted, person.version), 0)"
-            ") AS person_distinct_ids__person ON equals(person_distinct_id2.person_id, person_distinct_ids__person.id) "
-            f"WHERE equals(person_distinct_id2.team_id, {self.team.pk}) "
-            "LIMIT 65535"
+            f"SELECT lazy_persons.id, lazy_persons.properties___email, lazy_persons.`properties___$browser` FROM "
+            f"(SELECT argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), person.version) AS "
+            f"properties___email, argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_1)s), '^\"|\"$', ''), person.version) "
+            f"AS `properties___$browser`, person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS lazy_persons LIMIT 65535"
         )
         self.assertEqual(printed, expected)
 

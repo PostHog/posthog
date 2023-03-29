@@ -1,10 +1,9 @@
 import dataclasses
-from typing import Dict, List, Optional, cast
+from typing import Dict, List, Optional
 
 from posthog.hogql import ast
-from posthog.hogql.ast import LazyJoinRef
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import LazyJoin
+from posthog.hogql.database import LazyJoin, LazyTable
 from posthog.hogql.resolver import resolve_refs
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -12,8 +11,8 @@ from posthog.hogql.visitor import TraversingVisitor
 def resolve_lazy_tables(node: ast.Expr, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
     if stack:
         # TODO: remove this kludge for old props
-        LazyJoinResolver(stack=stack, context=context).visit(stack[-1])
-    LazyJoinResolver(stack=stack, context=context).visit(node)
+        LazyTableResolver(stack=stack, context=context).visit(stack[-1])
+    LazyTableResolver(stack=stack, context=context).visit(node)
 
 
 @dataclasses.dataclass
@@ -24,7 +23,13 @@ class JoinToAdd:
     to_table: str
 
 
-class LazyJoinResolver(TraversingVisitor):
+@dataclasses.dataclass
+class TableToAdd:
+    fields_accessed: Dict[str, ast.Expr]
+    lazy_table: LazyTable
+
+
+class LazyTableResolver(TraversingVisitor):
     def __init__(self, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
         super().__init__()
         self.stack_of_fields: List[List[ast.FieldRef | ast.PropertyRef]] = [[]] if stack else []
@@ -33,6 +38,8 @@ class LazyJoinResolver(TraversingVisitor):
     def _get_long_table_name(self, select: ast.SelectQueryRef, ref: ast.BaseTableRef) -> str:
         if isinstance(ref, ast.TableRef):
             return select.get_alias_for_table_ref(ref)
+        elif isinstance(ref, ast.LazyTableRef):
+            return ref.table.hogql_table()
         elif isinstance(ref, ast.TableAliasRef):
             return ref.name
         elif isinstance(ref, ast.SelectQueryAliasRef):
@@ -48,7 +55,7 @@ class LazyJoinResolver(TraversingVisitor):
         if node.joined_subquery is not None:
             # we have already visited this property
             return
-        if isinstance(node.parent.table, ast.LazyJoinRef):
+        if isinstance(node.parent.table, ast.LazyJoinRef) or isinstance(node.parent.table, ast.LazyTableRef):
             if self.context and self.context.within_non_hogql_query:
                 # If we're in a non-HogQL query, traverse deeper, just like we normally would have.
                 self.visit(node.parent)
@@ -59,7 +66,7 @@ class LazyJoinResolver(TraversingVisitor):
                 self.stack_of_fields[-1].append(node)
 
     def visit_field_ref(self, node: ast.FieldRef):
-        if isinstance(node.table, ast.LazyJoinRef):
+        if isinstance(node.table, ast.LazyJoinRef) or isinstance(node.table, ast.LazyTableRef):
             # Each time we find a field, we place it in a list for processing in "visit_select_query"
             if len(self.stack_of_fields) == 0:
                 raise ValueError("Can't access a lazy field when not in a SelectQuery context")
@@ -79,6 +86,7 @@ class LazyJoinResolver(TraversingVisitor):
 
         # Collect all the joins we need to add to the select query
         joins_to_add: Dict[str, JoinToAdd] = {}
+        tables_to_add: Dict[str, TableToAdd] = {}
         for field_or_property in field_collector:
             if isinstance(field_or_property, ast.FieldRef):
                 property = None
@@ -92,34 +100,54 @@ class LazyJoinResolver(TraversingVisitor):
 
             # Traverse the lazy tables until we reach a real table, collecting them in a list.
             # Usually there's just one or two.
-            table_refs: List[LazyJoinRef] = []
-            while isinstance(table_ref, ast.LazyJoinRef):
+            table_refs: List[ast.LazyJoinRef | ast.LazyTableRef] = []
+            while isinstance(table_ref, ast.LazyJoinRef) or isinstance(table_ref, ast.LazyTableRef):
                 table_refs.append(table_ref)
                 table_ref = table_ref.table
 
             # Loop over the collected lazy tables in reverse order to create the joins
             for table_ref in reversed(table_refs):
-                from_table = self._get_long_table_name(select_ref, table_ref.table)
-                to_table = self._get_long_table_name(select_ref, table_ref)
-                if to_table not in joins_to_add:
-                    joins_to_add[to_table] = JoinToAdd(
-                        fields_accessed={},  # collect here all fields accessed on this table
-                        lazy_join=table_ref.lazy_join,
-                        from_table=from_table,
-                        to_table=to_table,
-                    )
-                new_join = joins_to_add[to_table]
-                if table_ref == field.table:
-                    chain = []
-                    if isinstance(table_ref, ast.LazyJoinRef):
-                        chain.append(table_ref.resolve_database_table().hogql_table())
-                    chain.append(field.name)
-                    if property is not None:
-                        chain.append(property.name)
-                        property.joined_subquery_field_name = f"{field.name}___{property.name}"
-                        new_join.fields_accessed[property.joined_subquery_field_name] = ast.Field(chain=chain)
-                    else:
-                        new_join.fields_accessed[field.name] = ast.Field(chain=chain)
+                if isinstance(table_ref, ast.LazyJoinRef):
+                    from_table = self._get_long_table_name(select_ref, table_ref.table)
+                    to_table = self._get_long_table_name(select_ref, table_ref)
+                    if to_table not in joins_to_add:
+                        joins_to_add[to_table] = JoinToAdd(
+                            fields_accessed={},  # collect here all fields accessed on this table
+                            lazy_join=table_ref.lazy_join,
+                            from_table=from_table,
+                            to_table=to_table,
+                        )
+                    new_join = joins_to_add[to_table]
+                    if table_ref == field.table:
+                        chain = []
+                        if isinstance(table_ref, ast.LazyJoinRef):
+                            chain.append(table_ref.resolve_database_table().hogql_table())
+                        chain.append(field.name)
+                        if property is not None:
+                            chain.append(property.name)
+                            property.joined_subquery_field_name = f"{field.name}___{property.name}"
+                            new_join.fields_accessed[property.joined_subquery_field_name] = ast.Field(chain=chain)
+                        else:
+                            new_join.fields_accessed[field.name] = ast.Field(chain=chain)
+                elif isinstance(table_ref, ast.LazyTableRef):
+                    table_name = self._get_long_table_name(select_ref, table_ref)
+                    if table_name not in tables_to_add:
+                        tables_to_add[table_name] = TableToAdd(
+                            fields_accessed={},  # collect here all fields accessed on this table
+                            lazy_table=table_ref.table,
+                        )
+                    new_table = tables_to_add[table_name]
+                    if table_ref == field.table:
+                        chain = []
+                        # if isinstance(table_ref, ast.LazyTableRef) and table_ref.resolve_database_table():
+                        #     chain.append(table_ref.resolve_database_table().hogql_table())
+                        chain.append(field.name)
+                        if property is not None:
+                            chain.append(property.name)
+                            property.joined_subquery_field_name = f"{field.name}___{property.name}"
+                            new_table.fields_accessed[property.joined_subquery_field_name] = ast.Field(chain=chain)
+                        else:
+                            new_table.fields_accessed[field.name] = ast.Field(chain=chain)
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
@@ -149,13 +177,37 @@ class LazyJoinResolver(TraversingVisitor):
             while last_join.next_join is not None:
                 last_join = last_join.next_join
 
+        # For all the collected tables, create the subqueries, and add them to the table.
+        for table_name, table_to_add in tables_to_add.items():
+            added_table = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed)
+            resolve_refs(added_table, self.context.database, select_ref)
+            old_table_ref = select_ref.tables[table_name]
+            select_ref.tables[table_name] = ast.SelectQueryAliasRef(name=table_name, ref=added_table.ref)
+
+            join_ptr = node.select_from
+            while join_ptr:
+                if join_ptr.table.ref == old_table_ref:
+                    join_ptr.table = added_table
+                    join_ptr.ref = select_ref.tables[table_name]
+                    join_ptr.alias = table_name
+                    break
+                join_ptr = join_ptr.next_join
+
         # Assign all refs on the fields we collected earlier
         for field_or_property in field_collector:
             if isinstance(field_or_property, ast.FieldRef):
-                to_table = self._get_long_table_name(select_ref, field_or_property.table)
-                field_or_property.table = select_ref.tables[to_table]
+                table_ref = field_or_property.table
             elif isinstance(field_or_property, ast.PropertyRef):
-                to_table = self._get_long_table_name(select_ref, cast(ast.PropertyRef, field_or_property).parent.table)
-                field_or_property.joined_subquery = select_ref.tables[to_table]
+                table_ref = field_or_property.parent.table
+            else:
+                raise Exception("Should not be reachable")
+
+            table_name = self._get_long_table_name(select_ref, table_ref)
+            table_ref = select_ref.tables[table_name]
+
+            if isinstance(field_or_property, ast.FieldRef):
+                field_or_property.table = table_ref
+            elif isinstance(field_or_property, ast.PropertyRef):
+                field_or_property.joined_subquery = table_ref
 
         self.stack_of_fields.pop()

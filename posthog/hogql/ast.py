@@ -80,7 +80,7 @@ class BaseTableRef(Ref):
             if isinstance(field, LazyJoin):
                 return LazyJoinRef(table=self, field=name, lazy_join=field)
             if isinstance(field, LazyTable):
-                return LazyTableRef(table=self, field=name, lazy_table=field)
+                return LazyTableRef(table=field)
             if isinstance(field, FieldTraverser):
                 return FieldTraverserRef(table=self, chain=field.chain)
             if isinstance(field, VirtualTable):
@@ -114,12 +114,10 @@ class LazyJoinRef(BaseTableRef):
 
 
 class LazyTableRef(BaseTableRef):
-    table: BaseTableRef
-    field: str
-    lazy_table: LazyTable
+    table: LazyTable
 
     def resolve_database_table(self) -> Table:
-        return self.lazy_table
+        return self.table
 
 
 class VirtualTableRef(BaseTableRef):
