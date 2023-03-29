@@ -1,22 +1,20 @@
-import React, { memo } from 'react'
+import { memo } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
-import cx from 'classnames'
 
 import './NodeTypes.scss'
-import usePlaceholderClick from '../hooks/usePlaceholderClick'
+import { useActions } from 'kea'
+import { automationStepConfigLogic } from '../automationStepConfigLogic'
 
 const PlaceholderNode = ({ id }: NodeProps): JSX.Element => {
-    // see the hook implementation for details of the click handler
-    // calling onClick turns this node and the connecting edge into a workflow node
-    const onClick = usePlaceholderClick(id)
-
-    const nodeClasses = cx(['node', 'placeholder'])
+    const { openStepConfig } = useActions(automationStepConfigLogic)
 
     return (
         <div style={{ width: 160 }}>
             <div
-                onClick={onClick}
-                className={nodeClasses}
+                onClick={() => {
+                    openStepConfig(id)
+                }}
+                className="node placeholder"
                 style={{
                     width: 40,
                     height: 40,

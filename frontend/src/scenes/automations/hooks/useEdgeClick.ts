@@ -1,6 +1,7 @@
+import { uuid } from 'lib/utils'
 import { EdgeProps, useReactFlow } from 'reactflow'
 
-import { uuid, randomLabel } from '../utils'
+import { randomLabel } from '../utils'
 
 // this hook implements the logic for clicking the button on a workflow edge
 // on edge click: create a node in between the two nodes that are connected by the edge

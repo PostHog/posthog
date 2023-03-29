@@ -1,7 +1,8 @@
+import { uuid } from 'lib/utils'
 import { useCallback } from 'react'
 import { NodeProps, useReactFlow, getOutgoers } from 'reactflow'
 
-import { uuid, randomLabel } from '../utils'
+import { randomLabel } from '../utils'
 
 // this hook implements the logic for clicking a workflow node
 // on workflow node click: create a new child node of the clicked node

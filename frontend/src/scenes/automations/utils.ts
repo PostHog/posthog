@@ -1,7 +1,6 @@
 import { Edge, Node } from 'reactflow'
 import { AnyAutomationStep, AutomationEdge, AutomationStepKind } from './schema'
-
-export const uuid = (): string => new Date().getTime().toString(36) + Math.random().toString(36).slice(2)
+import { uuid } from 'lib/utils'
 
 const emojis = [
     '🍇 Grapes',
@@ -136,20 +135,18 @@ export const randomLabel = (): string => {
 export const stepsToFlowSteps = (steps: AnyAutomationStep[]): Node[] => {
     return steps.map((step: AnyAutomationStep) => {
         return {
+            type: 'workflow',
             id: step.id,
             data: { label: step.kind },
             position: { x: 0, y: 0 },
-            type: 'workflow',
         }
     })
 }
 
 export const edgesToFlowEdges = (edges: AutomationEdge[]): Edge[] => {
-    return edges.map((edge: AutomationEdge, index: number) => ({
-        id: index.toString(),
-        source: edge.source,
-        target: edge.target,
+    return edges.map((edge: AutomationEdge) => ({
         type: 'workflow',
+        ...edge,
     }))
 }
 
@@ -159,10 +156,10 @@ export const addPlaceholderFlowSteps = (flowSteps: Node[]) => {
         return [
             ...flowSteps,
             {
-                id: 'placeholder',
+                type: 'placeholder',
+                id: uuid(),
                 data: { label: 'placeholder' },
                 position: { x: 0, y: 0 },
-                type: 'placeholder',
             },
         ]
     }
@@ -176,10 +173,10 @@ export const addPlaceholderFlowEdges = (flowEdges: Edge[], flowSteps: Node[]) =>
         return [
             ...flowEdges,
             {
-                id: flowEdges.length.toString(),
+                type: 'placeholder',
+                id: uuid(),
                 source: flowSteps[flowSteps.length - 2].id,
                 target: 'placeholder',
-                type: 'placeholder',
             },
         ]
     }

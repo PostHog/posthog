@@ -36,6 +36,7 @@ export const automationLogic = kea<automationLogicType>([
 
     actions({
         addStep: (step: Node) => ({ step }),
+        updateStep: (step: Node) => ({ step }),
         setEditAutomation: (editing: boolean) => ({ editing }),
     }),
     reducers({
@@ -133,6 +134,15 @@ export const automationLogic = kea<automationLogicType>([
 
             actions.setAutomationValues({
                 steps: [...values.steps, step],
+                edges: [{ source: 'Event sent', target: 'placeholder', type: 'workflow' }],
+            })
+        },
+        updateStep: ({ step }) => {
+            console.debug('listeners.updateStep: ', step)
+            console.debug('values.steps: ', values.steps)
+
+            actions.setAutomationValues({
+                steps: values.steps.map((s) => (s.id === step.id ? step : s)),
                 edges: [{ source: 'Event sent', target: 'placeholder', type: 'workflow' }],
             })
         },

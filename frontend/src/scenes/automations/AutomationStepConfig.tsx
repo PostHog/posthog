@@ -1,6 +1,7 @@
 import { LemonButton, LemonDivider, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconClose } from 'lib/lemon-ui/icons'
+import { uuid } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { FilterType, InsightType } from '~/types'
 import { automationLogic } from './automationLogic'
@@ -42,6 +43,7 @@ export function EventSentConfig(): JSX.Element {
 export function AutomationStepChooser(): JSX.Element {
     const { setActiveStepId } = useActions(automationStepConfigLogic)
     const { stepOptions } = useValues(automationStepConfigLogic)
+    const { updateStep } = useActions(automationLogic)
 
     return (
         <>
@@ -56,11 +58,15 @@ export function AutomationStepChooser(): JSX.Element {
                             .map((option: AnyAutomationStep, key: number) => (
                                 <LemonButton
                                     type="secondary"
-                                    icon={kindToConfig[option.id].icon}
+                                    icon={kindToConfig[option.kind].icon}
                                     key={key}
-                                    onClick={() => setActiveStepId(option.id)}
+                                    onClick={() => {
+                                        // const id = uuid()
+                                        updateStep(option)
+                                        setActiveStepId(option.id)
+                                    }}
                                 >
-                                    {kindToConfig[option.id].label}
+                                    {kindToConfig[option.kind].label}
                                 </LemonButton>
                             ))}
                     </div>

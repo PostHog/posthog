@@ -10,22 +10,22 @@ export enum AutomationStepCategory {
 export enum AutomationStepKind {
     // Sources
     EventSource = 'EventSource',
-    ActionSource = 'ActionSource',
+    // ActionSource = 'ActionSource',
 
     // Business Logic
     // e.g. Delay, Branch
-    PauseForLogic = 'PauseForLogic',
-    PauseUntilLogic = 'PauseUntilLogic',
+    // PauseForLogic = 'PauseForLogic',
+    // PauseUntilLogic = 'PauseUntilLogic',
 
     // Destinations
-    GithubIssueDestination = 'GithubIssueDestination',
-    UserPropertyDestination = 'UserPropertyDestination',
-    CohortDestination = 'CohortDestination',
-    FeatureFlagDestination = 'FeatureFlagDestination',
-    SlackDestination = 'SlackDestination',
-    ZapierDestination = 'ZapierDestination',
-    EmailDestination = 'EmailDestination',
-    InAppMessageDestination = 'InAppMessageDestination',
+    // GithubIssueDestination = 'GithubIssueDestination',
+    // UserPropertyDestination = 'UserPropertyDestination',
+    // CohortDestination = 'CohortDestination',
+    // FeatureFlagDestination = 'FeatureFlagDestination',
+    // SlackDestination = 'SlackDestination',
+    // ZapierDestination = 'ZapierDestination',
+    // EmailDestination = 'EmailDestination',
+    // InAppMessageDestination = 'InAppMessageDestination',
     WebhookDestination = 'WebhookDestination',
 }
 
@@ -55,6 +55,7 @@ export type AutomationWebhookDestinationStep = AutomationStep & {
 export type AnyAutomationStep = AutomationEventSourceStep | AutomationWebhookDestinationStep | AutomationGenericStep
 
 export type AutomationEdge = {
+    id: string
     source: string
     target: string
 }
