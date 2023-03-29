@@ -3,8 +3,10 @@ import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { useActions, useValues } from 'kea'
 import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { urls } from 'scenes/urls'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 export function DatabaseTables(): JSX.Element {
     const { filteredTables, loading } = useValues(databaseSceneLogic)
@@ -21,7 +23,21 @@ export function DatabaseTables(): JSX.Element {
                         key: 'name',
                         dataIndex: 'name',
                         render: function RenderTable(table) {
-                            return <code>{table}</code>
+                            const query: DataTableNode = {
+                                kind: NodeKind.DataTableNode,
+                                full: true,
+                                source: {
+                                    kind: NodeKind.HogQLQuery,
+                                    query: `SELECT * FROM ${table} LIMIT 10`,
+                                },
+                            }
+                            return (
+                                <div className="flex">
+                                    <Link to={urls.insightNew(undefined, undefined, JSON.stringify(query))}>
+                                        <code>{table}</code>
+                                    </Link>
+                                </div>
+                            )
                         },
                     },
                     {
