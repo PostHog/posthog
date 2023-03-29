@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconClose } from 'lib/lemon-ui/icons'
-import { uuid } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { FilterType, InsightType } from '~/types'
@@ -11,8 +10,6 @@ import { automationLogic } from './automationLogic'
 import './AutomationStepConfig.scss'
 import { automationStepConfigLogic, kindToConfig } from './automationStepConfigLogic'
 import { AnyAutomationStep, AutomationStepCategory } from './schema'
-
-const taxonomicGroupTypes = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
 
 export function EventSentConfig(): JSX.Element {
     const { activeStep } = useValues(automationStepConfigLogic)
@@ -39,9 +36,9 @@ export function EventSentConfig(): JSX.Element {
                     mathAvailability={MathAvailability.None}
                 />
             </div>
-            <div className="mb-2">
+            {/* TODO: add this back to enable CDP use case of filtering all properties */}
+            {/* <div className="mb-2">
                 <LemonLabel showOptional>Event properties</LemonLabel>
-                {/* <p className="text-sm text-muted">{variable.description}</p> */}
             </div>
             <div>
                 <PropertyFilters
@@ -53,7 +50,7 @@ export function EventSentConfig(): JSX.Element {
                     eventNames={[]}
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                 />
-            </div>
+            </div> */}
             <div className="mb-2">
                 <LemonLabel showOptional>Person and cohort</LemonLabel>
                 {/* <p className="text-sm text-muted">{variable.description}</p> */}
