@@ -19,8 +19,7 @@ export function IssuesSettings(): JSX.Element {
         <div className={'flex flex-col gap-2'}>
             <h2>Issues settings</h2>
             <div>
-                Configure which events are used for issue reporting. If this is not set we use{' '}
-                <code>$issue_reported</code>
+                Configure which events are used for issue reporting. If this is not set we use <code>$bug_report</code>
             </div>
             <LemonEventName value={issueEvent} onChange={(value: string) => setIssueEvent(value)} />
         </div>

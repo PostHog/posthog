@@ -12,7 +12,7 @@ export const issuesLogic = kea<issuesLogicType>([
     }),
     reducers({
         issueEvent: [
-            '$issue_reported',
+            '$bug_report',
             { persist: true },
             {
                 setIssueEvent: (_, { event }) => event,
