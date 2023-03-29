@@ -1,15 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import {
-    Action,
-    EnqueuedAutomationJob,
-    EnqueuedPluginJob,
-    Hub,
-    PipelineEvent,
-    PluginTaskType,
-    PostIngestionEvent,
-    Team,
-} from '../types'
+import { Action, EnqueuedPluginJob, Hub, PipelineEvent, PluginTaskType, PostIngestionEvent, Team } from '../types'
 import { convertToProcessedPluginEvent } from '../utils/event'
 import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
 import { loadSchedule } from './plugins/loadSchedule'
@@ -31,10 +22,6 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     runEveryDay: (hub, args: { pluginConfigId: number }) => {
         return runPluginTask(hub, 'runEveryDay', PluginTaskType.Schedule, args.pluginConfigId)
-    },
-    runAutomationJob: async (hub, { job }: { job: EnqueuedAutomationJob }) => {
-        const runner = new AutomationRunner(hub)
-        return await runner.runAutomationJob(job)
     },
 
     getPluginSchedule: (hub) => {

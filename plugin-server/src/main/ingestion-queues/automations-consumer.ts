@@ -1,9 +1,11 @@
 import { StatsD } from 'hot-shots'
 import { EachBatchHandler, Kafka, Producer } from 'kafkajs'
 import { Counter } from 'prom-client'
+import { convertToIngestionEvent } from '../../utils/event'
+import { AutomationManager } from '../../worker/automations/automation-manager'
 
-import { KAFKA_EVENTS_JSON, KAFKA_JOBS_DLQ } from '../../config/kafka-topics'
-import { EnqueuedAutomationJob, JobName } from '../../types'
+import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
+import { RawClickHouseEvent } from '../../types'
 import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
@@ -23,11 +25,13 @@ export const startAutomationsConsumer = async ({
     kafka,
     producer,
     graphileWorker,
+    automationManager,
     statsd,
 }: {
     kafka: Kafka
     producer: Producer // NOTE: not using KafkaProducerWrapper here to avoid buffering logic
     graphileWorker: GraphileWorker
+    automationManager: AutomationManager
     statsd?: StatsD
 }) => {
     /*
@@ -41,52 +45,29 @@ export const startAutomationsConsumer = async ({
     status.info('🔁', 'Starting automations starter')
 
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
-        status.debug('🔁', 'Processing batch', { size: batch.messages.length })
+        status.info('🔁', 'Processing automation batch', { size: batch.messages.length })
         for (const message of batch.messages) {
-            // 1. Ensure we have the loaded automations from the DB
-            // 2. Iterate over them and check if the event matches any of them
+            if (!message.value) {
+                status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
+                    value: message.value,
+                })
 
-            // if (!message.value) {
-            //     status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
-            //         value: message.value,
-            //     })
-            //     // TODO: handle resolving offsets asynchronously
-            //     await producer.send({ topic: KAFKA_JOBS_DLQ, messages: [message] })
-            //     resolveOffset(message.offset)
-            //     continue
-            // }
+                resolveOffset(message.offset)
+                continue
+            }
 
-            // let job: EnqueuedAutomationJob
+            try {
+                const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+                const event = convertToIngestionEvent(clickHouseEvent)
 
-            // try {
-            //     job = JSON.parse(message.value.toString())
-            // } catch (error) {
-            //     status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
-            //         error,
-            //     })
-            //     // TODO: handle resolving offsets asynchronously
-            //     await producer.send({ topic: KAFKA_JOBS_DLQ, messages: [message] })
-            //     resolveOffset(message.offset)
-            //     continue
-            // }
-
-            // status.debug('⬆️', 'Enqueuing plugin job', {
-            //     type: job.type,
-            //     pluginConfigId: job.pluginConfigId,
-            //     pluginConfigTeam: job.pluginConfigTeam,
-            // })
-
-            // try {
-            //     await graphileWorker.enqueue(JobName.AUTOMATION_JOB, job)
-            //     jobsConsumerSuccessCounter.inc()
-            //     statsd?.increment('automations_consumer.enqueued')
-            // } catch (error) {
-            //     status.error('⚠️', 'Failed to enqueue anonymous event for processing', { error })
-            //     jobsConsumerFailuresCounter.inc()
-            //     statsd?.increment('automations_consumer.enqueue_error')
-
-            //     throw error
-            // }
+                await automationManager.startWithEvent(event, graphileWorker)
+            } catch (error) {
+                status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
+                    error,
+                })
+                resolveOffset(message.offset)
+                continue
+            }
 
             // After processing each message, we need to heartbeat to ensure
             // we don't get kicked out of the group. Note that although we call

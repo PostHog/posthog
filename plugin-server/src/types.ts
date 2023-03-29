@@ -17,6 +17,7 @@ import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
+import { AutomationManager } from './worker/automations/automation-manager'
 
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
@@ -209,6 +210,7 @@ export interface Hub extends PluginsServerConfig {
     rootAccessManager: RootAccessManager
     promiseManager: PromiseManager
     actionManager: ActionManager
+    automationManager: AutomationManager
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
@@ -255,9 +257,10 @@ export interface GraphileWorkerCronScheduleJob {
 // It contains information about the job itself as well as the trigger
 // and the state it is in
 export interface EnqueuedAutomationJob {
-    automationId: string
-    automationTeam: string
-    payload: Record<string, any>
+    timestamp: number
+    jobKey?: string
+    automation: Action
+    event: PostIngestionEvent
     state: AutomationJobState
 }
 

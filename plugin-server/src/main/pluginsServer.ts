@@ -289,6 +289,7 @@ export async function startPluginsServer(
                     producer: hub.kafkaProducer.producer,
                     graphileWorker: graphileWorker,
                     statsd: hub.statsd,
+                    automationManager: hub.automationManager,
                 })
             }
         }

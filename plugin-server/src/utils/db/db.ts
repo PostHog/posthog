@@ -1854,4 +1854,45 @@ export class DB {
         )
         return response.rowCount > 0
     }
+
+    // Automations
+    public async fetchAllAutomationsGroupedByTeam(): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
+        const automations = (
+            await this.postgresQuery<RawAction>(
+                `
+                SELECT
+                    id,
+                    team_id,
+                    name,
+                    description,
+                    created_at,
+                    created_by_id,
+                    deleted,
+                    post_to_slack,
+                    slack_message_format,
+                    is_calculating,
+                    updated_at,
+                    last_calculated_at
+                FROM posthog_automations
+                WHERE deleted = FALSE
+            `,
+                [],
+                'fetchAutomations'
+            )
+        ).rows
+
+        const automationsMap: Record<Team['id'], Record<Action['id'], Action>> = {}
+        for (const automation of automations) {
+            if (!automationsMap[automation.team_id]) {
+                automationsMap[automation.team_id] = {}
+            }
+
+            automationsMap[automation.team_id][automation.id] = {
+                ...automation,
+                steps: [],
+                hooks: [],
+            }
+        }
+        return automationsMap
+    }
 }

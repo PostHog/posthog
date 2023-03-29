@@ -1,6 +1,7 @@
 import Piscina from '@posthog/piscina'
 import { CronItem, JobHelpers, TaskList } from 'graphile-worker'
 import { Counter } from 'prom-client'
+import { AutomationRunner } from 'worker/automations/runnner'
 
 import { EnqueuedAutomationJob, EnqueuedPluginJob, Hub } from '../../types'
 import { status } from '../../utils/status'
@@ -122,14 +123,12 @@ export function getScheduledTaskHandlers(hub: Hub, piscina: Piscina): TaskList {
 export function getAutomationTaskHandlers(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina): TaskList {
     const handlers: TaskList = {
         automationJob: async (job) => {
-            // TODO: Do I need this?
-            pauseQueueIfWorkerFull(() => graphileWorker.pause(), hub, piscina)
             // hub.statsd?.increment('triggered_job', {
             //     instanceId: hub.instanceId.toString(),
             // })
+
             try {
-                // TODO: Add this here
-                await piscina.run({ task: 'runAutomationJob', args: { job: job as EnqueuedPluginJob } })
+                await hub.automationManager.runAutomationJob(job as EnqueuedAutomationJob, graphileWorker)
                 // jobsExecutionSuccessCounter.labels(jobType).inc()
             } catch (e) {
                 // jobsExecutionFailureCounter.labels(jobType).inc()

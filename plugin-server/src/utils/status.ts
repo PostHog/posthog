@@ -102,6 +102,8 @@ function promptForMode(mode: PluginsServerConfig['PLUGIN_SERVER_MODE']): string 
             return 'JOBS'
         case 'scheduler':
             return 'SCHEDULER'
+        case 'automation':
+            return 'AUTOMATION'
     }
 }
 
