@@ -87,7 +87,7 @@ export const Issues = (): JSX.Element => {
                     },
                 }}
                 context={{
-                    emptyStateHeading: 'Yay! No issues to report!',
+                    emptyStateHeading: 'Yay! No issues found!',
                     emptyStateDetail: '',
                 }}
             />
