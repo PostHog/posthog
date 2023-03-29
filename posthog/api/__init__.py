@@ -9,6 +9,7 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
+    automation,
     dead_letter_queue,
     event_definition,
     exports,
@@ -74,6 +75,7 @@ projects_router.register(
     "project_activity_log",
     ["team_id"],
 )
+projects_router.register(r"automations", automation.AutomationViewSet, "project_automations", ["team_id"])
 project_feature_flags_router = projects_router.register(
     r"feature_flags",
     feature_flag.FeatureFlagViewSet,
