@@ -428,7 +428,14 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     response?: TimeToSeeDataSessionsQueryResponse
 }
 
-type DatabaseSchemaQueryResponse = Record<string, { name: string; type: string }[]>
+export interface DatabaseSchemaQueryResponseField {
+    key: string
+    type: string
+    table?: string
+    fields?: string[]
+    chain?: string[]
+}
+export type DatabaseSchemaQueryResponse = Record<string, DatabaseSchemaQueryResponseField[]>
 
 export interface DatabaseSchemaQuery extends DataNode {
     kind: NodeKind.DatabaseSchemaQuery

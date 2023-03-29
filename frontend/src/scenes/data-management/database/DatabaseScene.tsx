@@ -3,17 +3,13 @@ import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-managemen
 import { SceneExport } from 'scenes/sceneTypes'
 import { databaseSceneLogic } from './databaseSceneLogic'
 import { useActions, useValues } from 'kea'
-import { LemonTable } from 'lib/lemon-ui/LemonTable/LemonTable'
 import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { DataBeachTableForm } from './DataBeachTableForm'
-import { DatabaseTable } from './DatabaseTable'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 
 export function DatabaseScene(): JSX.Element {
-    const { database, addingDataBeachTable, searchTerm, expandedTables } = useValues(databaseSceneLogic)
-    const { showAddDataBeachTable, hideAddDataBeachTable, setSearchTerm, toggleExpandedTable } =
-        useActions(databaseSceneLogic)
-    const tables = database ? Object.keys(database) : []
+    const { addingDataBeachTable, searchTerm } = useValues(databaseSceneLogic)
+    const { showAddDataBeachTable, hideAddDataBeachTable, setSearchTerm } = useActions(databaseSceneLogic)
 
     return (
         <div data-attr="database-scene">
@@ -38,11 +34,11 @@ export function DatabaseScene(): JSX.Element {
             </div>
             <div className="flex items-center justify-between gap-2 mb-4">
                 <div>
-                    These are the database tables you can query in PostHog with{' '}
+                    These are the database tables you can query under SQL insights with{' '}
                     <a href="https://posthog.com/manual/hogql" target="_blank">
                         HogQL
-                    </a>{' '}
-                    under SQL insights.
+                    </a>
+                    .
                 </div>
                 <LemonModal
                     title={'Add new DataBeach table'}
@@ -59,18 +55,7 @@ export function DatabaseScene(): JSX.Element {
                     Add DataBeach table
                 </LemonButton>
             </div>
-
-            {tables.length === 0 ? <LemonTable loading={true} dataSource={[]} columns={[]} /> : null}
-
-            {tables.map((table) => (
-                <div key={table} className="mt-8">
-                    <div className="flex">
-                        <LemonButton onClick={() => toggleExpandedTable(table)} icon={<IconChevronRight />} />
-                        Table: {table}
-                    </div>
-                    {expandedTables[table] ? <DatabaseTable database={database} table={table} /> : null}
-                </div>
-            ))}
+            <DatabaseTables />
         </div>
     )
 }

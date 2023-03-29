@@ -3,9 +3,16 @@ import { loaders } from 'kea-loaders'
 import { query } from '~/queries/query'
 
 import type { databaseSceneLogicType } from './databaseSceneLogicType'
-import { DatabaseSchemaQuery, NodeKind } from '~/queries/schema'
+import { DatabaseSchemaQuery, DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
 import api from 'lib/api'
 import { DataBeachTableType } from '~/types'
+
+export interface DataBeachTable {
+    name: string
+    engine: string
+    dataBeachTableId?: number
+    columns: DatabaseSchemaQueryResponseField[]
+}
 
 export const databaseSceneLogic = kea<databaseSceneLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseSceneLogic']),
@@ -13,15 +20,10 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
         showAddDataBeachTable: true,
         hideAddDataBeachTable: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        toggleExpandedTable: (tableName: string) => ({ tableName }),
     }),
     reducers({
         addingDataBeachTable: [false, { showAddDataBeachTable: () => true, hideAddDataBeachTable: () => false }],
         searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
-        expandedTables: [
-            {} as Record<string, boolean>,
-            { toggleExpandedTable: (state, { tableName }) => ({ ...state, [tableName]: !state[tableName] }) },
-        ],
     }),
     loaders({
         database: [
@@ -39,20 +41,50 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
         ],
     }),
     selectors({
-        filteredDatabase: [
-            (s) => [s.database, s.searchTerm],
-            (database, searchTerm): Required<DatabaseSchemaQuery['response']> | null => {
+        loading: [
+            (s) => [s.databaseLoading, s.dataBeachTablesLoading],
+            (databaseLoading, dataBeachTablesLoading) => databaseLoading || dataBeachTablesLoading,
+        ],
+        filteredTables: [
+            (s) => [s.database, s.dataBeachTables, s.searchTerm],
+            (database, dataBeachTables, searchTerm): DataBeachTable[] => {
                 if (!database) {
-                    return null
+                    return []
                 }
-                if (!searchTerm) {
-                    return database
+                const dataBeachTablesByName: Record<string, DataBeachTableType> = {}
+                for (const dataBeachTable of dataBeachTables ?? []) {
+                    dataBeachTablesByName[dataBeachTable.name] = dataBeachTable
                 }
-                return (
-                    Object.fromEntries(
-                        Object.entries(database).filter(([key]) => key.toLowerCase().includes(searchTerm.toLowerCase()))
-                    ) ?? null
+
+                let filteredTables: DataBeachTable[] = Object.entries(database).map(
+                    ([key, value]) =>
+                        ({
+                            name: key,
+                            columns: value,
+                            engine: dataBeachTablesByName[key]?.engine,
+                            dataBeachTableId: dataBeachTablesByName[key]?.id,
+                        } as DataBeachTable)
                 )
+                for (const table of dataBeachTables ?? []) {
+                    if (!database[table.name]) {
+                        filteredTables.push({
+                            name: table.name,
+                            columns: table.fields.map((column) => ({
+                                key: column.name,
+                                type: column.type,
+                            })),
+                            engine: table.engine,
+                            dataBeachTableId: table.id,
+                        })
+                    }
+                }
+                if (searchTerm) {
+                    filteredTables = filteredTables.filter(({ name }) =>
+                        name.toLowerCase().includes(searchTerm.toLowerCase())
+                    )
+                }
+                filteredTables.sort((a, b) => a.name.localeCompare(b.name))
+                return filteredTables
             },
         ],
     }),
