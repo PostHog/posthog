@@ -6,9 +6,8 @@ import { IconComment, IconMail } from 'lib/lemon-ui/icons/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton/LemonButton'
 
 export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
-    const { publicReplyEnabled, noteContent } = useValues(communicationDetailsLogic)
-    const { togglePublicReply, saveNote, setNoteContent } = useActions(communicationDetailsLogic)
-
+    const { publicReplyEnabled, noteContent } = useValues(communicationDetailsLogic({ eventUUID: uuid }))
+    const { togglePublicReply, saveNote, setNoteContent } = useActions(communicationDetailsLogic({ eventUUID: uuid }))
 
     return (
         <>

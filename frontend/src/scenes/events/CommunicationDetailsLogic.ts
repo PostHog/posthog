@@ -1,9 +1,15 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 
 import type { communicationDetailsLogicType } from './CommunicationDetailsLogicType'
 
+export interface CommunicationDetailsLogicProps {
+    eventUUID: string | null
+}
+
 export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
     path(['scenes', 'events', 'communicationDetailsLogic']),
+    props({ eventUUID: null } as CommunicationDetailsLogicProps),
+    key((props) => `communicationDetailsLogic-${props.eventUUID}`),
     actions({
         togglePublicReply: (publicReplyEnabled: boolean) => ({ publicReplyEnabled }),
         saveNote: (content: string) => ({ content }),
