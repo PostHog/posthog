@@ -1549,6 +1549,9 @@
                 },
                 "timestamp": {
                     "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
                 }
             },
             "required": ["id", "distinct_id", "properties", "event", "timestamp", "elements"],
