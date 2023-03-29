@@ -22,16 +22,16 @@ export function EventSentConfig(): JSX.Element {
                     filters={{
                         insight: InsightType.TRENDS,
                         events: activeStep.filters,
+                        new_entity: activeStep.new_entity,
                     }}
                     setFilters={(filters: FilterType) => {
-                        updateActiveStep(activeStep.id, { filters: filters.events })
+                        updateActiveStep(activeStep.id, { filters: filters.events, new_entity: filters.new_entity })
                     }}
                     typeKey={'automation_step_event_sent_config'}
                     buttonCopy={''}
                     hideDeleteBtn={true}
                     hideRename={true}
                     hideDuplicate={true}
-                    entitiesLimit={1}
                 />
             </div>
         </div>
