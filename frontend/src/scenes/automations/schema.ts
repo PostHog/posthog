@@ -20,11 +20,11 @@ export type AutomationWebhookDestinationStep = {
     url: string
 }
 
-export type AnyAutomationStep = AutomationEventSourceStep
+export type AnyAutomationStep = AutomationEventSourceStep | AutomationWebhookDestinationStep
 
 export type AutomationEdge = {
-    from: AnyAutomationStep
-    to: AnyAutomationStep
+    source: AnyAutomationStep
+    target: AnyAutomationStep
 }
 
 export type Automation = {
