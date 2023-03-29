@@ -9,13 +9,17 @@ export enum AutomationStepKind {
     WebhookDestination = 'WebhookDestination',
 }
 
-export type AutomationEventSourceStep = {
+export type AutomationStep = {
+    id: string
+}
+
+export type AutomationEventSourceStep = AutomationStep & {
     kind: AutomationStepKind.EventSource
     // event
     // filters
 }
 
-export type AutomationWebhookDestinationStep = {
+export type AutomationWebhookDestinationStep = AutomationStep & {
     kind: AutomationStepKind.WebhookDestination
     url: string
 }
@@ -23,8 +27,8 @@ export type AutomationWebhookDestinationStep = {
 export type AnyAutomationStep = AutomationEventSourceStep | AutomationWebhookDestinationStep
 
 export type AutomationEdge = {
-    source: AnyAutomationStep
-    target: AnyAutomationStep
+    source: string
+    target: string
 }
 
 export type Automation = {
