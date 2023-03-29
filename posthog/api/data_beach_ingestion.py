@@ -1,6 +1,7 @@
 import json
 
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpRequest
+from django.views.decorators.csrf import csrf_exempt
 import pydantic
 from posthog.api.utils import get_event_ingestion_context
 
@@ -8,6 +9,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.team.team import Team
 
 
+@csrf_exempt
 def deploy_towels_to(request, table_name):
     # Accepts POST only, with a JSON dict body containing the data to be
     # inserted into the ClickHouse table named in the URL path. Returns a
@@ -57,7 +59,7 @@ def deploy_towels_to(request, table_name):
     # Insert directly into the data_beach ClickHouse table.
     sync_execute(
         """
-        INSERT INTO data_beach (
+        INSERT INTO data_beach_appendable (
             team_id, 
             table_name, 
             id,
@@ -74,3 +76,80 @@ class RequestPayload(pydantic.BaseModel):
     id: str = pydantic.Field(..., min_length=1)
     token: str = pydantic.Field(..., min_length=1)
     data: str = pydantic.Field(..., min_length=1)
+
+
+@csrf_exempt
+def ship_s3_to_beach(request: HttpRequest, table_name: str):
+    """
+    Given an S3 pattern, this endpoint will ship the data to ClickHouse using an
+    S3 table function. This is intended to enable more scalable imports of data
+    into the Data Beach.
+
+    You need to also specify the AWS credentials with read permissions to the
+    objects resource. I suspect you also need bucket list permissions as well.
+
+    We associate all the data imported with the team that is associated with the
+    provided token.
+    """
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return HttpResponse(status=400)
+
+    try:
+        payload = ShipS3ToBeachPayload(**data)
+    except pydantic.ValidationError:
+        return HttpResponse(status=400)
+
+    ingestion_context, _, _ = get_event_ingestion_context(request, data, payload.token)
+
+    if ingestion_context is None:
+        return HttpResponse(status=403)
+
+    team_id = ingestion_context.team_id
+
+    # Insert directly into the data_beach ClickHouse table. We expect the data
+    # to be in airbyte format, which looks like this:
+    # {"_airbyte_ab_id":"88e19437-5ac1-4696-a4bc-8b8acf973838","_airbyte_emitted_at":1680048932176,"_airbyte_data":{...}}
+    # We extract the _airbyte_data field and insert that into the
+    # data_beach_appendable as the data column, the _airbyte_ab_id as the id
+
+    sync_execute(
+        """
+        INSERT INTO data_beach_appendable (
+            team_id, 
+            table_name, 
+            id,
+            data
+        ) SELECT 
+            %(team_id)d, 
+            %(table_name)s, 
+            _airbyte_ab_id,
+            _airbyte_data
+        FROM s3(
+            %(s3_pattern)s, 
+            %(aws_access_key_id)s, 
+            %(aws_secret_access_key)s,
+            'JSONEachRow' 
+        )
+    """,
+        {
+            "team_id": team_id,
+            "table_name": table_name,
+            "s3_pattern": payload.s3_uri_pattern,
+            "aws_access_key_id": payload.aws_access_key_id,
+            "aws_secret_access_key": payload.aws_secret_access_key,
+        },
+    )
+
+    return HttpResponse(status=200)
+
+
+class ShipS3ToBeachPayload(pydantic.BaseModel):
+    token: str = pydantic.Field(..., min_length=1)
+    s3_uri_pattern: str = pydantic.Field(..., min_length=1)
+    aws_access_key_id: str = pydantic.Field(..., min_length=1)
+    aws_secret_access_key: str = pydantic.Field(..., min_length=1)

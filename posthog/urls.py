@@ -28,7 +28,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.data_beach_ingestion import deploy_towels_to
+from posthog.api.data_beach_ingestion import deploy_towels_to, ship_s3_to_beach
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.prompt import prompt_webhook
 from posthog.cloud_utils import is_cloud
@@ -173,6 +173,7 @@ urlpatterns = [
     path("year_in_posthog/2022/<str:user_uuid>", year_in_posthog.render_2022),
     path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
     path("ingest/deploy_towels_to/<str:table_name>/", deploy_towels_to),
+    path("ingest/deploy_towels_to/<str:table_name>/import_from_s3", ship_s3_to_beach),
 ]
 
 if settings.DEBUG:
