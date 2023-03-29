@@ -1,6 +1,7 @@
 import json
 
 from django.http import HttpResponse, HttpRequest
+from django.views.decorators.csrf import csrf_exempt
 import pydantic
 from posthog.api.utils import get_event_ingestion_context
 
@@ -8,6 +9,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.team.team import Team
 
 
+@csrf_exempt
 def deploy_towels_to(request, table_name):
     # Accepts POST only, with a JSON dict body containing the data to be
     # inserted into the ClickHouse table named in the URL path. Returns a
@@ -76,6 +78,7 @@ class RequestPayload(pydantic.BaseModel):
     data: str = pydantic.Field(..., min_length=1)
 
 
+@csrf_exempt
 def ship_s3_to_beach(request: HttpRequest, table_name: str):
     """
     Given an S3 pattern, this endpoint will ship the data to ClickHouse using an
