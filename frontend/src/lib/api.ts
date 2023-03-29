@@ -168,6 +168,10 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
+    public personCommunications(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('person_communications')
+    }
+
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('insights')
@@ -1147,6 +1151,8 @@ const api = {
             return await new ApiRequest().media().create({ data })
         },
     },
+
+    personCommunications: {},
 
     performanceEvents: {
         async list(

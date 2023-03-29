@@ -52,6 +52,7 @@ export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
                     onClick={() => saveNote(noteContent)} // TODO: that should probably just pull the content in the logic side
                     tooltip={publicReplyEnabled ? 'Send an email to the customer' : 'Save internal note'}
                     fullWidth={false}
+                    disabledReason={noteContent ? undefined : 'Please enter a note'}
                 >
                     {publicReplyEnabled ? 'Send email' : 'Save internal note'}
                 </LemonButton>
