@@ -1,5 +1,5 @@
 import { actions, kea, path, reducers } from 'kea'
-import { automationStepConfigLogicType } from './automationStepConfigLogicType'
+import type { automationStepConfigLogicType } from './automationStepConfigLogicType'
 import { AnyAutomationStep } from './schema'
 
 export const automationStepConfigLogic = kea<automationStepConfigLogicType>([

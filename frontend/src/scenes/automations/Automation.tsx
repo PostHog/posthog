@@ -24,6 +24,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { AutomationStepConfig } from './AutomationStepConfig'
 import { automationStepConfigLogic } from './automationStepConfigLogic'
+import { SceneExport } from 'scenes/sceneTypes'
 
 const proOptions: ProOptions = { account: 'paid-pro', hideAttribution: true }
 
@@ -53,6 +54,14 @@ function ReactFlowPro(): JSX.Element {
             <Background />
         </ReactFlow>
     )
+}
+
+export const scene: SceneExport = {
+    component: Automation,
+    logic: automationLogic,
+    paramsToProps: ({ params: { id } }): AutomationLogicProps => ({
+        automationId: id === 'new' ? 'new' : parseInt(id),
+    }),
 }
 
 function Automation(): JSX.Element {

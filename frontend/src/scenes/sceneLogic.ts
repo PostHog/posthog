@@ -29,6 +29,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Cohort]: Scene.Cohorts,
     [Scene.Groups]: Scene.Persons,
     [Scene.Experiment]: Scene.Experiments,
+    [Scene.Automation]: Scene.Automations,
     [Scene.Group]: Scene.Persons,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,

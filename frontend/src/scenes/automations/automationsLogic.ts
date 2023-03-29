@@ -86,7 +86,7 @@ export const automationsLogic = kea<automationsLogicType>([
                 // if (tab === AutomationsTabs.Archived) {
                 //     filteredAutomations = filteredAutomations.filter((automation) => !!automation.archived)
                 // } else
-                if (tab === ExperimentsTabs.Yours) {
+                if (tab === AutomationsTabs.Yours) {
                     filteredAutomations = filteredAutomations.filter(
                         (automation) => automation.created_by?.uuid === values.user?.uuid
                     )

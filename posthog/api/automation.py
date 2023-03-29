@@ -34,3 +34,4 @@ class AutomationViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mod
     queryset = Automation.objects.all()
     serializer_class = AutomationSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    ordering = "-created_at"

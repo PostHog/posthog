@@ -1,9 +1,15 @@
-import { actions, afterMount, kea, path, reducers } from 'kea'
 import { Edge, Node } from 'reactflow'
+import { actions, afterMount, kea, path, reducers, props, key, selectors, connect } from 'kea'
+import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
-import { AnyAutomationStep, AutomationEdge, AutomationStepKind } from './schema'
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+
+import { AnyAutomationStep, Automation, AutomationEdge, AutomationStepKind } from './schema'
 
 import type { automationLogicType } from './automationLogicType'
+import { teamLogic } from 'scenes/teamLogic'
 
 const savedSteps: AnyAutomationStep[] = [
     // {
@@ -25,8 +31,27 @@ const savedEdges: Edge[] = [
     },
 ]
 
+const NEW_AUTOMATION: Automation = {
+    id: 'new',
+    name: '',
+    created_at: null,
+    created_by: null,
+    updated_at: null,
+    steps: [],
+    edges: [],
+}
+export interface AutomationLogicProps {
+    automationId?: Automation['id']
+}
+
 export const automationLogic = kea<automationLogicType>([
-    path(['scenes', 'automations', 'automationsLogic']),
+    props({} as AutomationLogicProps),
+    key((props) => props.automationId || 'new'),
+    path((key) => ['scenes', 'automations', 'automationLogic', key]),
+    connect({
+        values: [teamLogic, ['currentTeamId']],
+    }),
+
     actions({
         setFlowSteps: (flowSteps: Node[]) => ({ flowSteps }),
         setFlowEdges: (flowEdges: Edge[]) => ({ flowEdges }),
@@ -45,6 +70,60 @@ export const automationLogic = kea<automationLogicType>([
             },
         ],
     }),
+    loaders(({ props, values }) => ({
+        automation: {
+            loadAutomation: async () => {
+                if (props.automationId && props.automationId !== 'new') {
+                    try {
+                        const response = await api.get(
+                            `api/projects/${values.currentTeamId}/automations/${props.automationId}`
+                        )
+                        return response as Automation
+                    } catch (error: any) {
+                        if (error.status === 404) {
+                            throw error
+                        } else {
+                            lemonToast.error(`Failed to load automation ${props.automationId}`)
+                            throw new Error(`Failed to load automation ${props.automationId}`)
+                        }
+                    }
+                }
+                return NEW_AUTOMATION
+            },
+            updateAutomation: async (update: Partial<Automation>) => {
+                const response: Automation = await api.update(
+                    `api/projects/${values.currentTeamId}/automations/${values.automationId}`,
+                    update
+                )
+                return response
+            },
+        },
+    })),
+    selectors({
+        props: [() => [(_, props) => props], (props) => props],
+        automationId: [
+            () => [(_, props) => props.automationId ?? 'new'],
+            (automationId): Automation['id'] => automationId,
+        ],
+    }),
+    urlToAction(({ actions, values }) => ({
+        '/automations/:id': ({ id }, _, __, currentLocation, previousLocation) => {
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+            // actions.setEditExperiment(false)
+
+            if (id && didPathChange) {
+                const parsedId = id === 'new' ? 'new' : parseInt(id)
+                if (parsedId === 'new') {
+                    // actions.createNewExperimentInsight()
+                    // actions.resetExperiment()
+                }
+
+                if (parsedId !== 'new' && parsedId === values.automationId) {
+                    actions.loadAutomation()
+                }
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         const flowSteps = savedSteps.map((step: AnyAutomationStep) => {
             return {
