@@ -64,6 +64,8 @@ export enum Scene {
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
+    Automations = 'Automations',
+    Automation = 'Automation',
 }
 
 export type SceneProps = Record<string, any>

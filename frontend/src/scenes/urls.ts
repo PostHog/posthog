@@ -145,4 +145,6 @@ export const urls = {
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     feedback: (): string => '/feedback',
+    automations: (): string => '/automations',
+    automation: (): string => '/automation',
 }
