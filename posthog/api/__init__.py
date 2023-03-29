@@ -173,6 +173,7 @@ from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.insight import InsightViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
 from posthog.api.session_recording import SessionRecordingViewSet  # noqa: E402
+from posthog.api.database import DataTableViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -184,6 +185,7 @@ router.register(r"event", LegacyEventViewSet, basename="event")
 projects_router.register(r"events", EventViewSet, "project_events", ["team_id"])
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
+projects_router.register(r"data_tables", DataTableViewSet, "project_actions", ["team_id"])
 projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
 projects_router.register(
