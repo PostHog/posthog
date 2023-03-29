@@ -1,8 +1,8 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { urls } from 'scenes/urls'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { automationsLogic } from './automationsLogic'
@@ -14,7 +14,8 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { AppMetricsGraph } from 'scenes/apps/AppMetricsGraph'
 
 export function Automations(): JSX.Element {
-    const { automations, automationsLoading } = useValues(automationsLogic)
+    const { filteredAutomations, automationsLoading, tab, searchTerm } = useValues(automationsLogic)
+    const { setAutomationsTab, setSearchTerm } = useActions(automationsLogic)
 
     const columns: LemonTableColumns<Automation> = [
         {
@@ -117,9 +118,8 @@ export function Automations(): JSX.Element {
                 tabbedPage
             />
             <LemonTabs
-                activeKey={AutomationsTabs.All}
-                // activeKey={tab}
-                // onChange={(newKey) => setExperimentsTab(newKey)}
+                activeKey={tab}
+                onChange={(newKey) => setAutomationsTab(newKey)}
                 tabs={[
                     { key: AutomationsTabs.All, label: 'All automations' },
                     { key: AutomationsTabs.Yours, label: 'Your automations' },
@@ -127,12 +127,12 @@ export function Automations(): JSX.Element {
                 ]}
             />
             <div className="flex justify-between mb-4">
-                {/* <LemonInput
+                <LemonInput
                     type="search"
-                    placeholder="Search for Experiments"
+                    placeholder="Search for Automations"
                     onChange={setSearchTerm}
                     value={searchTerm}
-                /> */}
+                />
                 {/* <div className="flex items-center gap-2">
                     <span>
                         <b>Status</b>
@@ -164,8 +164,7 @@ export function Automations(): JSX.Element {
             </div>
 
             <LemonTable
-                // dataSource={filteredExperiments}
-                dataSource={automations}
+                dataSource={filteredAutomations}
                 columns={columns}
                 rowKey="id"
                 loading={automationsLoading}

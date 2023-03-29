@@ -2,7 +2,7 @@ import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { AvailableFeature, ExperimentsTabs, ExperimentStatus } from '~/types'
+import { AutomationsTabs, AvailableFeature, ExperimentsTabs, ExperimentStatus } from '~/types'
 import { Automation } from './schema'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import Fuse from 'fuse.js'
@@ -15,25 +15,25 @@ import type { automationsLogicType } from './automationsLogicType'
 export const automationsLogic = kea<automationsLogicType>([
     path(['scenes', 'automations', 'automationsLogic']),
     connect({ values: [teamLogic, ['currentTeamId'], userLogic, ['user', 'hasAvailableFeature']] }),
-    // actions({
-    //     setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-    //     setSearchStatus: (status: ExperimentStatus | 'all') => ({ status }),
-    //     setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
-    // }),
-    // reducers({
-    //     searchTerm: {
-    //         setSearchTerm: (_, { searchTerm }) => searchTerm,
-    //     },
-    //     searchStatus: {
-    //         setSearchStatus: (_, { status }) => status,
-    //     },
-    //     tab: [
-    //         ExperimentsTabs.All as ExperimentsTabs,
-    //         {
-    //             setExperimentsTab: (_, { tabKey }) => tabKey,
-    //         },
-    //     ],
-    // }),
+    actions({
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        // setSearchStatus: (status: ExperimentStatus | 'all') => ({ status }),
+        setAutomationsTab: (tabKey: AutomationsTabs) => ({ tabKey }),
+    }),
+    reducers({
+        searchTerm: {
+            setSearchTerm: (_, { searchTerm }) => searchTerm,
+        },
+        // searchStatus: {
+        //     setSearchStatus: (_, { status }) => status,
+        // },
+        tab: [
+            AutomationsTabs.All as AutomationsTabs,
+            {
+                setAutomationsTab: (_, { tabKey }) => tabKey,
+            },
+        ],
+    }),
     loaders(({ values }) => ({
         automations: [
             [] as Automation[],
@@ -48,69 +48,70 @@ export const automationsLogic = kea<automationsLogicType>([
                 // deleteExperiment: async (id: number) => {
                 //     await api.delete(`api/projects/${values.currentTeamId}/experiments/${id}`)
                 //     lemonToast.info('Experiment removed')
-                //     return values.experiments.filter((experiment) => experiment.id !== id)
+                //     return values.experiments.filter((automation) => automation.id !== id)
                 // },
-                // addToExperiments: (experiment: Experiment) => {
-                //     return [...values.experiments, experiment]
+                // addToExperiments: (automation: Experiment) => {
+                //     return [...values.experiments, automation]
                 // },
-                // updateExperiments: (experiment: Experiment) => {
-                //     return values.experiments.map((exp) => (exp.id === experiment.id ? experiment : exp))
+                // updateExperiments: (automation: Experiment) => {
+                //     return values.experiments.map((exp) => (exp.id === automation.id ? automation : exp))
                 // },
             },
         ],
     })),
-    // selectors(({ values }) => ({
-    //     getExperimentStatus: [
-    //         (s) => [s.experiments],
-    //         () =>
-    //             (experiment: Experiment): ExperimentStatus => {
-    //                 if (!experiment.start_date) {
-    //                     return ExperimentStatus.Draft
-    //                 } else if (!experiment.end_date) {
-    //                     return ExperimentStatus.Running
-    //                 }
-    //                 return ExperimentStatus.Complete
-    //             },
-    //     ],
-    //     filteredExperiments: [
-    //         (selectors) => [
-    //             selectors.experiments,
-    //             selectors.searchTerm,
-    //             selectors.searchStatus,
-    //             selectors.tab,
-    //             selectors.getExperimentStatus,
-    //         ],
-    //         (experiments, searchTerm, searchStatus, tab, getExperimentStatus) => {
-    //             let filteredExperiments: Experiment[] = experiments
+    selectors(({ values }) => ({
+        //     getExperimentStatus: [
+        //         (s) => [s.experiments],
+        //         () =>
+        //             (automation: Experiment): ExperimentStatus => {
+        //                 if (!automation.start_date) {
+        //                     return ExperimentStatus.Draft
+        //                 } else if (!automation.end_date) {
+        //                     return ExperimentStatus.Running
+        //                 }
+        //                 return ExperimentStatus.Complete
+        //             },
+        //     ],
+        filteredAutomations: [
+            (selectors) => [
+                selectors.automations,
+                selectors.searchTerm,
+                // selectors.searchStatus,
+                selectors.tab,
+                // selectors.getExperimentStatus,
+            ],
+            (automations, searchTerm, tab) => {
+                let filteredAutomations: Automation[] = automations || []
 
-    //             if (tab === ExperimentsTabs.Archived) {
-    //                 filteredExperiments = filteredExperiments.filter((experiment) => !!experiment.archived)
-    //             } else if (tab === ExperimentsTabs.Yours) {
-    //                 filteredExperiments = filteredExperiments.filter(
-    //                     (experiment) => experiment.created_by?.uuid === values.user?.uuid
-    //                 )
-    //             } else {
-    //                 filteredExperiments = filteredExperiments.filter((experiment) => !experiment.archived)
-    //             }
+                // if (tab === AutomationsTabs.Archived) {
+                //     filteredAutomations = filteredAutomations.filter((automation) => !!automation.archived)
+                // } else
+                if (tab === ExperimentsTabs.Yours) {
+                    filteredAutomations = filteredAutomations.filter(
+                        (automation) => automation.created_by?.uuid === values.user?.uuid
+                    )
+                } else {
+                    filteredAutomations = filteredAutomations.filter((automation) => !automation.archived)
+                }
 
-    //             if (searchTerm) {
-    //                 filteredExperiments = new Fuse(filteredExperiments, {
-    //                     keys: ['name', 'feature_flag_key', 'description'],
-    //                     threshold: 0.3,
-    //                 })
-    //                     .search(searchTerm)
-    //                     .map((result) => result.item)
-    //             }
+                if (searchTerm) {
+                    filteredAutomations = new Fuse(filteredAutomations, {
+                        keys: ['name', 'description'],
+                        threshold: 0.3,
+                    })
+                        .search(searchTerm)
+                        .map((result) => result.item)
+                }
 
-    //             if (searchStatus && searchStatus !== 'all') {
-    //                 filteredExperiments = filteredExperiments.filter(
-    //                     (experiment) => getExperimentStatus(experiment) === searchStatus
-    //                 )
-    //             }
-    //             return filteredExperiments
-    //         },
-    //     ],
-    // })),
+                // if (searchStatus && searchStatus !== 'all') {
+                //     filteredAutomations = filteredAutomations.filter(
+                //         (automation) => getExperimentStatus(automation) === searchStatus
+                //     )
+                // }
+                return filteredAutomations
+            },
+        ],
+    })),
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadAutomations()
