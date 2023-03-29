@@ -4,7 +4,7 @@ import api from 'lib/api'
 
 export function Automations(): JSX.Element {
     useEffect(() => {
-        const getAutomations = async () => {
+        const getAutomations = async (): Promise<void> => {
             const response = await api.getResponse('/api/projects/1/automations')
             console.log('response: ', response)
         }
@@ -13,7 +13,7 @@ export function Automations(): JSX.Element {
 
     return (
         <>
-            <h1>Automations</h1>
+            <h1>Automation</h1>
         </>
     )
 }
