@@ -51,10 +51,12 @@ export function DataBeachTableForm(props: DataBeachTableFormProps): JSX.Element 
             <div>
                 <table>
                     <thead>
-                        <th />
-                        <th>Field name</th>
-                        <th>Field type</th>
-                        <th />
+                        <tr>
+                            <th />
+                            <th>Field name</th>
+                            <th>Field type</th>
+                            <th />
+                        </tr>
                     </thead>
                     <tbody>
                         {fields.map((_, index) => (

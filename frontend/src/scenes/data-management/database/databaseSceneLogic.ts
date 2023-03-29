@@ -17,10 +17,12 @@ export interface DataBeachTable {
 export const databaseSceneLogic = kea<databaseSceneLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseSceneLogic']),
     actions({
-        showAddDataBeachTable: true,
-        hideAddDataBeachTable: true,
+        editDataBeachTable: (id: number | 'new' = 'new') => ({ id }),
+        hideEditDataBeachTable: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         appendDataBeachTable: (dataBeachTable: DataBeachTableType) => ({ dataBeachTable }),
+        updateDataBeachTable: (dataBeachTable: DataBeachTableType) => ({ dataBeachTable }),
+        setCategory: (category: 'all' | 'posthog' | 'databeach') => ({ category }),
     }),
     loaders({
         database: [
@@ -38,9 +40,17 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
         ],
     }),
     reducers({
-        addingDataBeachTable: [false, { showAddDataBeachTable: () => true, hideAddDataBeachTable: () => false }],
+        editingDataBeachTable: [
+            null as 'new' | number | null,
+            { editDataBeachTable: (_, { id }) => id, hideEditDataBeachTable: () => null },
+        ],
         searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
-        dataBeachTables: { appendDataBeachTable: (state, { dataBeachTable }) => [...(state ?? []), dataBeachTable] },
+        dataBeachTables: {
+            appendDataBeachTable: (state, { dataBeachTable }) => [...(state ?? []), dataBeachTable],
+            updateDataBeachTable: (state, { dataBeachTable }) =>
+                (state ?? []).map((table) => (table.id === dataBeachTable.id ? dataBeachTable : table)),
+        },
+        category: ['all' as 'all' | 'posthog' | 'databeach', { setCategory: (_, { category }) => category }],
     }),
     selectors({
         loading: [
@@ -48,8 +58,8 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
             (databaseLoading, dataBeachTablesLoading) => databaseLoading || dataBeachTablesLoading,
         ],
         filteredTables: [
-            (s) => [s.database, s.dataBeachTables, s.searchTerm],
-            (database, dataBeachTables, searchTerm): DataBeachTable[] => {
+            (s) => [s.database, s.dataBeachTables, s.searchTerm, s.category],
+            (database, dataBeachTables, searchTerm, category): DataBeachTable[] => {
                 if (!database) {
                     return []
                 }
@@ -79,6 +89,12 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
                             dataBeachTableId: table.id,
                         })
                     }
+                }
+                if (category === 'posthog') {
+                    filteredTables = filteredTables.filter((table) => table.dataBeachTableId === undefined)
+                }
+                if (category === 'databeach') {
+                    filteredTables = filteredTables.filter((table) => table.dataBeachTableId !== undefined)
                 }
                 if (searchTerm) {
                     filteredTables = filteredTables.filter(({ name }) =>

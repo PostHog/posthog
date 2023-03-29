@@ -32,13 +32,29 @@ export function DatabaseTable({ table }: DatabaseTableProps): JSX.Element {
                     dataIndex: 'type',
                     render: function RenderType(type) {
                         if (type === 'virtual_table') {
-                            return <LemonTag type="default">Virtual Table</LemonTag>
+                            return (
+                                <LemonTag type="default" className="uppercase">
+                                    Virtual Table
+                                </LemonTag>
+                            )
                         } else if (type === 'lazy_table') {
-                            return <LemonTag type="default">Reference</LemonTag>
+                            return (
+                                <LemonTag type="default" className="uppercase">
+                                    Reference
+                                </LemonTag>
+                            )
                         } else if (type === 'field_traverser') {
-                            return <LemonTag type="default">Expression</LemonTag>
+                            return (
+                                <LemonTag type="default" className="uppercase">
+                                    Expression
+                                </LemonTag>
+                            )
                         }
-                        return <LemonTag type="success">{type}</LemonTag>
+                        return (
+                            <LemonTag type="success" className="uppercase">
+                                {type}
+                            </LemonTag>
+                        )
                     },
                 },
                 {

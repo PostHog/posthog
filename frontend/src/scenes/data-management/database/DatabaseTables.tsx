@@ -1,6 +1,6 @@
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -8,6 +8,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 
 export function DatabaseTables(): JSX.Element {
     const { filteredTables, loading } = useValues(databaseSceneLogic)
+    const { editDataBeachTable } = useActions(databaseSceneLogic)
 
     return (
         <>
@@ -31,13 +32,13 @@ export function DatabaseTables(): JSX.Element {
                             if (engine) {
                                 return (
                                     <LemonTag type="warning" className="uppercase">
-                                        🏝️️ {engine}
+                                        {engine}
                                     </LemonTag>
                                 )
                             } else {
                                 return (
                                     <LemonTag type="default" className="uppercase">
-                                        🦔 PostHog
+                                        PostHog
                                     </LemonTag>
                                 )
                             }
@@ -48,13 +49,17 @@ export function DatabaseTables(): JSX.Element {
                         width: 0,
                         key: 'dataBeachTableId',
                         dataIndex: 'dataBeachTableId',
-                        render: function RenderActions(id) {
-                            if (id) {
+                        render: function RenderActions(_, { dataBeachTableId }) {
+                            if (dataBeachTableId) {
                                 return (
                                     <More
                                         overlay={
                                             <>
-                                                <LemonButton status="stealth" to={'#'} fullWidth>
+                                                <LemonButton
+                                                    status="stealth"
+                                                    onClick={() => editDataBeachTable(dataBeachTableId)}
+                                                    fullWidth
+                                                >
                                                     Edit
                                                 </LemonButton>
                                                 <LemonDivider />

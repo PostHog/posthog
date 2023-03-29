@@ -8,9 +8,15 @@ import { DataBeachTableForm } from './DataBeachTableForm'
 import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 
 export function DatabaseScene(): JSX.Element {
-    const { addingDataBeachTable, searchTerm } = useValues(databaseSceneLogic)
-    const { showAddDataBeachTable, hideAddDataBeachTable, setSearchTerm, appendDataBeachTable } =
-        useActions(databaseSceneLogic)
+    const { editingDataBeachTable, searchTerm, category } = useValues(databaseSceneLogic)
+    const {
+        editDataBeachTable,
+        hideEditDataBeachTable,
+        setSearchTerm,
+        appendDataBeachTable,
+        updateDataBeachTable,
+        setCategory,
+    } = useActions(databaseSceneLogic)
 
     return (
         <div data-attr="database-scene">
@@ -24,10 +30,10 @@ export function DatabaseScene(): JSX.Element {
                 <LemonInput type="search" placeholder="Search for tables" onChange={setSearchTerm} value={searchTerm} />
                 <LemonSegmentedButton
                     size={'small'}
-                    onChange={() => {}}
-                    value={''}
+                    onChange={setCategory}
+                    value={category}
                     options={[
-                        { label: 'All tables', value: '' },
+                        { label: 'All tables', value: 'all' },
                         { label: 'PostHog tables', value: 'posthog' },
                         { label: 'DataBeach tables', value: 'databeach' },
                     ]}
@@ -41,29 +47,31 @@ export function DatabaseScene(): JSX.Element {
                     </a>
                     .
                 </div>
-                <LemonModal
-                    title={'Add new DataBeach table'}
-                    isOpen={addingDataBeachTable}
-                    onClose={hideAddDataBeachTable}
-                    width={560}
-                >
-                    <DataBeachTableForm
-                        dataBeachTable={null}
-                        onCancel={hideAddDataBeachTable}
-                        onSave={(newTable) => {
-                            appendDataBeachTable(newTable)
-                            hideAddDataBeachTable()
-                        }}
-                    />
-                </LemonModal>
-                <LemonButton
-                    type="secondary"
-                    onClick={addingDataBeachTable ? hideAddDataBeachTable : showAddDataBeachTable}
-                >
+
+                <LemonButton type="secondary" onClick={() => editDataBeachTable('new')}>
                     Add DataBeach table
                 </LemonButton>
             </div>
             <DatabaseTables />
+            <LemonModal
+                title={'Add new DataBeach table'}
+                isOpen={!!editingDataBeachTable}
+                onClose={hideEditDataBeachTable}
+                width={560}
+            >
+                <DataBeachTableForm
+                    dataBeachTable={null}
+                    onCancel={hideEditDataBeachTable}
+                    onSave={(table) => {
+                        if (editingDataBeachTable === 'new') {
+                            appendDataBeachTable(table)
+                        } else {
+                            updateDataBeachTable(table)
+                        }
+                        hideEditDataBeachTable()
+                    }}
+                />
+            </LemonModal>
         </div>
     )
 }
