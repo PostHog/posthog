@@ -2,6 +2,12 @@ import { actions, kea, path, reducers, selectors } from 'kea'
 import type { automationStepConfigLogicType } from './automationStepConfigLogicType'
 import { AnyAutomationStep, AutomationStepCategory, AutomationStepConfigType, AutomationStepKind } from './schema'
 
+const FALLBACK_EVENT: ActionFilter = {
+    id: '$pageview',
+    math: 'dau',
+    type: 'events',
+}
+
 import {
     GithubIcon,
     IconAction,
@@ -16,9 +22,16 @@ import {
     IconSlack,
     IconWebhook,
 } from 'lib/lemon-ui/icons'
+import { EventSentConfig } from './AutomationStepConfig'
+import { ActionFilter } from '~/types'
 
 const stepOptions: AnyAutomationStep[] = [
-    { kind: AutomationStepKind.EventSource, id: 'Event sent', category: AutomationStepCategory.Source },
+    {
+        kind: AutomationStepKind.EventSource,
+        id: 'Event sent',
+        category: AutomationStepCategory.Source,
+        filters: [FALLBACK_EVENT],
+    },
     { kind: AutomationStepKind.ActionSource, id: 'Action triggered', category: AutomationStepCategory.Source },
     { kind: AutomationStepKind.PauseForLogic, id: 'Pause for', category: AutomationStepCategory.Logic },
     { kind: AutomationStepKind.PauseUntilLogic, id: 'Pause until', category: AutomationStepCategory.Logic },
@@ -50,7 +63,7 @@ const stepOptions: AnyAutomationStep[] = [
 ]
 
 export const kindToConfig: Record<string, AutomationStepConfigType> = {
-    'Event sent': { icon: <IconEvent />, label: 'Event sent' },
+    'Event sent': { icon: <IconEvent />, label: 'Event sent', configComponent: <EventSentConfig /> },
     'Action triggered': { icon: <IconAction />, label: 'Action triggered' },
     'Pause for': { icon: <IconCoffee />, label: 'Pause for' },
     'Pause until': { icon: <IconCoffee />, label: 'Pause until' },
@@ -71,17 +84,42 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
         openStepConfig: true,
         closeStepConfig: true,
         setActiveStepId: (id: string) => ({ id }),
+        updateActiveStep: (id: string, activeStepUpdates: Partial<AnyAutomationStep>) => ({ id, activeStepUpdates }),
     }),
     reducers({
         stepConfigOpen: [
-            false as boolean,
+            true as boolean,
             {
                 openStepConfig: () => true,
                 closeStepConfig: () => false,
             },
         ],
+        activeSteps: [
+            [
+                {
+                    kind: AutomationStepKind.EventSource,
+                    id: 'Event sent',
+                    category: AutomationStepCategory.Source,
+                    filters: [FALLBACK_EVENT],
+                },
+            ] as AnyAutomationStep[],
+            {
+                updateActiveStep: (activeSteps, { id, activeStepUpdates }) => {
+                    return activeSteps.map((activeStep: AnyAutomationStep) => {
+                        if (activeStep.id === id) {
+                            return {
+                                ...activeStep,
+                                ...activeStepUpdates,
+                            }
+                        } else {
+                            return activeStep
+                        }
+                    })
+                },
+            },
+        ],
         activeStepId: [
-            null as null | string,
+            'Event sent' as null | string,
             {
                 setActiveStepId: (_, { id }) => id,
                 closeStepConfig: () => null,
@@ -92,9 +130,9 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
     }),
     selectors({
         activeStep: [
-            (selectors) => [selectors.activeStepId],
-            (activeStepId: string): AnyAutomationStep | null => {
-                return stepOptions.find((step) => step.id === activeStepId) || null
+            (selectors) => [selectors.activeStepId, selectors.activeSteps],
+            (activeStepId: string, activeSteps: AnyAutomationStep[]): AnyAutomationStep | null => {
+                return activeSteps.find((step: AnyAutomationStep) => step.id === activeStepId) || null
             },
         ],
         activeStepConfig: [
