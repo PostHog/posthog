@@ -38,6 +38,7 @@ import {
     RecentPerformancePageView,
     DashboardTemplateType,
     DashboardTemplateEditorType,
+    DataBeachTableType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -249,6 +250,16 @@ class ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('property_definitions')
             .addPathComponent(propertyDefinitionId)
+    }
+
+    // # Data Beach
+
+    public dataBeachTables(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('data_beach_tables')
+    }
+
+    public dataBeachTableDetail(dataBeachTableId: DataBeachTableType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('data_beach_tables').addPathComponent(dataBeachTableId)
     }
 
     // # Cohorts
@@ -812,6 +823,31 @@ const api = {
         },
         determineSchemaUrl(): string {
             return new ApiRequest().dashboardTemplateSchema().assembleFullUrl()
+        },
+    },
+
+    dataBeachTables: {
+        async list(): Promise<PaginatedResponse<DataBeachTableType>> {
+            return await new ApiRequest().dataBeachTables().get()
+        },
+
+        async get(dataBeachTableId: DataBeachTableType['id']): Promise<DataBeachTableType> {
+            return await new ApiRequest().dataBeachTableDetail(dataBeachTableId).get()
+        },
+
+        async create(dataBeachTableData: DataBeachTableType): Promise<DataBeachTableType> {
+            return await new ApiRequest().dataBeachTables().create({ data: dataBeachTableData })
+        },
+
+        async update(
+            dataBeachTableId: DataBeachTableType['id'],
+            dataBeachTableData: Partial<DataBeachTableType>
+        ): Promise<DashboardTemplateType> {
+            return await new ApiRequest().dataBeachTableDetail(dataBeachTableId).update({ data: dataBeachTableData })
+        },
+
+        async delete(dataBeachTableId: DataBeachTableType['id']): Promise<void> {
+            await new ApiRequest().dataBeachTableDetail(dataBeachTableId).delete()
         },
     },
 
