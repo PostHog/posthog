@@ -7,6 +7,7 @@ import {
     PostIngestionEvent,
     EnqueuedAutomationJob,
     AutomationJobState,
+    JobName,
 } from '../../types'
 import { DB } from '../../utils/db/db'
 import { status } from '../../utils/status'
@@ -58,6 +59,7 @@ export class AutomationManager {
                     automation: automation,
                     event,
                     state: AutomationJobState.SCHEDULED,
+                    nodeId: 'TODO',
                 }
 
                 await this.runAutomationJob(job, graphileWorker)
@@ -68,7 +70,14 @@ export class AutomationManager {
 
     // Actually running the job that came from graphile
     public async runAutomationJob(job: EnqueuedAutomationJob, graphileWorker: GraphileWorker) {
+        // 1. Find the node in the job.automation for job.nodeId
+        // 2. run the corresponding action
+        // 3. Enqueue the new job(s) with the next nodeIds
+
         // Do the appropriate thing and then schedule the follow up job
+
+        // DONT DO THIS
+        // graphileWorker.enqueue(JobName.AUTOMATION_JOB, job)
 
         console.log(job)
     }

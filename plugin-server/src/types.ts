@@ -262,6 +262,7 @@ export interface EnqueuedAutomationJob {
     automation: Action
     event: PostIngestionEvent
     state: AutomationJobState
+    nodeId: string
 }
 
 export enum AutomationJobState {
