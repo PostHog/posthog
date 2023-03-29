@@ -245,6 +245,12 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Feedback',
     },
+    [Scene.Automations]: {
+        projectBased: true,
+    },
+    [Scene.Automation]: {
+        projectBased: true,
+    },
 }
 
 export const redirects: Record<
@@ -365,4 +371,6 @@ export const routes: Record<string, Scene> = {
     [urls.debugQuery()]: Scene.DebugQuery,
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
+    [urls.automations()]: Scene.Automations,
+    [urls.automation()]: Scene.Automation,
 }
