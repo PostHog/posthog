@@ -18,6 +18,8 @@ import {
 import { EventSentConfig } from './AutomationStepConfig'
 import { automationLogic } from '../automationLogic'
 
+import type { automationStepConfigLogicType } from './automationStepConfigLogicType'
+
 export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> = {
     [AutomationStepKind.EventSource]: {
         icon: <IconEvent />,
@@ -38,7 +40,7 @@ export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> 
     // 'In-app message': { icon: <IconMonitor />, label: 'In-app message' },
 }
 
-export const automationStepConfigLogic = kea([
+export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
     path(['scenes', 'automations', 'AutomationStepSidebar', 'automationStepConfigLogic']),
     connect({
         values: [automationLogic, ['steps']],

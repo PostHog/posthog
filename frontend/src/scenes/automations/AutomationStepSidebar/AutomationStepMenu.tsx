@@ -6,6 +6,7 @@ import { automationStepConfigLogic, kindToConfig } from './automationStepConfigL
 import { AnyAutomationStep, AutomationStepCategory, AutomationStepKind } from '../schema'
 import { automationStepMenuLogic } from './automationStepMenuLogic'
 import { AutomationStepSidebar } from './AutomationStepSidebar'
+import { uuid } from 'lib/utils'
 
 const stepOptions: AnyAutomationStep[] = [
     {
@@ -43,7 +44,7 @@ const stepOptions: AnyAutomationStep[] = [
 export function AutomationStepMenu(): JSX.Element {
     const { closeMenu } = useActions(automationStepMenuLogic)
     const { setActiveStepId } = useActions(automationStepConfigLogic)
-    const { updateStep } = useActions(automationLogic)
+    const { addStep } = useActions(automationLogic)
 
     return (
         <AutomationStepSidebar onClose={closeMenu}>
@@ -63,7 +64,7 @@ export function AutomationStepMenu(): JSX.Element {
                                     onClick={() => {
                                         console.debug('clicked', option)
 
-                                        updateStep(option)
+                                        addStep({ ...option, id: uuid() })
                                         closeMenu()
                                         setActiveStepId(option.id)
                                     }}
