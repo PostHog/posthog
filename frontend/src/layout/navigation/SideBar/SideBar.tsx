@@ -215,6 +215,9 @@ function Pages(): JSX.Element {
                     {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
                     )}
+                    {featureFlags[FEATURE_FLAGS.ARUBUG] && (
+                        <PageButton icon={<IconMessages />} identifier={Scene.Issues} to={urls.issues()} />
+                    )}
                     <div className="SideBar__heading">Configuration</div>
 
                     <PageButton
