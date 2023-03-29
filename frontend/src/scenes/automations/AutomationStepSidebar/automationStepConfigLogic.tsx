@@ -1,6 +1,12 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 import type { automationStepConfigLogicType } from '../automationStepConfigLogicType'
-import { AnyAutomationStep, AutomationStepCategory, AutomationStepConfigType, AutomationStepKind } from '../schema'
+import {
+    AnyAutomationStep,
+    AutomationStepCategory,
+    AutomationStepConfigType,
+    AutomationStepKind,
+    AutomationWebhookDestinationStep,
+} from '../schema'
 
 import {
     // GithubIcon,
@@ -16,10 +22,21 @@ import {
     // IconSlack,
     IconWebhook,
 } from 'lib/lemon-ui/icons'
-import { EventSentConfig } from './AutomationStepConfig'
+import { EventSentConfig, WebhookDestinationConfig } from './AutomationStepConfig'
 import { uuid } from 'lib/utils'
 
 const id = uuid()
+const exampleWebhook = {
+    kind: AutomationStepKind.WebhookDestination,
+    id: id,
+    category: AutomationStepCategory.Destination,
+    url: 'https://posthog.com',
+    payload: {
+        event: '{event.event}',
+        properties: '{event.properties}',
+        person_id: '{person.id}',
+    },
+} as AutomationWebhookDestinationStep
 
 const stepOptions: AnyAutomationStep[] = [
     {
@@ -67,7 +84,11 @@ export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> 
     // 'Set user property': { icon: <IconPerson />, label: 'Set user property' },
     // 'Add to cohort': { icon: <IconCohort />, label: 'Add to cohort' },
     // 'Add to feature flags': { icon: <IconFlag />, label: 'Add to feature flags' },
-    [AutomationStepKind.WebhookDestination]: { icon: <IconWebhook />, label: 'Send a webhook' },
+    [AutomationStepKind.WebhookDestination]: {
+        icon: <IconWebhook />,
+        label: 'Send a webhook',
+        configComponent: <WebhookDestinationConfig />,
+    },
     // 'Send to slack': { icon: <IconSlack />, label: 'Send to slack' },
     // 'Send to Zapier': { icon: <IconApps />, label: 'Send to Zapier' },
     // 'Send an email': { icon: <IconArticle />, label: 'Send an email' },
@@ -92,12 +113,13 @@ export const automationStepConfigLogic = kea([
         ],
         activeSteps: [
             [
-                {
-                    kind: AutomationStepKind.EventSource,
-                    id: id,
-                    category: AutomationStepCategory.Source,
-                    filters: [],
-                },
+                // {
+                //     kind: AutomationStepKind.EventSource,
+                //     id: id,
+                //     category: AutomationStepCategory.Source,
+                //     filters: [],
+                // },
+                exampleWebhook,
             ] as AnyAutomationStep[],
             {
                 updateActiveStep: (activeSteps, { id, activeStepUpdates }) => {

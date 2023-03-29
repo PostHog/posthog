@@ -1,7 +1,9 @@
-import { LemonButton, LemonDivider, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Field, PureField } from 'lib/forms/Field'
+import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { FilterType, InsightType } from '~/types'
@@ -65,6 +67,43 @@ export function EventSentConfig(): JSX.Element {
                 />
             </div>
         </div>
+    )
+}
+
+export function WebhookDestinationConfig(): JSX.Element {
+    const { activeStep, activeStepConfig } = useValues(automationStepConfigLogic)
+    const { updateActiveStep } = useActions(automationStepConfigLogic)
+    return (
+        <>
+            {/* <PureField label={'Destination url'}>
+                <LemonInput
+                    placeholder="Optional descriptive placeholder text"
+                    value={activeStep.url}
+                    onChange={(url) => {
+                        updateActiveStep(activeStep.id, { url })
+                    }}
+                />
+            </PureField> */}
+            <div className="mt-4" />
+            <PureField label={'Payload'} className="w-100">
+                <JSONEditorInput
+                    defaultNumberOfLines={4}
+                    value={JSON.stringify(activeStep.payload, null, 4)}
+                    onChange={(payload) => {
+                        updateActiveStep(activeStep.id, { payload })
+                    }}
+                />
+            </PureField>
+            <div className="mt-4" />
+            <PureField label={'Preview'} className="w-100">
+                <JSONEditorInput
+                    defaultNumberOfLines={4}
+                    value={JSON.stringify(activeStep.payload, null, 4)}
+                    readOnly
+                />
+            </PureField>
+            <div className="mt-4" />
+        </>
     )
 }
 
