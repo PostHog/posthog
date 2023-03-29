@@ -880,6 +880,7 @@ export interface EventType {
     elements_chain?: string | null
     /** Used in session recording events list */
     colonTimestamp?: string
+    uuid?: string
 }
 
 export interface RecordingTimeMixinType {
