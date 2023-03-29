@@ -5,6 +5,7 @@ from posthog.clickhouse.dead_letter_queue import *
 from posthog.clickhouse.plugin_log_entries import *
 from posthog.models.app_metrics.sql import *
 from posthog.models.cohort.sql import *
+from posthog.models.data_beach import CREATE_DATA_BEACH_APPENDABLE_SQL
 from posthog.models.event.sql import *
 from posthog.models.group.sql import *
 from posthog.models.ingestion_warnings.sql import (
@@ -44,6 +45,7 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     INGESTION_WARNINGS_DATA_TABLE_SQL,
     APP_METRICS_DATA_TABLE_SQL,
     PERFORMANCE_EVENTS_TABLE_SQL,
+    CREATE_DATA_BEACH_APPENDABLE_SQL,
 )
 CREATE_DISTRIBUTED_TABLE_QUERIES = (
     WRITABLE_EVENTS_TABLE_SQL,
