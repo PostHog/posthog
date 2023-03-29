@@ -6,6 +6,7 @@ import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/Project
 import {
     IconApps,
     IconBarChart,
+    IconBugShield,
     IconCoffee,
     IconCohort,
     IconComment,
@@ -216,7 +217,7 @@ function Pages(): JSX.Element {
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
                     )}
                     {featureFlags[FEATURE_FLAGS.ARUBUG] && (
-                        <PageButton icon={<IconMessages />} identifier={Scene.Issues} to={urls.issues()} />
+                        <PageButton icon={<IconBugShield />} identifier={Scene.Issues} to={urls.issues()} />
                     )}
                     <div className="SideBar__heading">Configuration</div>
 

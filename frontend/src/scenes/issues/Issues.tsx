@@ -62,11 +62,11 @@ export const Issues = (): JSX.Element => {
             />
 
             <div className={'flex flex-row spacex-2'}>
-                <DateRange query={query} setQuery={setQuery} />,
-                <EventPropertyFilters query={query} setQuery={(q) => setQuery(q as EventsQuery)} />,
+                <DateRange query={query} setQuery={setQuery} />
+                <EventPropertyFilters query={query} setQuery={(q) => setQuery(q as EventsQuery)} />
             </div>
             <LemonDivider />
-            <h2>Issue incidence</h2>
+            <h2>Bug count</h2>
             <Query
                 query={{
                     kind: NodeKind.LegacyQuery,
@@ -88,7 +88,7 @@ export const Issues = (): JSX.Element => {
                 }}
             />
             <LemonDivider />
-            <h2>Your issues</h2>
+            <h2>Open issues</h2>
             <Query
                 query={{
                     kind: NodeKind.DataTableNode,

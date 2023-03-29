@@ -15,7 +15,7 @@ export const issuesLogic = kea<issuesLogicType>([
             '$bug_report',
             { persist: true },
             {
-                setIssueEvent: (_, { event }) => event,
+                setIssueEvent: (_, { event }) => (event.trim().length > 0 ? event : '$bug_report'),
             },
         ],
         providedQuery: [
