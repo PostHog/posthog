@@ -1,8 +1,10 @@
 import json
 
 from django.http import HttpResponse
+from posthog.api.utils import get_event_ingestion_context
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.models.team.team import Team
 
 
 def deploy_towels_to(request, table_name):
@@ -11,9 +13,15 @@ def deploy_towels_to(request, table_name):
     # 200 on success, 400 on failure. We push directly to ClickHouse rather than
     # e.g. to Kafka because this is intended merely for Hackathon demonstration
     # purposes only.
+    #
+    # The payload should look like this:
+    # {
+    #     "id": "some-id",
+    #     "token": "some-token",
+    #     "data": "{\"some\": \"data\"}"
     if request.method != "POST":
         return HttpResponse(status=405)
-    
+
     # Try to parse the request as JSON, and check that it's a dict that we'd be
     # able to insert into ClickHouse and query with JSONExtract. We simply put
     # the data as is into the table as the data column, and add team_id and
@@ -28,9 +36,33 @@ def deploy_towels_to(request, table_name):
     if not isinstance(data, dict):
         return HttpResponse(status=400)
 
-    
-    
-    # Insert directly into the data_beach ClickHouse table.
-    sync_execute("INSERT INTO data_beach (team_id, table_name, data) VALUES (%s, %s, %s)", (1, , data))
-    
+    # Check that the data contains the required fields
+    if not all(key in data for key in ["id", "token", "data"]):
+        return HttpResponse(status=400)
+
+    # Check id and token are not empty
+    if not data["id"] or not data["token"]:
+        return HttpResponse(status=400)
+
+    # Get the team_id from the token in the payload body
+    ingestion_context, _, _ = get_event_ingestion_context(request, data, data["token"])
+
+    if ingestion_context is None:
+        return HttpResponse(status=403)
+
+    team_id = ingestion_context.team_id
+
+    # Insert directly into the data_beach ClickHouse table.
+    sync_execute(
+        """
+        INSERT INTO data_beach (
+            team_id, 
+            table_name, 
+            id,
+            data
+        ) VALUES
+    """,
+        [(team_id, table_name, data["id"], data["data"])],
+    )
+
     return HttpResponse(status=200)
