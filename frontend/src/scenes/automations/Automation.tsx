@@ -16,7 +16,7 @@ import nodeTypes from './NodeTypes'
 import edgeTypes from './EdgeTypes'
 
 import 'reactflow/dist/style.css'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { automationLogic } from './automationLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -25,6 +25,8 @@ import { urls } from 'scenes/urls'
 import { AutomationStepConfig } from './AutomationStepConfig'
 import { automationStepConfigLogic } from './automationStepConfigLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { Skeleton } from 'antd'
+import { NotFound } from 'lib/components/NotFound'
 
 const proOptions: ProOptions = { account: 'paid-pro', hideAttribution: true }
 
@@ -66,8 +68,17 @@ export const scene: SceneExport = {
 
 function Automation(): JSX.Element {
     const { stepConfigOpen } = useValues(automationStepConfigLogic)
-    const editingExistingAutomation = true
-    const automationLoading = false
+    const { editingExistingAutomation, automationLoading, automation, automationId } = useValues(automationLogic)
+    const { setEditAutomation, loadAutomation } = useActions(automationLogic)
+
+    if (automationLoading) {
+        return <Skeleton active />
+    }
+
+    if (!automation && automationId !== 'new') {
+        return <NotFound object="automation" />
+    }
+
     return (
         <>
             <PageHeader
@@ -79,8 +90,8 @@ function Automation(): JSX.Element {
                             type="secondary"
                             onClick={() => {
                                 if (editingExistingAutomation) {
-                                    // setEditAutomation(false)
-                                    // loadAutomation()
+                                    setEditAutomation(false)
+                                    loadAutomation()
                                 } else {
                                     router.actions.push(urls.automations())
                                 }

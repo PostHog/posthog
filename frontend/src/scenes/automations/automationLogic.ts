@@ -55,8 +55,15 @@ export const automationLogic = kea<automationLogicType>([
     actions({
         setFlowSteps: (flowSteps: Node[]) => ({ flowSteps }),
         setFlowEdges: (flowEdges: Edge[]) => ({ flowEdges }),
+        setEditAutomation: (editing: boolean) => ({ editing }),
     }),
     reducers({
+        editingExistingAutomation: [
+            false,
+            {
+                setEditAutomation: (_, { editing }) => editing,
+            },
+        ],
         flowSteps: [
             [] as Node[],
             {
@@ -109,13 +116,13 @@ export const automationLogic = kea<automationLogicType>([
     urlToAction(({ actions, values }) => ({
         '/automations/:id': ({ id }, _, __, currentLocation, previousLocation) => {
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
-            // actions.setEditExperiment(false)
+
+            actions.setEditAutomation(false)
 
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
-                    // actions.createNewExperimentInsight()
-                    // actions.resetExperiment()
+                    actions.resetAutomation()
                 }
 
                 if (parsedId !== 'new' && parsedId === values.automationId) {
