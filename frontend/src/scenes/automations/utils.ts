@@ -1,3 +1,6 @@
+import { Edge, Node } from 'reactflow'
+import { AnyAutomationStep, AutomationEdge, AutomationStepKind } from './schema'
+
 export const uuid = (): string => new Date().getTime().toString(36) + Math.random().toString(36).slice(2)
 
 const emojis = [
@@ -128,4 +131,58 @@ const emojis = [
 
 export const randomLabel = (): string => {
     return emojis[~~(Math.random() * emojis.length)]
+}
+
+export const stepsToFlowSteps = (steps: AnyAutomationStep[]): Node[] => {
+    return steps.map((step: AnyAutomationStep) => {
+        return {
+            id: step.id,
+            data: { label: step.kind },
+            position: { x: 0, y: 0 },
+            type: 'workflow',
+        }
+    })
+}
+
+export const edgesToFlowEdges = (edges: AutomationEdge[]): Edge[] => {
+    return edges.map((edge: AutomationEdge, index: number) => ({
+        id: index.toString(),
+        source: edge.source,
+        target: edge.target,
+        type: 'workflow',
+    }))
+}
+
+export const addPlaceholderFlowSteps = (flowSteps: Node[]) => {
+    // TODO: add placeholder steps for all branches
+    if (!flowSteps.length || flowSteps[flowSteps.length - 1].data.label !== AutomationStepKind.WebhookDestination) {
+        return [
+            ...flowSteps,
+            {
+                id: 'placeholder',
+                data: { label: 'placeholder' },
+                position: { x: 0, y: 0 },
+                type: 'placeholder',
+            },
+        ]
+    }
+
+    return flowSteps
+}
+
+export const addPlaceholderFlowEdges = (flowEdges: Edge[], flowSteps: Node[]) => {
+    // TODO: add placeholder steps for all branches
+    if (flowEdges.length > 1) {
+        return [
+            ...flowEdges,
+            {
+                id: flowEdges.length.toString(),
+                source: flowSteps[flowSteps.length - 2].id,
+                target: 'placeholder',
+                type: 'placeholder',
+            },
+        ]
+    }
+
+    return flowEdges
 }

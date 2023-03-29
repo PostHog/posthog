@@ -1,35 +1,16 @@
 import { Edge, Node } from 'reactflow'
-import { actions, afterMount, kea, path, reducers, props, key, selectors, connect } from 'kea'
+import { actions, kea, path, reducers, props, key, selectors, connect } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
-import { AnyAutomationStep, Automation, AutomationEdge, AutomationStepKind } from './schema'
+import { Automation } from './schema'
 
 import type { automationLogicType } from './automationLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-
-const savedSteps: AnyAutomationStep[] = [
-    // {
-    //     id: '1',
-    //     kind: AutomationStepKind.EventSource,
-    // },
-    // {
-    //     id: '2',
-    //     kind: AutomationStepKind.WebhookDestination,
-    //     url: 'https://example-webhook-destination.com',
-    // },
-]
-
-const savedEdges: Edge[] = [
-    {
-        id: '1=>2',
-        source: '1',
-        target: '2',
-    },
-]
+import { addPlaceholderFlowEdges, addPlaceholderFlowSteps, edgesToFlowEdges, stepsToFlowSteps } from './utils'
 
 const NEW_AUTOMATION: Automation = {
     id: 'new',
@@ -53,8 +34,6 @@ export const automationLogic = kea<automationLogicType>([
     }),
 
     actions({
-        setFlowSteps: (flowSteps: Node[]) => ({ flowSteps }),
-        setFlowEdges: (flowEdges: Edge[]) => ({ flowEdges }),
         setEditAutomation: (editing: boolean) => ({ editing }),
     }),
     reducers({
@@ -62,18 +41,6 @@ export const automationLogic = kea<automationLogicType>([
             false,
             {
                 setEditAutomation: (_, { editing }) => editing,
-            },
-        ],
-        flowSteps: [
-            [] as Node[],
-            {
-                setFlowSteps: (_, { flowSteps }) => flowSteps,
-            },
-        ],
-        flowEdges: [
-            [] as Edge[],
-            {
-                setFlowEdges: (_, { flowEdges }) => flowEdges,
             },
         ],
     }),
@@ -112,6 +79,38 @@ export const automationLogic = kea<automationLogicType>([
             () => [(_, props) => props.automationId ?? 'new'],
             (automationId): Automation['id'] => automationId,
         ],
+        steps: [
+            (s) => [s.automation],
+            (automation): Automation['steps'] => {
+                if (!automation || !automation.steps || automation.steps.length === 0) {
+                    return []
+                }
+
+                return automation.steps
+            },
+        ],
+        edges: [
+            (s) => [s.automation],
+            (automation): Automation['edges'] => {
+                if (!automation || !automation.edges || automation.edges.length === 0) {
+                    return []
+                }
+
+                return automation.edges
+            },
+        ],
+        flowSteps: [
+            (s) => [s.steps],
+            (steps): Node[] => {
+                return addPlaceholderFlowSteps(stepsToFlowSteps(steps))
+            },
+        ],
+        flowEdges: [
+            (s) => [s.edges, s.flowSteps],
+            (edges, flowSteps): Edge[] => {
+                return addPlaceholderFlowEdges(edgesToFlowEdges(edges), flowSteps)
+            },
+        ],
     }),
     urlToAction(({ actions, values }) => ({
         '/automations/:id': ({ id }, _, __, currentLocation, previousLocation) => {
@@ -131,44 +130,4 @@ export const automationLogic = kea<automationLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        const flowSteps = savedSteps.map((step: AnyAutomationStep) => {
-            return {
-                id: step.id,
-                data: { label: step.kind },
-                position: { x: 0, y: 0 },
-                type: 'workflow',
-            } as Node
-        })
-
-        const flowEdges = savedEdges.map((edge: AutomationEdge, index: number) => ({
-            id: index.toString(),
-            source: edge.source,
-            target: edge.target,
-            type: 'workflow',
-        }))
-
-        // TODO: add this for each node in the tree
-
-        if (!flowSteps.length || flowSteps[flowSteps.length - 1].data.label !== AutomationStepKind.WebhookDestination) {
-            flowSteps.push({
-                id: 'placeholder',
-                data: { label: 'placeholder' },
-                position: { x: 0, y: 0 },
-                type: 'placeholder',
-            } as Node)
-            // add a placeholder edge
-            if (flowSteps.length > 1) {
-                flowEdges.push({
-                    id: flowEdges.length.toString(),
-                    source: flowSteps[flowSteps.length - 2].id,
-                    target: 'placeholder',
-                    type: 'placeholder',
-                })
-            }
-        }
-
-        actions.setFlowSteps(flowSteps)
-        actions.setFlowEdges(flowEdges)
-    }),
 ])
