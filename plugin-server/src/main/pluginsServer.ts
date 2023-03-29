@@ -25,6 +25,7 @@ import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
+import { startAutomationsConsumer } from './ingestion-queues/automations-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
@@ -92,6 +93,7 @@ export async function startPluginsServer(
     let bufferConsumer: Consumer | undefined
     let sessionRecordingEventsConsumer: Consumer | undefined
     let jobsConsumer: Consumer | undefined
+    let automationsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
     let httpServer: Server | undefined // healthcheck server
@@ -131,6 +133,7 @@ export async function startPluginsServer(
             onEventHandlerConsumer?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
+            automationsConsumer?.disconnect(),
             sessionRecordingEventsConsumer?.disconnect(),
             schedulerTasksConsumer?.disconnect(),
         ])
@@ -245,7 +248,7 @@ export async function startPluginsServer(
         // 3. clickhouse_events_json and plugin_events_ingestion
         // 4. conversion_events_buffer
         //
-        if (capabilities.processPluginJobs || capabilities.pluginScheduledTasks) {
+        if (capabilities.processPluginJobs || capabilities.pluginScheduledTasks || capabilities.processAutomationJobs) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
@@ -273,6 +276,15 @@ export async function startPluginsServer(
 
             if (capabilities.processPluginJobs) {
                 jobsConsumer = await startJobsConsumer({
+                    kafka: hub.kafka,
+                    producer: hub.kafkaProducer.producer,
+                    graphileWorker: graphileWorker,
+                    statsd: hub.statsd,
+                })
+            }
+
+            if (capabilities.processAutomationJobs) {
+                automationsConsumer = await startAutomationsConsumer({
                     kafka: hub.kafka,
                     producer: hub.kafkaProducer.producer,
                     graphileWorker: graphileWorker,

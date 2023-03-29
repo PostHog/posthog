@@ -2,7 +2,7 @@ import Piscina from '@posthog/piscina'
 import { CronItem, JobHelpers, TaskList } from 'graphile-worker'
 import { Counter } from 'prom-client'
 
-import { EnqueuedPluginJob, Hub } from '../../types'
+import { EnqueuedAutomationJob, EnqueuedPluginJob, Hub } from '../../types'
 import { status } from '../../utils/status'
 import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
 import { GraphileWorker } from './graphile-worker'
@@ -77,6 +77,11 @@ export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWork
         status.info('🔄', 'Graphile Worker: set up scheduled task handlers...')
     }
 
+    if (hub.capabilities.processAutomationJobs) {
+        jobHandlers = { ...jobHandlers, ...getAutomationTaskHandlers(hub, graphileWorker, piscina) }
+        status.info('🔄', 'Graphile Worker: set up automation job handlers ...')
+    }
+
     await graphileWorker.start(jobHandlers, crontab)
     return graphileWorker
 }
@@ -112,4 +117,26 @@ export function getScheduledTaskHandlers(hub: Hub, piscina: Piscina): TaskList {
     }
 
     return scheduledTaskHandlers
+}
+
+export function getAutomationTaskHandlers(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina): TaskList {
+    const handlers: TaskList = {
+        automationJob: async (job) => {
+            // TODO: Do I need this?
+            pauseQueueIfWorkerFull(() => graphileWorker.pause(), hub, piscina)
+            // hub.statsd?.increment('triggered_job', {
+            //     instanceId: hub.instanceId.toString(),
+            // })
+            try {
+                // TODO: Add this here
+                await piscina.run({ task: 'runAutomationJob', args: { job: job as EnqueuedPluginJob } })
+                // jobsExecutionSuccessCounter.labels(jobType).inc()
+            } catch (e) {
+                // jobsExecutionFailureCounter.labels(jobType).inc()
+                throw e
+            }
+        },
+    }
+
+    return handlers
 }

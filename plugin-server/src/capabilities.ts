@@ -13,6 +13,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 ingestionOverflow: true,
                 pluginScheduledTasks: true,
                 processPluginJobs: true,
+                processAutomationJobs: true,
                 processAsyncHandlers: true,
                 sessionRecordingIngestion: true,
                 ...sharedCapabilities,
@@ -70,6 +71,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 pluginScheduledTasks: true,
+                ...sharedCapabilities,
+            }
+        case 'automation':
+            return {
+                processAutomationJobs: true,
                 ...sharedCapabilities,
             }
     }
