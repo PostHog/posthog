@@ -8,12 +8,14 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
+from posthog.api.feature import FeaturePreviewSerializer
 
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.utils import get_project_id, get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
+from posthog.models.feature import Feature
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
@@ -160,11 +162,19 @@ def get_decide(request: HttpRequest):
 
             if api_version == 2:
                 response["featureFlags"] = active_flags
-            elif api_version == 3:
+            elif api_version >= 3:
                 # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
                 response["featureFlags"] = feature_flags
                 response["errorsWhileComputingFlags"] = errors
                 response["featureFlagPayloads"] = feature_flag_payloads
+                if api_version == 4:
+                    # v4 returns the feature previews as well
+                    response["featurePreviews"] = FeaturePreviewSerializer(
+                        Feature.objects.filter(team=team)
+                        .exclude(status=Feature.Status.GENERAL_AVAILABILITY)
+                        .select_related("feature_flag"),
+                        many=True,
+                    ).data
             else:
                 # default v1
                 response["featureFlags"] = list(active_flags.keys())

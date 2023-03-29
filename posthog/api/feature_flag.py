@@ -252,7 +252,7 @@ def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     return usage_dashboard
 
 
-class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
+class FeatureFlagBasicSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
 
     class Meta:
@@ -379,7 +379,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         return Response(
             {
                 "flags": [
-                    MinimalFeatureFlagSerializer(feature_flag, context=self.get_serializer_context()).data
+                    FeatureFlagBasicSerializer(feature_flag, context=self.get_serializer_context()).data
                     for feature_flag in parsed_flags
                 ],
                 "group_type_mapping": {

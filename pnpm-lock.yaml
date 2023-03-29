@@ -147,7 +147,7 @@ specifiers:
   pngjs: ^6.0.0
   postcss: ^8.4.14
   postcss-loader: ^4.3.0
-  posthog-js: 1.52.0-alpha.0
+  posthog-js: 1.52.0-alpha.1
   posthog-js-lite: 2.0.0-alpha5
   prettier: ^2.3.1
   prop-types: ^15.7.2
@@ -251,7 +251,7 @@ dependencies:
   kea-window-values: 3.0.0_kea@3.1.5
   md5: 2.3.0
   monaco-editor: 0.23.0
-  posthog-js: 1.52.0-alpha.0
+  posthog-js: 1.52.0-alpha.1
   posthog-js-lite: 2.0.0-alpha5
   prettier: 2.7.1
   prop-types: 15.8.1
@@ -15399,8 +15399,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js/1.52.0-alpha.0:
-    resolution: {integrity: sha512-TY+nQennyY88OqoOc/LTLZVFyjHemU4WKksuylGZ+6WYCc9c5a2yacIhZ9eFSpTGX9sUjHn3LrpFt0dkTslWmw==}
+  /posthog-js/1.52.0-alpha.1:
+    resolution: {integrity: sha512-qX5UHVsZMRPITUUXTK2kppbKVXmgW1/zStRCRc+jwnm3jP3zaKVYDMXNdZHRqb9oOr62VUf7s1Ct1Dgp7C++zg==}
     dependencies:
       fflate: 0.4.8
       rrweb-snapshot: 1.1.14

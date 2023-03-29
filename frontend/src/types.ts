@@ -1947,18 +1947,23 @@ export interface FeatureFlagFilters {
     payloads: Record<string, JsonType>
 }
 
-export interface FeatureFlagType {
-    id: number | null
+export interface FeatureFlagBasicType {
+    id: number
+    team_id: TeamType['id']
+    /* The description field (the name is a misnomer because of its legacy). */
+    name: string
     key: string
-    name: string // Used as description
     filters: FeatureFlagFilters
     deleted: boolean
     active: boolean
+    ensure_experience_continuity: boolean | null
+}
+
+export interface FeatureFlagType extends FeatureFlagBasicType {
     created_by: UserBasicType | null
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
-    ensure_experience_continuity: boolean | null
     experiment_set: string[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
@@ -1977,6 +1982,18 @@ export interface FeatureFlagRollbackConditions {
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
+}
+
+export interface FeatureType {
+    /** UUID */
+    id: string
+    feature_flag: FeatureFlagBasicType
+    name: string
+    description: string
+    status: 'concept' | 'alpha' | 'beta' | 'general-availability'
+    image_url: string | null
+    documentation_url: string | null
+    created_at: string
 }
 
 export interface UserBlastRadiusType {
