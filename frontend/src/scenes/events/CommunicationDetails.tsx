@@ -9,7 +9,6 @@ export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
     const { publicReplyEnabled, noteContent } = useValues(communicationDetailsLogic)
     const { togglePublicReply, saveNote, setNoteContent } = useActions(communicationDetailsLogic)
 
-    console.log(uuid)
 
     return (
         <>
