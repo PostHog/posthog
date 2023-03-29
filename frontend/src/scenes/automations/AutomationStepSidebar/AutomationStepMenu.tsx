@@ -4,14 +4,17 @@ import { automationLogic } from '../automationLogic'
 import './AutomationStepConfig.scss'
 import { automationStepConfigLogic, kindToConfig } from './automationStepConfigLogic'
 import { AnyAutomationStep, AutomationStepCategory } from '../schema'
+import { automationStepMenuLogic } from './automationStepMenuLogic'
+import { AutomationStepSidebar } from './AutomationStepSidebar'
 
 export function AutomationStepMenu(): JSX.Element {
+    const { closeMenu } = useActions(automationStepMenuLogic)
     const { setActiveStepId } = useActions(automationStepConfigLogic)
     const { stepOptions } = useValues(automationStepConfigLogic)
     const { updateStep } = useActions(automationLogic)
 
     return (
-        <>
+        <AutomationStepSidebar onClose={closeMenu}>
             <h2>New step</h2>
             <LemonDivider />
             {Object.values(AutomationStepCategory).map((category: AutomationStepCategory) => (
@@ -26,6 +29,7 @@ export function AutomationStepMenu(): JSX.Element {
                                     icon={kindToConfig[option.kind].icon}
                                     key={key}
                                     onClick={() => {
+                                        console.debug('clicked', option)
                                         // const id = uuid()
                                         updateStep(option)
                                         setActiveStepId(option.id)
@@ -38,6 +42,6 @@ export function AutomationStepMenu(): JSX.Element {
                     <LemonDivider />
                 </div>
             ))}
-        </>
+        </AutomationStepSidebar>
     )
 }

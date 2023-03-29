@@ -1,5 +1,4 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
-import type { automationStepConfigLogicType } from '../automationStepConfigLogicType'
 import { AnyAutomationStep, AutomationStepCategory, AutomationStepConfigType, AutomationStepKind } from '../schema'
 
 import {
@@ -73,21 +72,12 @@ export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> 
 }
 
 export const automationStepConfigLogic = kea([
-    path(['scenes', 'automations', 'automationStepConfigLogic']),
+    path(['scenes', 'automations', 'AutomationStepSidebar', 'automationStepConfigLogic']),
     actions({
-        openStepConfig: true,
-        closeStepConfig: true,
         setActiveStepId: (id: string) => ({ id }),
         updateActiveStep: (id: string, activeStepUpdates: Partial<AnyAutomationStep>) => ({ id, activeStepUpdates }),
     }),
     reducers({
-        stepConfigOpen: [
-            true as boolean,
-            {
-                openStepConfig: () => true,
-                closeStepConfig: () => false,
-            },
-        ],
         activeSteps: [
             [
                 {

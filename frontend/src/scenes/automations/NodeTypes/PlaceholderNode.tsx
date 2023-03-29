@@ -1,19 +1,17 @@
 import { memo } from 'react'
-import { Handle, Position, NodeProps } from 'reactflow'
+import { Handle, Position } from 'reactflow'
 
 import './NodeTypes.scss'
 import { useActions } from 'kea'
-import { automationStepConfigLogic } from '../AutomationStepSidebar/automationStepConfigLogic'
+import { automationStepMenuLogic } from '../AutomationStepSidebar/automationStepMenuLogic'
 
-const PlaceholderNode = ({ id }: NodeProps): JSX.Element => {
-    const { openStepConfig } = useActions(automationStepConfigLogic)
+const PlaceholderNode = (): JSX.Element => {
+    const { openMenu } = useActions(automationStepMenuLogic)
 
     return (
         <div style={{ width: 160 }}>
             <div
-                onClick={() => {
-                    openStepConfig(id)
-                }}
+                onClick={openMenu}
                 className="node placeholder"
                 style={{
                     width: 40,

@@ -27,6 +27,9 @@ import { automationStepConfigLogic } from './AutomationStepSidebar/automationSte
 import { SceneExport } from 'scenes/sceneTypes'
 import { Skeleton } from 'antd'
 import { NotFound } from 'lib/components/NotFound'
+import { automationStepMenuLogic } from './AutomationStepSidebar/automationStepMenuLogic'
+import { AutomationStepMenu } from './AutomationStepSidebar/AutomationStepMenu'
+import { AutomationStepConfig } from './AutomationStepSidebar/AutomationStepConfig'
 
 const proOptions: ProOptions = { account: 'paid-pro', hideAttribution: true }
 
@@ -104,6 +107,7 @@ export const scene: SceneExport = {
 
 function Automation(): JSX.Element {
     const { stepConfigOpen } = useValues(automationStepConfigLogic)
+    const { isMenuOpen } = useValues(automationStepMenuLogic)
     const { editingExistingAutomation, automationLoading, automation, automationId } = useValues(automationLogic)
     const { setEditAutomation, loadAutomation } = useActions(automationLogic)
 
@@ -155,9 +159,14 @@ function Automation(): JSX.Element {
                         <ReactFlowPro />
                     </ReactFlowProvider>
                 </div>
+                {isMenuOpen && (
+                    <div className="flex-1">
+                        <AutomationStepMenu />
+                    </div>
+                )}
                 {stepConfigOpen && (
                     <div className="flex-1">
-                        <AutomationStepSidebar />
+                        <AutomationStepConfig />
                     </div>
                 )}
             </div>
