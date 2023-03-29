@@ -3,7 +3,7 @@ import { Handle, Position, NodeProps } from 'reactflow'
 
 import './NodeTypes.scss'
 import { useActions } from 'kea'
-import { automationStepConfigLogic } from '../automationStepConfigLogic'
+import { automationStepConfigLogic } from '../AutomationStepSidebar/automationStepConfigLogic'
 
 const PlaceholderNode = ({ id }: NodeProps): JSX.Element => {
     const { openStepConfig } = useActions(automationStepConfigLogic)
