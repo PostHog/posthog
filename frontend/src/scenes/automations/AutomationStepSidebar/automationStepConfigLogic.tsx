@@ -88,11 +88,8 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
         activeStep: [
             (s) => [s.activeStepId, s.flowSteps],
             (activeStepId, flowSteps): AnyAutomationStep | null => {
-                console.debug('activeStep.activeStepId: ', activeStepId)
-                console.debug('activeStep.flowSteps: ', flowSteps)
                 return flowSteps.find((step: AnyAutomationStep) => step.id === activeStepId) || null
             },
-            { resultEqualityCheck: () => false, equalityCheck: () => false },
         ],
         activeStepConfig: [
             (s) => [s.activeStep],
@@ -104,10 +101,4 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
             },
         ],
     }),
-    // listeners(({ actions }) => ({
-    //     addStep: (step) => {
-    //         console.debug('listeners.addStep', step)
-    //         actions.setActiveStepId(step.id)
-    //     },
-    // })),
 ])

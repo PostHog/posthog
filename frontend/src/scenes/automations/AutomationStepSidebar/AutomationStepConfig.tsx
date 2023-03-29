@@ -72,7 +72,7 @@ export function EventSentConfig(): JSX.Element {
 export function AutomationStepConfig(): JSX.Element {
     const { activeStep, activeStepConfig } = useValues(automationStepConfigLogic)
     const { setActiveStepId } = useActions(automationStepConfigLogic)
-    const { addStep } = useActions(automationLogic)
+    // const { addStep } = useActions(automationLogic)
 
     return (
         <AutomationStepSidebar onClose={() => setActiveStepId(null)}>
@@ -85,7 +85,7 @@ export function AutomationStepConfig(): JSX.Element {
                         type="primary"
                         onClick={() => {
                             console.debug('Saving', activeStep)
-                            addStep(activeStep)
+                            // addStep(activeStep)
                         }}
                     >
                         Save
