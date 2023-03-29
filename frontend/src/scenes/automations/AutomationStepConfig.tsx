@@ -29,9 +29,7 @@ export function EventSentConfig(): JSX.Element {
                     }}
                     typeKey={'automation_step_event_sent_config'}
                     buttonCopy={''}
-                    hideDeleteBtn={true}
-                    hideRename={true}
-                    hideDuplicate={true}
+                    hideDeleteBtn={activeStep.filters.length == 1}
                 />
             </div>
         </div>
