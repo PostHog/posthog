@@ -12,7 +12,7 @@ export function AutomationStepMenu(): JSX.Element {
 
     return (
         <>
-            <h2>New sasdtep</h2>
+            <h2>New step</h2>
             <LemonDivider />
             {Object.values(AutomationStepCategory).map((category: AutomationStepCategory) => (
                 <div key={category}>
