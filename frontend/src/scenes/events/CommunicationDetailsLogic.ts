@@ -4,6 +4,8 @@ import type { communicationDetailsLogicType } from './CommunicationDetailsLogicT
 import { teamLogic } from 'scenes/teamLogic'
 import PostHog from 'posthog-js-lite'
 import { userLogic } from 'scenes/userLogic'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 
 export interface CommunicationDetailsLogicProps {
     eventUUID: string | null
@@ -23,6 +25,13 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
         sentSuccessfully: true,
         sendingFailed: true,
     }),
+    loaders(({ props }) => ({
+        communications: {
+            loadCommunications: async () => {
+                return await api.personCommunications.list({ bug_report_uuid: props.eventUUID })
+            },
+        },
+    })),
     reducers({
         replyType: [
             'internal' as 'internal' | 'public',

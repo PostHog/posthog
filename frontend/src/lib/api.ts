@@ -1152,7 +1152,14 @@ const api = {
         },
     },
 
-    personCommunications: {},
+    personCommunications: {
+        async list(
+            params: any,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<PaginatedResponse<PerformanceEvent>> {
+            return new ApiRequest().personCommunications(teamId).withQueryString(toParams(params)).get()
+        },
+    },
 
     performanceEvents: {
         async list(

@@ -4,10 +4,18 @@ import { useActions, useValues } from 'kea'
 import { IconComment, IconMail } from 'lib/lemon-ui/icons/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton/LemonSegmentedButton'
+import { useEffect } from 'react'
 
 export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
     const { publicReplyEnabled, replyType, noteContent } = useValues(communicationDetailsLogic({ eventUUID: uuid }))
-    const { setReplyType, saveNote, setNoteContent } = useActions(communicationDetailsLogic({ eventUUID: uuid }))
+    const { setReplyType, saveNote, setNoteContent, loadCommunications } = useActions(
+        communicationDetailsLogic({ eventUUID: uuid })
+    )
+
+    useEffect(() => {
+        // only load when the
+        loadCommunications()
+    }, [])
 
     return (
         <div className={'flex flex-col space-y-2 p-4'}>

@@ -12,10 +12,10 @@ from posthog.models import User
 
 class PersonCommunicationViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        bug_id = request.GET.get("bug_id")
+        bug_report_uuid = request.GET.get("bug_report_uuid")
 
-        if not bug_id:
-            raise ValidationError("bug_id is required")
+        if not bug_report_uuid:
+            raise ValidationError("bug_report_uuid is required")
 
         user = cast(User, request.user)
 
@@ -29,11 +29,11 @@ class PersonCommunicationViewSet(StructuredViewSetMixin, viewsets.GenericViewSet
         from events
         prewhere team_id = %(team_id)s
         and event in ('$communication_email_sent', '$communication_email_received', '$communication_note_saved')
-        and JSONExtractString(properties, 'bug_id') = %(bug_id)s
+        and JSONExtractString(properties, 'bug_report_uuid') = %(bug_report_uuid)s
         order by timestamp DESC
         """
 
-        results = sync_execute(slow_query, {"team_id": self.team.pk, "bug_id": bug_id})
+        results = sync_execute(slow_query, {"team_id": self.team.pk, "bug_report_uuid": bug_report_uuid})
 
         column_names = ["bug_report_uuid", "event", "from", "to", "subject", "body_plain", "body_html", "timestamp"]
         columnized_results = [dict(zip(column_names, res)) for res in results]
