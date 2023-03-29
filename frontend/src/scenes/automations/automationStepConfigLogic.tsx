@@ -2,12 +2,6 @@ import { actions, kea, path, reducers, selectors } from 'kea'
 import type { automationStepConfigLogicType } from './automationStepConfigLogicType'
 import { AnyAutomationStep, AutomationStepCategory, AutomationStepConfigType, AutomationStepKind } from './schema'
 
-const DEFAULT_EVENT: ActionFilter = {
-    id: '$pageview',
-    math: 'dau',
-    type: 'events',
-}
-
 import {
     // GithubIcon,
     // IconAction,
@@ -23,7 +17,6 @@ import {
     IconWebhook,
 } from 'lib/lemon-ui/icons'
 import { EventSentConfig } from './AutomationStepConfig'
-import { ActionFilter } from '~/types'
 import { uuid } from 'lib/utils'
 
 const stepOptions: AnyAutomationStep[] = [
@@ -31,7 +24,7 @@ const stepOptions: AnyAutomationStep[] = [
         kind: AutomationStepKind.EventSource,
         id: 'new',
         category: AutomationStepCategory.Source,
-        filters: [DEFAULT_EVENT],
+        filters: [],
     },
     // { kind: AutomationStepKind.ActionSource, category: AutomationStepCategory.Source },
     // { kind: AutomationStepKind.PauseForLogic, category: AutomationStepCategory.Logic },
@@ -101,7 +94,7 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
                     kind: AutomationStepKind.EventSource,
                     id: uuid(),
                     category: AutomationStepCategory.Source,
-                    filters: [DEFAULT_EVENT],
+                    filters: [],
                 },
             ] as AnyAutomationStep[],
             {

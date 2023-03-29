@@ -1,13 +1,18 @@
 import { LemonButton, LemonDivider, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { uuid } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { FilterType, InsightType } from '~/types'
 import { automationLogic } from './automationLogic'
 import './AutomationStepConfig.scss'
 import { automationStepConfigLogic, kindToConfig } from './automationStepConfigLogic'
 import { AnyAutomationStep, AutomationStepCategory } from './schema'
+
+const taxonomicGroupTypes = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
 
 export function EventSentConfig(): JSX.Element {
     const { activeStep } = useValues(automationStepConfigLogic)
@@ -16,7 +21,7 @@ export function EventSentConfig(): JSX.Element {
     return (
         <div className="mb-6">
             <div className="mb-2">
-                <LemonLabel>Event</LemonLabel>
+                <LemonLabel showOptional>Event filtering</LemonLabel>
                 {/* <p className="text-sm text-muted">{variable.description}</p> */}
             </div>
             <div>
@@ -24,16 +29,44 @@ export function EventSentConfig(): JSX.Element {
                     filters={{
                         insight: InsightType.TRENDS,
                         events: activeStep.filters,
+                        new_entity: activeStep.new_entity,
                     }}
                     setFilters={(filters: FilterType) => {
-                        updateActiveStep(activeStep.id, { filters: filters.events })
+                        updateActiveStep(activeStep.id, { filters: filters.events, new_entity: filters.new_entity })
                     }}
                     typeKey={'automation_step_event_sent_config'}
-                    buttonCopy={''}
-                    hideDeleteBtn={true}
-                    hideRename={true}
-                    hideDuplicate={true}
-                    entitiesLimit={1}
+                    buttonCopy={'Action or event filter'}
+                    mathAvailability={MathAvailability.None}
+                />
+            </div>
+            <div className="mb-2">
+                <LemonLabel showOptional>Event properties</LemonLabel>
+                {/* <p className="text-sm text-muted">{variable.description}</p> */}
+            </div>
+            <div>
+                <PropertyFilters
+                    propertyFilters={[]}
+                    onChange={() => {}}
+                    pageKey={'pageKey'}
+                    style={{ marginBottom: 0 }}
+                    showNestedArrow
+                    eventNames={[]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                />
+            </div>
+            <div className="mb-2">
+                <LemonLabel showOptional>Person and cohort</LemonLabel>
+                {/* <p className="text-sm text-muted">{variable.description}</p> */}
+            </div>
+            <div>
+                <PropertyFilters
+                    propertyFilters={[]}
+                    onChange={() => {}}
+                    pageKey={'pageKey'}
+                    style={{ marginBottom: 0 }}
+                    showNestedArrow
+                    eventNames={[]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
                 />
             </div>
         </div>
