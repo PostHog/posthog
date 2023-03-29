@@ -18,3 +18,8 @@ class DataBeachField(models.Model):
     type: models.CharField = models.CharField(
         max_length=100, null=False, blank=False, choices=DataBeachFieldType.choices, default=None
     )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "table", "name"], name="unique_name_per_team_per_table"),
+        ]

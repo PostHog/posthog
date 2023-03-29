@@ -15,3 +15,8 @@ class DataBeachTable(models.Model):
         choices=DataBeachTableEngine.choices,
         default=DataBeachTableEngine.APPENDABLE,
     )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "name"], name="unique_name_per_team"),
+        ]
