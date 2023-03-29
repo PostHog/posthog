@@ -1,6 +1,6 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 
-import { EventsQuery, NodeKind } from '~/queries/schema'
+import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema'
 
 import type { issuesLogicType } from './issuesLogicType'
 
@@ -49,7 +49,7 @@ export const issuesLogic = kea<issuesLogicType>([
                     full: false,
                     showOpenEditorButton: false,
                     source: { ...query },
-                }
+                } as DataTableNode
             },
         ],
     }),
