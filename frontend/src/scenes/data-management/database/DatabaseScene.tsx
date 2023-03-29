@@ -54,13 +54,13 @@ export function DatabaseScene(): JSX.Element {
             </div>
             <DatabaseTables />
             <LemonModal
-                title={'Add new DataBeach table'}
+                title={editingDataBeachTable === 'new' ? 'Add new DataBeach table' : 'Edit DataBeach table'}
                 isOpen={!!editingDataBeachTable}
                 onClose={hideEditDataBeachTable}
                 width={560}
             >
                 <DataBeachTableForm
-                    dataBeachTable={editingDataBeachTableObject}
+                    dataBeachTable={editingDataBeachTableObject ?? null}
                     onCancel={hideEditDataBeachTable}
                     onSave={(table) => {
                         if (editingDataBeachTable === 'new') {
