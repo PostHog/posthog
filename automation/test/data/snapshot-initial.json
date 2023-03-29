@@ -1,0 +1,15 @@
+{
+    "event": "$snapshot",
+    "properties": {
+        "$snapshot_data": {
+            "type": 4,
+            "data": { "href": "http://localhost:3001/", "width": 2560, "height": 832 },
+            "timestamp": 1679568314155
+        },
+        "$session_id": "1870e0e4f40d73-07e335ea680392-1e525634-384000-1870e0e4f412a52",
+        "$window_id": "1870e0e4f422d99-042f3b7593666e-1e525634-384000-1870e0e4f432e59",
+        "token": "phc_6L6EWZMlGPXWTSbwpqChJM6IuR0XV4I98wMjgLD8Yds",
+        "distinct_id": "64H9Wag8cxxCaBtb4tTG1ENFQ8K9fqIQPm2zEq6JOgg"
+    },
+    "offset": 2987
+}
