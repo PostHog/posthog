@@ -38,7 +38,7 @@ export function openIssuesConfigDialog(): void {
 }
 
 export const Issues = (): JSX.Element => {
-    const { query, issueEvent } = useValues(issuesLogic)
+    const { query, issueEvent, tableQuery } = useValues(issuesLogic)
     const { setQuery } = useActions(issuesLogic)
 
     return (
@@ -61,7 +61,7 @@ export const Issues = (): JSX.Element => {
                 }
             />
 
-            <div className={'flex flex-row spacex-2'}>
+            <div className={'flex flex-row space-x-2'}>
                 <DateRange query={query} setQuery={setQuery} />
                 <EventPropertyFilters query={query} setQuery={(q) => setQuery(q as EventsQuery)} />
             </div>
@@ -89,14 +89,7 @@ export const Issues = (): JSX.Element => {
             />
             <LemonDivider />
             <h2>Open issues</h2>
-            <Query
-                query={{
-                    kind: NodeKind.DataTableNode,
-                    full: false,
-                    showOpenEditorButton: false,
-                    source: query,
-                }}
-            />
+            <Query query={tableQuery} />
         </div>
     )
 }

@@ -38,8 +38,18 @@ export const issuesLogic = kea<issuesLogicType>([
                     limit: 100,
                 }
                 q.event = issueEvent
-                console.log('changing query', { q, providedQuery, issueEvent })
                 return q
+            },
+        ],
+        tableQuery: [
+            (s) => [s.query],
+            (query) => {
+                return {
+                    kind: NodeKind.DataTableNode,
+                    full: false,
+                    showOpenEditorButton: false,
+                    source: { ...query },
+                }
             },
         ],
     }),
