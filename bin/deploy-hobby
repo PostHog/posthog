@@ -76,20 +76,21 @@ sudo apt install -y git
 git clone https://github.com/PostHog/posthog.git &> /dev/null || true
 cd posthog
 
-if [ "$POSTHOG_APP_TAG" = "latest-release"]
+if [[ "$POSTHOG_APP_TAG" = "latest-release" ]]
 then
-    # Checkout the latest RELEASED version
     git fetch --tags
-    git checkout $(git rev-list --tags --max-count=1)
-elif [ "$POSTHOG_APP_TAG" = "latest"]
+    latestReleaseTag=$(git describe --tags `git rev-list --tags --max-count=1`)
+    echo "Checking out latest PostHog release: $latestReleaseTag"
+    git checkout $latestReleaseTag
+elif [[ "$POSTHOG_APP_TAG" = "latest" ]]
 then
-    # Pull latest for current branch
+    echo "Pulling latest from current branch: $(git branch --show-current)"
     git pull
 else
-    # Checkout a specific release tag
-    # Docker tags have the form release-X.Y.Z, but git tags don't have the prefix
+    releaseTag="${POSTHOG_APP_TAG/release-/""}"
     git fetch --tags
-    git checkout "${POSTHOG_APP_TAG/release-/""}"
+    echo "Checking out PostHog release: $releaseTag"
+    git checkout $releaseTag
 fi
 
 cd ..
