@@ -1,14 +1,14 @@
 import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import type { experimentsLogicType } from './experimentsLogicType'
+import { loaders } from 'kea-loaders'
+import Fuse from 'fuse.js'
+
 import { teamLogic } from 'scenes/teamLogic'
-import { AutomationsTabs, AvailableFeature, ExperimentsTabs, ExperimentStatus } from '~/types'
+import { userLogic } from 'scenes/userLogic'
+
+import api from 'lib/api'
+import { AutomationsTabs } from '~/types'
 import { Automation } from './schema'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import Fuse from 'fuse.js'
-import { userLogic } from 'scenes/userLogic'
-import { subscriptions } from 'kea-subscriptions'
-import { loaders } from 'kea-loaders'
 
 import type { automationsLogicType } from './automationsLogicType'
 
