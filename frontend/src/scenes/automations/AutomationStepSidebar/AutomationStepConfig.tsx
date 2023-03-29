@@ -8,6 +8,7 @@ import { FilterType, InsightType } from '~/types'
 import { automationLogic } from '../automationLogic'
 import './AutomationStepConfig.scss'
 import { automationStepConfigLogic } from './automationStepConfigLogic'
+import { AutomationStepSidebar } from './AutomationStepSidebar'
 
 export function EventSentConfig(): JSX.Element {
     const { activeStep } = useValues(automationStepConfigLogic)
@@ -70,24 +71,29 @@ export function EventSentConfig(): JSX.Element {
 
 export function AutomationStepConfig(): JSX.Element {
     const { activeStep, activeStepConfig } = useValues(automationStepConfigLogic)
+    const { setActiveStepId } = useActions(automationStepConfigLogic)
     const { addStep } = useActions(automationLogic)
-    if (!activeStep) {
-        return <h2>Error loading step</h2>
-    }
+
     return (
-        <>
-            <h2>New step: {activeStepConfig.label}</h2>
-            <LemonDivider />
-            {activeStepConfig.configComponent}
-            <LemonButton
-                type="primary"
-                onClick={() => {
-                    console.debug('Saving', activeStep)
-                    addStep(activeStep)
-                }}
-            >
-                Save
-            </LemonButton>
-        </>
+        <AutomationStepSidebar onClose={() => setActiveStepId(null)}>
+            {activeStep ? (
+                <>
+                    <h2>New step: {activeStepConfig.label}</h2>
+                    <LemonDivider />
+                    {activeStepConfig.configComponent}
+                    <LemonButton
+                        type="primary"
+                        onClick={() => {
+                            console.debug('Saving', activeStep)
+                            addStep(activeStep)
+                        }}
+                    >
+                        Save
+                    </LemonButton>
+                </>
+            ) : (
+                <h2>Error loading step</h2>
+            )}
+        </AutomationStepSidebar>
     )
 }

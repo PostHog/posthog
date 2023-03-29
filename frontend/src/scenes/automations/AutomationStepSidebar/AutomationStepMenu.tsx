@@ -30,8 +30,9 @@ export function AutomationStepMenu(): JSX.Element {
                                     key={key}
                                     onClick={() => {
                                         console.debug('clicked', option)
-                                        // const id = uuid()
+
                                         updateStep(option)
+                                        closeMenu()
                                         setActiveStepId(option.id)
                                     }}
                                 >

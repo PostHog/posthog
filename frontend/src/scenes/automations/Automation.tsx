@@ -106,7 +106,7 @@ export const scene: SceneExport = {
 }
 
 function Automation(): JSX.Element {
-    const { stepConfigOpen } = useValues(automationStepConfigLogic)
+    const { activeStepId } = useValues(automationStepConfigLogic)
     const { isMenuOpen } = useValues(automationStepMenuLogic)
     const { editingExistingAutomation, automationLoading, automation, automationId } = useValues(automationLogic)
     const { setEditAutomation, loadAutomation } = useActions(automationLogic)
@@ -164,7 +164,7 @@ function Automation(): JSX.Element {
                         <AutomationStepMenu />
                     </div>
                 )}
-                {stepConfigOpen && (
+                {activeStepId && (
                     <div className="flex-1">
                         <AutomationStepConfig />
                     </div>
