@@ -122,15 +122,15 @@ def ship_s3_to_beach(request: HttpRequest, table_name: str):
             id,
             data
         ) SELECT 
-            %(team_id)s, 
+            %(team_id)d, 
             %(table_name)s, 
             _airbyte_ab_id,
             _airbyte_data
         FROM s3(
             %(s3_pattern)s, 
-            'JSONEachRow', 
             %(aws_access_key_id)s, 
-            %(aws_secret_access_key)s
+            %(aws_secret_access_key)s,
+            'JSONEachRow' 
         )
     """,
         {
