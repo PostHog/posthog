@@ -1,0 +1,55 @@
+{
+    "$ref": "#/definitions/Automation",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+        "AnyAutomationStep": {
+            "$ref": "#/definitions/AutomationEventSourceStep"
+        },
+        "Automation": {
+            "additionalProperties": false,
+            "properties": {
+                "edges": {
+                    "items": {
+                        "$ref": "#/definitions/AutomationEdge"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "steps": {
+                    "items": {
+                        "$ref": "#/definitions/AnyAutomationStep"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "steps", "edges"],
+            "type": "object"
+        },
+        "AutomationEdge": {
+            "additionalProperties": false,
+            "properties": {
+                "from": {
+                    "$ref": "#/definitions/AnyAutomationStep"
+                },
+                "to": {
+                    "$ref": "#/definitions/AnyAutomationStep"
+                }
+            },
+            "required": ["from", "to"],
+            "type": "object"
+        },
+        "AutomationEventSourceStep": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "EventSource",
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        }
+    }
+}
