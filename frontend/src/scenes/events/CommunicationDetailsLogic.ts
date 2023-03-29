@@ -3,7 +3,7 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import type { communicationDetailsLogicType } from './CommunicationDetailsLogicType'
 
 export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
-    path(['scenes', 'events', 'SupportDetailsLogic']),
+    path(['scenes', 'events', 'communicationDetailsLogic']),
     actions({
         togglePublicReply: (publicReplyEnabled: boolean) => ({ publicReplyEnabled }),
         saveNote: (content: string) => ({ content }),
