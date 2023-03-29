@@ -398,7 +398,7 @@ class TestResolver(BaseTest):
                                 table=events_table_ref, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_join=self.database.events.pdi.table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,
                         ),
                     ),
                 ),
@@ -419,7 +419,7 @@ class TestResolver(BaseTest):
                                 table=events_table_ref, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_join=self.database.events.pdi.table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,
                         ),
                     ),
                 },
@@ -452,7 +452,7 @@ class TestResolver(BaseTest):
                                 table=events_table_alias_ref, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_join=self.database.events.pdi.table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,
                         ),
                     ),
                 ),
@@ -474,7 +474,7 @@ class TestResolver(BaseTest):
                                 table=events_table_alias_ref, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_join=self.database.events.pdi.table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,
                         ),
                     ),
                 },
