@@ -5,6 +5,7 @@ from .activity_logging.notification_viewed import NotificationViewed
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from .automation import Automation
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile, Text
@@ -53,6 +54,7 @@ __all__ = [
     "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
+    "Automation",
     "Cohort",
     "CohortPeople",
     "Dashboard",
