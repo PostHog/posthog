@@ -10,6 +10,8 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { LemonButton } from '@posthog/lemon-ui'
 import { NewInsightButton } from 'scenes/saved-insights/SavedInsights'
 import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 /**
  * In PostHog 3000 breadcrumbs also serve as the top bar. This is marked by theses two features:
@@ -31,7 +33,9 @@ export function Breadcrumbs(): JSX.Element | null {
             {/* TODO: These buttons below are hardcoded right now, scene-based system coming in the next PR */}
             <LemonButton className="Breadcrumbs3000__more" icon={<IconEllipsisVertical />} size="small" />
             <div className="Breadcrumbs3000__actions">
-                <NotebookButton />
+                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match={true}>
+                    <NotebookButton />
+                </FlaggedFeature>
                 <NewInsightButton dataAttr="project-home-new-insight" />
             </div>
         </div>
