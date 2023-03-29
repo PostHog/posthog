@@ -6,4 +6,11 @@
         row-gap: 0.5em;
         display: grid;
     }
+
+    .closebutton {
+        position: absolute;
+        top: 1.5rem;
+        right: 1.5rem;
+        z-index: 1;
+    }
 }

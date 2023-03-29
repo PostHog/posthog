@@ -1,85 +1,65 @@
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
-import {
-    GithubIcon,
-    IconAction,
-    IconApps,
-    IconArticle,
-    IconClose,
-    IconCoffee,
-    IconCohort,
-    IconEvent,
-    IconFlag,
-    IconMonitor,
-    IconPerson,
-    IconSlack,
-    IconWebhook,
-} from 'lib/lemon-ui/icons'
+import { useActions, useValues } from 'kea'
+import { IconClose } from 'lib/lemon-ui/icons'
 import './AutomationStepConfig.scss'
-import { automationStepConfigLogic } from './automationStepConfigLogic'
+import { automationStepConfigLogic, kindToConfig } from './automationStepConfigLogic'
+import { AnyAutomationStep, AutomationStepCategory } from './schema'
+
+export function AutomationStepChooser(): JSX.Element {
+    const { setActiveStepId } = useActions(automationStepConfigLogic)
+    const { stepOptions } = useValues(automationStepConfigLogic)
+
+    return (
+        <>
+            <h2>New step</h2>
+            <LemonDivider />
+            {Object.values(AutomationStepCategory).map((category: AutomationStepCategory) => (
+                <div key={category}>
+                    <h3>{category}</h3>
+                    <div className="StepChooser mb-4">
+                        {Object.values(stepOptions)
+                            .filter((option: AnyAutomationStep) => option.category === category)
+                            .map((option: AnyAutomationStep, key: number) => (
+                                <LemonButton
+                                    type="secondary"
+                                    icon={kindToConfig[option.id].icon}
+                                    key={key}
+                                    onClick={() => setActiveStepId(option.id)}
+                                >
+                                    {kindToConfig[option.id].label}
+                                </LemonButton>
+                            ))}
+                    </div>
+                    <LemonDivider />
+                </div>
+            ))}
+        </>
+    )
+}
+
+export function AutomationStepForm(): JSX.Element {
+    const { activeStep, activeStepConfig } = useValues(automationStepConfigLogic)
+    if (!activeStep) {
+        return <h2>Error loading step</h2>
+    }
+    return <h2>New step: {activeStepConfig.label}</h2>
+}
 
 export function AutomationStepConfig(): JSX.Element {
+    const { activeStepId } = useValues(automationStepConfigLogic)
     const { closeStepConfig } = useActions(automationStepConfigLogic)
 
-    const eventSteps = [
-        { label: 'Event sent', icon: <IconEvent /> },
-        { label: 'Action triggered', icon: <IconAction /> },
-    ]
-
-    const delaySteps = [
-        { label: 'Pause for', icon: <IconCoffee /> },
-        { label: 'Pause until', icon: <IconCoffee /> },
-    ]
-
-    const destinationsSteps = [
-        { label: 'Create a Github ticket', icon: <GithubIcon /> },
-        { label: 'Set user property', icon: <IconPerson /> },
-        { label: 'Add to cohort', icon: <IconCohort /> },
-        { label: 'Add to feature flags', icon: <IconFlag /> },
-        { label: 'Send a webhook', icon: <IconWebhook /> },
-        { label: 'Send to slack', icon: <IconSlack /> },
-        { label: 'Send to Zapier', icon: <IconApps /> },
-        { label: 'Send an email', icon: <IconArticle /> },
-        { label: 'In-app message', icon: <IconMonitor /> },
-    ]
     return (
-        <div className="w-full m-4 p-8 border bg-white AutomationStepConfig">
-            {/* close button in the top right of the div using LemonButton */}
+        <div className="w-full m-4 p-8 border bg-white AutomationStepConfig relative">
             <LemonButton
                 icon={<IconClose />}
                 size="small"
                 status="stealth"
                 onClick={closeStepConfig}
                 aria-label="close"
+                className="closebutton"
             />
-            <h1>New Step</h1>
-            <LemonDivider />
-            <h3>Sources</h3>
-            <div className="StepChooser mb-4">
-                {eventSteps.map((option, key) => (
-                    <LemonButton type="secondary" icon={option.icon} key={key}>
-                        {option.label}
-                    </LemonButton>
-                ))}
-            </div>
-            <LemonDivider />
-            <h3>Delays</h3>
-            <div className="StepChooser mb-4">
-                {delaySteps.map((option, key) => (
-                    <LemonButton type="secondary" icon={option.icon} key={key}>
-                        {option.label}
-                    </LemonButton>
-                ))}
-            </div>
-            <LemonDivider />
-            <h3>Destinations</h3>
-            <div className="StepChooser mb-4">
-                {destinationsSteps.map((option, key) => (
-                    <LemonButton type="secondary" icon={option.icon} key={key}>
-                        {option.label}
-                    </LemonButton>
-                ))}
-            </div>
+            {activeStepId ? <AutomationStepForm /> : <AutomationStepChooser />}
         </div>
     )
 }
