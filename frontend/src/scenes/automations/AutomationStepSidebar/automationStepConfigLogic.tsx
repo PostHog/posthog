@@ -19,6 +19,8 @@ import {
 import { EventSentConfig } from './AutomationStepConfig'
 import { uuid } from 'lib/utils'
 
+const id = uuid()
+
 const stepOptions: AnyAutomationStep[] = [
     {
         kind: AutomationStepKind.EventSource,
@@ -92,7 +94,7 @@ export const automationStepConfigLogic = kea([
             [
                 {
                     kind: AutomationStepKind.EventSource,
-                    id: uuid(),
+                    id: id,
                     category: AutomationStepCategory.Source,
                     filters: [],
                 },
@@ -113,7 +115,7 @@ export const automationStepConfigLogic = kea([
             },
         ],
         activeStepId: [
-            null as null | string,
+            id as null | string,
             {
                 setActiveStepId: (_, { id }) => id,
                 closeStepConfig: () => null,
@@ -135,7 +137,7 @@ export const automationStepConfigLogic = kea([
                 if (!activeStep) {
                     return null
                 }
-                return kindToConfig[activeStep.id]
+                return kindToConfig[activeStep.kind]
             },
         ],
     }),
