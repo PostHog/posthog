@@ -45,7 +45,7 @@ export const startAutomationsConsumer = async ({
     status.info('🔁', 'Starting automations starter')
 
     const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
-        status.info('🔁', 'Processing automation batch', { size: batch.messages.length })
+        status.debug('🔁', 'Processing automation batch', { size: batch.messages.length })
         for (const message of batch.messages) {
             if (!message.value) {
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {

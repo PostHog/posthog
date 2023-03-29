@@ -1,6 +1,8 @@
 import { actions, kea, path, reducers } from 'kea'
 
-export const automationStepMenuLogic = kea([
+import type { automationStepMenuLogicType } from './automationStepMenuLogicType'
+
+export const automationStepMenuLogic = kea<automationStepMenuLogicType>([
     path(['scenes', 'automations', 'AutomationStepSidebard', 'automationStepMenuLogic']),
     actions({
         openMenu: true,

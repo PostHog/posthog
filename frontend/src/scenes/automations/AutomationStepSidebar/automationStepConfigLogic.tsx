@@ -18,6 +18,8 @@ import {
 import { EventSentConfig } from './AutomationStepConfig'
 import { uuid } from 'lib/utils'
 
+import type { automationStepConfigLogicType } from './automationStepConfigLogicType'
+
 const stepOptions: AnyAutomationStep[] = [
     {
         kind: AutomationStepKind.EventSource,
@@ -71,7 +73,7 @@ export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> 
     // 'In-app message': { icon: <IconMonitor />, label: 'In-app message' },
 }
 
-export const automationStepConfigLogic = kea([
+export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
     path(['scenes', 'automations', 'AutomationStepSidebar', 'automationStepConfigLogic']),
     actions({
         setActiveStepId: (id: string) => ({ id }),

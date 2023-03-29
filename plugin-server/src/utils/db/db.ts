@@ -1864,16 +1864,8 @@ export class DB {
                     id,
                     team_id,
                     name,
-                    description,
-                    created_at,
-                    created_by_id,
-                    deleted,
-                    post_to_slack,
-                    slack_message_format,
-                    is_calculating,
-                    updated_at,
-                    last_calculated_at
-                FROM posthog_automations
+                    steps
+                FROM posthog_automation
                 WHERE deleted = FALSE
             `,
                 [],

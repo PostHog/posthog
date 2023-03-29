@@ -65,7 +65,6 @@ export class AutomationManager {
                 await this.runAutomationJob(job, graphileWorker)
             }
         }
-        console.log('STARTING', event)
     }
 
     // Actually running the job that came from graphile
