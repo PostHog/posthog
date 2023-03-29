@@ -378,6 +378,22 @@ class Groups(Table):
         return "groups"
 
 
+class DataBeachTableAppendableRaw(Table):
+    class Config:
+        extra = Extra.allow
+
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    id: StringDatabaseField = StringDatabaseField(name="id")
+    table_name: StringDatabaseField = StringDatabaseField(name="table_name")
+    data: StringJSONDatabaseField = StringJSONDatabaseField(name="data")
+
+    def clickhouse_table(self):
+        return "data_beach_appendable"
+
+    def hogql_table(self):
+        return "data_beach_appendable_raw"
+
+
 class Database(BaseModel):
     class Config:
         extra = Extra.allow
@@ -391,6 +407,7 @@ class Database(BaseModel):
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
     groups: Groups = Groups()
+    data_beach_appendable_raw: DataBeachTableAppendableRaw = DataBeachTableAppendableRaw()
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
@@ -405,13 +422,10 @@ if TYPE_CHECKING:
     from posthog.models import DataBeachTable
 
 
-class DataBeachTableAppendable(Table):
+class DataBeachTableAppendable(LazyTable):
     class Config:
         extra = Extra.allow
 
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    id: StringDatabaseField = StringDatabaseField(name="id")
-    table_name: StringDatabaseField = StringDatabaseField(name="table_name")
     data: StringJSONDatabaseField = StringJSONDatabaseField(name="data")
 
     def __init__(self, table: "DataBeachTable", **kwargs):
@@ -420,8 +434,26 @@ class DataBeachTableAppendable(Table):
         self._table_name = table.name
         self._field_names = [field.name for field in table.fields.all()]
 
-    def clickhouse_table(self):
-        return "data_beach_appendable"
+    def lazy_select(self, requested_fields: Dict[str, Any]):
+        from posthog.hogql import ast
+
+        if not requested_fields:
+            raise ValueError("No fields requested from table.")
+
+        # contains the list of fields we will select from this table
+        fields_to_select: List[ast.Expr] = []
+        for field, expr in requested_fields.items():
+            fields_to_select.append(ast.Alias(alias=field, expr=expr))
+
+        return ast.SelectQuery(
+            select=fields_to_select,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["data_beach_appendable_raw"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationType.Eq,
+                left=ast.Field(chain=["data_beach_appendable_raw", "table_name"]),
+                right=ast.Constant(value=self._table_name),
+            ),
+        )
 
     def hogql_table(self):
         return self._table_name
