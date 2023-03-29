@@ -8,7 +8,7 @@ import { DataBeachTableForm } from './DataBeachTableForm'
 import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 
 export function DatabaseScene(): JSX.Element {
-    const { editingDataBeachTable, searchTerm, category } = useValues(databaseSceneLogic)
+    const { editingDataBeachTable, editingDataBeachTableObject, searchTerm, category } = useValues(databaseSceneLogic)
     const {
         editDataBeachTable,
         hideEditDataBeachTable,
@@ -60,7 +60,7 @@ export function DatabaseScene(): JSX.Element {
                 width={560}
             >
                 <DataBeachTableForm
-                    dataBeachTable={null}
+                    dataBeachTable={editingDataBeachTableObject}
                     onCancel={hideEditDataBeachTable}
                     onSave={(table) => {
                         if (editingDataBeachTable === 'new') {

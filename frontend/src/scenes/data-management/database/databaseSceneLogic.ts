@@ -105,6 +105,11 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
                 return filteredTables
             },
         ],
+        editingDataBeachTableObject: [
+            (s) => [s.dataBeachTables, s.editingDataBeachTable],
+            (dataBeachTables, editingDataBeachTable) =>
+                editingDataBeachTable ? dataBeachTables.find(({ id }) => id === editingDataBeachTable) : null,
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadDatabase()
