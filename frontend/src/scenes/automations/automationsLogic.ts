@@ -45,11 +45,11 @@ export const automationsLogic = kea<automationsLogicType>([
                     const response = await api.get(`api/projects/${values.currentTeamId}/automations`)
                     return response.results as Automation[]
                 },
-                // deleteExperiment: async (id: number) => {
-                //     await api.delete(`api/projects/${values.currentTeamId}/experiments/${id}`)
-                //     lemonToast.info('Experiment removed')
-                //     return values.experiments.filter((automation) => automation.id !== id)
-                // },
+                deleteAutomation: async (id: number) => {
+                    await api.delete(`api/projects/${values.currentTeamId}/automations/${id}`)
+                    lemonToast.info('Automation removed')
+                    return values.automations.filter((automation) => automation.id !== id)
+                },
                 // addToExperiments: (automation: Experiment) => {
                 //     return [...values.experiments, automation]
                 // },

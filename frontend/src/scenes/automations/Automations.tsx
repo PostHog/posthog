@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { urls } from 'scenes/urls'
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { automationsLogic } from './automationsLogic'
@@ -12,10 +12,11 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { AutomationsTabs } from '~/types'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { AppMetricsGraph } from 'scenes/apps/AppMetricsGraph'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 
 export function Automations(): JSX.Element {
     const { filteredAutomations, automationsLoading, tab, searchTerm } = useValues(automationsLogic)
-    const { setAutomationsTab, setSearchTerm } = useActions(automationsLogic)
+    const { setAutomationsTab, setSearchTerm, deleteAutomation } = useActions(automationsLogic)
 
     const columns: LemonTableColumns<Automation> = [
         {
@@ -62,36 +63,36 @@ export function Automations(): JSX.Element {
         //         return score[statusA] > score[statusB] ? 1 : -1
         //     },
         // },
-        // {
-        //     width: 0,
-        //     render: function Render(_, experiment: Experiment) {
-        //         return (
-        //             <More
-        //                 overlay={
-        //                     <>
-        //                         <LemonButton
-        //                             status="stealth"
-        //                             to={urls.experiment(`${experiment.id}`)}
-        //                             size="small"
-        //                             fullWidth
-        //                         >
-        //                             View
-        //                         </LemonButton>
-        //                         <LemonDivider />
-        //                         <LemonButton
-        //                             status="danger"
-        //                             onClick={() => deleteExperiment(experiment.id as number)}
-        //                             data-attr={`experiment-${experiment.id}-dropdown-remove`}
-        //                             fullWidth
-        //                         >
-        //                             Delete experiment
-        //                         </LemonButton>
-        //                     </>
-        //                 }
-        //             />
-        //         )
-        //     },
-        // },
+        {
+            width: 0,
+            render: function Render(_, automation: Automation) {
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    status="stealth"
+                                    to={urls.automation(`${automation.id}`)}
+                                    size="small"
+                                    fullWidth
+                                >
+                                    View
+                                </LemonButton>
+                                <LemonDivider />
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => deleteAutomation(automation.id as number)}
+                                    data-attr={`automation-${automation.id}-dropdown-remove`}
+                                    fullWidth
+                                >
+                                    Delete automation
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
+            },
+        },
     ]
 
     return (
