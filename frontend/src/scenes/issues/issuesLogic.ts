@@ -1,9 +1,10 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 
-import type { issuesSettingsLogicType } from './issuesSettingsLogicType'
 import { EventsQuery, NodeKind } from '~/queries/schema'
 
-export const issuesLogic = kea<issuesSettingsLogicType>([
+import type { issuesLogicType } from './issuesLogicType'
+
+export const issuesLogic = kea<issuesLogicType>([
     path(['scenes', 'issues', 'issuesLogic']),
     actions({
         setIssueEvent: (event: string) => ({ event }),
