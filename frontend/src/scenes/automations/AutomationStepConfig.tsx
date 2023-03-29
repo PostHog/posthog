@@ -1,5 +1,6 @@
 import { LemonButton, LemonDivider, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { GroupPropertyFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters.stories'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { FilterType, InsightType } from '~/types'
@@ -31,6 +32,13 @@ export function EventSentConfig(): JSX.Element {
                     buttonCopy={''}
                     hideDeleteBtn={activeStep.filters.length == 1}
                 />
+            </div>
+            <div className="mb-2">
+                <LemonLabel>Person</LemonLabel>
+                {/* <p className="text-sm text-muted">{variable.description}</p> */}
+            </div>
+            <div>
+                <GroupPropertyFilters />
             </div>
         </div>
     )

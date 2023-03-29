@@ -79,6 +79,7 @@ export const kindToConfig: Record<string, AutomationStepConfigType> = {
 }
 
 export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
+    connect([]),
     path(['scenes', 'automations', 'automationStepConfigLogic']),
     actions({
         openStepConfig: true,
