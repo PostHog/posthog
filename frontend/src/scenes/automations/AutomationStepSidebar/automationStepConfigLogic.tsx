@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { AnyAutomationStep, AutomationStepCategory, AutomationStepConfigType, AutomationStepKind } from '../schema'
 
 import {
@@ -16,7 +16,7 @@ import {
     IconWebhook,
 } from 'lib/lemon-ui/icons'
 import { EventSentConfig } from './AutomationStepConfig'
-import { uuid } from 'lib/utils'
+import { automationLogic } from '../automationLogic'
 
 export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> = {
     [AutomationStepKind.EventSource]: {
@@ -40,58 +40,62 @@ export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> 
 
 export const automationStepConfigLogic = kea([
     path(['scenes', 'automations', 'AutomationStepSidebar', 'automationStepConfigLogic']),
+    connect({
+        values: [automationLogic, ['steps']],
+    }),
     actions({
         setActiveStepId: (id: string) => ({ id }),
         updateActiveStep: (id: string, activeStepUpdates: Partial<AnyAutomationStep>) => ({ id, activeStepUpdates }),
     }),
     reducers({
-        activeSteps: [
-            [
-                {
-                    kind: AutomationStepKind.EventSource,
-                    id: uuid(),
-                    category: AutomationStepCategory.Source,
-                    filters: [],
-                },
-            ] as AnyAutomationStep[],
-            {
-                updateActiveStep: (activeSteps, { id, activeStepUpdates }) => {
-                    return activeSteps.map((activeStep: AnyAutomationStep) => {
-                        if (activeStep.id === id) {
-                            return {
-                                ...activeStep,
-                                ...activeStepUpdates,
-                            }
-                        } else {
-                            return activeStep
-                        }
-                    })
-                },
-            },
-        ],
+        // activeSteps: [
+        //     [
+        //         {
+        //             kind: AutomationStepKind.EventSource,
+        //             id: uuid(),
+        //             category: AutomationStepCategory.Source,
+        //             filters: [],
+        //         },
+        //     ] as AnyAutomationStep[],
+        //     {
+        //         updateActiveStep: (activeSteps, { id, activeStepUpdates }) => {
+        //             return activeSteps.map((activeStep: AnyAutomationStep) => {
+        //                 if (activeStep.id === id) {
+        //                     return {
+        //                         ...activeStep,
+        //                         ...activeStepUpdates,
+        //                     }
+        //                 } else {
+        //                     return activeStep
+        //                 }
+        //             })
+        //         },
+        //     },
+        // ],
         activeStepId: [
             null as null | string,
             {
                 setActiveStepId: (_, { id }) => id,
-                closeStepConfig: () => null,
             },
         ],
         stepCategories: [Object.values(AutomationStepCategory), {}],
     }),
     selectors({
         activeStep: [
-            (selectors) => [selectors.activeStepId, selectors.activeSteps],
-            (activeStepId: string, activeSteps: AnyAutomationStep[]): AnyAutomationStep | null => {
-                return activeSteps.find((step: AnyAutomationStep) => step.id === activeStepId) || null
+            (s) => [s.activeStepId, s.steps],
+            (activeStepId, steps): AnyAutomationStep | null => {
+                console.debug('activeStep.activeStepId: ', activeStepId)
+                console.debug('activeStep.steps: ', steps)
+                return steps.find((step: AnyAutomationStep) => step.id === activeStepId) || null
             },
         ],
         activeStepConfig: [
-            (selectors) => [selectors.activeStep],
-            (activeStep: AnyAutomationStep | null): AutomationStepConfigType | null => {
+            (s) => [s.activeStep],
+            (activeStep): AutomationStepConfigType | null => {
                 if (!activeStep) {
                     return null
                 }
-                return kindToConfig[activeStep.id]
+                return kindToConfig[activeStep.kind]
             },
         ],
     }),
