@@ -28,6 +28,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.data_beach import deploy_towels_to
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.prompt import prompt_webhook
 from posthog.cloud_utils import is_cloud
@@ -171,6 +172,7 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     path("year_in_posthog/2022/<str:user_uuid>", year_in_posthog.render_2022),
     path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
+    path("ingest/deploy_towels_to/<str:table_name>/", deploy_towels_to),
 ]
 
 if settings.DEBUG:
@@ -181,7 +183,6 @@ if settings.DEBUG:
     urlpatterns.append(path("_metrics", ExportToDjangoView))
 
 if settings.TEST:
-
     # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
