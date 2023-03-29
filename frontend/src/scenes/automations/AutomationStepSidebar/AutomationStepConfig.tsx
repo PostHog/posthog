@@ -2,14 +2,12 @@ import { LemonButton, LemonDivider, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconClose } from 'lib/lemon-ui/icons'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { FilterType, InsightType } from '~/types'
-import { automationLogic } from './automationLogic'
+import { automationLogic } from '../automationLogic'
 import './AutomationStepConfig.scss'
-import { automationStepConfigLogic, kindToConfig } from './automationStepConfigLogic'
-import { AnyAutomationStep, AutomationStepCategory } from './schema'
+import { automationStepConfigLogic } from './automationStepConfigLogic'
 
 export function EventSentConfig(): JSX.Element {
     const { activeStep } = useValues(automationStepConfigLogic)
@@ -70,44 +68,7 @@ export function EventSentConfig(): JSX.Element {
     )
 }
 
-export function AutomationStepChooser(): JSX.Element {
-    const { setActiveStepId } = useActions(automationStepConfigLogic)
-    const { stepOptions } = useValues(automationStepConfigLogic)
-    const { updateStep } = useActions(automationLogic)
-
-    return (
-        <>
-            <h2>New step</h2>
-            <LemonDivider />
-            {Object.values(AutomationStepCategory).map((category: AutomationStepCategory) => (
-                <div key={category}>
-                    <h3>{category}</h3>
-                    <div className="StepChooser mb-4">
-                        {Object.values(stepOptions)
-                            .filter((option: AnyAutomationStep) => option.category === category)
-                            .map((option: AnyAutomationStep, key: number) => (
-                                <LemonButton
-                                    type="secondary"
-                                    icon={kindToConfig[option.kind].icon}
-                                    key={key}
-                                    onClick={() => {
-                                        // const id = uuid()
-                                        updateStep(option)
-                                        setActiveStepId(option.id)
-                                    }}
-                                >
-                                    {kindToConfig[option.kind].label}
-                                </LemonButton>
-                            ))}
-                    </div>
-                    <LemonDivider />
-                </div>
-            ))}
-        </>
-    )
-}
-
-export function AutomationStepForm(): JSX.Element {
+export function AutomationStepConfig(): JSX.Element {
     const { activeStep, activeStepConfig } = useValues(automationStepConfigLogic)
     const { addStep } = useActions(automationLogic)
     if (!activeStep) {
@@ -128,24 +89,5 @@ export function AutomationStepForm(): JSX.Element {
                 Save
             </LemonButton>
         </>
-    )
-}
-
-export function AutomationStepConfig(): JSX.Element {
-    const { activeStepId } = useValues(automationStepConfigLogic)
-    const { closeStepConfig } = useActions(automationStepConfigLogic)
-
-    return (
-        <div className="w-full m-4 p-8 border bg-white AutomationStepConfig relative">
-            <LemonButton
-                icon={<IconClose />}
-                size="small"
-                status="stealth"
-                onClick={closeStepConfig}
-                aria-label="close"
-                className="closebutton"
-            />
-            {activeStepId ? <AutomationStepForm /> : <AutomationStepChooser />}
-        </div>
     )
 }

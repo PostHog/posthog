@@ -22,8 +22,8 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { AutomationStepConfig } from './AutomationStepConfig'
-import { automationStepConfigLogic } from './automationStepConfigLogic'
+import { AutomationStepSidebar } from './AutomationStepSidebar/AutomationStepSidebar'
+import { automationStepConfigLogic } from './AutomationStepSidebar/automationStepConfigLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Skeleton } from 'antd'
 import { NotFound } from 'lib/components/NotFound'
@@ -157,7 +157,7 @@ function Automation(): JSX.Element {
                 </div>
                 {stepConfigOpen && (
                     <div className="flex-1">
-                        <AutomationStepConfig />
+                        <AutomationStepSidebar />
                     </div>
                 )}
             </div>
