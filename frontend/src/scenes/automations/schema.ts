@@ -1,3 +1,5 @@
+import { UserBasicType } from '~/types'
+
 export enum AutomationStepKind {
     // Sources
     EventSource = 'EventSource',
@@ -32,7 +34,12 @@ export type AutomationEdge = {
 }
 
 export type Automation = {
+    id: number | 'new'
     name: string
+    description?: string
+    created_at: string | null
+    created_by: UserBasicType | null
+    updated_at: string | null
     steps: AnyAutomationStep[]
     edges: AutomationEdge[]
 }

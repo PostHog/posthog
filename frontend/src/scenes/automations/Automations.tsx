@@ -11,6 +11,7 @@ import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { AutomationsTabs } from '~/types'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { AppMetricsGraph } from 'scenes/apps/AppMetricsGraph'
 
 export function Automations(): JSX.Element {
     const { automations, automationsLoading } = useValues(automationsLogic)
@@ -35,21 +36,6 @@ export function Automations(): JSX.Element {
         },
         createdByColumn<Automation>() as LemonTableColumn<Automation, keyof Automation | undefined>,
         createdAtColumn<Automation>() as LemonTableColumn<Automation, keyof Automation | undefined>,
-        // {
-        //     title: 'Duration',
-        //     key: 'duration',
-        //     render: function Render(_, experiment: Experiment) {
-        //         const duration = getExperimentDuration(experiment)
-
-        //         return <div>{duration !== undefined ? `${duration} day${duration !== 1 ? 's' : ''}` : '--'}</div>
-        //     },
-        //     sorter: (a, b) => {
-        //         const durationA = getExperimentDuration(a) ?? -1
-        //         const durationB = getExperimentDuration(b) ?? -1
-        //         return durationA > durationB ? 1 : -1
-        //     },
-        //     align: 'right',
-        // },
         // {
         //     title: 'Status',
         //     key: 'status',
@@ -168,20 +154,29 @@ export function Automations(): JSX.Element {
                     />
                 </div> */}
             </div>
+            <div className="mb-4">
+                <h2>Automation trends</h2>
+                <AppMetricsGraph
+                // tab={tab}
+                // metrics={appMetricsResponse?.metrics}
+                // metricsLoading={appMetricsResponseLoading}
+                />
+            </div>
+
             <LemonTable
                 // dataSource={filteredExperiments}
                 dataSource={automations}
                 columns={columns}
-                // rowKey="id"
-                // loading={automationsLoading}
-                // defaultSorting={{
-                //     columnKey: 'created_at',
-                //     order: -1,
-                // }}
-                // noSortingCancellation
-                // pagination={{ pageSize: 100 }}
-                // nouns={['automation', 'automations']}
-                // data-attr="automation-table"
+                rowKey="id"
+                loading={automationsLoading}
+                defaultSorting={{
+                    columnKey: 'created_at',
+                    order: -1,
+                }}
+                noSortingCancellation
+                pagination={{ pageSize: 100 }}
+                nouns={['automation', 'automations']}
+                data-attr="automation-table"
             />
         </>
     )
