@@ -23,7 +23,7 @@ export function EventSentConfig(): JSX.Element {
     return (
         <div className="mb-6">
             <div className="mb-2">
-                <LemonLabel showOptional>Event filtering</LemonLabel>
+                <LemonLabel>Event filtering</LemonLabel>
                 {/* <p className="text-sm text-muted">{variable.description}</p> */}
             </div>
             <div>
@@ -41,36 +41,43 @@ export function EventSentConfig(): JSX.Element {
                     mathAvailability={MathAvailability.None}
                 />
             </div>
-            <div className="mb-2">
-                <LemonLabel showOptional>Event properties</LemonLabel>
-                {/* <p className="text-sm text-muted">{variable.description}</p> */}
-            </div>
-            <div>
-                <PropertyFilters
-                    propertyFilters={[]}
-                    onChange={() => {}}
-                    pageKey={'pageKey'}
-                    style={{ marginBottom: 0 }}
-                    showNestedArrow
-                    eventNames={[]}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                />
-            </div>
-            <div className="mb-2">
-                <LemonLabel showOptional>Person and cohort</LemonLabel>
-                {/* <p className="text-sm text-muted">{variable.description}</p> */}
-            </div>
-            <div>
-                <PropertyFilters
-                    propertyFilters={[]}
-                    onChange={() => {}}
-                    pageKey={'pageKey'}
-                    style={{ marginBottom: 0 }}
-                    showNestedArrow
-                    eventNames={[]}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
-                />
-            </div>
+            {false && (
+                <>
+                    <div className="mb-2">
+                        <LemonLabel showOptional>Event properties</LemonLabel>
+                        {/* <p className="text-sm text-muted">{variable.description}</p> */}
+                    </div>
+                    <div>
+                        <PropertyFilters
+                            propertyFilters={[]}
+                            onChange={() => {}}
+                            pageKey={'pageKey'}
+                            style={{ marginBottom: 0 }}
+                            showNestedArrow
+                            eventNames={[]}
+                            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                        />
+                    </div>
+                    <div className="mb-2">
+                        <LemonLabel showOptional>Person and cohort</LemonLabel>
+                        {/* <p className="text-sm text-muted">{variable.description}</p> */}
+                    </div>
+                    <div>
+                        <PropertyFilters
+                            propertyFilters={[]}
+                            onChange={() => {}}
+                            pageKey={'pageKey'}
+                            style={{ marginBottom: 0 }}
+                            showNestedArrow
+                            eventNames={[]}
+                            taxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.PersonProperties,
+                                TaxonomicFilterGroupType.Cohorts,
+                            ]}
+                        />
+                    </div>
+                </>
+            )}
         </div>
     )
 }
