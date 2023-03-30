@@ -67,15 +67,14 @@ class TestLazyJoins(BaseTest):
     def test_resolve_lazy_tables_one_level_properties(self):
         printed = self._print_select("select person.properties.$browser from person_distinct_ids")
         expected = (
-            "SELECT person_distinct_ids__person.`properties___$browser` "
-            "FROM person_distinct_id2 INNER JOIN "
-            "(SELECT argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), person.version) "
-            "AS `properties___$browser`, person.id FROM person "
-            f"WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-            "HAVING equals(argMax(person.is_deleted, person.version), 0)"
-            ") AS person_distinct_ids__person ON equals(person_distinct_id2.person_id, person_distinct_ids__person.id) "
-            f"WHERE equals(person_distinct_id2.team_id, {self.team.pk}) "
-            "LIMIT 65535"
+            f"SELECT person_distinct_ids__person.`properties___$browser` FROM "
+            f"(SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id "
+            f"FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id "
+            f"HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS person_distinct_ids "
+            f"INNER JOIN (SELECT argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), person.version) "
+            f"AS `properties___$browser`, person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
+            f"HAVING equals(argMax(person.is_deleted, person.version), 0)) AS person_distinct_ids__person "
+            f"ON equals(person_distinct_ids.person_id, person_distinct_ids__person.id) LIMIT 65535"
         )
         self.assertEqual(printed, expected)
 

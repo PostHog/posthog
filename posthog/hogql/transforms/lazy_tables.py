@@ -157,6 +157,22 @@ class LazyTableResolver(TraversingVisitor):
                     chain=[new_join.lazy_join.from_field]
                 )
 
+        # For all the collected tables, create the subqueries, and add them to the table.
+        for table_name, table_to_add in tables_to_add.items():
+            subquery = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed)
+            resolve_refs(subquery, self.context.database, select_ref)
+            old_table_ref = select_ref.tables[table_name]
+            select_ref.tables[table_name] = ast.SelectQueryAliasRef(name=table_name, ref=subquery.ref)
+
+            join_ptr = node.select_from
+            while join_ptr:
+                if join_ptr.table.ref == old_table_ref:
+                    join_ptr.table = subquery
+                    join_ptr.ref = select_ref.tables[table_name]
+                    join_ptr.alias = table_name
+                    break
+                join_ptr = join_ptr.next_join
+
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
             join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
@@ -187,22 +203,6 @@ class LazyTableResolver(TraversingVisitor):
                 else:
                     node.select_from = join_to_add
 
-        # For all the collected tables, create the subqueries, and add them to the table.
-        for table_name, table_to_add in tables_to_add.items():
-            subquery = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed)
-            resolve_refs(subquery, self.context.database, select_ref)
-            old_table_ref = select_ref.tables[table_name]
-            select_ref.tables[table_name] = ast.SelectQueryAliasRef(name=table_name, ref=subquery.ref)
-
-            join_ptr = node.select_from
-            while join_ptr:
-                if join_ptr.table.ref == old_table_ref:
-                    join_ptr.table = subquery
-                    join_ptr.ref = select_ref.tables[table_name]
-                    join_ptr.alias = table_name
-                    break
-                join_ptr = join_ptr.next_join
-
         # Assign all refs on the fields we collected earlier
         for field_or_property in field_collector:
             if isinstance(field_or_property, ast.FieldRef):
@@ -218,6 +218,7 @@ class LazyTableResolver(TraversingVisitor):
             if isinstance(field_or_property, ast.FieldRef):
                 field_or_property.table = table_ref
             elif isinstance(field_or_property, ast.PropertyRef):
+                field_or_property.parent.table = table_ref
                 field_or_property.joined_subquery = table_ref
 
         self.stack_of_fields.pop()
