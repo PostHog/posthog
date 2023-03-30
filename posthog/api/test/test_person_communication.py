@@ -1,5 +1,5 @@
 import uuid
-from unittest import mock, skip
+from unittest import mock
 
 from posthog.models import Team
 from posthog.test.base import ClickhouseTestMixin, APIBaseTest, _create_person, _create_event, flush_persons_and_events
@@ -23,7 +23,7 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
             event_uuid=self.bug_report_uuid,
             team=self.team,
             distinct_id="2",
-            properties={},
+            properties={"email": "reporter@reporting.com"},
         )
 
         _create_event(
@@ -54,7 +54,6 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"results": []}
 
-    @skip("passes locally but not in CI 🤷‍♀️")
     def test_view_communications_by_bug_report(self) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/person_communications/?bug_report_uuid=" + self.bug_report_uuid
@@ -68,6 +67,7 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
                 "event": "$communication_note_saved",
                 "from": "",
                 "subject": "",
+                "email": "reporter@reporting.com",
                 "timestamp": mock.ANY,
                 "to": "",
             },
@@ -78,6 +78,7 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
                 "event": "$communication_email_received",
                 "from": "",
                 "subject": "",
+                "email": "reporter@reporting.com",
                 "timestamp": mock.ANY,
                 "to": "",
             },
@@ -86,6 +87,18 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
                 "body_plain": "hello world",
                 "bug_report_uuid": self.bug_report_uuid,
                 "event": "$communication_email_sent",
+                "from": "",
+                "subject": "",
+                "email": "reporter@reporting.com",
+                "timestamp": mock.ANY,
+                "to": "",
+            },
+            {
+                "body_html": "",
+                "body_plain": "",
+                "bug_report_uuid": "",
+                "email": "reporter@reporting.com",
+                "event": "$bug_report",
                 "from": "",
                 "subject": "",
                 "timestamp": mock.ANY,

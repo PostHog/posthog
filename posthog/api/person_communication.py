@@ -25,19 +25,34 @@ class PersonCommunicationViewSet(StructuredViewSetMixin, viewsets.GenericViewSet
         slow_query = f"""
         select JSONExtractString(properties, 'bug_report_uuid'), event, JSONExtractString(properties, 'from'),
          JSONExtractString(properties, 'to'), JSONExtractString(properties, 'subject'),
-         JSONExtractString(properties, 'body_plain'), JSONExtractString(properties, 'body_html'), timestamp
+         JSONExtractString(properties, 'body_plain'), JSONExtractString(properties, 'body_html'),
+         JSONExtractString(properties, 'email'), timestamp
         from events
         prewhere team_id = %(team_id)s
-        and timestamp <= now()
+        and timestamp <= now() + INTERVAL 1 DAY
         and timestamp >= now() - INTERVAL 7 DAY
-        and event in ('$communication_email_sent', '$communication_email_received', '$communication_note_saved')
-        and JSONExtractString(properties, 'bug_report_uuid') = %(bug_report_uuid)s
+        and event in ('$communication_email_sent', '$communication_email_received', '$communication_note_saved', '$bug_report')
+        and (JSONExtractString(properties, 'bug_report_uuid') = %(bug_report_uuid)s or uuid = %(bug_report_uuid)s)
         order by timestamp DESC
         """
 
         results = sync_execute(slow_query, {"team_id": self.team.pk, "bug_report_uuid": bug_report_uuid})
 
-        column_names = ["bug_report_uuid", "event", "from", "to", "subject", "body_plain", "body_html", "timestamp"]
+        column_names = [
+            "bug_report_uuid",
+            "event",
+            "from",
+            "to",
+            "subject",
+            "body_plain",
+            "body_html",
+            "email",
+            "timestamp",
+        ]
         columnized_results = [dict(zip(column_names, res)) for res in results]
+
+        # the last event is always the bug report
+        bug_report = columnized_results[-1]
+        columnized_results = [{**x, "email": bug_report["email"]} for x in columnized_results]
 
         return Response({"results": columnized_results})

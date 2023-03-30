@@ -24,6 +24,7 @@ export interface CommunicationMessage {
 
 export interface CommunicationResponseItem extends CommunicationMessage {
     event: string
+    email: string
 }
 
 export interface CommunicationResponse {
@@ -99,6 +100,9 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
             // TODO: make it send an event to PostHog - should be whatever team we're on ??? -
             const event = values.publicReplyEnabled ? '$communication_email_sent' : '$communication_note_saved'
 
+            // KLUDGE: we have to have at least 1 communication result, because the first is the one we're replying to
+            const email = values.communications?.results[0]?.email
+
             if (values.posthogSDK && props.eventUUID) {
                 const messageProperties: CommunicationMessage = {
                     ...{
@@ -107,7 +111,7 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
                         from: values.user?.email || 'support agent',
                         bug_report_uuid: props.eventUUID,
                     },
-                    ...(values.publicReplyEnabled ? { to: values.user?.email || 'unknown' } : {}),
+                    ...(values.publicReplyEnabled ? { to: email || 'unknown' } : {}),
                 }
 
                 values.posthogSDK.capture(event, messageProperties)
