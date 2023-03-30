@@ -95,7 +95,6 @@ export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
     )
 
     useEffect(() => {
-        // only load when the
         loadCommunications()
     }, [])
 
