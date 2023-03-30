@@ -10,7 +10,6 @@ from django.conf import settings
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.data_beach.data_beach_field import DataBeachField, DataBeachFieldType
 from posthog.models.data_beach.data_beach_table import DataBeachTable
-from posthog.models.user import User
 import boto3
 
 
@@ -189,11 +188,7 @@ class ImportFromAirByteRequest(pydantic.BaseModel):
     aws_secret_access_key: str = pydantic.Field(..., min_length=1)
 
 
-class HttpAuthenticatedRequest(HttpRequest):
-    user: User
-
-
-def import_from_airbyte_s3_destination(request: HttpAuthenticatedRequest, team_id: int):
+def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
     """
     Given an S3 prefix that is used to store data from AirByte in the Avro
     format, along with the AWS credentials to access the bucket this endpoint
