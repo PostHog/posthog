@@ -40,13 +40,13 @@ def deploy_towels_to(request, table_name):
     # table data against a schema, but that's not a priority for now.
     try:
         data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return HttpResponse(status=400)
+    except json.JSONDecodeError as e:
+        return HttpResponse(str(e), status=400)
 
     try:
         payload = RequestPayload(**data)
-    except pydantic.ValidationError:
-        return HttpResponse(status=400)
+    except pydantic.ValidationError as e:
+        return HttpResponse(str(e), status=400)
 
     # Get the team_id from the token in the payload body
     ingestion_context, _, _ = get_event_ingestion_context(request, data, payload.token)
