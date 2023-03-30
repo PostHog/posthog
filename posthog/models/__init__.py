@@ -6,6 +6,7 @@ from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .automation import Automation
+from .automation_run import AutomationRun
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile, Text
@@ -55,6 +56,7 @@ __all__ = [
     "AsyncMigration",
     "AsyncMigrationError",
     "Automation",
+    "AutomationRun",
     "Cohort",
     "CohortPeople",
     "Dashboard",

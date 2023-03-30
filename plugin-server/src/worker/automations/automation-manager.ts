@@ -1,20 +1,20 @@
-import { ActionManager } from '../ingestion/action-manager'
-import { ActionMatcher } from '../ingestion/action-matcher'
+import fetch from 'node-fetch'
+
+import { GraphileWorker } from '../../main/graphile-worker/graphile-worker'
 import {
-    Action,
-    PluginServerCapabilities,
-    Team,
-    PostIngestionEvent,
+    Automation,
     EnqueuedAutomationJob,
-    AutomationJobState,
     JobName,
+    PluginServerCapabilities,
+    PostIngestionEvent,
+    Team,
 } from '../../types'
 import { DB } from '../../utils/db/db'
 import { status } from '../../utils/status'
-import { GraphileWorker } from '../../main/graphile-worker/graphile-worker'
-import fetch from 'node-fetch'
+import { ActionMatcher } from '../ingestion/action-matcher'
+import { AppMetrics } from '../ingestion/app-metrics'
 
-export type AutomationMap = Record<string, any>
+export type AutomationMap = Record<string, Automation>
 type AutomationCache = Record<Team['id'], AutomationMap>
 
 export function applyEventToPayloadTemplate(payloadTemplate: any, event: any): any {
@@ -60,6 +60,11 @@ export function applyEventToPayloadTemplate(payloadTemplate: any, event: any): a
     return replaceTemplateRecursive(payloadTemplate, [])
 }
 
+export const automationToPluginConfigId = (automation: Automation): string => {
+    // AppMetrics is for plugins but we are stealing it for this use case
+    return `automation-${automation.id}`
+}
+
 export class AutomationManager {
     private ready: boolean
     private automationCache: AutomationCache
@@ -68,8 +73,8 @@ export class AutomationManager {
     constructor(
         private db: DB,
         private capabilities: PluginServerCapabilities,
-        private actionManager: ActionManager,
-        private actionMatcher: ActionMatcher
+        private actionMatcher: ActionMatcher,
+        private appMetrics: AppMetrics
     ) {
         this.ready = false
         this.automationCache = {}
@@ -118,35 +123,56 @@ export class AutomationManager {
     // Actually running the job that came from graphile
     public async runAutomationJob(job: EnqueuedAutomationJob, graphileWorker: GraphileWorker) {
         // 1. Find the node in the job.automation for job.nodeId
-        const step = job.automation.steps.find((step: any) => step.id == job.nodeId) as any
+        try {
+            const step = job.automation.steps.find((step: any) => step.id == job.nodeId) as any
 
-        if (!step) {
-            throw new Error('Could not find step with ID ' + job.nodeId)
-        }
-        // 2. run the corresponding action
-        if (step.kind == 'WebhookDestination') {
-            const response = await fetch(step.url, {
-                method: 'POST',
-                body: JSON.stringify(applyEventToPayloadTemplate(JSON.parse(step.payload), job.event)),
-            })
-            if (!response.ok) {
-                throw new Error('Webhook failed')
+            if (!step) {
+                throw new Error('Could not find step with ID ' + job.nodeId)
             }
-        }
-        // 3. Enqueue the new job(s) with the next nodeIds
-        // find the next node id from the edges
-        const nextStep = job.automation.edges.find((edge: any) => edge.source == job.nodeId)?.target
+            // 2. run the corresponding action
+            if (step.kind == 'WebhookDestination') {
+                const response = await fetch(step.url, {
+                    method: 'POST',
+                    body: JSON.stringify(applyEventToPayloadTemplate(JSON.parse(step.payload), job.event)),
+                })
+                if (!response.ok) {
+                    throw new Error('Webhook failed')
+                }
+            }
+            // 3. Enqueue the new job(s) with the next nodeIds
+            // find the next node id from the edges
+            const nextStep = job.automation.edges.find((edge: any) => edge.source == job.nodeId)?.target
 
-        if (nextStep) {
-            const newJob: EnqueuedAutomationJob = {
-                ...job,
-                nodeId: nextStep,
+            if (nextStep) {
+                const newJob: EnqueuedAutomationJob = {
+                    ...job,
+                    nodeId: nextStep,
+                }
+                await graphileWorker.enqueue(JobName.AUTOMATION_JOB, newJob)
+            } else {
+                await this.appMetrics.queueMetric({
+                    teamId: job.automation.teamId,
+                    pluginConfigId: job.automation.id,
+                    category: 'automationTask',
+                    successes: 1,
+                })
+                console.log('finished')
             }
-            await graphileWorker.enqueue(JobName.AUTOMATION_JOB, newJob)
-        } else {
-            console.log('finished')
+            // Do the appropriate thing and then schedule the follow up job
+        } catch (error) {
+            await this.appMetrics.queueError(
+                {
+                    teamId: job.automation.teamId,
+                    pluginConfigId: job.automation.id,
+                    category: 'automationTask',
+                    successes: 1,
+                },
+                {
+                    error,
+                    event: job,
+                }
+            )
         }
-        // Do the appropriate thing and then schedule the follow up job
 
         // DONT DO THIS
         // graphileWorker.enqueue(JobName.AUTOMATION_JOB, job)

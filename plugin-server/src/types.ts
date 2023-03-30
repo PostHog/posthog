@@ -264,11 +264,19 @@ export interface EnqueuedAutomationJob {
     nodeId: string
 }
 
-export enum AutomationJobState {
-    SCHEDULED = 'scheduled',
-    RUNNING = 'running',
-    SUCCESS = 'success',
-    FAILED = 'failed',
+/** Raw Action row from database. */
+export interface Automation {
+    id: number
+    team_id: TeamId
+    name: string | null
+    steps: any
+    edges: any
+}
+
+/** Usable Action model. */
+export interface Action extends RawAction {
+    steps: ActionStep[]
+    hooks: Hook[]
 }
 
 export enum JobName {

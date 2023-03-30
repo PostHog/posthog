@@ -1,5 +1,6 @@
 from django.db import models
 
+
 class Automation(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.TextField = models.TextField(blank=True)

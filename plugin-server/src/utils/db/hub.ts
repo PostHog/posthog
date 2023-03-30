@@ -257,11 +257,12 @@ export async function createHub(
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.personManager = new PersonManager(hub as Hub)
-    hub.automationManager = new AutomationManager(db, capabilities, actionManager, hub.actionMatcher!)
-    await hub.automationManager.prepare()
 
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
+
+    hub.automationManager = new AutomationManager(db, capabilities, hub.actionMatcher!, hub.appMetrics)
+    await hub.automationManager.prepare()
 
     const closeHub = async () => {
         await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])

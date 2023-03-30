@@ -13,6 +13,7 @@ import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from
 import {
     Action,
     ActionStep,
+    Automation,
     ClickHouseEvent,
     ClickhouseGroup,
     ClickHousePerson,
@@ -1856,9 +1857,9 @@ export class DB {
     }
 
     // Automations
-    public async fetchAllAutomationsGroupedByTeam(): Promise<Record<Team['id'], Record<string, any>>> {
+    public async fetchAllAutomationsGroupedByTeam(): Promise<Record<Team['id'], Record<string, Automation>>> {
         const automations = (
-            await this.postgresQuery<RawAction>(
+            await this.postgresQuery<Automation>(
                 `
                 SELECT
                     id,
@@ -1874,7 +1875,7 @@ export class DB {
             )
         ).rows
 
-        const automationsMap: Record<Team['id'], Record<string, any>> = {}
+        const automationsMap: Record<Team['id'], Record<string, Automation>> = {}
         for (const automation of automations) {
             if (!automationsMap[automation.team_id]) {
                 automationsMap[automation.team_id] = {}
@@ -1885,5 +1886,23 @@ export class DB {
             }
         }
         return automationsMap
+    }
+
+    public async countRunningAutomationsForTeam(automationId: number, teamId: Team['id']): Promise<number> {
+        const result = (
+            await this.postgresQuery<RawAction>(
+                `
+                SELECT count(id)
+                FROM posthog_automationrun
+                WHERE team_id = $1 and automation_id = $2
+            `,
+                [teamId],
+                'fetchAutomationRunCount'
+            )
+        ).rows
+
+        console.log(result)
+
+        return 1
     }
 }
