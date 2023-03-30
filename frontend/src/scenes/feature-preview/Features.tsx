@@ -2,9 +2,12 @@ import './Features.scss'
 import { featuresLogic } from './featuresLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonTable, LemonSwitch, LemonButton } from '@posthog/lemon-ui'
-import { FeaturePreview } from 'posthog-js'
+import { posthog } from 'posthog-js'
+import { useState } from 'react'
 
 export function Features(): JSX.Element {
+    const [switchedFlag, setSwitchedFlag] = useState<[string, boolean] | null>(null)
+
     return (
         <div className="feature-scene">
             <LemonTable
@@ -34,11 +37,29 @@ export function Features(): JSX.Element {
                     {
                         // make it so this is _either_ switch on _or_ if it's a register interest
                         title: 'stage',
-                        dataIndex: 'stage',
-                        render(stage) {
+                        dataIndex: 'flagKey',
+                        render(key, row) {
                             let option
-                            if (stage == 'beta') {
-                                option = <LemonSwitch checked={false} label="Enabled" onChange={() => {}} />
+                            if (row.stage == 'beta') {
+                                let isEnabled = posthog.isFeatureEnabled(key as string)
+                                if (switchedFlag && switchedFlag[0] == key) {
+                                    isEnabled = switchedFlag[1]
+                                }
+                                option = (
+                                    <LemonSwitch
+                                        checked={isEnabled}
+                                        label={isEnabled ? 'Enabled' : 'Disabled'}
+                                        onChange={() => {
+                                            posthog.updateFeaturePreviewEnrollment(key as string, !isEnabled)
+                                            setSwitchedFlag([key as string, !isEnabled])
+                                            // Reload flags momentarily
+                                            setTimeout(() => posthog.reloadFeatureFlags(), 100)
+                                            // Also reload a bit later, just in case things didn't manage
+                                            // to get processed in time before
+                                            setTimeout(() => posthog.reloadFeatureFlags(), 1000)
+                                        }}
+                                    />
+                                )
                             } else {
                                 option = <LemonButton type="primary">Get notified when available</LemonButton>
                             }
@@ -47,34 +68,7 @@ export function Features(): JSX.Element {
                         },
                     },
                 ]}
-                dataSource={
-                    [
-                        {
-                            name: 'Enable viewing console logs in session recordings',
-                            description: 'this is a wonderful feature',
-                            documentationUrl: 'https://example.com/',
-                            imageUrl: 'https://www.iana.org/_img/2022/iana-logo-header.svg',
-                            stage: 'beta',
-                            flagKey: 'session-recording-console',
-                        },
-                        {
-                            name: 'Enable viewing console logs in session recordings',
-                            description: 'this is a wonderful feature',
-                            documentationUrl: 'https://example.com/',
-                            imageUrl: 'https://www.iana.org/_img/2022/iana-logo-header.svg',
-                            stage: 'alpha',
-                            flagKey: 'session-recording-console',
-                        },
-                        {
-                            name: 'Enable viewing console logs in session recordings',
-                            description: 'this is a wonderful feature',
-                            documentationUrl: 'https://example.com/',
-                            imageUrl: 'https://www.iana.org/_img/2022/iana-logo-header.svg',
-                            stage: 'beta',
-                            flagKey: 'session-recording-console',
-                        },
-                    ] as FeaturePreview[]
-                }
+                dataSource={posthog.getFeaturePreviews()}
             />
         </div>
     )
