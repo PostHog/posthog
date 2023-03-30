@@ -28,6 +28,8 @@ class PersonCommunicationViewSet(StructuredViewSetMixin, viewsets.GenericViewSet
          JSONExtractString(properties, 'body_plain'), JSONExtractString(properties, 'body_html'), timestamp
         from events
         prewhere team_id = %(team_id)s
+        and timestamp <= now()
+        and timestamp >= now() - INTERVAL 7 DAY
         and event in ('$communication_email_sent', '$communication_email_received', '$communication_note_saved')
         and JSONExtractString(properties, 'bug_report_uuid') = %(bug_report_uuid)s
         order by timestamp DESC

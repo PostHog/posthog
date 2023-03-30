@@ -65,7 +65,7 @@ function MessageHistory({
 }): JSX.Element {
     return (
         <div className={'flex flex-col space-y-2 p-4'}>
-            <h3>Messages</h3>
+            <h3>Messages (last 7 days)</h3>
             <LemonDivider />
             {loading ? (
                 <Spinner />
@@ -97,8 +97,6 @@ export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
     useEffect(() => {
         loadCommunications()
     }, [])
-
-    console.log(communications)
 
     return (
         <div className={'flex flex-col space-y-2 p-4'}>
