@@ -1,5 +1,6 @@
 .AutomationStepConfig {
     padding-top: 24px !important;
+    position: relative;
 
     .StepChooser {
         max-width: 780px;
@@ -11,7 +12,7 @@
 
     .closebutton {
         position: absolute;
-        top: 76px;
+        top: 28px;
         right: 2rem;
         z-index: 1;
     }
