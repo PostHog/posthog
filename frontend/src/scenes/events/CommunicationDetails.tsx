@@ -88,11 +88,12 @@ export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
                             <div
                                 key={index}
                                 className={clsx(
+                                    'flex flex-row',
                                     communication?.event === '$communication_email_sent'
-                                        ? 'CommunicationMessage__EmailSent'
+                                        ? 'justify-start'
                                         : communication?.event === '$communication_email_received'
-                                        ? 'CommunicationMessage__EmailReceived'
-                                        : 'CommunicationMessage__InternalNote'
+                                        ? 'justify-end'
+                                        : 'justify-center'
                                 )}
                             >
                                 <div className="CommunicationMessage">{communication.body_plain}</div>

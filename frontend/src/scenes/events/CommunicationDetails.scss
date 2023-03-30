@@ -2,10 +2,13 @@
 }
 
 .CommunicationMessage__EmailSent {
+    justify-content: start;
 }
 
 .CommunicationMessage__EmailReceived {
+    justify-content: end;
 }
 
 .CommunicationMessage__InternalNote {
+    justify-content: center;
 }
