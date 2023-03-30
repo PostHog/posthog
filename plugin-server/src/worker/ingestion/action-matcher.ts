@@ -145,12 +145,15 @@ export class ActionMatcher {
     }
 
     /** Converts an automation to an action in order to re-use the matching logic. */
-    public async matchAutomation(automation: any, event: PostIngestionEvent): Promise<boolean> {
+    public async matchAutomation(
+        automation: any,
+        event: PostIngestionEvent,
+        person?: IngestionPersonData
+    ): Promise<boolean> {
         // TODO implement this, based on the automation above, build the action based on the automation
         const eventStep = automation.steps[0]
 
         const elements = undefined
-        const person = undefined
         const action = {
             steps: [{ event: eventStep.filters[0].name, properties: eventStep.filters[0].properties }],
         }

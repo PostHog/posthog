@@ -76,7 +76,7 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
                     event: 'Feedback Sent',
                     timestamp: '2023-04-01 16:44:34',
                     person: {
-                        properties: { name: 'Max Hedgehog' },
+                        properties: { name: 'Max Hedgehog', email: 'maxthehedgehog@hedgehouse.com' },
                         is_identified: true,
                         distinct_ids: ['distinct_id_5678'],
                     },

@@ -5,7 +5,7 @@ import { convertToIngestionEvent } from '../../utils/event'
 import { AutomationManager } from '../../worker/automations/automation-manager'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
-import { RawClickHouseEvent } from '../../types'
+import { IngestionPersonData, RawClickHouseEvent } from '../../types'
 import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
@@ -59,7 +59,6 @@ export const startAutomationsConsumer = async ({
             try {
                 const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
                 const event = convertToIngestionEvent(clickHouseEvent)
-
                 await automationManager.startWithEvent(event, graphileWorker)
             } catch (error) {
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
