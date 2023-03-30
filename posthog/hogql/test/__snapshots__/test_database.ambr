@@ -277,6 +277,20 @@
               "key": "version",
               "type": "integer"
           }
+      ],
+      "raw_data_beach_appendable": [
+          {
+              "key": "id",
+              "type": "string"
+          },
+          {
+              "key": "table_name",
+              "type": "string"
+          },
+          {
+              "key": "data",
+              "type": "json"
+          }
       ]
   }
   '
@@ -554,6 +568,20 @@
           {
               "key": "version",
               "type": "integer"
+          }
+      ],
+      "raw_data_beach_appendable": [
+          {
+              "key": "id",
+              "type": "string"
+          },
+          {
+              "key": "table_name",
+              "type": "string"
+          },
+          {
+              "key": "data",
+              "type": "json"
           }
       ]
   }

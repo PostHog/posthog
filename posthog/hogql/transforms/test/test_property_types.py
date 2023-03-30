@@ -3,7 +3,7 @@ from django.test import override_settings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
-from posthog.models import PropertyDefinition
+from posthog.models import PropertyDefinition, DataBeachTable, DataBeachField, DataBeachFieldType, DataBeachTableEngine
 from posthog.test.base import BaseTest
 
 
@@ -49,7 +49,7 @@ class TestPropertyTypes(BaseTest):
             "SELECT multiply("
             "toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', '')), "
             "toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_1)s), '^\"|\"$', ''))), "
-            "equals(replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_2)s), '^\"|\"$', ''), %(hogql_val_3)s) "
+            "equals(replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_2)s), '^\"|\"$', ''), true) "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
         )
         self.assertEqual(printed, expected)
@@ -91,6 +91,26 @@ class TestPropertyTypes(BaseTest):
             "argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), person.version) AS properties___tickets, "
             f"person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS events__pdi__person "
             f"ON equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
+        )
+        self.assertEqual(printed, expected)
+
+    def test_resolve_property_types_data_beach(self):
+        data_beach_table = DataBeachTable.objects.create(
+            team=self.team, name="new_table", engine=DataBeachTableEngine.APPENDABLE
+        )
+        DataBeachField.objects.create(
+            team=self.team, table=data_beach_table, name="screen_width", type=DataBeachFieldType.Integer
+        )
+        DataBeachField.objects.create(
+            team=self.team, table=data_beach_table, name="screen_height", type=DataBeachFieldType.Integer
+        )
+        printed = self._print_select("select screen_width * screen_height from new_table")
+        expected = (
+            f"SELECT multiply(toInt64OrNull(new_table.data___screen_width), toInt64OrNull(new_table.data___screen_height)) "
+            f"FROM (SELECT replaceRegexpAll(JSONExtractRaw(data_beach_appendable.data, %(hogql_val_0)s), '^\"|\"$', '') "
+            f"AS data___screen_width, replaceRegexpAll(JSONExtractRaw(data_beach_appendable.data, %(hogql_val_1)s), '^\"|\"$', '') "
+            f"AS data___screen_height FROM data_beach_appendable WHERE and(equals(data_beach_appendable.team_id, {self.team.pk}), "
+            f"equals(data_beach_appendable.table_name, %(hogql_val_2)s))) AS new_table LIMIT 65535"
         )
         self.assertEqual(printed, expected)
 

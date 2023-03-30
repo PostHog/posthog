@@ -101,6 +101,7 @@ class FieldTraverser(BaseModel):
         extra = Extra.forbid
 
     chain: List[str]
+    type: Optional[str]  # set only on data beach tables
 
 
 def select_from_persons_table(requested_fields: Dict[str, Any]):
@@ -477,7 +478,7 @@ class DataBeachTableAppendable(LazyTable):
 
 
 def create_hogql_database(team_id: Optional[int]) -> Database:
-    from posthog.models import Team, DataBeachTable
+    from posthog.models import Team, DataBeachTable, DataBeachTableEngine
 
     database = Database()
     team = Team.objects.get(pk=team_id)
@@ -488,10 +489,10 @@ def create_hogql_database(team_id: Optional[int]) -> Database:
     tables = DataBeachTable.objects.filter(team_id=team_id).prefetch_related("fields")
 
     for table in tables:
-        if table.engine == "appendable":
+        if table.engine == DataBeachTableEngine.APPENDABLE:
             fields = {}
             for field in table.fields.all():
-                fields[field.name] = FieldTraverser(chain=["data", field.name])
+                fields[field.name] = FieldTraverser(chain=["data", field.name], type=field.type)
             pydantic_table = DataBeachTableAppendable(table=table, **fields)
             for field in table.fields.all():
                 pydantic_table.__setattr__(field.name, fields[field.name])

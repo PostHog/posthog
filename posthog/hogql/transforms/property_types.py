@@ -37,7 +37,7 @@ def resolve_property_types(node: ast.Expr, context: HogQLContext = None) -> ast.
     person_properties = {name: property_type for name, property_type in person_property_values if property_type}
 
     # swap them out
-    if len(event_properties) == 0 and len(person_properties) == 0:
+    if len(event_properties) == 0 and len(person_properties) == 0 and not property_finder.has_data_fields:
         return node
     property_swapper = PropertySwapper(event_properties=event_properties, person_properties=person_properties)
     return property_swapper.visit(node)
@@ -48,15 +48,20 @@ class PropertyFinder(TraversingVisitor):
         super().__init__()
         self.person_properties: Set[str] = set()
         self.event_properties: Set[str] = set()
+        self.has_data_fields = False
 
     def visit_property_ref(self, node: ast.PropertyRef):
         if node.parent.name == "properties":
             if isinstance(node.parent.table, ast.BaseTableRef):
-                table = node.parent.table.resolve_database_table().hogql_table()
-                if table == "persons" or table == "raw_persons":
+                table = node.parent.table.resolve_database_table()
+                table_name = table.hogql_table()
+                if table_name == "persons" or table_name == "raw_persons":
                     self.person_properties.add(node.name)
-                if table == "events":
+                elif table_name == "events":
                     self.event_properties.add(node.name)
+
+        if node.parent.name == "data" and isinstance(node.parent.table, ast.LazyTableRef):
+            self.has_data_fields = True
 
 
 class PropertySwapper(CloningVisitor):
@@ -69,20 +74,31 @@ class PropertySwapper(CloningVisitor):
         ref = node.ref
         if isinstance(ref, ast.PropertyRef) and ref.parent.name == "properties":
             if isinstance(ref.parent.table, ast.BaseTableRef):
-                table = ref.parent.table.resolve_database_table().hogql_table()
-                if table == "persons" or table == "raw_persons":
+                table_name = ref.parent.table.resolve_database_table().hogql_table()
+                if table_name == "persons" or table_name == "raw_persons":
                     if ref.name in self.person_properties:
                         return self._add_type_to_string_field(node, self.person_properties[ref.name])
-                if table == "events":
+                if table_name == "events":
                     if ref.name in self.event_properties:
                         return self._add_type_to_string_field(node, self.event_properties[ref.name])
+
+        if isinstance(ref, ast.PropertyRef) and ref.parent.name == "data":
+            if isinstance(ref.parent.table, ast.LazyTableRef):
+                table = ref.parent.table.resolve_database_table()
+                field_name = ref.name
+                field = table.get_field(field_name)
+                if isinstance(field, ast.FieldTraverser) and field.type is not None:
+                    return self._add_type_to_string_field(node, field.type)
+
         return node
 
     def _add_type_to_string_field(self, node: ast.Field, type: str):
         if type == "DateTime":
             return ast.Call(name="toDateTime", args=[node])
-        if type == "Numeric":
+        if type == "Numeric" or type == "Float":
             return ast.Call(name="toFloat", args=[node])
+        if type == "Integer":
+            return ast.Call(name="toInt", args=[node])
         if type == "Boolean":
-            return parse_expr("{node} = 'true'", {"node": node})
+            return parse_expr("{node} = true", {"node": node})
         return node
