@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { communicationDetailsLogicType } from './CommunicationDetailsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
@@ -8,6 +8,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { issueKeyToName, IssueStatusOptions } from 'scenes/issues/issuesLogic'
 import { UserType } from '~/types'
+import { teamMembersLogic } from 'scenes/project/Settings/teamMembersLogic'
 
 export interface CommunicationDetailsLogicProps {
     eventUUID: string | null
@@ -37,7 +38,14 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
     props({ eventUUID: null } as CommunicationDetailsLogicProps),
     key((props) => `communicationDetailsLogic-${props.eventUUID}`),
     connect({
-        values: [teamLogic, ['currentTeam'], userLogic, ['user']],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            userLogic,
+            ['user'],
+            teamMembersLogic,
+            ['allMembers', 'allMembersLoading'],
+        ],
     }),
     actions({
         saveNote: (content: string) => ({ content }),
@@ -56,14 +64,6 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
                 })
             },
         },
-        allUsers: [
-            [] as UserType[],
-            {
-                loadAllUsers: async () => {
-                    return (await api.get('api/users')).results ?? []
-                },
-            },
-        ],
     })),
     reducers({
         communications: {
@@ -161,7 +161,7 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
             }
         },
         setOwner: async ({ userUuid }: { userUuid: string }) => {
-            const user: UserType = values.allUsers.filter((u) => u.uuid === userUuid)[0]
+            const user: UserType = values.allMembers.filter((u) => u.uuid === userUuid)[0]
             const event = '$issue_owner_update'
             const actor = values.user?.email || 'support agent'
             if (values.posthogSDK && props.eventUUID) {
@@ -182,7 +182,4 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadAllUsers()
-    }),
 ])
