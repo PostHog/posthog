@@ -5,7 +5,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { FilterType, InsightType } from '~/types'
-import { automationLogic } from '../automationLogic'
 import './AutomationStepConfig.scss'
 import { automationStepConfigLogic } from './automationStepConfigLogic'
 import { AutomationStepSidebar } from './AutomationStepSidebar'
@@ -13,6 +12,10 @@ import { AutomationStepSidebar } from './AutomationStepSidebar'
 export function EventSentConfig(): JSX.Element {
     const { activeStep } = useValues(automationStepConfigLogic)
     const { updateActiveStep } = useActions(automationStepConfigLogic)
+
+    if (activeStep === null) {
+        throw new Error('activeStep should not be null')
+    }
 
     return (
         <div className="mb-6">
