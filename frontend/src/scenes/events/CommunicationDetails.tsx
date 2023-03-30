@@ -89,9 +89,17 @@ function MessageHistory({
 }
 
 export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
-    const { publicReplyEnabled, replyType, noteContent, communications, communicationsLoading, issueStatus } =
-        useValues(communicationDetailsLogic({ eventUUID: uuid }))
-    const { setReplyType, saveNote, setNoteContent, loadCommunications, setIssueStatus } = useActions(
+    const {
+        publicReplyEnabled,
+        replyType,
+        noteContent,
+        communications,
+        communicationsLoading,
+        issueStatus,
+        owner,
+        allUsers,
+    } = useValues(communicationDetailsLogic({ eventUUID: uuid }))
+    const { setReplyType, saveNote, setNoteContent, loadCommunications, setIssueStatus, setOwner } = useActions(
         communicationDetailsLogic({ eventUUID: uuid })
     )
 
@@ -101,16 +109,28 @@ export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
 
     return (
         <>
-            <LemonSelect
-                onSelect={(value) => setIssueStatus(value as IssueStatusOptions)}
-                options={Object.entries(issueKeyToName).map(([key, value]) => {
-                    return {
-                        label: value,
-                        value: key,
-                    }
-                })}
-                value={issueStatus ? issueStatus : 'Update status to ...'}
-            />
+            <div className={'flex flex-col space-y-2 p-4'}>
+                <LemonSelect
+                    onSelect={(value) => setIssueStatus(value as IssueStatusOptions)}
+                    options={Object.entries(issueKeyToName).map(([key, value]) => {
+                        return {
+                            label: value,
+                            value: key,
+                        }
+                    })}
+                    value={issueStatus}
+                    placeholder="Update status to ..."
+                />
+                <LemonSelect // TODO: use usersLemonSelectOptions with LemonSelectMultiple
+                    placeholder="Assign issue to ..."
+                    value={owner}
+                    onSelect={(value) => setOwner(value as string)}
+                    options={allUsers.map((user) => ({
+                        label: user.email,
+                        value: user.uuid,
+                    }))}
+                />
+            </div>
             <div className={'flex flex-col space-y-2 p-4'}>
                 <div className={'flex flex-col space-y-2 p-4'}>
                     <LemonSegmentedButton

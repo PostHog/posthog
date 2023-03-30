@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { communicationDetailsLogicType } from './CommunicationDetailsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
@@ -7,6 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { issueKeyToName, IssueStatusOptions } from 'scenes/issues/issuesLogic'
+import { UserType } from '~/types'
 
 export interface CommunicationDetailsLogicProps {
     eventUUID: string | null
@@ -42,6 +43,7 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
         saveNote: (content: string) => ({ content }),
         setReplyType: (type: 'internal' | 'public') => ({ type }),
         setIssueStatus: (status: IssueStatusOptions) => ({ status }),
+        setOwner: (userUuid: string) => ({ userUuid }),
         setNoteContent: (content: string) => ({ content }),
         sentSuccessfully: (message: CommunicationResponseItem) => ({ message }),
         sendingFailed: true,
@@ -54,6 +56,14 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
                 })
             },
         },
+        allUsers: [
+            [] as UserType[],
+            {
+                loadAllUsers: async () => {
+                    return (await api.get('api/users')).results ?? []
+                },
+            },
+        ],
     })),
     reducers({
         communications: {
@@ -81,6 +91,12 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
             null as IssueStatusOptions | null, // TODO: load the actual status
             {
                 setIssueStatus: (_, { status }) => status,
+            },
+        ],
+        owner: [
+            null as string | null, /// TODO: load the actual owner
+            {
+                setOwner: (_, { userUuid }) => userUuid,
             },
         ],
     }),
@@ -144,5 +160,29 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
                 actions.sendingFailed()
             }
         },
+        setOwner: async ({ userUuid }: { userUuid: string }) => {
+            const user: UserType = values.allUsers.filter((u) => u.uuid === userUuid)[0]
+            const event = '$issue_owner_update'
+            const actor = values.user?.email || 'support agent'
+            if (values.posthogSDK && props.eventUUID) {
+                const messageProperties: CommunicationMessage = {
+                    ...{
+                        body_plain: `Issue assigned to ${user.first_name} (${user.email}) by ${actor}`, // TODO: do on the read side instead
+                        subject: `HogDesk Bug Report [${props.eventUUID}]`,
+                        ownerUuid: userUuid,
+                        from: actor,
+                        bug_report_uuid: props.eventUUID,
+                    },
+                }
+
+                values.posthogSDK.capture(event, messageProperties)
+                actions.sentSuccessfully({ ...messageProperties, event })
+            } else {
+                actions.sendingFailed()
+            }
+        },
     })),
+    afterMount(({ actions }) => {
+        actions.loadAllUsers()
+    }),
 ])
