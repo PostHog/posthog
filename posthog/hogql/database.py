@@ -184,18 +184,11 @@ class LazyPersonsTable(LazyTable):
     properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
     is_identified: BooleanDatabaseField = BooleanDatabaseField(name="is_identified")
 
-    is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
-    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
-
     def lazy_select(self, requested_fields: Dict[str, Any]):
         return select_from_persons_table(requested_fields)
 
     def avoid_asterisk_fields(self):
         return ["is_deleted", "version"]
-
-    # def clickhouse_table(self):
-    #     raise
-    #     # return "person"
 
     def hogql_table(self):
         return "lazy_persons"
