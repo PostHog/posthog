@@ -328,6 +328,8 @@ def import_from_airbyte_s3_destination(request: HttpAuthenticatedRequest, team_i
                     "long": DataBeachFieldType.Integer,
                 }
 
+                field_names = []
+
                 for field in schema["fields"]:
                     # If type is a dict then we skip it as we don't support
                     # nested types.
@@ -346,6 +348,11 @@ def import_from_airbyte_s3_destination(request: HttpAuthenticatedRequest, team_i
 
                     field_type = tyoe_mapping.get(field_type)
 
+                    if not field_type:
+                        continue
+
+                    field_names.append(field["name"])
+
                     DataBeachField.objects.get_or_create(
                         team_id=team_id,
                         table=table,
@@ -353,39 +360,27 @@ def import_from_airbyte_s3_destination(request: HttpAuthenticatedRequest, team_i
                         type=field_type,
                     )
 
-                # Trigger an insert into ClickHouse as with the
-                # `import_from_s3` endpoint. These are trigger asynchronously
-                # using the `async_insert` ClickHouse query setting such that
-                # the request returns immediately. We specify the S3 paths using
-                # a wildcard pattern e.g.
-                # `s3://bucket/namespace/record_type/*.avro`.
-                folder_prefix = "/".join(file_key.split("/")[:-1])
-                # sync_execute(
-                #     """
-                #     INSERT INTO data_beach_appendable (
-                #         team_id,
-                #         table_name,
-                #         id,
-                #         data
-                #     ) SELECT
-                #         %(team_id)d,
-                #         %(table_name)s,
-                #         _airbyte_ab_id,
-                #         toJSONString(*)
-                #     FROM s3(
-                #         %(s3_pattern)s,
-                #         %(aws_access_key_id)s,
-                #         %(aws_secret_access_key)s,
-                #         'Avro'
-                #     ) SETTINGS async_insert = true
-                # """,
-                #     {
-                #         "team_id": team_id,
-                #         "table_name": table_name,
-                #         "s3_pattern": f"http://object-storage:19000/{payload.bucket}/{folder_prefix}/*.avro",
-                #         "aws_access_key_id": payload.aws_access_key_id,
-                #         "aws_secret_access_key": payload.aws_secret_access_key,
-                #     },
-                # )
+                # Trigger an insert using the Avro records from the file,
+                # selecting specifically the fields that we have added the
+                # schema for. We insert these fields a JSON string into the data
+                # column, and using the _airbyte_ab_id as the id.
+                values_to_insert = [
+                    (
+                        team_id,
+                        table_name,
+                        str(record["_airbyte_ab_id"]),
+                        json.dumps({field_name: record[field_name] for field_name in field_names}),
+                    )
+                    for record in reader
+                    if isinstance(record, dict)
+                ]
+                print(values_to_insert)
+                sync_execute(
+                    """
+                    INSERT INTO data_beach_appendable (team_id, table_name, id, data)
+                    VALUES
+                """,
+                    values_to_insert,
+                )
 
     return HttpResponse(status=200)

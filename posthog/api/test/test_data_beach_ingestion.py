@@ -344,3 +344,36 @@ def test_import_from_airbyte_s3_destination(client: Client):
             }
         ],
     }
+
+    # Check that the data is in ClickHouse
+    results = sync_execute(
+        f"""
+            SELECT team_id, table_name, id, data 
+            FROM data_beach_appendable
+            WHERE id = '{id}'
+            AND table_name = 'stripe_customers'
+        """
+    )
+
+    assert results == [
+        (
+            team.pk,
+            "stripe_customers",
+            id,
+            '{"account_balance": 1000, "email": "tim@posthog.com", "name": "Tim"}',
+        )
+    ]
+
+    # Check we can run it again and it doesn't duplicate the data
+    response = trigger_import_from_airbyte_s3_destination(
+        client=client,
+        team_id=team.pk,
+        bucket=bucket,
+        s3_prefix=f"test-prefix",
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    )
+
+    assert response.status_code == 200
+
+    assert tables == get_data_beach_tables_and_schema_ok(client=client, project_id=team.pk)
