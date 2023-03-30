@@ -139,7 +139,6 @@ export function EventSentConfig(): JSX.Element {
 export function AutomationStepConfig(): JSX.Element {
     const { activeStep, activeStepConfig } = useValues(automationStepConfigLogic)
     const { setActiveStepId } = useActions(automationStepConfigLogic)
-    // const { addStep } = useActions(automationLogic)
 
     return (
         <AutomationStepSidebar onClose={() => setActiveStepId(null)}>
@@ -148,15 +147,6 @@ export function AutomationStepConfig(): JSX.Element {
                     <h2>New step: {activeStepConfig?.label}</h2>
                     <LemonDivider />
                     {activeStepConfig?.configComponent}
-                    {/* <LemonButton
-                        type="primary"
-                        onClick={() => {
-                            console.debug('Saving', activeStep)
-                            // addStep(activeStep)
-                        }}
-                    >
-                        Save
-                    </LemonButton> */}
                 </>
             ) : (
                 <h2>Error loading step</h2>

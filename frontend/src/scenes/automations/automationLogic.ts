@@ -7,12 +7,13 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
-import { Automation } from './schema'
+import { Automation, AutomationEdge } from './schema'
 
 import type { automationLogicType } from './automationLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { addPlaceholderFlowEdges, addPlaceholderFlowSteps, edgesToFlowEdges, stepsToFlowSteps } from './utils'
 import { urls } from 'scenes/urls'
+import { uuid } from 'lib/utils'
 
 const NEW_AUTOMATION: Automation = {
     id: 'new',
@@ -131,11 +132,17 @@ export const automationLogic = kea<automationLogicType>([
     })),
     listeners(({ actions, values }) => ({
         addStep: ({ step }) => {
-            // const source = values.flowSteps[values.flowSteps.length - 1].id
+            const newSteps = [...values.steps, step]
+            const newEdges = []
+
+            for (let index = 1; index < newSteps.length; index++) {
+                const edge: AutomationEdge = { id: uuid(), source: newSteps[index - 1].id, target: newSteps[index].id }
+                newEdges.push(edge)
+            }
+
             actions.setAutomationValues({
-                steps: [...values.steps, step],
-                edges: [],
-                //{ source, target: step.id, type: 'workflow' }
+                steps: newSteps,
+                edges: newEdges,
             })
             // actions.setActiveStepId(step.id)
         },
