@@ -1856,7 +1856,7 @@ export class DB {
     }
 
     // Automations
-    public async fetchAllAutomationsGroupedByTeam(): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
+    public async fetchAllAutomationsGroupedByTeam(): Promise<Record<Team['id'], Record<string, any>>> {
         const automations = (
             await this.postgresQuery<RawAction>(
                 `
@@ -1864,7 +1864,8 @@ export class DB {
                     id,
                     team_id,
                     name,
-                    steps
+                    steps,
+                    edges
                 FROM posthog_automation
                 WHERE deleted = FALSE
             `,
@@ -1873,7 +1874,7 @@ export class DB {
             )
         ).rows
 
-        const automationsMap: Record<Team['id'], Record<Action['id'], Action>> = {}
+        const automationsMap: Record<Team['id'], Record<string, any>> = {}
         for (const automation of automations) {
             if (!automationsMap[automation.team_id]) {
                 automationsMap[automation.team_id] = {}
@@ -1881,8 +1882,6 @@ export class DB {
 
             automationsMap[automation.team_id][automation.id] = {
                 ...automation,
-                steps: [],
-                hooks: [],
             }
         }
         return automationsMap

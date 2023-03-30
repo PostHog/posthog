@@ -12,6 +12,7 @@ import {
 import { DB } from '../../utils/db/db'
 import { status } from '../../utils/status'
 import { GraphileWorker } from '../../main/graphile-worker/graphile-worker'
+import fetch from 'node-fetch'
 
 export type AutomationMap = Record<Action['id'], Action>
 type AutomationCache = Record<Team['id'], AutomationMap>
@@ -54,15 +55,25 @@ export class AutomationManager {
 
         for (const automation of Object.values(teamAutomations)) {
             if (await this.actionMatcher.matchAutomation(automation, event)) {
-                const job: EnqueuedAutomationJob = {
-                    timestamp: Date.now(),
-                    automation: automation,
-                    event,
-                    state: AutomationJobState.SCHEDULED, // TODO: get rid of this
-                    nodeId: 'TODO', // first node in the automation or the one after that
-                }
+                const webhookStep = automation.steps[1] as any
+                // TODO: template the payload
+                const response = await fetch(webhookStep.url, {
+                    method: 'POST',
+                    body: webhookStep.payload,
+                })
 
-                await this.runAutomationJob(job, graphileWorker)
+                console.log('LUKE response', response)
+
+                // const job: EnqueuedAutomationJob = {
+                //     timestamp: Date.now(),
+                //     automation: automation,
+                //     event,
+                //     state: AutomationJobState.SCHEDULED, // TODO: get rid of this
+                //     nodeId: automation.steps[1].id, // get the next node
+                // }
+                // await new Promise((resolve) => setTimeout(resolve, 10)) // TODO: remove this
+
+                // await this.runAutomationJob(job, graphileWorker)
             }
         }
     }

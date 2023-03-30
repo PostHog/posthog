@@ -145,27 +145,28 @@ export class ActionMatcher {
     }
 
     /** Converts an automation to an action in order to re-use the matching logic. */
-    public async matchAutomation(automation: Action, event: PostIngestionEvent): Promise<boolean> {
+    public async matchAutomation(automation: any, event: PostIngestionEvent): Promise<boolean> {
         // TODO implement this, based on the automation above, build the action based on the automation
+        const eventStep = automation.steps[0]
 
-        return true
-        // const matchingStart = new Date()
-        // const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
-        // if (!elements) {
-        //     const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
-        //     elements = rawElements ? extractElements(rawElements) : []
-        // }
-        // const teamActionsMatching: boolean[] = await Promise.all(
-        //     teamActions.map((action) => this.checkAction(event, elements, person, action))
-        // )
+        const elements = undefined
+        const person = undefined
+        const action = {
+            steps: [{ event: eventStep.filters[0].name, properties: eventStep.filters[0].properties }],
+        }
+
+        return this.checkAction(event, elements, person, action as Action)
+
+        // if (automation.steps[0])
+        //     const teamActionsMatching: boolean[] = await Promise.all(
+        //         teamActions.map((action) => this.checkAction(event, elements, person, action))
+        //     )
         // const matches: Action[] = []
         // for (let i = 0; i < teamActionsMatching.length; i++) {
         //     if (teamActionsMatching[i]) {
         //         matches.push(teamActions[i])
         //     }
         // }
-        // this.statsd?.timing('action_matching_for_automation', matchingStart)
-        // this.statsd?.increment('action_matches_automation_found', matches.length)
         // return matches
     }
 
