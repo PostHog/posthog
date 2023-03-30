@@ -23,7 +23,7 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
             event_uuid=self.bug_report_uuid,
             team=self.team,
             distinct_id="2",
-            properties={"email": "reporter@reporting.com"},
+            properties={"email": "reporter@reporting.com", "$bug": "the original report"},
         )
 
         _create_event(
@@ -50,7 +50,9 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     def test_view_communications_by_bug_report_when_there_are_none(self) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/person_communications/?bug_report_uuid=12345")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/person_communications/?bug_report_uuid=" + str(uuid.uuid4())
+        )
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"results": []}
 
@@ -95,7 +97,7 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
             },
             {
                 "body_html": "",
-                "body_plain": "",
+                "body_plain": "the original report",
                 "bug_report_uuid": "",
                 "email": "reporter@reporting.com",
                 "event": "$bug_report",
@@ -109,6 +111,8 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
     def test_cannot_view_another_team_communications(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
 
-        response = self.client.get(f"/api/projects/{another_team.id}/person_communications/?bug_report_uuid=12345")
+        response = self.client.get(
+            f"/api/projects/{another_team.id}/person_communications/?bug_report_uuid=" + str(uuid.uuid4())
+        )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN

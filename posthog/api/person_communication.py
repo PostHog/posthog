@@ -26,7 +26,7 @@ class PersonCommunicationViewSet(StructuredViewSetMixin, viewsets.GenericViewSet
         select JSONExtractString(properties, 'bug_report_uuid'), event, JSONExtractString(properties, 'from'),
          JSONExtractString(properties, 'to'), JSONExtractString(properties, 'subject'),
          JSONExtractString(properties, 'body_plain'), JSONExtractString(properties, 'body_html'),
-         JSONExtractString(properties, 'email'), timestamp
+         JSONExtractString(properties, 'email'), JSONExtractString(properties, '$bug'), timestamp
         from events
         prewhere team_id = %(team_id)s
         and timestamp <= now() + INTERVAL 1 DAY
@@ -47,12 +47,23 @@ class PersonCommunicationViewSet(StructuredViewSetMixin, viewsets.GenericViewSet
             "body_plain",
             "body_html",
             "email",
+            "bug_report",
             "timestamp",
         ]
         columnized_results = [dict(zip(column_names, res)) for res in results]
 
-        # the last event is always the bug report
-        bug_report = columnized_results[-1]
-        columnized_results = [{**x, "email": bug_report["email"]} for x in columnized_results]
+        if columnized_results:
+            # the last event is always the bug report
+            bug_report = columnized_results[-1]
+            reporter_email = bug_report.get("email", "unknown reporter")
 
-        return Response({"results": columnized_results})
+            corrected_results = []
+            for x in columnized_results:
+                bug_report = x.pop("bug_report", None)
+                if bug_report:
+                    x["body_plain"] = bug_report
+                corrected_results.append({**x, "email": reporter_email})
+
+            return Response({"results": corrected_results})
+        else:
+            return Response({"results": []})
