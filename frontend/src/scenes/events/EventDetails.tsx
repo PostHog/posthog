@@ -82,7 +82,7 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
             {!!featureFlags[FEATURE_FLAGS.ARUBUG] && event.uuid && (
                 <TabPane tab="Communication" key="communication">
                     <div className="ml-10">
-                        <CommunicationDetails uuid={event.uuid} />
+                        <CommunicationDetails uuid={event.uuid} reporter={event.distinct_id} />
                     </div>
                 </TabPane>
             )}

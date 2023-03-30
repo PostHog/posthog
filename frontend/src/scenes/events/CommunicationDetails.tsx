@@ -86,12 +86,12 @@ function MessageHistory({
     )
 }
 
-export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
+export function CommunicationDetails({ uuid, reporter }: { uuid: string; reporter: string }): JSX.Element {
     const { publicReplyEnabled, replyType, noteContent, communications, communicationsLoading } = useValues(
-        communicationDetailsLogic({ eventUUID: uuid })
+        communicationDetailsLogic({ eventUUID: uuid, reporter })
     )
     const { setReplyType, saveNote, setNoteContent, loadCommunications } = useActions(
-        communicationDetailsLogic({ eventUUID: uuid })
+        communicationDetailsLogic({ eventUUID: uuid, reporter })
     )
 
     useEffect(() => {
@@ -147,7 +147,6 @@ export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
                         {publicReplyEnabled ? 'Send email' : 'Save internal note'}
                     </LemonButton>
                 </div>
-                {/* TODO: pull all the historical communication, i.e. load events in the logic first */}
             </div>
             <LemonDivider />
             <MessageHistory loading={communicationsLoading} communications={communications} />

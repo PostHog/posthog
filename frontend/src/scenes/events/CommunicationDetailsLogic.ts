@@ -9,10 +9,13 @@ import api from 'lib/api'
 
 export interface CommunicationDetailsLogicProps {
     eventUUID: string | null
+    reporter: string | null
 }
 
 export interface CommunicationMessage {
     event?: string
+    /* distinct id of bug reporter */
+    reporter?: string
     body_plain: string
     body_html?: string
     subject: string
@@ -24,6 +27,7 @@ export interface CommunicationMessage {
 
 export interface CommunicationResponseItem extends CommunicationMessage {
     event: string
+    reporter?: string // distinct id of the bug reporter
 }
 
 export interface CommunicationResponse {
@@ -33,7 +37,7 @@ export interface CommunicationResponse {
 export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
     path(['scenes', 'events', 'communicationDetailsLogic']),
     props({ eventUUID: null } as CommunicationDetailsLogicProps),
-    key((props) => `communicationDetailsLogic-${props.eventUUID}`),
+    key((props) => `communicationDetailsLogic-${props.eventUUID}: ${props.reporter}`),
     connect({
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
     }),
@@ -106,6 +110,7 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
                         subject: `HogDesk Bug Report [${props.eventUUID}]`,
                         from: values.user?.email || 'support agent',
                         bug_report_uuid: props.eventUUID,
+                        reporter: props.reporter,
                     },
                     ...(values.publicReplyEnabled ? { to: values.user?.email || 'unknown' } : {}),
                 }
