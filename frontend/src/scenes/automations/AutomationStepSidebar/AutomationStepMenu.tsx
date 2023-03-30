@@ -45,6 +45,7 @@ export function AutomationStepMenu(): JSX.Element {
     const { closeMenu } = useActions(automationStepMenuLogic)
     const { setActiveStepId } = useActions(automationStepConfigLogic)
     const { addStep } = useActions(automationLogic)
+    const { automation } = useValues(automationLogic)
 
     return (
         <AutomationStepSidebar onClose={closeMenu}>
@@ -67,6 +68,14 @@ export function AutomationStepMenu(): JSX.Element {
                                         closeMenu()
                                         setActiveStepId(id)
                                     }}
+                                    disabledReason={
+                                        automation.steps.length > 0 && option.category === AutomationStepCategory.Source
+                                            ? 'You can only have one event source'
+                                            : automation.steps.length === 0 &&
+                                              option.category !== AutomationStepCategory.Source
+                                            ? 'You must start with an event source'
+                                            : undefined
+                                    }
                                 >
                                     {kindToConfig[option.kind].label}
                                 </LemonButton>
