@@ -1,4 +1,7 @@
+import datetime
 import json
+from tempfile import NamedTemporaryFile, mktemp
+import uuid
 
 from django.http import HttpResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
@@ -183,11 +186,14 @@ class ShipS3ToBeachPayload(pydantic.BaseModel):
 
 class ImportFromAirByteRequest(pydantic.BaseModel):
     bucket: str = pydantic.Field(..., min_length=1)
+    s3_endpoint_url: str = pydantic.Field(..., min_length=1)
+    s3_region_name: str = pydantic.Field(..., min_length=1)
     s3_prefix: str = pydantic.Field(..., min_length=1)
     aws_access_key_id: str = pydantic.Field(..., min_length=1)
     aws_secret_access_key: str = pydantic.Field(..., min_length=1)
 
 
+@csrf_exempt
 def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
     """
     Given an S3 prefix that is used to store data from AirByte in the Avro
@@ -222,21 +228,23 @@ def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
 
     try:
         data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return HttpResponse(status=400)
+    except json.JSONDecodeError as e:
+        return HttpResponse(str(e), status=400)
 
     try:
-        payload = ImportFromAirByteRequest(**data)
-    except pydantic.ValidationError:
-        return HttpResponse(status=400)
+        payload = ImportFromAirByteRequest(
+            **{"s3_endpoint_url": "https://s3.amazonaws.com", "s3_region_name": "us-east-1", **data}
+        )
+    except pydantic.ValidationError as e:
+        return HttpResponse(str(e), status=400)
 
     # Verify that the user has access to the team_id
 
     # Fetch the list of all files from S3 below the specified S3 prefix.
     s3_client = boto3.client(
         "s3",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        region_name=settings.OBJECT_STORAGE_REGION,
+        endpoint_url=payload.s3_endpoint_url,
+        region_name=payload.s3_region_name,
         aws_access_key_id=payload.aws_access_key_id,
         aws_secret_access_key=payload.aws_secret_access_key,
     )
@@ -246,6 +254,8 @@ def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
         Bucket=payload.bucket,
         Prefix=payload.s3_prefix,
     )
+
+    avro_json_encoder = AvroJsonEncoder()
 
     # We're going to use the files under the S3 prefix to determine the table
     # name and schema. We expect to find a .arvo file in each of the leaf nodes
@@ -265,6 +275,8 @@ def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
     # ClickHouse restarts, duplicates handling etc. We should probably use
     # something else to handle the orchestration of the inserts in the future
     # but it's fine for demo purposes.
+    # TODO: bulk insert the DataBeachTable and DataBeachField objects to avoid
+    # the N+1 queries.
     for page in response_iterator:
         for file in page["Contents"] or []:
             # We're only interested in files that end in .avro
@@ -290,92 +302,112 @@ def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
             # probably use something else to handle the orchestration of the
             # inserts in the future but it's fine for demo purposes.
             file_key = file["Key"]
-            s3_client.download_file(
-                payload.bucket,
-                file_key,
-                "/tmp/avro.avro",
-            )
-
-            with open("/tmp/avro.avro", "rb") as avro_file:
-                reader = fastavro.reader(avro_file)
-                schema = reader.writer_schema
-                assert schema
-
-                # We expect the namespace to be the name of the service that
-                # the data is from e.g. "stripe" and the name to be the name of
-                # the table that the data is from e.g. "customers". Note that
-                # fastapi will _not_ have namespace in the schema, but it will
-                # have set the name to be `namespace.name` e.g.
-                # "stripe.customers". We'll replace the '.' with an '_' to
-                # create the table name.
-                table_name = schema["name"].replace(".", "_")
-                table, _ = DataBeachTable.objects.get_or_create(
-                    name=table_name,
-                    team_id=team_id,
+            with NamedTemporaryFile() as temporary_file:
+                s3_client.download_file(
+                    payload.bucket,
+                    file_key,
+                    temporary_file.name,
                 )
 
-                # We expect the fields to be a list of dicts, each of which
-                # contains the name of the field and the type of the field.)
-                # Fields should map to those specified by the DataBeachFieldType
-                # enum.
-                tyoe_mapping = {
-                    "string": DataBeachFieldType.String,
-                    "long": DataBeachFieldType.Integer,
-                }
+                with open(temporary_file.name, "rb") as avro_file:
+                    reader = fastavro.reader(avro_file)
+                    schema = reader.writer_schema
+                    assert schema
 
-                field_names = []
-
-                for field in schema["fields"]:
-                    # If type is a dict then we skip it as we don't support
-                    # nested types.
-                    if isinstance(field["type"], dict):
-                        continue
-
-                    # Get the type of the field, if it's not in the mapping then
-                    # skip it. The Avro sckema supports union types to allow for
-                    # nullable fields. We do not support that level of detail.
-                    # In these cases the type field is a list of types. We
-                    # simply take the first one that isn't null.
-                    if isinstance(field["type"], list):
-                        field_type = [type_ for type_ in field["type"] if type_ != "null"][0]
-                    else:
-                        field_type = field["type"]
-
-                    field_type = tyoe_mapping.get(field_type)
-
-                    if not field_type:
-                        continue
-
-                    field_names.append(field["name"])
-
-                    DataBeachField.objects.get_or_create(
+                    # We expect the namespace to be the name of the service that
+                    # the data is from e.g. "stripe" and the name to be the name of
+                    # the table that the data is from e.g. "customers". Note that
+                    # fastapi will _not_ have namespace in the schema, but it will
+                    # have set the name to be `namespace.name` e.g.
+                    # "stripe.customers". We'll replace the '.' with an '_' to
+                    # create the table name.
+                    table_name = schema["name"].replace(".", "_")
+                    table, _ = DataBeachTable.objects.get_or_create(
+                        name=table_name,
                         team_id=team_id,
-                        table=table,
-                        name=field["name"],
-                        type=field_type,
                     )
 
-                # Trigger an insert using the Avro records from the file,
-                # selecting specifically the fields that we have added the
-                # schema for. We insert these fields a JSON string into the data
-                # column, and using the _airbyte_ab_id as the id.
-                values_to_insert = [
-                    (
-                        team_id,
-                        table_name,
-                        str(record["_airbyte_ab_id"]),
-                        json.dumps({field_name: record[field_name] for field_name in field_names}),
-                    )
-                    for record in reader
-                    if isinstance(record, dict)
-                ]
+                    # We expect the fields to be a list of dicts, each of which
+                    # contains the name of the field and the type of the field.)
+                    # Fields should map to those specified by the DataBeachFieldType
+                    # enum.
+                    type_mapping = {
+                        "string": DataBeachFieldType.String,
+                        "long": DataBeachFieldType.Integer,
+                    }
 
-                sync_execute(
-                    """
-                    INSERT INTO data_beach_appendable (team_id, table_name, id, data)
-                    VALUES
-                """,
-                    values_to_insert,
-                )
+                    field_names = []
+
+                    for field in schema["fields"]:
+                        field_type = field["type"]
+                        # Get the type of the field, if it's not in the mapping then
+                        # skip it. The Avro sckema supports union types to allow for
+                        # nullable fields. We do not support that level of detail.
+                        # In these cases the type field is a list of types. We
+                        # simply take the first one that isn't null.
+                        if isinstance(field_type, list):
+                            field_type = [type_ for type_ in field_type if type_ != "null"][0]
+
+                        # If type is a dict then we skip it as we don't support
+                        # nested types.
+                        if isinstance(field_type, dict):
+                            field_type = field_type["type"]
+
+                        field_type = type_mapping.get(field_type)
+
+                        if not field_type:
+                            continue
+
+                        field_names.append(field["name"])
+
+                        DataBeachField.objects.get_or_create(
+                            team_id=team_id,
+                            table=table,
+                            name=field["name"],
+                            defaults=dict(
+                                type=field_type,
+                            ),
+                        )
+
+                    # Trigger an insert using the Avro records from the file,
+                    # selecting specifically the fields that we have added the
+                    # schema for. We insert these fields a JSON string into the data
+                    # column, and using the _airbyte_ab_id as the id.
+                    values_to_insert = [
+                        (
+                            team_id,
+                            table_name,
+                            str(record["_airbyte_ab_id"]),
+                            avro_json_encoder.encode(
+                                {name: value for name, value in record.items() if name in field_names}
+                            ),
+                        )
+                        for record in reader
+                        if isinstance(record, dict)
+                    ]
+
+                    # TOOO: make the insert actually work
+                    # sync_execute(
+                    #     """
+                    #     INSERT INTO data_beach_appendable (team_id, table_name, id, data)
+                    #     VALUES
+                    # """,
+                    #     values_to_insert,
+                    # )
 
     return HttpResponse(status=200)
+
+
+class AvroJsonEncoder(json.JSONEncoder):
+    """
+    A Json encoder that converts UUIDs to strings and datetimes to iso8601
+    string format.
+    """
+
+    def default(self, o):
+        if isinstance(o, uuid.UUID):
+            return str(o)
+        elif isinstance(o, datetime.datetime):
+            return o.isoformat()
+        else:
+            return super().default(o)
