@@ -29,7 +29,7 @@ function Message({ communication, markdown = false }: { communication: any; mark
 function SentMessage({ communication }: { communication: any }): JSX.Element {
     return (
         <div className={'flex flex-row justify-start'}>
-            <div className={'CommunicationMessage border rounded px-4 py-2 bg-warning-highlight'}>
+            <div className={'CommunicationMessage border rounded p-2 bg-warning-highlight'}>
                 <Message communication={communication} />
             </div>
         </div>
@@ -39,7 +39,7 @@ function SentMessage({ communication }: { communication: any }): JSX.Element {
 function ReceivedMessage({ communication }: { communication: any }): JSX.Element {
     return (
         <div className={'flex flex-row justify-end'}>
-            <div className={'CommunicationMessage border rounded px-4 py-2 bg-success-highlight'}>
+            <div className={'CommunicationMessage border rounded p-2 bg-success-highlight'}>
                 <Message communication={communication} />
             </div>
         </div>
@@ -49,7 +49,7 @@ function ReceivedMessage({ communication }: { communication: any }): JSX.Element
 function InternalNote({ communication }: { communication: any }): JSX.Element {
     return (
         <div className={'flex flex-row justify-center'}>
-            <div className={'CommunicationMessage border rounded px-4 py-2 bg-primary-alt-highlight'}>
+            <div className={'CommunicationMessage border rounded p-2 bg-primary-alt-highlight'}>
                 <Message communication={communication} markdown={true} />
             </div>
         </div>
