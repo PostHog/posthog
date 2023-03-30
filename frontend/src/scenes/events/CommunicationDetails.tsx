@@ -97,7 +97,8 @@ export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
         communicationsLoading,
         issueStatus,
         owner,
-        allUsers,
+        allMembers,
+        allMembersLoading,
     } = useValues(communicationDetailsLogic({ eventUUID: uuid }))
     const { setReplyType, saveNote, setNoteContent, loadCommunications, setIssueStatus, setOwner } = useActions(
         communicationDetailsLogic({ eventUUID: uuid })
@@ -122,12 +123,13 @@ export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
                     placeholder="Update status to ..."
                 />
                 <LemonSelect // TODO: use usersLemonSelectOptions with LemonSelectMultiple
-                    placeholder="Assign issue to ..."
+                    placeholder={allMembersLoading ? 'Loading team members...' : 'Assign issue to ...'}
                     value={owner}
+                    loading={allMembersLoading}
                     onSelect={(value) => setOwner(value as string)}
-                    options={allUsers.map((user) => ({
-                        label: user.email,
-                        value: user.uuid,
+                    options={allMembers.map((member) => ({
+                        label: member.user.email,
+                        value: member.user.uuid,
                     }))}
                 />
             </div>

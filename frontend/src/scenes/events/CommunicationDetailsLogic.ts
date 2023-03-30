@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { issueKeyToName, IssueStatusOptions } from 'scenes/issues/issuesLogic'
-import { UserType } from '~/types'
+import { UserBasicType } from '~/types'
 import { teamMembersLogic } from 'scenes/project/Settings/teamMembersLogic'
 
 export interface CommunicationDetailsLogicProps {
@@ -161,7 +161,7 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
             }
         },
         setOwner: async ({ userUuid }: { userUuid: string }) => {
-            const user: UserType = values.allMembers.filter((u) => u.uuid === userUuid)[0]
+            const user: UserBasicType = values.allMembers.filter((m) => m.user.uuid === userUuid)[0].user
             const event = '$issue_owner_update'
             const actor = values.user?.email || 'support agent'
             if (values.posthogSDK && props.eventUUID) {
