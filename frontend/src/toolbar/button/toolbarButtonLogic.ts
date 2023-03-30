@@ -97,6 +97,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         ],
         hedgehogMode: [
             false,
+            { persist: true },
             {
                 setHedgehogMode: (_, { hedgehogMode }) => hedgehogMode,
             },
@@ -138,6 +139,14 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         side: [
             (s) => [s.dragPosition, s.windowWidth],
             ({ x }, windowWidth) => (x < windowWidth / 2 ? 'left' : 'right'),
+        ],
+        hedgehogModeDistance: [
+            (s) => [s.dragPosition, s.windowWidth],
+            ({ x, y }, windowWidth) => 58 + (x > windowWidth - 40 || y < 80 ? -28 : 0) + (y < 40 ? -6 : 0),
+        ],
+        hedgehogModeRotation: [
+            (s) => [s.dragPosition, s.windowWidth],
+            ({ x, y }, windowWidth) => -54 + (x > windowWidth - 40 || y < 80 ? 10 : 0) + (y < 40 ? 10 : 0),
         ],
         closeDistance: [
             (s) => [s.dragPosition, s.windowWidth],

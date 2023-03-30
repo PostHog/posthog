@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
 import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -19,7 +19,7 @@ const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: 
     return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
 }, [])
 
-class HedgehogActor {
+export class HedgehogActor {
     animations = standardAnimations
     iterationCount = 0
     frameRef = 0
@@ -340,16 +340,25 @@ class HedgehogActor {
 }
 
 export function HedgehogBuddy({
+    actorRef: _actorRef,
     onClose,
+    onClick: _onClick,
+    onPositionChange,
     popoverOverlay,
 }: {
+    actorRef?: MutableRefObject<HedgehogActor | undefined>
     onClose: () => void
+    onClick: () => void
+    onPositionChange?: (actor: HedgehogActor) => void
     popoverOverlay?: React.ReactNode
 }): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
 
     if (!actorRef.current) {
         actorRef.current = new HedgehogActor()
+        if (_actorRef) {
+            _actorRef.current = actorRef.current
+        }
     }
 
     const actor = actorRef.current
@@ -388,8 +397,12 @@ export function HedgehogBuddy({
         return () => document.body.classList.remove('select-none')
     }, [actor.isDragging])
 
+    useEffect(() => {
+        onPositionChange?.(actor)
+    }, [actor.x, actor.y])
+
     const onClick = (): void => {
-        !actor.isDragging && setPopoverVisible(!popoverVisible)
+        !actor.isDragging && (_onClick ? _onClick() : setPopoverVisible(!popoverVisible))
     }
     const disappear = (): void => {
         setPopoverVisible(false)
