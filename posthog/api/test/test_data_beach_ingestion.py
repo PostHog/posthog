@@ -1,5 +1,6 @@
 import io
 import json
+from unittest.mock import ANY
 import boto3
 import boto3.session
 from django.conf import settings
@@ -293,9 +294,32 @@ def test_import_from_airbyte_s3_destination(client: Client):
     assert response.status_code == 200
 
     tables = get_data_beach_tables_and_schema_ok(client=client, project_id=team.pk)
-    assert tables == [
-        {
-            "id": 1,
-            "name": "stripe_customers",
-        }
-    ]
+    assert tables == {
+        "count": 1,
+        "next": None,
+        "previous": None,
+        "results": [
+            {
+                "engine": "appendable",
+                "name": "stripe_customers",
+                "fields": [
+                    {
+                        "id": ANY,
+                        "name": "account_balance",
+                        "type": "Integer",
+                    },
+                    {
+                        "id": ANY,
+                        "name": "email",
+                        "type": "String",
+                    },
+                    {
+                        "id": ANY,
+                        "name": "name",
+                        "type": "String",
+                    },
+                ],
+                "id": ANY,
+            }
+        ],
+    }

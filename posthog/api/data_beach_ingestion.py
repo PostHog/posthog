@@ -8,7 +8,7 @@ from posthog.api.utils import get_event_ingestion_context
 from django.conf import settings
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.data_beach.data_beach_field import DataBeachField
+from posthog.models.data_beach.data_beach_field import DataBeachField, DataBeachFieldType
 from posthog.models.data_beach.data_beach_table import DataBeachTable
 from posthog.models.user import User
 import boto3
@@ -308,17 +308,36 @@ def import_from_airbyte_s3_destination(request: HttpAuthenticatedRequest, team_i
 
                 # We expect the fields to be a list of dicts, each of which
                 # contains the name of the field and the type of the field.)
+                # Fields should map to those specified by the DataBeachFieldType
+                # enum.
+                tyoe_mapping = {
+                    "string": DataBeachFieldType.String,
+                    "long": DataBeachFieldType.Integer,
+                }
+
                 for field in schema["fields"]:
-                    # We're only interested in fields that have a non-nested
-                    # type e.g. dicts.
+                    # If type is a dict then we skip it as we don't support
+                    # nested types.
                     if isinstance(field["type"], dict):
                         continue
+
+                    # Get the type of the field, if it's not in the mapping then
+                    # skip it. The Avro sckema supports union types to allow for
+                    # nullable fields. We do not support that level of detail.
+                    # In these cases the type field is a list of types. We
+                    # simply take the first one that isn't null.
+                    if isinstance(field["type"], list):
+                        field_type = [type_ for type_ in field["type"] if type_ != "null"][0]
+                    else:
+                        field_type = field["type"]
+
+                    field_type = tyoe_mapping.get(field_type)
 
                     DataBeachField.objects.get_or_create(
                         team_id=team_id,
                         table=table,
                         name=field["name"],
-                        type=field["type"],
+                        type=field_type,
                     )
 
                 # Trigger an insert into ClickHouse as with the
@@ -328,32 +347,32 @@ def import_from_airbyte_s3_destination(request: HttpAuthenticatedRequest, team_i
                 # a wildcard pattern e.g.
                 # `s3://bucket/namespace/record_type/*.avro`.
                 folder_prefix = "/".join(file_key.split("/")[:-1])
-                sync_execute(
-                    """
-                    INSERT INTO data_beach_appendable (
-                        team_id, 
-                        table_name, 
-                        id,
-                        data
-                    ) SELECT 
-                        %(team_id)d, 
-                        %(table_name)s, 
-                        _airbyte_ab_id,
-                        toJSONString(_airbyte_data)
-                    FROM s3(
-                        %(s3_pattern)s, 
-                        %(aws_access_key_id)s, 
-                        %(aws_secret_access_key)s,
-                        'Avro' 
-                    ) SETTINGS async_insert = true
-                """,
-                    {
-                        "team_id": team_id,
-                        "table_name": table_name,
-                        "s3_pattern": f"{settings.OBJECT_STORAGE_ENDPOINT}/{payload.bucket}/{folder_prefix}/*.avro",
-                        "aws_access_key_id": payload.aws_access_key_id,
-                        "aws_secret_access_key": payload.aws_secret_access_key,
-                    },
-                )
+                # sync_execute(
+                #     """
+                #     INSERT INTO data_beach_appendable (
+                #         team_id,
+                #         table_name,
+                #         id,
+                #         data
+                #     ) SELECT
+                #         %(team_id)d,
+                #         %(table_name)s,
+                #         _airbyte_ab_id,
+                #         toJSONString(*)
+                #     FROM s3(
+                #         %(s3_pattern)s,
+                #         %(aws_access_key_id)s,
+                #         %(aws_secret_access_key)s,
+                #         'Avro'
+                #     ) SETTINGS async_insert = true
+                # """,
+                #     {
+                #         "team_id": team_id,
+                #         "table_name": table_name,
+                #         "s3_pattern": f"http://object-storage:19000/{payload.bucket}/{folder_prefix}/*.avro",
+                #         "aws_access_key_id": payload.aws_access_key_id,
+                #         "aws_secret_access_key": payload.aws_secret_access_key,
+                #     },
+                # )
 
     return HttpResponse(status=200)
