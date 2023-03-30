@@ -14,7 +14,7 @@ from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.data_beach.data_beach_table import DataBeachTable
+from posthog.api.data_beach_ingestion import flatten_schema, flatten_record
 
 
 def post_data(client: Client, token: str, table_name: str, data: Any):
@@ -272,6 +272,21 @@ def test_import_from_airbyte_s3_destination(client: Client):
             {"name": "account_balance", "type": ["null", "long"], "default": None},
             {"name": "email", "type": ["null", "string"], "default": None},
             {"name": "name", "type": ["null", "string"], "default": None},
+            # We add a nested structure, which should be flattened on import.
+            {
+                "name": "address",
+                "type": [
+                    "null",
+                    {
+                        "type": "record",
+                        "name": "address",
+                        "fields": [
+                            {"name": "city", "type": ["null", "string"], "default": None},
+                            {"name": "country", "type": ["null", "string"], "default": None},
+                        ],
+                    },
+                ],
+            },
         ],
     }
 
@@ -286,6 +301,7 @@ def test_import_from_airbyte_s3_destination(client: Client):
                 "email": "tim@posthog.com",
                 "account_balance": 1000,
                 "name": "Tim",
+                "address": {"city": "London", "country": "UK"},
                 "_airbyte_ab_id": id,
                 "_airbyte_emitted_at": 123,
             }
@@ -325,8 +341,6 @@ def test_import_from_airbyte_s3_destination(client: Client):
                 "engine": "appendable",
                 "name": "stripe_customers",
                 "fields": [
-                    {"id": ANY, "name": "_airbyte_ab_id", "type": "String"},
-                    {"id": ANY, "name": "_airbyte_emitted_at", "type": "Integer"},
                     {
                         "id": ANY,
                         "name": "account_balance",
@@ -340,6 +354,16 @@ def test_import_from_airbyte_s3_destination(client: Client):
                     {
                         "id": ANY,
                         "name": "name",
+                        "type": "String",
+                    },
+                    {
+                        "id": ANY,
+                        "name": "address__city",
+                        "type": "String",
+                    },
+                    {
+                        "id": ANY,
+                        "name": "address__country",
                         "type": "String",
                     },
                 ],
@@ -364,7 +388,7 @@ def test_import_from_airbyte_s3_destination(client: Client):
             team.pk,
             "stripe_customers",
             str(id),
-            f'{{"_airbyte_ab_id": "{id}", "_airbyte_emitted_at": "1970-01-01T00:00:00.123000+00:00", "account_balance": 1000, "email": "tim@posthog.com", "name": "Tim"}}',
+            '{"account_balance": 1000, "email": "tim@posthog.com", "name": "Tim", "address__city": "London", "address__country": "UK"}',
         )
     ]
 
@@ -381,3 +405,171 @@ def test_import_from_airbyte_s3_destination(client: Client):
     assert response.status_code == 200
 
     assert tables == get_data_beach_tables_and_schema_ok(client=client, project_id=team.pk)
+
+    results = sync_execute(
+        f"""
+            SELECT team_id, table_name, id, data
+            FROM data_beach_appendable
+            WHERE id = '{id}'
+            AND table_name = 'stripe_customers'
+        """
+    )
+
+    # TODO: this is flaky as there is a race between the insert and the
+    # replacing merge tree removing the duplicate.
+    assert results == [
+        (
+            team.pk,
+            "stripe_customers",
+            str(id),
+            '{"account_balance": 1000, "email": "tim@posthog.com", "name": "Tim", "address__city": "London", "address__country": "UK"}',
+        )
+    ]
+
+
+def test_flatten_schema():
+    """
+    Flatten the schema to be a single level, using `__` to separate the nested fields.
+    For instance, if we have a schema like:
+
+    {
+      "type": "record",
+      "name": "customers",
+      "namespace": "stripe",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string"
+        },
+        {
+          "name": "address",
+          "type": {
+            "type": "record",
+            "name": "address",
+            "fields": [
+              {
+                "name": "city",
+                "type": "string"
+              },
+              {
+                "name": "country",
+                "type": "string"
+              },
+            ]
+          }
+        }
+      ]
+    }
+
+    We'll flatten this to:
+
+    {
+      "type": "record",
+      "name": "customers",
+      "namespace": "stripe",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string"
+        },
+        {
+          "name": "address__city",
+          "type": "string"
+        },
+        {
+          "name": "address__country",
+          "type": "string"
+        },
+      ]
+    }
+    """
+
+    schema = {
+        "type": "record",
+        "name": "customers",
+        "namespace": "stripe",
+        "fields": [
+            {
+                "name": "id",
+                "type": "string",
+            },
+            {
+                "name": "address",
+                "type": {
+                    "type": "record",
+                    "name": "address",
+                    "fields": [
+                        {
+                            "name": "city",
+                            "type": "string",
+                        },
+                        {
+                            "name": "country",
+                            "type": "string",
+                        },
+                    ],
+                },
+            },
+        ],
+    }
+
+    expected_schema = {
+        "type": "record",
+        "name": "customers",
+        "namespace": "stripe",
+        "fields": [
+            {
+                "name": "id",
+                "type": "string",
+            },
+            {
+                "name": "address__city",
+                "type": "string",
+            },
+            {
+                "name": "address__country",
+                "type": "string",
+            },
+        ],
+    }
+
+    assert flatten_schema(schema) == expected_schema
+
+
+def test_flatten_record():
+    """
+    Flatten a record to be a single level, using `__` to separate the nested fields.
+    For instance, if we have a record like:
+
+    {
+      "id": "cus_123",
+      "address": {
+        "city": "London",
+        "country": "UK",
+      }
+    }
+
+    We'll flatten this to:
+
+    {
+      "id": "cus_123",
+      "address__city": "London",
+      "address__country": "UK",
+    }
+    """
+
+    record = {
+        "id": "cus_123",
+        "address": {
+            "city": "London",
+            "country": "UK",
+        },
+    }
+
+    expected_record = {
+        "id": "cus_123",
+        "address__city": "London",
+        "address__country": "UK",
+    }
+
+    assert flatten_record(record) == expected_record

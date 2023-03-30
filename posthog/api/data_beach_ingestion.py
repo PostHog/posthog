@@ -1,6 +1,8 @@
+import copy
 import datetime
 import json
-from tempfile import NamedTemporaryFile, mktemp
+from tempfile import NamedTemporaryFile
+from typing import Any, Dict
 import uuid
 
 from django.http import HttpResponse, HttpRequest
@@ -8,12 +10,12 @@ from django.views.decorators.csrf import csrf_exempt
 import fastavro
 import pydantic
 from posthog.api.utils import get_event_ingestion_context
-from django.conf import settings
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.data_beach.data_beach_field import DataBeachField, DataBeachFieldType
 from posthog.models.data_beach.data_beach_table import DataBeachTable
 import boto3
+import fastavro.types
 
 
 @csrf_exempt
@@ -265,8 +267,11 @@ def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
     # schema of the records which we'll determine from the `fields` field in the
     # Avro Schema.
     #
+    # The HogQL schema doesn't support nested records, so we'll flatten the
+    # schema to be a single level, using `__` to separate the nested fields.
+    #
     # We'll then create a `DataBeachTable` for each of these, create
-    # `DataBeachField`s for each top level field that has a non-nested type e.g.
+    # `DataBeachField`s for each top level field that has a type e.g.
     # dicts. We'll then trigger an insert into ClickHouse as with the
     # `import_from_s3` endpoint. These are trigger asynchronously using the
     # `async_insert` ClickHouse query setting such that the request returns
@@ -277,6 +282,16 @@ def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
     # but it's fine for demo purposes.
     # TODO: bulk insert the DataBeachTable and DataBeachField objects to avoid
     # the N+1 queries.
+
+    # We expect the fields to be a list of dicts, each of which
+    # contains the name of the field and the type of the field.)
+    # Fields should map to those specified by the DataBeachFieldType
+    # enum.
+    type_mapping = {
+        "string": DataBeachFieldType.String,
+        "long": DataBeachFieldType.Integer,
+    }
+
     for page in response_iterator:
         for file in page["Contents"] or []:
             # We're only interested in files that end in .avro
@@ -290,17 +305,6 @@ def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
             # Avro schema, the record `name` e.g. "customers" from the Avro
             # schema and the schema of the records which we'll determine from
             # the `fields` field in the Avro Schema.
-            #
-            # We'll then create a `DataBeachTable` for each of these, create
-            # `DataBeachField`s for each top level field that has a non-nested
-            # type e.g. dicts. We'll then trigger an insert into ClickHouse as
-            # with the `import_from_s3` endpoint. These are trigger
-            # asynchronously using the `async_insert` ClickHouse query setting
-            # such that the request returns immediately.
-            # NOTE: handling the inserts async isn't going to be resilient to
-            # e.g. ClickHouse restarts, duplicates handling etc. We should
-            # probably use something else to handle the orchestration of the
-            # inserts in the future but it's fine for demo purposes.
             file_key = file["Key"]
             with NamedTemporaryFile() as temporary_file:
                 s3_client.download_file(
@@ -313,6 +317,8 @@ def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
                     reader = fastavro.reader(avro_file)
                     schema = reader.writer_schema
                     assert schema
+
+                    flatterned_schema = flatten_schema(schema)
 
                     # We expect the namespace to be the name of the service that
                     # the data is from e.g. "stripe" and the name to be the name of
@@ -327,18 +333,8 @@ def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
                         team_id=team_id,
                     )
 
-                    # We expect the fields to be a list of dicts, each of which
-                    # contains the name of the field and the type of the field.)
-                    # Fields should map to those specified by the DataBeachFieldType
-                    # enum.
-                    type_mapping = {
-                        "string": DataBeachFieldType.String,
-                        "long": DataBeachFieldType.Integer,
-                    }
-
                     field_names = []
-
-                    for field in schema["fields"]:
+                    for field in flatterned_schema["fields"]:
                         field_type = field["type"]
                         # Get the type of the field, if it's not in the mapping then
                         # skip it. The Avro sckema supports union types to allow for
@@ -379,7 +375,7 @@ def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
                             table_name,
                             str(record["_airbyte_ab_id"]),
                             avro_json_encoder.encode(
-                                {name: value for name, value in record.items() if name in field_names}
+                                {name: value for name, value in flatten_record(record).items() if name in field_names}
                             ),
                         )
                         for record in reader
@@ -411,3 +407,108 @@ class AvroJsonEncoder(json.JSONEncoder):
             return o.isoformat()
         else:
             return super().default(o)
+
+
+def flatten_schema(schema: fastavro.types.Schema):
+    """
+    Flatten the schema to be a single level, using `__` to separate the nested fields.
+    For instance, if we have a schema like:
+
+    {
+      "type": "record",
+      "name": "customers",
+      "namespace": "stripe",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string"
+        },
+        {
+          "name": "address",
+          "type": [
+            "null",
+            {
+                "type": "record",
+                "name": "address",
+                "fields": [
+                {
+                    "name": "city",
+                    "type": "string"
+                },
+                {
+                    "name": "country",
+                    "type": "string"
+                },
+                ]
+            }
+          ]
+        }
+      ]
+    }
+
+    We'll flatten this to:
+
+    {
+      "type": "record",
+      "name": "customers",
+      "namespace": "stripe",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string"
+        },
+        {
+          "name": "address__city",
+          "type": "string"
+        },
+        {
+          "name": "address__country",
+          "type": "string"
+        },
+      ]
+    }
+
+    Note that we ignore the null values in cases where there is a union type and
+    simply take the first type we find that is not null. It's important that we
+    do _not_ update any part of the schema that is passed in, as this is still
+    used for parsing the Avro records, so we need to ensure that the schema
+    matches the records otherwise we get EOFError: Expected 1000 bytes, read 23.
+    Make sure we do a deep copy first.
+
+    TODO: fix types
+    """
+    new_schema = copy.deepcopy(schema)
+    new_fields = []
+    for field in new_schema.get("fields", []):
+        if isinstance(field["type"], list):
+            field["type"] = [type_ for type_ in field["type"] if type_ != "null"][0]
+
+        if isinstance(field["type"], dict):
+            for sub_field in flatten_schema(field["type"])["fields"]:
+                new_fields.append(
+                    {
+                        "name": f"{field['name']}__{sub_field['name']}",
+                        "type": sub_field["type"],
+                    }
+                )
+        else:
+            new_fields.append(field)
+    new_schema["fields"] = new_fields
+    return new_schema
+
+
+def flatten_record(record: Dict[str, Any]):
+    """
+    Flattern a record to be a single level, using `__` to separate the nested
+    fields. This then should be compatible with the schema that is returned
+    from `flatten_schema`. We do not mutate the record, rather we return a
+    new record.
+    """
+    new_record = {}
+    for key, value in record.items():
+        if isinstance(value, dict):
+            for sub_key, sub_value in flatten_record(value).items():
+                new_record[f"{key}__{sub_key}"] = sub_value
+        else:
+            new_record[key] = value
+    return new_record
