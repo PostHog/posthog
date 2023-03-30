@@ -8,3 +8,4 @@ class Automation(models.Model):
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
     steps: models.JSONField = models.JSONField(null=True, blank=True)
+    edges: models.JSONField = models.JSONField(null=True, blank=True)
