@@ -42,7 +42,8 @@ function ReactFlowPro(): JSX.Element {
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             fitViewOptions={fitViewOptions}
-            minZoom={0.2}
+            minZoom={1}
+            maxZoom={1}
             nodesDraggable={false}
             nodesConnectable={false}
             zoomOnDoubleClick={false}

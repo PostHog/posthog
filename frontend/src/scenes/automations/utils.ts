@@ -132,13 +132,15 @@ export const randomLabel = (): string => {
     return emojis[~~(Math.random() * emojis.length)]
 }
 
+const SEPARATION = 150
+
 export const stepsToFlowSteps = (steps: AnyAutomationStep[]): Node[] => {
     return steps.map((step: AnyAutomationStep, index) => {
         return {
             type: 'workflow',
             id: step.id,
             data: step,
-            position: { x: 0, y: index * 100 },
+            position: { x: 0, y: index * SEPARATION },
         }
     })
 }
@@ -159,7 +161,7 @@ export const addPlaceholderFlowSteps = (flowSteps: Node[]) => {
                 type: 'placeholder',
                 id: uuid(),
                 data: { label: 'placeholder' },
-                position: { x: 0, y: flowSteps.length * 100 },
+                position: { x: 0, y: flowSteps.length * SEPARATION },
             },
         ]
     }
