@@ -10,9 +10,9 @@ import hhInspect from 'public/hedgehog/sprites/inspect.png'
 import hhPhone from 'public/hedgehog/sprites/phone.png'
 import hhAction from 'public/hedgehog/sprites/action.png'
 
-export const SPRITE_SIZE = 64
-export const SHADOW_HEIGHT = 8
-export const SPRITE_SHEET_WIDTH = 512
+export const SPRITE_SIZE = 80
+export const SHADOW_HEIGHT = SPRITE_SIZE / 8
+export const SPRITE_SHEET_WIDTH = SPRITE_SIZE * 8
 
 type SpriteInfo = {
     /** Number of frames in this sprite sheet */
