@@ -145,6 +145,22 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
         setActiveStepId: ({ id }) => {
             if (id !== null) {
                 actions.closeMenu()
+                if (
+                    values.activeStep.data.kind === AutomationStepKind.WebhookDestination &&
+                    values.activeStep.data.payload === undefined
+                ) {
+                    actions.updateActiveStep(id, {
+                        payload: JSON.stringify(
+                            {
+                                full_event: '{event}',
+                                person: '{person}',
+                                message: 'Hi {event.person.properties.email}!',
+                            },
+                            null,
+                            4
+                        ),
+                    })
+                }
             }
         },
         openMenu: () => {
