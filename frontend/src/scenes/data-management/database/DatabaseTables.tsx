@@ -29,8 +29,9 @@ export function DatabaseTables(): JSX.Element {
                                 source: {
                                     kind: NodeKind.HogQLQuery,
                                     query: `SELECT ${obj.columns
+                                        .filter(({ table, fields, chain }) => !table && !fields && !chain)
                                         .map(({ key }) => key)
-                                        .join(', ')} FROM ${table} LIMIT 10`,
+                                        .join(', ')} FROM ${table} LIMIT 100`,
                                 },
                             }
                             return (

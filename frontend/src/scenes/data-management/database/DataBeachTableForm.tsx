@@ -7,7 +7,7 @@ import {
 import { Form, Group } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
 
 export interface DataBeachTableFormProps {
@@ -39,7 +39,7 @@ export function DataBeachTableForm(props: DataBeachTableFormProps): JSX.Element 
             logic={dataBeachTableFormLogic}
             props={logicProps}
             formKey="dataBeachTable"
-            className="ant-form-vertical ant-form-hide-required-mark"
+            className="space-y-4"
             enableFormOnSubmit // makes the HTML "submit" button work directly
         >
             <Field name="name" label="Table name">
@@ -49,20 +49,12 @@ export function DataBeachTableForm(props: DataBeachTableFormProps): JSX.Element 
                 <LemonSelect options={[{ value: 'appendable', label: 'Appendable table (default)' }]} />
             </Field>
             <div>
+                <LemonLabel className="mb-2">Fields</LemonLabel>
                 <table>
-                    <thead>
-                        <tr>
-                            <th />
-                            <th>Field name</th>
-                            <th>Field type</th>
-                            <th />
-                        </tr>
-                    </thead>
                     <tbody>
                         {fields.map((_, index) => (
                             <tr key={index}>
                                 <Group name={['fields', index]}>
-                                    <td>{index + 1}.</td>
                                     <td>
                                         <Field name="name">
                                             <LemonInput placeholder="Field name" />

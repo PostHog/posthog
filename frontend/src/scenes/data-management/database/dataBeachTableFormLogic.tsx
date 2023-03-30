@@ -52,6 +52,12 @@ export const dataBeachTableFormLogic = kea<dataBeachTableFormLogicType>([
     })),
 
     selectors({
-        fields: [(s) => [s.dataBeachTable], (dataBeachTable) => dataBeachTable?.fields ?? [{}]],
+        fields: [
+            (s) => [s.dataBeachTable],
+            (dataBeachTable) =>
+                dataBeachTable?.fields
+                    ? [...dataBeachTable?.fields].sort((a, b) => a.name.localeCompare(b.name))
+                    : [{}],
+        ],
     }),
 ])
