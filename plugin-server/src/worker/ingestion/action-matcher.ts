@@ -146,7 +146,7 @@ export class ActionMatcher {
 
     /** Converts an automation to an action in order to re-use the matching logic. */
     public async matchAutomation(automation: Action, event: PostIngestionEvent): Promise<boolean> {
-        // TODO
+        // TODO implement this, based on the automation above, build the action based on the automation
 
         return true
         // const matchingStart = new Date()

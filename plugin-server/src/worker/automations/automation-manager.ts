@@ -44,13 +44,13 @@ export class AutomationManager {
 
     public async reloadAllAutomations(): Promise<void> {
         if (this.capabilities.processAutomationJobs) {
-            this.automationCache = await this.db.fetchAllAutomationsGroupedByTeam()
+            this.automationCache = await this.db.fetchAllAutomationsGroupedByTeam() // TODO: This returns an action, needs to be turned into an automation type
             status.info('🍿', 'Fetched all automation from DB anew')
         }
     }
 
     public async startWithEvent(event: PostIngestionEvent, graphileWorker: GraphileWorker): Promise<void> {
-        const teamAutomations = await this.getTeamAutomations(event.teamId)
+        const teamAutomations = await this.getTeamAutomations(event.teamId) // TODO: This returns an action, needs to be turned into an automation type
 
         for (const automation of Object.values(teamAutomations)) {
             if (await this.actionMatcher.matchAutomation(automation, event)) {
@@ -58,8 +58,8 @@ export class AutomationManager {
                     timestamp: Date.now(),
                     automation: automation,
                     event,
-                    state: AutomationJobState.SCHEDULED,
-                    nodeId: 'TODO',
+                    state: AutomationJobState.SCHEDULED, // TODO: get rid of this
+                    nodeId: 'TODO', // first node in the automation or the one after that
                 }
 
                 await this.runAutomationJob(job, graphileWorker)
