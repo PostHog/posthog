@@ -122,7 +122,7 @@ export class AutomationManager {
         if (step.kind == 'WebhookDestination') {
             const response = await fetch(step.url, {
                 method: 'POST',
-                body: JSON.stringify(applyEventToPayloadTemplate(step.payload, job.event)),
+                body: JSON.stringify(applyEventToPayloadTemplate(JSON.parse(step.payload), job.event)),
             })
             if (!response.ok) {
                 throw new Error('Webhook failed')
