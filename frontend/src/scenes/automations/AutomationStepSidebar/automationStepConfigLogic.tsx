@@ -21,6 +21,7 @@ import { automationLogic, AutomationLogicProps } from '../automationLogic'
 import type { automationStepConfigLogicType } from './automationStepConfigLogicType'
 import { applyEventToPayloadTemplate } from './webhookDestinationUtils'
 import { EventType, JsonType } from '~/types'
+import { automationStepMenuLogic } from './automationStepMenuLogic'
 
 export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> = {
     [AutomationStepKind.EventSource]: {
@@ -52,7 +53,12 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
     path(['scenes', 'automations', 'AutomationStepSidebar', 'automationStepConfigLogic']),
     connect((props: AutomationLogicProps) => ({
         values: [automationLogic(props), ['flowSteps', 'steps']],
-        actions: [automationLogic(props), ['setAutomationValue', 'setAutomationValues']],
+        actions: [
+            automationLogic(props),
+            ['setAutomationValue', 'setAutomationValues'],
+            automationStepMenuLogic,
+            ['openMenu', 'closeMenu'],
+        ],
     })),
     actions({
         setActiveStepId: (id: string | null) => ({ id }),
@@ -135,6 +141,15 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
             })
             console.debug('listeners.updateActiveStep', id, partialStep, newSteps)
             actions.setAutomationValue('steps', newSteps)
+        },
+        setActiveStepId: ({ id }) => {
+            if (id !== null) {
+                actions.closeMenu()
+            }
+        },
+        openMenu: () => {
+            console.debug('listeners.openMenu')
+            actions.setActiveStepId(null)
         },
     })),
 ])

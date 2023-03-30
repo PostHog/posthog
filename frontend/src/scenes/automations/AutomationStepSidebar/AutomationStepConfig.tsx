@@ -71,9 +71,6 @@ export function EventSentConfig(): JSX.Element {
         throw new Error('activeStep should not be null')
     }
 
-    console.debug('activeStep.data', activeStep.data)
-    console.debug('activeStep.new_entity', activeStep.new_entity)
-
     return (
         <div className="mb-6">
             <div className="mb-2">
