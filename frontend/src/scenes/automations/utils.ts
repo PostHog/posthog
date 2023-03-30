@@ -1,5 +1,11 @@
 import { Edge, Node } from 'reactflow'
-import { AnyAutomationStep, AutomationEdge, AutomationStepKind } from './schema'
+import {
+    AnyAutomationStep,
+    AutomationEdge,
+    AutomationEventSourceStep,
+    AutomationStepKind,
+    AutomationWebhookDestinationStep,
+} from './schema'
 import { uuid } from 'lib/utils'
 
 const emojis = [
@@ -184,4 +190,14 @@ export const addPlaceholderFlowEdges = (flowEdges: Edge[], flowSteps: Node[]) =>
     }
 
     return flowEdges
+}
+
+export function isAutomationEventSourceStep(node?: AnyAutomationStep | null): node is AutomationEventSourceStep {
+    return node?.kind === AutomationStepKind.EventSource
+}
+
+export function isAutomationWebhookDestinationStep(
+    node?: AnyAutomationStep | null
+): node is AutomationWebhookDestinationStep {
+    return node?.kind === AutomationStepKind.WebhookDestination
 }

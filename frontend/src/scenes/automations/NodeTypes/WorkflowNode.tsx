@@ -2,15 +2,14 @@ import { memo } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 
 import './NodeTypes.scss'
-import useNodeClickHandler from '../hooks/useNodeClick'
-import { AnyAutomationStep, AutomationStepKind } from '../schema'
-import { kindToConfig } from '../AutomationStepSidebar/automationStepConfigLogic'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { PropertyOperator } from '~/types'
+import { AnyAutomationStep } from '../schema'
+import { automationStepConfigLogic, kindToConfig } from '../AutomationStepSidebar/automationStepConfigLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { isAutomationEventSourceStep, isAutomationWebhookDestinationStep } from '../utils'
+import { useActions, useValues } from 'kea'
 
 const renderBodyForStep = (step: AnyAutomationStep): React.ReactNode => {
-    if (step.kind === AutomationStepKind.EventSource) {
+    if (isAutomationEventSourceStep(step)) {
         if (!step.filters || step.filters.length === 0) {
             return <span className="italic">Not setup.</span>
         }
@@ -29,7 +28,7 @@ const renderBodyForStep = (step: AnyAutomationStep): React.ReactNode => {
                 ))}
             </div>
         )
-    } else if (step.kind === AutomationStepKind.WebhookDestination) {
+    } else if (isAutomationWebhookDestinationStep(step)) {
         return 'webhook'
     }
 
@@ -37,12 +36,18 @@ const renderBodyForStep = (step: AnyAutomationStep): React.ReactNode => {
 }
 
 const WorkflowNode = ({ id, data }: NodeProps<AnyAutomationStep>): JSX.Element => {
-    // see the hook implementation for details of the click handler
-    // calling onClick adds a child node to this node
-    const onClick = useNodeClickHandler(id)
+    const { activeStepId } = useValues(automationStepConfigLogic)
+    const { setActiveStepId } = useActions(automationStepConfigLogic)
+    const onClick = () => {
+        if (activeStepId && activeStepId === id) {
+            setActiveStepId(null)
+        } else {
+            setActiveStepId(id)
+        }
+    }
 
     return (
-        <div onClick={onClick} className="bg-white p-3 w-60" title="click to add a child node">
+        <div onClick={onClick} className="bg-white p-3 w-60 cursor-pointer" title="click to add a child node">
             <div className="font-medium border-b border-primary-highlight pb-1 mb-2">
                 <span className="mr-1 text-primary-light">{kindToConfig[data.kind].icon}</span>
                 <span>{kindToConfig[data.kind].label}</span>
