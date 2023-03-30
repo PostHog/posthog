@@ -138,7 +138,7 @@ export const stepsToFlowSteps = (steps: AnyAutomationStep[]): Node[] => {
             type: 'workflow',
             id: step.id,
             data: step,
-            position: { x: 0, y: (index + 1) * 100 },
+            position: { x: 0, y: index * 100 },
         }
     })
 }
@@ -159,7 +159,7 @@ export const addPlaceholderFlowSteps = (flowSteps: Node[]) => {
                 type: 'placeholder',
                 id: uuid(),
                 data: { label: 'placeholder' },
-                position: { x: 0, y: 0 },
+                position: { x: 0, y: flowSteps.length * 100 },
             },
         ]
     }
