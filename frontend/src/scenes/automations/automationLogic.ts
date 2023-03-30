@@ -1,5 +1,5 @@
 import { Edge, Node } from 'reactflow'
-import { actions, kea, path, reducers, props, key, selectors, connect, listeners } from 'kea'
+import { actions, kea, path, reducers, props, selectors, connect, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
@@ -119,12 +119,16 @@ export const automationLogic = kea<automationLogicType>([
             },
         ],
     }),
-    forms(({ actions, values }) => ({
+    forms(({ actions }) => ({
         automation: {
             defaults: { ...NEW_AUTOMATION } as Automation,
-            errors: ({ name }) => ({
-                name: !name && 'You have to enter a name.',
-            }),
+            errors: ({}) => {
+                // if (!name) {
+                //     lemonToast.error('You have to enter a name.')
+                //     return { name: 'You have to enter a name.' }
+                // }
+                return { name: undefined }
+            },
             submit: () => {
                 actions.createAutomation()
             },
@@ -167,7 +171,8 @@ export const automationLogic = kea<automationLogicType>([
                         values.automation
                     )
                 } else {
-                    response = await api.create(`api/projects/${values.currentTeamId}/experiments`, values.automation)
+                    const data = { ...values.automation, team_id: values.currentTeamId }
+                    response = await api.create(`api/projects/${values.currentTeamId}/automations`, data)
                 }
             } catch (error: any) {
                 console.error(error)

@@ -1,4 +1,5 @@
-from rest_framework import  serializers, viewsets
+from typing import Dict
+from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -30,6 +31,11 @@ class AutomationSerializer(serializers.ModelSerializer):
             "created_at",
             # "updated_at",
         ]
+
+    def create(self, validated_data: Dict, *args, **kwargs) -> Automation:
+        validated_data["team_id"] = self.context["team_id"]
+        return super().create(validated_data, *args, **kwargs)
+
 
 class AutomationViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Automation.objects.all()
