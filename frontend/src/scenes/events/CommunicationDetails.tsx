@@ -73,7 +73,8 @@ function MessageHistory({
                 communications.results.map((communication, index) => {
                     return communication?.event === '$communication_email_sent' ? (
                         <SentMessage key={index} communication={communication} />
-                    ) : communication?.event === '$communication_email_received' ? (
+                    ) : communication?.event === '$communication_email_received' ||
+                      communication?.event === '$bug_report' ? (
                         <ReceivedMessage key={index} communication={communication} />
                     ) : (
                         <InternalNote key={index} communication={communication} />
