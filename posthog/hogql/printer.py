@@ -242,11 +242,6 @@ class _Printer(Visitor):
             else:
                 join_strings.append(self._print_identifier(node.ref.table.hogql_table()))
 
-            if node.sample is not None:
-                sample_clause = self.visit_sample_expr(node.sample)
-                if sample_clause is not None:
-                    join_strings.append(sample_clause)
-
             if self.dialect == "clickhouse":
                 # TODO: do this in a separate pass before printing, along with person joins and other transforms
                 extra_where = team_id_guard_for_table(node.ref, self.context)
@@ -269,6 +264,11 @@ class _Printer(Visitor):
 
         if node.table_final:
             join_strings.append("FINAL")
+
+        if node.sample is not None:
+            sample_clause = self.visit_sample_expr(node.sample)
+            if sample_clause is not None:
+                join_strings.append(sample_clause)
 
         if node.constraint is not None:
             join_strings.append(f"ON {self.visit(node.constraint)}")

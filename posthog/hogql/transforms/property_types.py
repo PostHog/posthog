@@ -53,7 +53,7 @@ class PropertyFinder(TraversingVisitor):
         if node.parent.name == "properties":
             if isinstance(node.parent.table, ast.BaseTableRef):
                 table = node.parent.table.resolve_database_table().hogql_table()
-                if table == "persons":
+                if table == "persons" or table == "raw_persons":
                     self.person_properties.add(node.name)
                 if table == "events":
                     self.event_properties.add(node.name)
@@ -70,7 +70,7 @@ class PropertySwapper(CloningVisitor):
         if isinstance(ref, ast.PropertyRef) and ref.parent.name == "properties":
             if isinstance(ref.parent.table, ast.BaseTableRef):
                 table = ref.parent.table.resolve_database_table().hogql_table()
-                if table == "persons":
+                if table == "persons" or table == "raw_persons":
                     if ref.name in self.person_properties:
                         return self._add_type_to_string_field(node, self.person_properties[ref.name])
                 if table == "events":
