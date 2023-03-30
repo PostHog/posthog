@@ -12,7 +12,7 @@ from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client.execute import sync_execute
 
 
-def post_data(client: Client, token: str, table_name: str, id: str, data: Any):
+def post_data(client: Client, token: str, table_name: str, data: Any):
     # Make a POST request to the data beach endpoint, using the given token
     # and table name, id, and the given data. We simply pass the token along with
     # the body of the request, along with the id. The data is passed as a string
@@ -20,7 +20,7 @@ def post_data(client: Client, token: str, table_name: str, id: str, data: Any):
     # do not need to spend any time parsing it.
     return client.post(
         f"/ingest/deploy_towels_to/{table_name}/",
-        data={"id": id, "token": token, "data": json.dumps(data)},
+        data={"token": token, "airbyte_data": data},
         content_type="application/json",
     )
 
@@ -31,10 +31,17 @@ def test_can_load_data_into_data_breach_table(client: Client):
     team = create_team(organization=organization)
     id = uuid.uuid4()
     response = post_data(
-        client=client, token=team.api_token, table_name="stripe_customers", id=id, data={"email": "tim@posthog.com"}
+        client=client,
+        token=team.api_token,
+        table_name="stripe_customers",
+        data={
+            "_airbyte_ab_id": id,
+            "_airbyte_emitted_at": 1680048932176,
+            "_airbyte_data": {"email": "tim@posthog.com"},
+        },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.content
 
     # Check that the data is actually in the table
     results = sync_execute(
@@ -53,7 +60,14 @@ def test_can_load_data_into_data_breach_table(client: Client):
 @pytest.mark.django_db
 def test_get_403_for_invalid_token(client: Client):
     response = post_data(
-        client=client, token="invalid", table_name="stripe_customers", id="some-id", data={"email": "tim@posthog.com"}
+        client=client,
+        token="invalid",
+        table_name="stripe_customers",
+        data={
+            "_airbyte_ab_id": "asdf",
+            "_airbyte_emitted_at": 1680048932176,
+            "_airbyte_data": {"email": "tim@posthog.com"},
+        },
     )
 
     assert response.status_code == 403
@@ -64,7 +78,14 @@ def test_get_400_on_incorrect_input(client: Client):
     organization = create_organization(name="test")
     team = create_team(organization=organization)
     response = post_data(
-        client=client, token=team.api_token, table_name="stripe_customers", id="", data={"email": "tim@posthog.com"}
+        client=client,
+        token=team.api_token,
+        table_name="stripe_customers",
+        data={
+            "_airbyte_ab_id": "",
+            "_airbyte_emitted_at": 1680048932176,
+            "_airbyte_data": {"email": "tim@posthog.com"},
+        },
     )
 
     assert response.status_code == 400
