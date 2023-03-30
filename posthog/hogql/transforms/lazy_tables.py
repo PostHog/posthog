@@ -147,8 +147,6 @@ class LazyTableResolver(TraversingVisitor):
                     new_table = tables_to_add[table_name]
                     if table_ref == field.table:
                         chain = []
-                        # if isinstance(table_ref, ast.LazyTableRef) and table_ref.resolve_database_table():
-                        #     chain.append(table_ref.resolve_database_table().hogql_table())
                         chain.append(field.name)
                         if property is not None:
                             chain.append(property.name)

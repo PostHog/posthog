@@ -401,7 +401,6 @@ class Database(BaseModel):
 
     raw_person_distinct_ids: RawPersonDistinctIdTable = RawPersonDistinctIdTable()
     raw_persons: RawPersonsTable = RawPersonsTable()
-    # raw_cohort_people: RawCohortPeople = RawCohortPeople()
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
