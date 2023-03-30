@@ -1888,6 +1888,20 @@ export class DB {
         return automationsMap
     }
 
+    public async fetchSlackAccessToken(teamId: Team['id']): Promise<string | null> {
+        const result = (
+            await this.postgresQuery<{ sensitive_config: { access_token: string } }>(
+                `
+                SELECT sensitive_config FROM posthog_integration
+                WHERE team_id = $1
+                `,
+                [teamId],
+                'fetchSlackAccessToken'
+            )
+        ).rows
+        return result[0].sensitive_config.access_token
+    }
+
     public async countRunningAutomationsForTeam(automationId: number, teamId: Team['id']): Promise<number> {
         const result = (
             await this.postgresQuery<RawAction>(

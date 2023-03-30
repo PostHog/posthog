@@ -151,6 +151,24 @@ export class AutomationManager {
                 if (!response.ok) {
                     throw new Error('Webhook failed')
                 }
+            } else if (step.kind == 'SlackDestination') {
+                // get the integration access token from the integrations db
+                const accessToken = await this.db.fetchSlackAccessToken(job.automation.team_id)
+                const data = {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        channel: step.channel,
+                        text: JSON.stringify(applyEventToPayloadTemplate(JSON.parse(step.payload), job.event)),
+                    }),
+                    headers: {
+                        authorization: `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                }
+                const response = await fetch('https://slack.com/api/chat.postMessage', data)
+                if (!response.ok) {
+                    throw new Error('Webhook failed')
+                }
             }
             // 3. Enqueue the new job(s) with the next nodeIds
             // find the next node id from the edges

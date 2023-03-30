@@ -22,6 +22,7 @@ import type { automationStepConfigLogicType } from './automationStepConfigLogicT
 import { applyEventToPayloadTemplate } from './webhookDestinationUtils'
 import { EventType, JsonType } from '~/types'
 import { automationStepMenuLogic } from './automationStepMenuLogic'
+import { SlackDestinationConfig } from './automationAppConfigs/AutomationSlackConfig'
 
 export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> = {
     [AutomationStepKind.EventSource]: {
@@ -41,7 +42,11 @@ export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> 
         label: 'Send a webhook',
         configComponent: <WebhookDestinationConfig />,
     },
-    [AutomationStepKind.SlackDestination]: { icon: <IconSlack />, label: 'Send to slack' },
+    [AutomationStepKind.SlackDestination]: {
+        icon: <IconSlack />,
+        label: 'Send to slack',
+        configComponent: <SlackDestinationConfig />,
+    },
     [AutomationStepKind.ZapierDestination]: { icon: <IconApps />, label: 'Send to Zapier' },
     [AutomationStepKind.EmailDestination]: { icon: <IconArticle />, label: 'Send an email' },
     [AutomationStepKind.InAppMessageDestination]: { icon: <IconMonitor />, label: 'In-app message' },

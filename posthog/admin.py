@@ -21,6 +21,7 @@ from posthog.models import (
     PluginConfig,
     Team,
     User,
+    Integration,
 )
 
 admin.site.register(Person)
@@ -30,6 +31,7 @@ admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(Automation)
 admin.site.register(InstanceSetting)
+admin.site.register(Integration)
 
 
 @admin.register(Insight)

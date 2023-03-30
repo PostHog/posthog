@@ -23,7 +23,6 @@ def _block_for_asset(asset: ExportedAsset) -> Dict:
 
     return {"type": "image", "image_url": image_url, "alt_text": alt_text}
 
-
 def send_slack_subscription_report(
     subscription: Subscription, assets: List[ExportedAsset], total_asset_count: int, is_new_subscription: bool = False
 ) -> None:
