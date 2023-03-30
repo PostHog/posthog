@@ -24,6 +24,7 @@ import { PluginTab } from './plugins/types'
 export const urls = {
     default: (): string => '/',
     dashboards: (): string => '/dashboard',
+    featurePreview: (): string => '/feature-preview',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
     dashboardTextTile: (id: string | number, textTileId: string | number): string =>
