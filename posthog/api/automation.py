@@ -18,6 +18,7 @@ class AutomationSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "steps",
+            "edges",
             "created_by",
             "created_at",
             # "updated_at",
