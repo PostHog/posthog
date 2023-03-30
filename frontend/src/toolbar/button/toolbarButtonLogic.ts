@@ -5,9 +5,13 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import type { toolbarButtonLogicType } from './toolbarButtonLogicType'
 import { posthog } from '~/toolbar/posthog'
+import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     path: ['toolbar', 'button', 'toolbarButtonLogic'],
+    connect: () => ({
+        actions: [actionsTabLogic, ['showButtonActions'], elementsLogic, ['enableInspect']],
+    }),
     actions: () => ({
         showHeatmapInfo: true,
         hideHeatmapInfo: true,
@@ -22,6 +26,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         saveHeatmapPosition: (x: number, y: number) => ({ x, y }),
         saveActionsPosition: (x: number, y: number) => ({ x, y }),
         saveFlagsPosition: (x: number, y: number) => ({ x, y }),
+        setHedgehogActor: (actor: HedgehogActor) => ({ actor }),
     }),
 
     windowValues: () => ({
@@ -100,6 +105,12 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             { persist: true },
             {
                 setHedgehogMode: (_, { hedgehogMode }) => hedgehogMode,
+            },
+        ],
+        hedgehogActor: [
+            null as HedgehogActor | null,
+            {
+                setHedgehogActor: (_, { actor }) => actor,
             },
         ],
     }),
@@ -187,14 +198,24 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     },
 
     listeners: ({ actions, values }) => ({
-        hideActionsInfo: () => {
-            actionsTabLogic.actions.selectAction(null)
-        },
         showFlags: () => {
             posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: true })
+            values.hedgehogActor?.setAnimation('flag')
         },
         hideFlags: () => {
             posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: false })
+        },
+        showHeatmapInfo: () => {
+            values.hedgehogActor?.setAnimation('heatmaps')
+        },
+        showButtonActions: () => {
+            values.hedgehogActor?.setAnimation('action')
+        },
+        hideActionsInfo: () => {
+            actionsTabLogic.actions.selectAction(null)
+        },
+        enableInspect: () => {
+            values.hedgehogActor?.setAnimation('inspect')
         },
         saveDragPosition: ({ x, y }) => {
             const { windowWidth, windowHeight } = values

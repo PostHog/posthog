@@ -428,16 +428,18 @@ export function HedgehogBuddy({
                             You can move me around by clicking and dragging.
                         </p>
                         <div className="flex gap-2 my-2">
-                            {['jump', 'sign', 'spin', 'wave', 'walk'].map((x) => (
-                                <LemonButton
-                                    key={x}
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => actor.setAnimation(x)}
-                                >
-                                    {capitalizeFirstLetter(x)}
-                                </LemonButton>
-                            ))}
+                            {['jump', 'sign', 'spin', 'wave', 'walk', 'heatmaps', 'flag', 'inspect', 'phone'].map(
+                                (x) => (
+                                    <LemonButton
+                                        key={x}
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => actor.setAnimation(x)}
+                                    >
+                                        {capitalizeFirstLetter(x)}
+                                    </LemonButton>
+                                )
+                            )}
                         </div>
                         <LemonDivider />
                         <div className="flex justify-end gap-2">

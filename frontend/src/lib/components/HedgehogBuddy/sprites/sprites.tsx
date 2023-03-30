@@ -4,6 +4,11 @@ import hhSign from 'public/hedgehog/sprites/sign.png'
 import hhSpin from 'public/hedgehog/sprites/spin.png'
 import hhWalk from 'public/hedgehog/sprites/walk.png'
 import hhWave from 'public/hedgehog/sprites/wave.png'
+import hhHeatmaps from 'public/hedgehog/sprites/heatmaps.png'
+import hhFlag from 'public/hedgehog/sprites/flag.png'
+import hhInspect from 'public/hedgehog/sprites/inspect.png'
+import hhPhone from 'public/hedgehog/sprites/phone.png'
+import hhAction from 'public/hedgehog/sprites/action.png'
 // import hhFallXmas from 'public/hedgehog/sprites/fall-xmas.png'
 // import hhJumpXmas from 'public/hedgehog/sprites/jump-xmas.png'
 // import hhSignXmas from 'public/hedgehog/sprites/sign-xmas.png'
@@ -71,6 +76,36 @@ export const standardAnimations: { [key: string]: SpriteInfo } = {
         frames: 27,
         maxIteration: 1,
         randomChance: 2,
+    },
+    heatmaps: {
+        img: hhHeatmaps,
+        frames: 14,
+        maxIteration: 1,
+        randomChance: 0,
+    },
+    flag: {
+        img: hhFlag,
+        frames: 25,
+        maxIteration: 1,
+        randomChance: 1,
+    },
+    inspect: {
+        img: hhInspect,
+        frames: 36,
+        maxIteration: 1,
+        randomChance: 1,
+    },
+    phone: {
+        img: hhPhone,
+        frames: 28,
+        maxIteration: 1,
+        randomChance: 1,
+    },
+    action: {
+        img: hhAction,
+        frames: 8,
+        maxIteration: 3,
+        randomChance: 1,
     },
 }
 

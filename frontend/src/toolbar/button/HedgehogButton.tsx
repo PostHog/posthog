@@ -8,7 +8,7 @@ import { heatmapLogic } from '../elements/heatmapLogic'
 
 export function HedgehogButton(): JSX.Element {
     const { hedgehogMode, extensionPercentage } = useValues(toolbarButtonLogic)
-    const { saveDragPosition, setExtensionPercentage } = useActions(toolbarButtonLogic)
+    const { saveDragPosition, setExtensionPercentage, setHedgehogActor } = useActions(toolbarButtonLogic)
 
     const { authenticate } = useActions(toolbarLogic)
     const { isAuthenticated } = useValues(toolbarLogic)
@@ -20,9 +20,15 @@ export function HedgehogButton(): JSX.Element {
     useEffect(() => {
         if (heatmapEnabled) {
             // TODO: Change to fire
-            actorRef.current?.setAnimation('spin')
+            actorRef.current?.setAnimation('heatmaps')
         }
     }, [heatmapEnabled])
+
+    useEffect(() => {
+        if (actorRef.current) {
+            setHedgehogActor(actorRef.current)
+        }
+    }, [actorRef.current])
 
     return (
         <>
