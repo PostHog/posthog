@@ -28,6 +28,11 @@ const fitViewOptions = {
 function ReactFlowPro(): JSX.Element {
     // this hook call ensures that the layout is re-calculated every time the graph changes
     const { flowSteps, flowEdges } = useValues(automationLogic)
+    const { isMenuOpen } = useValues(automationStepMenuLogic)
+    const { closeMenu } = useActions(automationStepMenuLogic)
+    const { activeStepId } = useValues(automationStepConfigLogic)
+    const { setActiveStepId } = useActions(automationStepConfigLogic)
+
     useLayout()
 
     console.debug('flowSteps: ', flowSteps)
@@ -47,6 +52,15 @@ function ReactFlowPro(): JSX.Element {
             nodesDraggable={false}
             nodesConnectable={false}
             zoomOnDoubleClick={false}
+            onPaneClick={() => {
+                if (isMenuOpen) {
+                    closeMenu()
+                }
+
+                if (activeStepId !== null) {
+                    setActiveStepId(null)
+                }
+            }}
         >
             <Background />
         </ReactFlow>

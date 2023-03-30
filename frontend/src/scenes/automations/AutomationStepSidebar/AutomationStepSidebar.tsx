@@ -1,24 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconClose } from 'lib/lemon-ui/icons'
-
-// export function AutomationStepSidebar(): JSX.Element {
-//     const { activeStepId } = useValues(automationStepConfigLogic)
-//     const { closeStepConfig } = useActions(automationStepConfigLogic)
-
-//     return (
-//         <div className="w-full m-4 p-8 border bg-white AutomationStepConfig relative">
-//             <LemonButton
-//                 icon={<IconClose />}
-//                 size="small"
-//                 status="stealth"
-//                 onClick={closeStepConfig}
-//                 aria-label="close"
-//                 className="closebutton"
-//             />
-//             {activeStepId ? <AutomationStepConfig /> : <AutomationStepMenu />}
-//         </div>
-//     )
-// }
+import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+import { useRef } from 'react'
 
 type AutomationStepSidebarProps = {
     onClose: () => void
@@ -26,8 +9,19 @@ type AutomationStepSidebarProps = {
 }
 
 export function AutomationStepSidebar({ onClose, children }: AutomationStepSidebarProps): JSX.Element {
+    const containerRef = useRef<HTMLDivElement | null>(null)
+
+    useOutsideClickHandler(
+        containerRef,
+        () => {
+            console.debug('outside click')
+            onClose()
+        },
+        []
+    )
+
     return (
-        <div className="w-full m-4 p-8 border bg-white AutomationStepConfig relative">
+        <div className="w-full m-4 p-8 border bg-white AutomationStepConfig relative" ref={containerRef}>
             <LemonButton
                 icon={<IconClose />}
                 size="small"
