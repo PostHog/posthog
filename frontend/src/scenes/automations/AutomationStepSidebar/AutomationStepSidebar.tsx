@@ -14,7 +14,7 @@ export function AutomationStepSidebar({ onClose, children }: AutomationStepSideb
     useOutsideClickHandler(
         containerRef,
         () => {
-            onClose()
+            // onClose()
         },
         []
     )
