@@ -15,10 +15,12 @@ import {
     // IconSlack,
     IconWebhook,
 } from 'lib/lemon-ui/icons'
-import { EventSentConfig } from './AutomationStepConfig'
+import { EventSentConfig, WebhookDestinationConfig } from './AutomationStepConfig'
 import { automationLogic, AutomationLogicProps } from '../automationLogic'
 
 import type { automationStepConfigLogicType } from './automationStepConfigLogicType'
+import { applyEventToPayloadTemplate } from './webhookDestinationUtils'
+import { EventType, JsonType } from '~/types'
 
 export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> = {
     [AutomationStepKind.EventSource]: {
@@ -33,7 +35,11 @@ export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> 
     // 'Set user property': { icon: <IconPerson />, label: 'Set user property' },
     // 'Add to cohort': { icon: <IconCohort />, label: 'Add to cohort' },
     // 'Add to feature flags': { icon: <IconFlag />, label: 'Add to feature flags' },
-    [AutomationStepKind.WebhookDestination]: { icon: <IconWebhook />, label: 'Send a webhook' },
+    [AutomationStepKind.WebhookDestination]: {
+        icon: <IconWebhook />,
+        label: 'Send a webhook',
+        configComponent: <WebhookDestinationConfig />,
+    },
     // 'Send to slack': { icon: <IconSlack />, label: 'Send to slack' },
     // 'Send to Zapier': { icon: <IconApps />, label: 'Send to Zapier' },
     // 'Send an email': { icon: <IconArticle />, label: 'Send an email' },
@@ -60,6 +66,28 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
             },
         ],
         stepCategories: [Object.values(AutomationStepCategory), {}],
+        exampleEvent: [
+            // TODO: rename to webhook example event
+            JSON.stringify(
+                {
+                    id: 'id_1234',
+                    distinct_id: 'distinct_id_5678',
+                    properties: { $feedback: 'hello' },
+                    event: 'Feedback Sent',
+                    timestamp: '2023-04-01 16:44:34',
+                    person: {
+                        properties: { name: 'Max Hedgehog' },
+                        is_identified: true,
+                        distinct_ids: ['distinct_id_5678'],
+                    },
+                },
+                null,
+                4
+            ) as string,
+            {
+                setExampleEvent: (_, { exampleEvent }) => ({ exampleEvent }),
+            },
+        ],
     }),
     selectors({
         activeStep: [
@@ -75,6 +103,23 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
                     return null
                 }
                 return kindToConfig[activeStep.data.kind]
+            },
+        ],
+        previewPayload: [
+            (selectors) => [selectors.activeStep, selectors.exampleEvent],
+            (activeStep: AnyAutomationStep | null, exampleEvent: Partial<EventType>): JsonType | string | null => {
+                if (!activeStep) {
+                    return null
+                }
+                try {
+                    const examplePayload = applyEventToPayloadTemplate(
+                        JSON.parse(activeStep.payload),
+                        JSON.parse(exampleEvent)
+                    )
+                    return examplePayload
+                } catch (e) {
+                    return 'Invalid JSON' + e
+                }
             },
         ],
     }),

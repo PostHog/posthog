@@ -1,13 +1,68 @@
-import { LemonButton, LemonDivider, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonDivider, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { PureField } from 'lib/forms/Field'
+import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { FilterType, InsightType } from '~/types'
 import './AutomationStepConfig.scss'
 import { automationStepConfigLogic } from './automationStepConfigLogic'
 import { AutomationStepSidebar } from './AutomationStepSidebar'
+
+export function WebhookDestinationConfig(): JSX.Element {
+    const { activeStep, activeStepConfig, exampleEvent, previewPayload } = useValues(automationStepConfigLogic)
+    const { updateActiveStep, setExampleEvent } = useActions(automationStepConfigLogic)
+
+    console.log('activeStep', activeStep)
+    return (
+        <>
+            <PureField label={'Destination url'}>
+                <LemonInput
+                    placeholder="Where do you want to send the payload?"
+                    value={activeStep.url}
+                    onChange={(url) => {
+                        updateActiveStep(activeStep.id, { url })
+                    }}
+                />
+            </PureField>
+            <div className="mt-4" />
+            <PureField label={'Payload'} className="max-w-160">
+                <JSONEditorInput
+                    defaultNumberOfLines={4}
+                    value={activeStep?.data?.payload}
+                    onChange={(payload) => {
+                        debugger
+                        updateActiveStep(activeStep.id, { payload })
+                    }}
+                />
+            </PureField>
+            <div className="mt-4" />
+            <PureField label={'Preview'} className="max-w-160">
+                <JSONEditorInput defaultNumberOfLines={4} value={JSON.stringify(previewPayload, null, 4)} readOnly />
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: '1',
+                            header: <span>Example event</span>,
+                            content: (
+                                <JSONEditorInput
+                                    defaultNumberOfLines={4}
+                                    value={exampleEvent}
+                                    onChange={(val) => {
+                                        setExampleEvent(val)
+                                    }}
+                                />
+                            ),
+                        },
+                    ]}
+                />
+            </PureField>
+            <div className="mt-4" />
+        </>
+    )
+}
 
 export function EventSentConfig(): JSX.Element {
     const { activeStep } = useValues(automationStepConfigLogic)
