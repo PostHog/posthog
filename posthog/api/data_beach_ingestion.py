@@ -62,6 +62,7 @@ def deploy_towels_to(request, table_name):
     team_id = ingestion_context.team_id
 
     # Insert directly into the data_beach ClickHouse table.
+    print(team_id, table_name, payload.airbyte_data.airbyte_ab_id, json.dumps(payload.airbyte_data.airbyte_data))
     sync_execute(
         """
         INSERT INTO data_beach_appendable (
@@ -71,16 +72,28 @@ def deploy_towels_to(request, table_name):
             data
         ) VALUES
     """,
-        [(team_id, table_name, payload.id, payload.data)],
+        [(team_id, table_name, payload.airbyte_data.airbyte_ab_id, json.dumps(payload.airbyte_data.airbyte_data))],
     )
 
     return HttpResponse(status=200)
 
 
+class AirByteData(pydantic.BaseModel):
+    airbyte_ab_id: str = pydantic.Field(..., min_length=1)
+    airbyte_emitted_at: int
+    airbyte_data: dict
+
+    class Config:
+        fields = {
+            "airbyte_ab_id": "_airbyte_ab_id",
+            "airbyte_emitted_at": "_airbyte_emitted_at",
+            "airbyte_data": "_airbyte_data",
+        }
+
+
 class RequestPayload(pydantic.BaseModel):
-    id: str = pydantic.Field(..., min_length=1)
     token: str = pydantic.Field(..., min_length=1)
-    data: str = pydantic.Field(..., min_length=1)
+    airbyte_data: AirByteData
 
 
 @csrf_exempt
