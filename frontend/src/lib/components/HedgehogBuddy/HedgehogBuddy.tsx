@@ -6,7 +6,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useActions, useValues } from 'kea'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { SHADOW_HEIGHT, SPRITE_SHEET_WIDTH, SPRITE_SIZE, standardAnimations } from './sprites/sprites'
+import { SHADOW_HEIGHT, SPRITE_SHEET_WIDTH, SPRITE_SIZE, standardAnimations, standardAccessories} from './sprites/sprites'
 import './HedgehogBuddy.scss'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
@@ -421,14 +421,30 @@ export function HedgehogBuddy({
             placement="top"
             overlay={
                 popoverOverlay || (
-                    <div className="HedgehogBuddyPopover p-2">
+                    <div className="HedgehoygBuddyPopover p-2">
                         <h3>Hello!</h3>
                         <p>
                             Don't mind me. I'm just here to keep you company.
                             <br />
                             You can move me around by clicking and dragging.
                         </p>
+
                         <div className="flex gap-2 my-2">
+                            {Object.keys(standardAccessories).map(
+                                (x) => (
+                                    <LemonButton
+                                        key={x}
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => actor.setAnimation(x)}
+                                    >
+                                        {capitalizeFirstLetter(x)}
+                                     <img src={standardAccessories[x].img}/>
+                                    </LemonButton>
+                                )
+                            )}
+
+                        {/* <div className="flex gap-2 my-2">
                             {['jump', 'sign', 'spin', 'wave', 'walk', 'heatmaps', 'flag', 'inspect', 'phone'].map(
                                 (x) => (
                                     <LemonButton
@@ -440,7 +456,7 @@ export function HedgehogBuddy({
                                         {capitalizeFirstLetter(x)}
                                     </LemonButton>
                                 )
-                            )}
+                            )} */}
                         </div>
                         <LemonDivider />
                         <div className="flex justify-end gap-2">

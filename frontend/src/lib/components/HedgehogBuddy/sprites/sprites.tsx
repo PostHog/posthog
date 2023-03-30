@@ -10,6 +10,21 @@ import hhInspect from 'public/hedgehog/sprites/inspect.png'
 import hhPhone from 'public/hedgehog/sprites/phone.png'
 import hhAction from 'public/hedgehog/sprites/action.png'
 
+import hhBeret from 'public/hedgehog/sprites/accessories/beret.png'
+import hhCap from 'public/hedgehog/sprites/accessories/cap.png'
+import hhChef from 'public/hedgehog/sprites/accessories/chefs-hat.png'
+import hhCowboy from 'public/hedgehog/sprites/accessories/cowboy-hat.png'
+import hhPatch from 'public/hedgehog/sprites/accessories/eye-patch.png'
+import hhKid from 'public/hedgehog/sprites/accessories/kids-hat.png'
+import hhParrot from 'public/hedgehog/sprites/accessories/parrot.png'
+import hhParty from 'public/hedgehog/sprites/accessories/party-hat.png'
+import hhPineapple from 'public/hedgehog/sprites/accessories/pineapple-hat.png'
+import hhSunny from 'public/hedgehog/sprites/accessories/sunglasses.png'
+import hhGlasses from 'public/hedgehog/sprites/accessories/glasses.png'
+import hhFancy from 'public/hedgehog/sprites/accessories/top-hat.png'
+import hhGrad from 'public/hedgehog/sprites/accessories/graduation-hat.png'
+
+
 export const SPRITE_SIZE = 80
 export const SHADOW_HEIGHT = SPRITE_SIZE / 8
 export const SPRITE_SHEET_WIDTH = SPRITE_SIZE * 8
@@ -100,5 +115,47 @@ export const standardAnimations: { [key: string]: SpriteInfo } = {
         frames: 8,
         maxIteration: 3,
         randomChance: 1,
+    },
+}
+
+export const standardAccessories: { [key: string]: any } = {
+    beret: {
+        img: hhBeret, 
+    },
+    cap: {
+        img: hhCap,
+    },
+    chef: {
+        img: hhChef,
+    },
+    cowboy: {
+        img: hhCowboy,
+    },
+    eyepatch: {
+        img: hhPatch,
+    },
+    nerdy: {
+        img: hhGlasses,
+    },
+    graduate: {
+        img: hhGrad,
+    },
+    kiddo: {
+        img: hhKid,
+    },
+    parrot: {
+        img: hhParrot,
+    },
+    party: {
+        img: hhParty,
+    },
+    pineapple: {
+        img: hhPineapple,
+    },
+    sunshine: {
+        img: hhSunny,
+    },
+    fancy: {
+        img: hhFancy,
     },
 }
