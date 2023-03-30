@@ -137,7 +137,7 @@ export const stepsToFlowSteps = (steps: AnyAutomationStep[]): Node[] => {
         return {
             type: 'workflow',
             id: step.id,
-            data: { label: step.kind },
+            data: step,
             position: { x: 0, y: 0 },
         }
     })

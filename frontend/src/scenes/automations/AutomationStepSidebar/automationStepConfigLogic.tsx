@@ -52,30 +52,6 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
         updateActiveStep: (id: string, activeStepUpdates: Partial<AnyAutomationStep>) => ({ id, activeStepUpdates }),
     }),
     reducers({
-        // activeSteps: [
-        //     [
-        //         {
-        //             kind: AutomationStepKind.EventSource,
-        //             id: uuid(),
-        //             category: AutomationStepCategory.Source,
-        //             filters: [],
-        //         },
-        //     ] as AnyAutomationStep[],
-        //     {
-        //         updateActiveStep: (activeSteps, { id, activeStepUpdates }) => {
-        //             return activeSteps.map((activeStep: AnyAutomationStep) => {
-        //                 if (activeStep.id === id) {
-        //                     return {
-        //                         ...activeStep,
-        //                         ...activeStepUpdates,
-        //                     }
-        //                 } else {
-        //                     return activeStep
-        //                 }
-        //             })
-        //         },
-        //     },
-        // ],
         activeStepId: [
             null as null | string,
             {
@@ -97,7 +73,7 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
                 if (!activeStep) {
                     return null
                 }
-                return kindToConfig[activeStep.kind]
+                return kindToConfig[activeStep.data.kind]
             },
         ],
     }),
