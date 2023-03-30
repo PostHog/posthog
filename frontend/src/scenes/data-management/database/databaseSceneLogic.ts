@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { query } from '~/queries/query'
 
@@ -6,6 +6,7 @@ import type { databaseSceneLogicType } from './databaseSceneLogicType'
 import { DatabaseSchemaQuery, DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
 import api from 'lib/api'
 import { DataBeachTableType } from '~/types'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export interface DataBeachTable {
     name: string
@@ -18,6 +19,7 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseSceneLogic']),
     actions({
         editDataBeachTable: (id: number | 'new' = 'new') => ({ id }),
+        deleteDataBeachTable: (id: number) => ({ id }),
         hideEditDataBeachTable: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         appendDataBeachTable: (dataBeachTable: DataBeachTableType) => ({ dataBeachTable }),
@@ -49,6 +51,7 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
             appendDataBeachTable: (state, { dataBeachTable }) => [...(state ?? []), dataBeachTable],
             updateDataBeachTable: (state, { dataBeachTable }) =>
                 (state ?? []).map((table) => (table.id === dataBeachTable.id ? dataBeachTable : table)),
+            deleteDataBeachTable: (state, { id }) => state?.filter((table) => table.id !== id) ?? null,
         },
         category: ['all' as 'all' | 'posthog' | 'databeach', { setCategory: (_, { category }) => category }],
     }),
@@ -110,6 +113,12 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
             (dataBeachTables, editingDataBeachTable) =>
                 editingDataBeachTable ? dataBeachTables?.find(({ id }) => id === editingDataBeachTable) : null,
         ],
+    }),
+    listeners({
+        deleteDataBeachTable: async ({ id }) => {
+            await api.dataBeachTables.delete(id)
+            lemonToast.success('Table deleted')
+        },
     }),
     afterMount(({ actions }) => {
         actions.loadDatabase()

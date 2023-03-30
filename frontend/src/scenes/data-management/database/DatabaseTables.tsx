@@ -7,10 +7,11 @@ import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { urls } from 'scenes/urls'
 import { DataTableNode, NodeKind } from '~/queries/schema'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export function DatabaseTables(): JSX.Element {
     const { filteredTables, loading } = useValues(databaseSceneLogic)
-    const { editDataBeachTable } = useActions(databaseSceneLogic)
+    const { editDataBeachTable, deleteDataBeachTable } = useActions(databaseSceneLogic)
 
     return (
         <>
@@ -68,7 +69,7 @@ export function DatabaseTables(): JSX.Element {
                         width: 0,
                         key: 'dataBeachTableId',
                         dataIndex: 'dataBeachTableId',
-                        render: function RenderActions(_, { dataBeachTableId }) {
+                        render: function RenderActions(_, { dataBeachTableId, name }) {
                             if (dataBeachTableId) {
                                 return (
                                     <More
@@ -82,7 +83,24 @@ export function DatabaseTables(): JSX.Element {
                                                     Edit
                                                 </LemonButton>
                                                 <LemonDivider />
-                                                <LemonButton status="danger" onClick={() => {}} fullWidth>
+                                                <LemonButton
+                                                    status="danger"
+                                                    onClick={() => {
+                                                        LemonDialog.open({
+                                                            title: <>Remove {name} ?</>,
+                                                            description: `Are you want to remove the table ${name}? This operation is irreversible.`,
+                                                            primaryButton: {
+                                                                status: 'danger',
+                                                                children: 'Remove',
+                                                                onClick: () => deleteDataBeachTable(dataBeachTableId),
+                                                            },
+                                                            secondaryButton: {
+                                                                children: 'Cancel',
+                                                            },
+                                                        })
+                                                    }}
+                                                    fullWidth
+                                                >
                                                     Delete
                                                 </LemonButton>
                                             </>
