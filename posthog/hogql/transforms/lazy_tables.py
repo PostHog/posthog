@@ -87,7 +87,13 @@ class LazyTableResolver(TraversingVisitor):
         # Collect all the joins we need to add to the select query
         joins_to_add: Dict[str, JoinToAdd] = {}
         tables_to_add: Dict[str, TableToAdd] = {}
-        for field_or_property in field_collector:
+
+        # First properties, then fields. This way we always get the smallest units to query first.
+        sorted_properties = [property for property in field_collector if isinstance(property, ast.PropertyRef)] + [
+            field for field in field_collector if not isinstance(field, ast.PropertyRef)
+        ]
+
+        for field_or_property in sorted_properties:
             if isinstance(field_or_property, ast.FieldRef):
                 property = None
                 field = field_or_property

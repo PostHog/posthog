@@ -102,11 +102,10 @@ class TestLazyJoins(BaseTest):
             f"person_distinct_id2.distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) "
             f"GROUP BY person_distinct_id2.distinct_id HAVING equals(argMax(person_distinct_id2.is_deleted, "
             f"person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) "
-            f"INNER JOIN (SELECT argMax(person.properties, person.version) AS properties, "
-            f"argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), person.version) "
-            f"AS properties___name, person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-            f"HAVING equals(argMax(person.is_deleted, person.version), 0)) AS events__pdi__person ON "
-            f"equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
+            f"INNER JOIN (SELECT argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), person.version) "
+            f"AS properties___name, argMax(person.properties, person.version) AS properties, person.id FROM person "
+            f"WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) "
+            f"AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
         )
         self.assertEqual(printed, expected)
 
