@@ -42,42 +42,6 @@ function ReactFlowPro(): JSX.Element {
     const { flowSteps, flowEdges } = useValues(automationLogic)
     useLayout()
 
-    console.debug('flowSteps: ', flowSteps)
-    console.debug('flowEdges: ', flowEdges)
-
-    // const flowSteps = [
-    //     {
-    //         id: 'Event sent',
-    //         data: {
-    //             label: 'EventSource',
-    //         },
-    //         position: {
-    //             x: 0,
-    //             y: 0,
-    //         },
-    //         type: 'workflow',
-    //     },
-    //     {
-    //         id: 'placeholder',
-    //         data: {
-    //             label: 'placeholder',
-    //         },
-    //         position: {
-    //             x: 0,
-    //             y: 0,
-    //         },
-    //         type: 'placeholder',
-    //     },
-    // ]
-    // const flowEdges = [
-    //     {
-    //         id: '0',
-    //         source: 'Event sent',
-    //         target: 'placeholder',
-    //         type: 'workflow',
-    //     },
-    // ]
-
     return (
         <ReactFlow
             nodes={flowSteps}

@@ -131,7 +131,6 @@ export const automationLogic = kea<automationLogicType>([
     })),
     listeners(({ actions, values }) => ({
         addStep: ({ step }) => {
-            console.debug('addStep...')
             // const source = values.flowSteps[values.flowSteps.length - 1].id
             actions.setAutomationValues({
                 steps: [...values.steps, step],

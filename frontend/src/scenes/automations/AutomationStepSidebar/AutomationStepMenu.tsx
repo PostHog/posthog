@@ -62,7 +62,6 @@ export function AutomationStepMenu(): JSX.Element {
                                     icon={kindToConfig[option.kind].icon}
                                     key={key}
                                     onClick={() => {
-                                        console.debug('clicked', option)
                                         const id = uuid()
                                         addStep({ ...option, id })
                                         closeMenu()
