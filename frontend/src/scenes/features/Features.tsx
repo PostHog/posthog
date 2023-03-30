@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -17,14 +17,14 @@ export function Features(): JSX.Element {
         <>
             <PageHeader
                 title="Features"
-                caption="Plan the future and control the present of all your features."
+                caption="Release features in a controlled way. Track adoption in stages."
                 buttons={
                     <LemonButton type="primary" to={urls.feature('new')}>
                         New feature
                     </LemonButton>
                 }
+                delimited
             />
-            <LemonDivider className="my-4" />
             <LemonTable
                 columns={[
                     {

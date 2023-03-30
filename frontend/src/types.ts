@@ -1950,9 +1950,9 @@ export interface FeatureFlagFilters {
 export interface FeatureFlagBasicType {
     id: number
     team_id: TeamType['id']
+    key: string
     /* The description field (the name is a misnomer because of its legacy). */
     name: string
-    key: string
     filters: FeatureFlagFilters
     deleted: boolean
     active: boolean
@@ -1993,9 +1993,15 @@ export interface FeatureType {
     name: string
     description: string
     stage: 'concept' | 'alpha' | 'beta' | 'general-availability'
-    image_url: string | null
-    documentation_url: string | null
+    /** Preview image URL. Can be empty. */
+    image_url: string
+    /** Documentation URL. Can be empty. */
+    documentation_url: string
     created_at: string
+}
+
+export interface NewFeatureType extends Omit<FeatureType, 'id' | 'created_at' | 'feature_flag'> {
+    feature_flag_key: string
 }
 
 export interface UserBlastRadiusType {

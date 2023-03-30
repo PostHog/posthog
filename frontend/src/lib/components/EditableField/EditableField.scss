@@ -46,6 +46,9 @@
         color: var(--default);
         outline: none;
         padding: 0;
+        &:placeholder-shown {
+            font-style: italic;
+        }
     }
     textarea {
         align-self: center;

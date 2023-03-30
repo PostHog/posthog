@@ -3,6 +3,7 @@ from unittest.mock import ANY
 from rest_framework import status
 
 from posthog.models.feature import Feature
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.test.base import APIBaseTest
 
 
@@ -15,7 +16,8 @@ class TestFeatureFlag(APIBaseTest):
             data={
                 "name": "Hick bondoogling",
                 "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
-                "status": "concept",
+                "stage": "concept",
+                "feature_flag_key": "hick-bondoogling",
             },
             format="json",
         )
@@ -23,9 +25,12 @@ class TestFeatureFlag(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert Feature.objects.filter(id=response_data["id"]).exists()
+        assert FeatureFlag.objects.filter(key=response_data["feature_flag"]["key"]).exists()
         assert response_data["name"] == "Hick bondoogling"
         assert response_data["description"] == 'Boondoogle your hicks with one click. Just click "bazinga"!'
-        assert response_data["status"] == "concept"
+        assert response_data["stage"] == "concept"
+        assert response_data["feature_flag"]["key"] == "hick-bondoogling"
+        assert response_data["feature_flag"]["active"]
         assert isinstance(response_data["created_at"], str)
 
     def test_can_edit_feature(self):
@@ -33,7 +38,7 @@ class TestFeatureFlag(APIBaseTest):
             team=self.team,
             name="Click counter",
             description="A revolution in usability research: now you can count clicks!",
-            status="beta",
+            stage="beta",
         )
 
         response = self.client.patch(
@@ -50,7 +55,7 @@ class TestFeatureFlag(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response_data
         assert response_data["name"] == "Mouse-up counter"
         assert response_data["description"] == "Oops, we made a mistake, it actually only counts mouse-up events."
-        assert response_data["status"] == "beta"
+        assert response_data["stage"] == "beta"
         assert feature.name == "Mouse-up counter"
 
     def test_can_list_features(self):
@@ -58,7 +63,7 @@ class TestFeatureFlag(APIBaseTest):
             team=self.team,
             name="Click counter",
             description="A revolution in usability research: now you can count clicks!",
-            status="beta",
+            stage="beta",
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/features/")
@@ -73,12 +78,12 @@ class TestFeatureFlag(APIBaseTest):
                 {
                     "created_at": ANY,
                     "description": "A revolution in usability research: now you can count clicks!",
-                    "documentation_url": None,
+                    "documentation_url": "",
                     "feature_flag": None,
                     "id": ANY,
-                    "image_url": None,
+                    "image_url": "",
                     "name": "Click counter",
-                    "status": "beta",
+                    "stage": "beta",
                 },
             ],
         }

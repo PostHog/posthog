@@ -20,11 +20,11 @@ class Feature(UUIDModel):
         related_name="features",
         related_query_name="feature",
     )
-    stage: models.CharField = models.CharField(max_length=40, choices=Stage.choices)
-    name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    name: models.CharField = models.CharField(max_length=200)
     description: models.TextField = models.TextField()
-    image_url: models.URLField = models.URLField(max_length=800, null=True, blank=True)
-    documentation_url: models.URLField = models.URLField(max_length=800, null=True, blank=True)
+    stage: models.CharField = models.CharField(max_length=40, choices=Stage.choices)
+    image_url: models.URLField = models.URLField(max_length=800, blank=True)
+    documentation_url: models.URLField = models.URLField(max_length=800, blank=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
 
     def __str__(self) -> str:

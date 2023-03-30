@@ -1,8 +1,10 @@
+from typing import Type
 from posthog.api.feature_flag import FeatureFlagBasicSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.feature import Feature
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
@@ -46,16 +48,66 @@ class FeatureSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "feature_flag", "created_at"]
 
+
+class FeatureSerializerCreateOnly(FeatureSerializer):
+    feature_flag_key = serializers.CharField(
+        max_length=FeatureFlag._meta.get_field("key").max_length, required=True, write_only=True
+    )
+
+    class Meta:
+        model = Feature
+        fields = [
+            "id",
+            "name",
+            "description",
+            "stage",
+            "image_url",
+            "documentation_url",
+            "created_at",
+            "feature_flag",
+            "feature_flag_key",
+        ]
+        read_only_fields = ["id", "feature_flag", "created_at"]
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
+        feature_flag_key = validated_data.pop("feature_flag_key")
+        validated_data["feature_flag_id"] = FeatureFlag.objects.create(
+            team_id=self.context["team_id"],
+            key=feature_flag_key,
+            name=f"Feature Flag for Feature {validated_data['name']}",
+            created_by=self.context["request"].user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": f"$feature_enrollment/{feature_flag_key}",
+                                "type": "person",
+                                "value": ["true"],
+                                "operator": "exact",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ],
+                "payloads": {},
+                "multivariate": None,
+            },
+        ).id
         return super().create(validated_data)
 
 
 class FeatureViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):  # TODO: Use ForbidDestroyModel
     queryset = Feature.objects.select_related("feature_flag").all()
-    serializer_class = FeatureSerializer
     permission_classes = [
         IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
     ]
+
+    def get_serializer_class(self) -> Type[serializers.Serializer]:
+        if self.request.method == "POST":
+            return FeatureSerializerCreateOnly
+        else:
+            return FeatureSerializer

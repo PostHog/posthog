@@ -39,6 +39,7 @@ import {
     DashboardTemplateType,
     DashboardTemplateEditorType,
     FeatureType,
+    NewFeatureType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -1091,9 +1092,7 @@ const api = {
         async get(featureId: FeatureType['id']): Promise<FeatureType> {
             return await new ApiRequest().feature(featureId).get()
         },
-        async create(
-            data: Pick<FeatureType, 'name' | 'description' | 'stage' | 'image_url' | 'documentation_url'>
-        ): Promise<SubscriptionType> {
+        async create(data: NewFeatureType): Promise<FeatureType> {
             return await new ApiRequest().features().create({ data })
         },
         async update(
