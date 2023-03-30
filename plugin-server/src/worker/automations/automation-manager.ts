@@ -14,8 +14,51 @@ import { status } from '../../utils/status'
 import { GraphileWorker } from '../../main/graphile-worker/graphile-worker'
 import fetch from 'node-fetch'
 
-export type AutomationMap = Record<Action['id'], Action>
+export type AutomationMap = Record<string, any>
 type AutomationCache = Record<Team['id'], AutomationMap>
+
+export function applyEventToPayloadTemplate(payloadTemplate: any, event: any): any {
+    function replaceTemplateRecursive(obj: any, path: string[]): any {
+        if (typeof obj === 'string') {
+            if (obj == '{event}') {
+                return event
+            }
+            const matches = obj.match(/\{event\.[a-zA-Z0-9_.]+\}/g)
+            if (matches) {
+                for (const match of matches) {
+                    const propertyPath = match.slice(7, -1).split('.')
+                    let value = event
+                    for (const key of propertyPath) {
+                        if (value === undefined) {
+                            break
+                        }
+                        value = value[key]
+                    }
+                    if (value !== undefined) {
+                        if (obj === match) {
+                            return value
+                        } else {
+                            obj = obj.replace(match, value)
+                        }
+                    }
+                }
+            }
+            return obj
+        } else if (Array.isArray(obj)) {
+            return obj.map((item, index) => replaceTemplateRecursive(item, path.concat(index.toString())))
+        } else if (typeof obj === 'object' && obj !== null) {
+            const newObj: { [key: string]: any } = {}
+            for (const key of Object.keys(obj)) {
+                newObj[key] = replaceTemplateRecursive(obj[key], path.concat(key))
+            }
+            return newObj
+        } else {
+            return obj
+        }
+    }
+
+    return replaceTemplateRecursive(payloadTemplate, [])
+}
 
 export class AutomationManager {
     private ready: boolean
@@ -55,25 +98,14 @@ export class AutomationManager {
 
         for (const automation of Object.values(teamAutomations)) {
             if (await this.actionMatcher.matchAutomation(automation, event)) {
-                const webhookStep = automation.steps[1] as any
-                // TODO: template the payload
-                const response = await fetch(webhookStep.url, {
-                    method: 'POST',
-                    body: webhookStep.payload,
-                })
+                const job: EnqueuedAutomationJob = {
+                    timestamp: Date.now(),
+                    automation: automation,
+                    event,
+                    nodeId: automation.steps[1].id, // get the second node
+                }
 
-                console.log('LUKE response', response)
-
-                // const job: EnqueuedAutomationJob = {
-                //     timestamp: Date.now(),
-                //     automation: automation,
-                //     event,
-                //     state: AutomationJobState.SCHEDULED, // TODO: get rid of this
-                //     nodeId: automation.steps[1].id, // get the next node
-                // }
-                // await new Promise((resolve) => setTimeout(resolve, 10)) // TODO: remove this
-
-                // await this.runAutomationJob(job, graphileWorker)
+                await this.runAutomationJob(job, graphileWorker)
             }
         }
     }
@@ -81,15 +113,38 @@ export class AutomationManager {
     // Actually running the job that came from graphile
     public async runAutomationJob(job: EnqueuedAutomationJob, graphileWorker: GraphileWorker) {
         // 1. Find the node in the job.automation for job.nodeId
-        // 2. run the corresponding action
-        // 3. Enqueue the new job(s) with the next nodeIds
+        const step = job.automation.steps.find((step: any) => step.id == job.nodeId) as any
 
+        if (!step) {
+            throw new Error('Could not find step with ID ' + job.nodeId)
+        }
+        // 2. run the corresponding action
+        if (step.kind == 'WebhookDestination') {
+            const response = await fetch(step.url, {
+                method: 'POST',
+                body: JSON.stringify(applyEventToPayloadTemplate(step.payload, job.event)),
+            })
+            if (!response.ok) {
+                throw new Error('Webhook failed')
+            }
+        }
+        // 3. Enqueue the new job(s) with the next nodeIds
+        // find the next node id from the edges
+        const nextStep = job.automation.edges.find((edge: any) => edge.source == job.nodeId)?.target
+
+        if (nextStep) {
+            const newJob: EnqueuedAutomationJob = {
+                ...job,
+                nodeId: nextStep,
+            }
+            await graphileWorker.enqueue(JobName.AUTOMATION_JOB, newJob)
+        } else {
+            console.log('finished')
+        }
         // Do the appropriate thing and then schedule the follow up job
 
         // DONT DO THIS
         // graphileWorker.enqueue(JobName.AUTOMATION_JOB, job)
-
-        console.log(job)
     }
 
     // public async reloadAutomation(teamId: Team['id'], actionId: Action['id']): Promise<void> {

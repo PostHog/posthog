@@ -259,9 +259,8 @@ export interface GraphileWorkerCronScheduleJob {
 export interface EnqueuedAutomationJob {
     timestamp: number
     jobKey?: string
-    automation: Action
+    automation: any
     event: PostIngestionEvent
-    state: AutomationJobState
     nodeId: string
 }
 
