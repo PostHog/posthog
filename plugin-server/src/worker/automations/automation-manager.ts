@@ -63,6 +63,7 @@ export function applyEventToPayloadTemplate(payloadTemplate: any, event: any): a
 export class AutomationManager {
     private ready: boolean
     private automationCache: AutomationCache
+    private interval: NodeJS.Timer | null
 
     constructor(
         private db: DB,
@@ -72,10 +73,14 @@ export class AutomationManager {
     ) {
         this.ready = false
         this.automationCache = {}
+        this.interval = null
     }
 
     public async prepare(): Promise<void> {
         await this.reloadAllAutomations()
+        this.interval = setInterval(async () => {
+            await this.reloadAllAutomations()
+        }, 1000 * 10) // TODO: make this smarter
         this.ready = true
     }
 
@@ -94,7 +99,7 @@ export class AutomationManager {
     }
 
     public async startWithEvent(event: PostIngestionEvent, graphileWorker: GraphileWorker): Promise<void> {
-        const teamAutomations = await this.getTeamAutomations(event.teamId) // TODO: This returns an action, needs to be turned into an automation type
+        const teamAutomations = this.getTeamAutomations(event.teamId) // TODO: This returns an action, needs to be turned into an automation type
 
         for (const automation of Object.values(teamAutomations)) {
             if (await this.actionMatcher.matchAutomation(automation, event)) {
