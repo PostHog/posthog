@@ -1,5 +1,5 @@
 import { LemonTextArea, LemonTextMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { communicationDetailsLogic } from './CommunicationDetailsLogic'
+import { communicationDetailsLogic, CommunicationResponse } from './CommunicationDetailsLogic'
 import { useActions, useValues } from 'kea'
 import { IconComment, IconMail } from 'lib/lemon-ui/icons/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton/LemonButton'
@@ -60,7 +60,7 @@ function MessageHistory({
     loading,
     communications,
 }: {
-    communications: Record<string, any>
+    communications: CommunicationResponse
     loading: boolean
 }): JSX.Element {
     return (
@@ -71,7 +71,6 @@ function MessageHistory({
                 <Spinner />
             ) : communications?.results?.length > 0 ? (
                 communications.results.map((communication, index) => {
-                    console.log(communication)
                     return communication?.event === '$communication_email_sent' ? (
                         <SentMessage key={index} communication={communication} />
                     ) : communication?.event === '$communication_email_received' ? (

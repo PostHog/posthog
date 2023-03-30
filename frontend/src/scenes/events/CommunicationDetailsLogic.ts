@@ -11,7 +11,8 @@ export interface CommunicationDetailsLogicProps {
     eventUUID: string | null
 }
 
-export interface MessageProperties {
+export interface CommunicationMessage {
+    event?: string
     body_plain: string
     body_html?: string
     subject: string
@@ -19,6 +20,14 @@ export interface MessageProperties {
     to?: string
     bug_report_uuid: string
     timestamp?: string
+}
+
+export interface CommunicationResponseItem extends CommunicationMessage {
+    event: string
+}
+
+export interface CommunicationResponse {
+    results: CommunicationResponseItem[]
 }
 
 export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
@@ -38,7 +47,9 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
     loaders(({ props }) => ({
         communications: {
             loadCommunications: async () => {
-                return await api.personCommunications.list({ bug_report_uuid: props.eventUUID })
+                return await api.personCommunications.list({
+                    bug_report_uuid: props.eventUUID,
+                })
             },
         },
     })),
@@ -81,7 +92,7 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
             const event = values.publicReplyEnabled ? '$communication_email_sent' : '$communication_note_saved'
 
             if (values.posthogSDK && props.eventUUID) {
-                const messageProperties: MessageProperties = {
+                const messageProperties: CommunicationMessage = {
                     ...{
                         body_plain: content,
                         subject: `HogDesk Bug Report [${props.eventUUID}]`,

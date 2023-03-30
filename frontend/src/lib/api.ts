@@ -51,6 +51,7 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
+import { CommunicationResponse } from 'scenes/events/CommunicationDetailsLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -1153,10 +1154,7 @@ const api = {
     },
 
     personCommunications: {
-        async list(
-            params: any,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<PaginatedResponse<PerformanceEvent>> {
+        async list(params: any, teamId: TeamType['id'] = getCurrentTeamId()): Promise<CommunicationResponse> {
             return new ApiRequest().personCommunications(teamId).withQueryString(toParams(params)).get()
         },
     },
