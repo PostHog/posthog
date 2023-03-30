@@ -115,7 +115,7 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
                 }
 
                 values.posthogSDK.capture(event, messageProperties)
-                actions.sentSuccessfully({ ...messageProperties, event })
+                actions.sentSuccessfully({ ...messageProperties, event, email })
             } else {
                 actions.sendingFailed()
             }
