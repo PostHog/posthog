@@ -45,11 +45,12 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
     // key((props) => props.automationId || 'new'),
     path(['scenes', 'automations', 'AutomationStepSidebar', 'automationStepConfigLogic']),
     connect((props: AutomationLogicProps) => ({
-        values: [automationLogic(props), ['flowSteps']],
+        values: [automationLogic(props), ['flowSteps', 'steps']],
+        actions: [automationLogic(props), ['setAutomationValue', 'setAutomationValues']],
     })),
     actions({
         setActiveStepId: (id: string | null) => ({ id }),
-        updateActiveStep: (id: string, activeStepUpdates: Partial<AnyAutomationStep>) => ({ id, activeStepUpdates }),
+        updateActiveStep: (id: string, partialStep: Partial<AnyAutomationStep>) => ({ id, partialStep }),
     }),
     reducers({
         activeStepId: [
@@ -77,4 +78,11 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
             },
         ],
     }),
+    listeners(({ values, actions }) => ({
+        updateActiveStep: ({ id, partialStep }) => {
+            const newSteps = values.steps.map((s) => (s.id === id ? { ...s, ...partialStep } : s))
+            console.debug('listeners.updateActiveStep', id, partialStep, newSteps)
+            actions.setAutomationValue('steps', newSteps)
+        },
+    })),
 ])

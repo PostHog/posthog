@@ -17,6 +17,9 @@ export function EventSentConfig(): JSX.Element {
         throw new Error('activeStep should not be null')
     }
 
+    console.debug('activeStep.data', activeStep.data)
+    console.debug('activeStep.new_entity', activeStep.new_entity)
+
     return (
         <div className="mb-6">
             <div className="mb-2">
@@ -27,8 +30,8 @@ export function EventSentConfig(): JSX.Element {
                 <ActionFilter
                     filters={{
                         insight: InsightType.TRENDS,
-                        events: activeStep.filters,
-                        new_entity: activeStep.new_entity,
+                        events: (activeStep as AutomationEventSourceStep).data.filters,
+                        new_entity: (activeStep as AutomationEventSourceStep).data.new_entity,
                     }}
                     setFilters={(filters: FilterType) => {
                         updateActiveStep(activeStep.id, { filters: filters.events, new_entity: filters.new_entity })
@@ -84,7 +87,7 @@ export function AutomationStepConfig(): JSX.Element {
                     <h2>New step: {activeStepConfig?.label}</h2>
                     <LemonDivider />
                     {activeStepConfig?.configComponent}
-                    <LemonButton
+                    {/* <LemonButton
                         type="primary"
                         onClick={() => {
                             console.debug('Saving', activeStep)
@@ -92,7 +95,7 @@ export function AutomationStepConfig(): JSX.Element {
                         }}
                     >
                         Save
-                    </LemonButton>
+                    </LemonButton> */}
                 </>
             ) : (
                 <h2>Error loading step</h2>
