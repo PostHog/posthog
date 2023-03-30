@@ -1,5 +1,5 @@
 import uuid
-from unittest import mock, skip
+from unittest import mock
 
 from posthog.models import Team
 from posthog.test.base import ClickhouseTestMixin, APIBaseTest, _create_person, _create_event, flush_persons_and_events
@@ -23,7 +23,7 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
             event_uuid=self.bug_report_uuid,
             team=self.team,
             distinct_id="2",
-            properties={},
+            properties={"email": "reporter@reporting.com", "$bug": "the original report"},
         )
 
         _create_event(
@@ -50,11 +50,12 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     def test_view_communications_by_bug_report_when_there_are_none(self) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/person_communications/?bug_report_uuid=12345")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/person_communications/?bug_report_uuid=" + str(uuid.uuid4())
+        )
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"results": []}
 
-    @skip("passes locally but not in CI 🤷‍♀️")
     def test_view_communications_by_bug_report(self) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/person_communications/?bug_report_uuid=" + self.bug_report_uuid
@@ -68,6 +69,7 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
                 "event": "$communication_note_saved",
                 "from": "",
                 "subject": "",
+                "email": "reporter@reporting.com",
                 "timestamp": mock.ANY,
                 "to": "",
             },
@@ -78,6 +80,7 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
                 "event": "$communication_email_received",
                 "from": "",
                 "subject": "",
+                "email": "reporter@reporting.com",
                 "timestamp": mock.ANY,
                 "to": "",
             },
@@ -88,6 +91,18 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
                 "event": "$communication_email_sent",
                 "from": "",
                 "subject": "",
+                "email": "reporter@reporting.com",
+                "timestamp": mock.ANY,
+                "to": "",
+            },
+            {
+                "body_html": "",
+                "body_plain": "the original report",
+                "bug_report_uuid": "",
+                "email": "reporter@reporting.com",
+                "event": "$bug_report",
+                "from": "",
+                "subject": "",
                 "timestamp": mock.ANY,
                 "to": "",
             },
@@ -96,6 +111,8 @@ class TestPersonCommunication(ClickhouseTestMixin, APIBaseTest):
     def test_cannot_view_another_team_communications(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
 
-        response = self.client.get(f"/api/projects/{another_team.id}/person_communications/?bug_report_uuid=12345")
+        response = self.client.get(
+            f"/api/projects/{another_team.id}/person_communications/?bug_report_uuid=" + str(uuid.uuid4())
+        )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
