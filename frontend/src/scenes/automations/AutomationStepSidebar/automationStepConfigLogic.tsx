@@ -48,7 +48,7 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
         values: [automationLogic(props), ['flowSteps']],
     })),
     actions({
-        setActiveStepId: (id: string) => ({ id }),
+        setActiveStepId: (id: string | null) => ({ id }),
         updateActiveStep: (id: string, activeStepUpdates: Partial<AnyAutomationStep>) => ({ id, activeStepUpdates }),
     }),
     reducers({
