@@ -11,6 +11,7 @@ export enum AutomationStepKind {
     // Sources
     EventSource = 'EventSource',
     ActionSource = 'ActionSource',
+    CronJobSource = 'CronJobSource',
 
     // Business Logic
     // e.g. Delay, Branch

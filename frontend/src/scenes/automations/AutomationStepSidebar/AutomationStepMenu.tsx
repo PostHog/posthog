@@ -16,6 +16,7 @@ const stepOptions: AnyAutomationStep[] = [
         filters: [],
     },
     { kind: AutomationStepKind.ActionSource, category: AutomationStepCategory.Source },
+    { kind: AutomationStepKind.CronJobSource, category: AutomationStepCategory.Source },
     { kind: AutomationStepKind.PauseForLogic, category: AutomationStepCategory.Logic },
     { kind: AutomationStepKind.PauseUntilLogic, category: AutomationStepCategory.Logic },
     {

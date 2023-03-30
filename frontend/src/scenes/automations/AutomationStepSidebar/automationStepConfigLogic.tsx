@@ -12,6 +12,7 @@ import {
     IconFlag,
     IconMonitor,
     IconPerson,
+    IconSchedule,
     IconSlack,
     IconWebhook,
 } from 'lib/lemon-ui/icons'
@@ -29,6 +30,10 @@ export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> 
         icon: <IconEvent />,
         label: 'Event sent',
         configComponent: <EventSentConfig />,
+    },
+    [AutomationStepKind.CronJobSource]: {
+        icon: <IconSchedule />,
+        label: 'Cron job',
     },
     [AutomationStepKind.ActionSource]: { icon: <IconAction />, label: 'Action triggered' },
     [AutomationStepKind.PauseForLogic]: { icon: <IconCoffee />, label: 'Pause for' },
