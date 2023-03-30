@@ -67,6 +67,7 @@ import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/Queries
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { QueryContext } from '~/queries/schema'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -424,6 +425,8 @@ export interface InsightVizProps
     invalidFunnelExclusion?: boolean
     empty?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
+    /** pass in information from queries, e.g. what text to use for empty states*/
+    context?: QueryContext
 }
 
 export function InsightViz({
@@ -436,6 +439,7 @@ export function InsightViz({
     empty,
     tooFewFunnelSteps,
     invalidFunnelExclusion,
+    context,
 }: InsightVizProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
@@ -472,7 +476,7 @@ export function InsightViz({
             ) : invalidFunnelExclusion ? (
                 <FunnelInvalidExclusionState />
             ) : empty ? (
-                <InsightEmptyState />
+                <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
             ) : !loading && timedOut ? (
                 <InsightTimeoutState
                     isLoading={false}
@@ -482,7 +486,7 @@ export function InsightViz({
             ) : apiErrored && !loading ? (
                 <InsightErrorState excludeDetail />
             ) : (
-                !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} />
+                !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} context={context} />
             )}
         </div>
     )
