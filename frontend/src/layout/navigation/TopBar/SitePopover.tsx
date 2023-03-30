@@ -227,6 +227,14 @@ function InstanceSettings(): JSX.Element | null {
     )
 }
 
+function FeaturePreview(): JSX.Element {
+    return (
+        <Link to={urls.featurePreview()} className="SitePopover__side-link">
+            Feature preview
+        </Link>
+    )
+}
+
 function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
@@ -283,6 +291,9 @@ export function SitePopoverOverlay(): JSX.Element {
                     <InstanceSettings />
                 </SitePopoverSection>
             )}
+            <SitePopoverSection>
+                <FeaturePreview />
+            </SitePopoverSection>
             <SitePopoverSection>
                 <SignOutButton />
             </SitePopoverSection>
