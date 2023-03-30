@@ -12,7 +12,6 @@ import { Automation } from './schema'
 import type { automationLogicType } from './automationLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { addPlaceholderFlowEdges, addPlaceholderFlowSteps, edgesToFlowEdges, stepsToFlowSteps } from './utils'
-import { automationStepConfigLogic } from './AutomationStepSidebar/automationStepConfigLogic'
 import { urls } from 'scenes/urls'
 
 const NEW_AUTOMATION: Automation = {

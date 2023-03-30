@@ -15,30 +15,30 @@ const stepOptions: AnyAutomationStep[] = [
         category: AutomationStepCategory.Source,
         filters: [],
     },
-    // { kind: AutomationStepKind.ActionSource, category: AutomationStepCategory.Source },
-    // { kind: AutomationStepKind.PauseForLogic, category: AutomationStepCategory.Logic },
-    // { kind: AutomationStepKind.PauseUntilLogic, category: AutomationStepCategory.Logic },
-    // {
-    //     kind: AutomationStepKind.GithubIssueDestination,
-    //     category: AutomationStepCategory.Destination,
-    // },
-    // {
-    //     kind: AutomationStepKind.UserPropertyDestination,
-    //     category: AutomationStepCategory.Destination,
-    // },
-    // { kind: AutomationStepKind.CohortDestination, category: AutomationStepCategory.Destination },
-    // {
-    //     kind: AutomationStepKind.FeatureFlagDestination,
-    //     category: AutomationStepCategory.Destination,
-    // },
+    { kind: AutomationStepKind.ActionSource, category: AutomationStepCategory.Source },
+    { kind: AutomationStepKind.PauseForLogic, category: AutomationStepCategory.Logic },
+    { kind: AutomationStepKind.PauseUntilLogic, category: AutomationStepCategory.Logic },
+    {
+        kind: AutomationStepKind.GithubIssueDestination,
+        category: AutomationStepCategory.Destination,
+    },
+    {
+        kind: AutomationStepKind.UserPropertyDestination,
+        category: AutomationStepCategory.Destination,
+    },
+    { kind: AutomationStepKind.CohortDestination, category: AutomationStepCategory.Destination },
+    {
+        kind: AutomationStepKind.FeatureFlagDestination,
+        category: AutomationStepCategory.Destination,
+    },
     { kind: AutomationStepKind.WebhookDestination, id: 'new', category: AutomationStepCategory.Destination },
-    // { kind: AutomationStepKind.SlackDestination, category: AutomationStepCategory.Destination },
-    // { kind: AutomationStepKind.ZapierDestination, category: AutomationStepCategory.Destination },
-    // { kind: AutomationStepKind.EmailDestination, category: AutomationStepCategory.Destination },
-    // {
-    //     kind: AutomationStepKind.InAppMessageDestination,
-    //     category: AutomationStepCategory.Destination,
-    // },
+    { kind: AutomationStepKind.SlackDestination, category: AutomationStepCategory.Destination },
+    { kind: AutomationStepKind.ZapierDestination, category: AutomationStepCategory.Destination },
+    { kind: AutomationStepKind.EmailDestination, category: AutomationStepCategory.Destination },
+    {
+        kind: AutomationStepKind.InAppMessageDestination,
+        category: AutomationStepCategory.Destination,
+    },
 ]
 
 export function AutomationStepMenu(): JSX.Element {
