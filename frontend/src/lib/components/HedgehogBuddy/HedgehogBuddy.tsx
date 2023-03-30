@@ -348,7 +348,7 @@ export function HedgehogBuddy({
 }: {
     actorRef?: MutableRefObject<HedgehogActor | undefined>
     onClose: () => void
-    onClick: () => void
+    onClick?: () => void
     onPositionChange?: (actor: HedgehogActor) => void
     popoverOverlay?: React.ReactNode
 }): JSX.Element {
