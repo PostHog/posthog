@@ -30,7 +30,7 @@ class PersonCommunicationViewSet(StructuredViewSetMixin, viewsets.GenericViewSet
         prewhere team_id = %(team_id)s
         and timestamp <= now()
         and timestamp >= now() - INTERVAL 7 DAY
-        and event in ('$communication_email_sent', '$communication_email_received', '$communication_note_saved')
+        and event in ('$communication_email_sent', '$communication_email_received', '$communication_note_saved', '$issue_status_update')
         and JSONExtractString(properties, 'bug_report_uuid') = %(bug_report_uuid)s
         order by timestamp DESC
         """

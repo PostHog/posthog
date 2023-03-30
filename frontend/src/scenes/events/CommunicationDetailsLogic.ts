@@ -6,6 +6,7 @@ import PostHog from 'posthog-js-lite'
 import { userLogic } from 'scenes/userLogic'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { issueKeyToName, IssueStatusOptions } from 'scenes/issues/issuesLogic'
 
 export interface CommunicationDetailsLogicProps {
     eventUUID: string | null
@@ -40,6 +41,7 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
     actions({
         saveNote: (content: string) => ({ content }),
         setReplyType: (type: 'internal' | 'public') => ({ type }),
+        setIssueStatus: (status: IssueStatusOptions) => ({ status }),
         setNoteContent: (content: string) => ({ content }),
         sentSuccessfully: (message: CommunicationResponseItem) => ({ message }),
         sendingFailed: true,
@@ -75,6 +77,12 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
                 sentSuccessfully: () => '',
             },
         ],
+        issueStatus: [
+            'open' as IssueStatusOptions, // TODO: load the actual status
+            {
+                setIssueStatus: (_, { status }) => status,
+            },
+        ],
     }),
     selectors({
         publicReplyEnabled: [(s) => [s.replyType], (type) => type === 'public'],
@@ -108,6 +116,26 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
                         bug_report_uuid: props.eventUUID,
                     },
                     ...(values.publicReplyEnabled ? { to: values.user?.email || 'unknown' } : {}),
+                }
+
+                values.posthogSDK.capture(event, messageProperties)
+                actions.sentSuccessfully({ ...messageProperties, event })
+            } else {
+                actions.sendingFailed()
+            }
+        },
+        setIssueStatus: async ({ status }: { status: IssueStatusOptions }) => {
+            const event = '$issue_status_update'
+            const actor = values.user?.email || 'support agent'
+            if (values.posthogSDK && props.eventUUID) {
+                const messageProperties: CommunicationMessage = {
+                    ...{
+                        body_plain: `Status updated to "${issueKeyToName[status]}" by ${actor}`, // TODO: do on the read side instead
+                        subject: `HogDesk Bug Report [${props.eventUUID}]`,
+                        status: status,
+                        from: actor,
+                        bug_report_uuid: props.eventUUID,
+                    },
                 }
 
                 values.posthogSDK.capture(event, messageProperties)

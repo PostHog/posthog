@@ -9,6 +9,8 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import { IssueStatusOptions, issueKeyToName } from 'scenes/issues/issuesLogic'
 
 function Message({ communication, markdown = false }: { communication: any; markdown?: boolean }): JSX.Element {
     return (
@@ -87,10 +89,9 @@ function MessageHistory({
 }
 
 export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
-    const { publicReplyEnabled, replyType, noteContent, communications, communicationsLoading } = useValues(
-        communicationDetailsLogic({ eventUUID: uuid })
-    )
-    const { setReplyType, saveNote, setNoteContent, loadCommunications } = useActions(
+    const { publicReplyEnabled, replyType, noteContent, communications, communicationsLoading, issueStatus } =
+        useValues(communicationDetailsLogic({ eventUUID: uuid }))
+    const { setReplyType, saveNote, setNoteContent, loadCommunications, setIssueStatus } = useActions(
         communicationDetailsLogic({ eventUUID: uuid })
     )
 
@@ -99,58 +100,72 @@ export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
     }, [])
 
     return (
-        <div className={'flex flex-col space-y-2 p-4'}>
+        <>
+            <LemonSelect
+                onSelect={(value) => setIssueStatus(value as IssueStatusOptions)}
+                options={Object.entries(issueKeyToName).map(([key, value]) => {
+                    return {
+                        label: value,
+                        value: key,
+                    }
+                })}
+                value={issueStatus}
+            />
             <div className={'flex flex-col space-y-2 p-4'}>
-                <LemonSegmentedButton
-                    onChange={(value) => setReplyType(value)}
-                    options={[
-                        {
-                            icon: <IconComment />,
-                            label: 'Internal note',
-                            value: 'internal',
-                        },
-                        {
-                            icon: <IconMail />,
-                            label: 'Public reply',
-                            value: 'public',
-                        },
-                    ]}
-                    value={replyType}
-                />
-                {publicReplyEnabled ? (
-                    <LemonTextArea
-                        autoFocus
-                        placeholder={publicReplyEnabled ? 'Public reply to the customer via email' : 'Internal note'}
-                        value={noteContent}
-                        onChange={(noteContent) => setNoteContent(noteContent)}
-                        minRows={3}
-                        maxRows={20}
-                        data-attr={'support-reply-email-text'}
+                <div className={'flex flex-col space-y-2 p-4'}>
+                    <LemonSegmentedButton
+                        onChange={(value) => setReplyType(value)}
+                        options={[
+                            {
+                                icon: <IconComment />,
+                                label: 'Internal note',
+                                value: 'internal',
+                            },
+                            {
+                                icon: <IconMail />,
+                                label: 'Public reply',
+                                value: 'public',
+                            },
+                        ]}
+                        value={replyType}
                     />
-                ) : (
-                    <LemonTextMarkdown
-                        value={noteContent}
-                        onChange={(noteContent) => setNoteContent(noteContent)}
-                        data-attr={"'support-reply-internal-note-text'"}
-                    />
-                )}
-                <div className="flex flex-row justify-end">
-                    <LemonButton
-                        status="primary"
-                        type={'primary'}
-                        icon={publicReplyEnabled ? <IconMail /> : <IconComment />}
-                        onClick={() => saveNote(noteContent)} // TODO: that should probably just pull the content in the logic side
-                        tooltip={publicReplyEnabled ? 'Send an email to the customer' : 'Save internal note'}
-                        fullWidth={false}
-                        disabledReason={noteContent ? undefined : 'Please enter a note'}
-                    >
-                        {publicReplyEnabled ? 'Send email' : 'Save internal note'}
-                    </LemonButton>
+                    {publicReplyEnabled ? (
+                        <LemonTextArea
+                            autoFocus
+                            placeholder={
+                                publicReplyEnabled ? 'Public reply to the customer via email' : 'Internal note'
+                            }
+                            value={noteContent}
+                            onChange={(noteContent) => setNoteContent(noteContent)}
+                            minRows={3}
+                            maxRows={20}
+                            data-attr={'support-reply-email-text'}
+                        />
+                    ) : (
+                        <LemonTextMarkdown
+                            value={noteContent}
+                            onChange={(noteContent) => setNoteContent(noteContent)}
+                            data-attr={"'support-reply-internal-note-text'"}
+                        />
+                    )}
+                    <div className="flex flex-row justify-end">
+                        <LemonButton
+                            status="primary"
+                            type={'primary'}
+                            icon={publicReplyEnabled ? <IconMail /> : <IconComment />}
+                            onClick={() => saveNote(noteContent)} // TODO: that should probably just pull the content in the logic side
+                            tooltip={publicReplyEnabled ? 'Send an email to the customer' : 'Save internal note'}
+                            fullWidth={false}
+                            disabledReason={noteContent ? undefined : 'Please enter a note'}
+                        >
+                            {publicReplyEnabled ? 'Send email' : 'Save internal note'}
+                        </LemonButton>
+                    </div>
+                    {/* TODO: pull all the historical communication, i.e. load events in the logic first */}
                 </div>
-                {/* TODO: pull all the historical communication, i.e. load events in the logic first */}
+                <LemonDivider />
+                <MessageHistory loading={communicationsLoading} communications={communications} />
             </div>
-            <LemonDivider />
-            <MessageHistory loading={communicationsLoading} communications={communications} />
-        </div>
+        </>
     )
 }

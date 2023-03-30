@@ -4,10 +4,20 @@ import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema'
 
 import type { issuesLogicType } from './issuesLogicType'
 
+export type IssueStatusOptions = 'open' | 'investigating' | 'waiting' | 'solved' | 'abandoned'
+export const issueKeyToName: Record<IssueStatusOptions, string> = {
+    open: 'Open',
+    investigating: 'Investigating internally',
+    waiting: 'Waiting for user reply',
+    solved: 'Solved',
+    abandoned: 'Will not fix',
+}
+
 export const issuesLogic = kea<issuesLogicType>([
     path(['scenes', 'issues', 'issuesLogic']),
     actions({
         setIssueEvent: (event: string) => ({ event }),
+        setIssueStatuses: (statuses: IssueStatusOptions[]) => ({ statuses }),
         setQuery: (query: EventsQuery) => ({ query }),
     }),
     reducers({
@@ -22,6 +32,12 @@ export const issuesLogic = kea<issuesLogicType>([
             null as EventsQuery | null,
             {
                 setQuery: (_, { query }) => query,
+            },
+        ],
+        issueStatuses: [
+            ['open', 'investigating'] as IssueStatusOptions[],
+            {
+                setIssueStatuses: (_, { statuses }) => statuses,
             },
         ],
     }),

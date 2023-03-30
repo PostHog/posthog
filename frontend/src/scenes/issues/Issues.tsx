@@ -10,7 +10,8 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { LemonEventName } from 'scenes/actions/EventName'
 import { useActions, useValues } from 'kea'
-import { issuesLogic } from 'scenes/issues/issuesLogic'
+import { issueKeyToName, issuesLogic, IssueStatusOptions } from 'scenes/issues/issuesLogic'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 
 export function IssuesSettings(): JSX.Element {
     const { issueEvent } = useValues(issuesLogic)
@@ -38,8 +39,8 @@ export function openIssuesConfigDialog(): void {
 }
 
 export const Issues = (): JSX.Element => {
-    const { query, issueEvent, tableQuery } = useValues(issuesLogic)
-    const { setQuery } = useActions(issuesLogic)
+    const { query, issueEvent, tableQuery, issueStatuses } = useValues(issuesLogic)
+    const { setQuery, setIssueStatuses } = useActions(issuesLogic)
 
     return (
         <div>
@@ -60,7 +61,17 @@ export const Issues = (): JSX.Element => {
                     </>
                 }
             />
-
+            {/* TODO: actually filter based on this */}
+            <LemonSelectMultiple
+                mode="multiple"
+                value={issueStatuses}
+                onChange={(newValues) => setIssueStatuses(newValues as IssueStatusOptions[])}
+                options={Object.entries(issueKeyToName).reduce((acc, [key, value]) => {
+                    acc[key] = { label: value }
+                    return acc
+                }, {})}
+                placeholder="Pick issue statuses to filter on"
+            />
             <div className={'flex flex-row space-x-2'}>
                 <DateRange query={query} setQuery={setQuery} />
                 <EventPropertyFilters query={query} setQuery={(q) => setQuery(q as EventsQuery)} />
