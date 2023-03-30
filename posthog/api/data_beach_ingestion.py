@@ -2,11 +2,15 @@ import json
 
 from django.http import HttpResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
+import fastavro
 import pydantic
 from posthog.api.utils import get_event_ingestion_context
+from django.conf import settings
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.team.team import Team
+from posthog.models.data_beach.data_beach_field import DataBeachField, DataBeachFieldType
+from posthog.models.data_beach.data_beach_table import DataBeachTable
+import boto3
 
 
 @csrf_exempt
@@ -175,3 +179,203 @@ class ShipS3ToBeachPayload(pydantic.BaseModel):
     s3_uri_pattern: str = pydantic.Field(..., min_length=1)
     aws_access_key_id: str = pydantic.Field(..., min_length=1)
     aws_secret_access_key: str = pydantic.Field(..., min_length=1)
+
+
+class ImportFromAirByteRequest(pydantic.BaseModel):
+    bucket: str = pydantic.Field(..., min_length=1)
+    s3_prefix: str = pydantic.Field(..., min_length=1)
+    aws_access_key_id: str = pydantic.Field(..., min_length=1)
+    aws_secret_access_key: str = pydantic.Field(..., min_length=1)
+
+
+def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
+    """
+    Given an S3 prefix that is used to store data from AirByte in the Avro
+    format, along with the AWS credentials to access the bucket this endpoint
+    should:
+
+        1. Create a `DataBeachTable` for each of the subfolders in the S3
+           prefix, appended with the name of the those subfolders in then
+           separated by a `_`. For instance, if we have a prefix that contains
+           the folder stripe, which then contains subfolders customers, events,
+           invoices then it should create a `DataBeachTable` called
+           `stripe_customers`, `stripe_events` and `stripe_invoices`.
+        2. Parse the schema from the first Airbyte file in each of the leaf
+           folders e.g. stripe/customers/<timestamp>.avro and use this to
+           specify the Schema of the `DataBeachTable` by adding
+           `DataBeachField`s to referencing the corresponding `DataBeachTable`.
+        3. Trigger an insert into ClickHouse as with the `import_from_s3`
+           endpoint. These are trigger asynchronously using the `async_insert`
+           ClickHouse query setting such that the request returns immediately.
+
+    Unlike the other endpoints for data beach, this is intended to be used by
+    the frontend, and so we don't need to worry about the ingestion context
+    token. Rather we use the team_id from the request.
+
+    TODO: this request could take some time, so it would be better to return
+    immediately with an identifier to keep track of the import process, and
+    defer the import to a background task. We'd also need add an endpoint to be
+    able to retrieve the status of the import given the identifier.
+    """
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return HttpResponse(status=400)
+
+    try:
+        payload = ImportFromAirByteRequest(**data)
+    except pydantic.ValidationError:
+        return HttpResponse(status=400)
+
+    # Verify that the user has access to the team_id
+
+    # Fetch the list of all files from S3 below the specified S3 prefix.
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        region_name=settings.OBJECT_STORAGE_REGION,
+        aws_access_key_id=payload.aws_access_key_id,
+        aws_secret_access_key=payload.aws_secret_access_key,
+    )
+
+    paginator = s3_client.get_paginator("list_objects_v2")
+    response_iterator = paginator.paginate(
+        Bucket=payload.bucket,
+        Prefix=payload.s3_prefix,
+    )
+
+    # We're going to use the files under the S3 prefix to determine the table
+    # name and schema. We expect to find a .arvo file in each of the leaf nodes
+    # of the S3 prefix. We request each of these Avro files to get both the
+    # `namespace` e.g. "stripe" from the `namespace` field in the Avro schema,
+    # the record `name` e.g. "customers" from the Avro schema and the
+    # schema of the records which we'll determine from the `fields` field in the
+    # Avro Schema.
+    #
+    # We'll then create a `DataBeachTable` for each of these, create
+    # `DataBeachField`s for each top level field that has a non-nested type e.g.
+    # dicts. We'll then trigger an insert into ClickHouse as with the
+    # `import_from_s3` endpoint. These are trigger asynchronously using the
+    # `async_insert` ClickHouse query setting such that the request returns
+    # immediately.
+    # NOTE: handling the inserts async isn't going to be resilient to e.g.
+    # ClickHouse restarts, duplicates handling etc. We should probably use
+    # something else to handle the orchestration of the inserts in the future
+    # but it's fine for demo purposes.
+    for page in response_iterator:
+        for file in page["Contents"] or []:
+            # We're only interested in files that end in .avro
+            if not file["Key"].endswith(".avro"):
+                continue
+
+            # We're going to use the Avro schema to determine the table name and
+            # schema. We expect to find a .arvo file in each of the leaf nodes
+            # of the S3 prefix. We request each of these Avro files to get both
+            # the `namespace` e.g. "stripe" from the `namespace` field in the
+            # Avro schema, the record `name` e.g. "customers" from the Avro
+            # schema and the schema of the records which we'll determine from
+            # the `fields` field in the Avro Schema.
+            #
+            # We'll then create a `DataBeachTable` for each of these, create
+            # `DataBeachField`s for each top level field that has a non-nested
+            # type e.g. dicts. We'll then trigger an insert into ClickHouse as
+            # with the `import_from_s3` endpoint. These are trigger
+            # asynchronously using the `async_insert` ClickHouse query setting
+            # such that the request returns immediately.
+            # NOTE: handling the inserts async isn't going to be resilient to
+            # e.g. ClickHouse restarts, duplicates handling etc. We should
+            # probably use something else to handle the orchestration of the
+            # inserts in the future but it's fine for demo purposes.
+            file_key = file["Key"]
+            s3_client.download_file(
+                payload.bucket,
+                file_key,
+                "/tmp/avro.avro",
+            )
+
+            with open("/tmp/avro.avro", "rb") as avro_file:
+                reader = fastavro.reader(avro_file)
+                schema = reader.writer_schema
+                assert schema
+
+                # We expect the namespace to be the name of the service that
+                # the data is from e.g. "stripe" and the name to be the name of
+                # the table that the data is from e.g. "customers". Note that
+                # fastapi will _not_ have namespace in the schema, but it will
+                # have set the name to be `namespace.name` e.g.
+                # "stripe.customers". We'll replace the '.' with an '_' to
+                # create the table name.
+                table_name = schema["name"].replace(".", "_")
+                table, _ = DataBeachTable.objects.get_or_create(
+                    name=table_name,
+                    team_id=team_id,
+                )
+
+                # We expect the fields to be a list of dicts, each of which
+                # contains the name of the field and the type of the field.)
+                # Fields should map to those specified by the DataBeachFieldType
+                # enum.
+                tyoe_mapping = {
+                    "string": DataBeachFieldType.String,
+                    "long": DataBeachFieldType.Integer,
+                }
+
+                field_names = []
+
+                for field in schema["fields"]:
+                    # If type is a dict then we skip it as we don't support
+                    # nested types.
+                    if isinstance(field["type"], dict):
+                        continue
+
+                    # Get the type of the field, if it's not in the mapping then
+                    # skip it. The Avro sckema supports union types to allow for
+                    # nullable fields. We do not support that level of detail.
+                    # In these cases the type field is a list of types. We
+                    # simply take the first one that isn't null.
+                    if isinstance(field["type"], list):
+                        field_type = [type_ for type_ in field["type"] if type_ != "null"][0]
+                    else:
+                        field_type = field["type"]
+
+                    field_type = tyoe_mapping.get(field_type)
+
+                    if not field_type:
+                        continue
+
+                    field_names.append(field["name"])
+
+                    DataBeachField.objects.get_or_create(
+                        team_id=team_id,
+                        table=table,
+                        name=field["name"],
+                        type=field_type,
+                    )
+
+                # Trigger an insert using the Avro records from the file,
+                # selecting specifically the fields that we have added the
+                # schema for. We insert these fields a JSON string into the data
+                # column, and using the _airbyte_ab_id as the id.
+                values_to_insert = [
+                    (
+                        team_id,
+                        table_name,
+                        str(record["_airbyte_ab_id"]),
+                        json.dumps({field_name: record[field_name] for field_name in field_names}),
+                    )
+                    for record in reader
+                    if isinstance(record, dict)
+                ]
+
+                sync_execute(
+                    """
+                    INSERT INTO data_beach_appendable (team_id, table_name, id, data)
+                    VALUES
+                """,
+                    values_to_insert,
+                )
+
+    return HttpResponse(status=200)

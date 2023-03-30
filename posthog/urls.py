@@ -28,7 +28,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.data_beach_ingestion import deploy_towels_to, ship_s3_to_beach
+from posthog.api.data_beach_ingestion import deploy_towels_to, ship_s3_to_beach, import_from_airbyte_s3_destination
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.prompt import prompt_webhook
 from posthog.cloud_utils import is_cloud
@@ -114,6 +114,10 @@ def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> UR
 
 
 urlpatterns = [
+    # NOTE: import_from_airbyte_s3_destination is at the top because we want to
+    # shortcircuit the django-rest-framework router. We ignore the type because
+    # we have a type that assumes the route is already authenticated.
+    path("api/projects/<int:team_id>/import_from_airbyte_s3_destination", import_from_airbyte_s3_destination),  # type: ignore
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     # Optional UI:
     path("api/schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
