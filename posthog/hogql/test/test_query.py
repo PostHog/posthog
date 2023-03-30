@@ -150,7 +150,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     INNER JOIN (
                         SELECT distinct_id,
                                argMax(person_id, version) as person_id
-                          FROM person_distinct_ids
+                          FROM raw_person_distinct_ids
                          GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0
                        ) AS pdi
@@ -169,7 +169,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT event, timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_id, version) AS person_id FROM person_distinct_ids GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) LIMIT 100",
+                "SELECT event, timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_id, version) AS person_id FROM raw_person_distinct_ids GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) LIMIT 100",
             )
             self.assertTrue(len(response.results) > 0)
 

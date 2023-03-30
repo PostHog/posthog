@@ -113,29 +113,29 @@ class TestLazyJoins(BaseTest):
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_resolve_lazy_table_as_select_table(self):
-        printed = self._print_select("select id, properties.email, properties.$browser from lazy_persons")
+        printed = self._print_select("select id, properties.email, properties.$browser from persons")
         expected = (
-            f"SELECT lazy_persons.id, lazy_persons.properties___email, lazy_persons.`properties___$browser` FROM "
+            f"SELECT person.id, person.properties___email, person.`properties___$browser` FROM "
             f"(SELECT argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), person.version) AS "
             f"properties___email, argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_1)s), '^\"|\"$', ''), person.version) "
-            f"AS `properties___$browser`, person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS lazy_persons LIMIT 65535"
+            f"AS `properties___$browser`, person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS person LIMIT 65535"
         )
         self.assertEqual(printed, expected)
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_resolve_lazy_table_as_table_in_join(self):
         printed = self._print_select(
-            "select event, distinct_id, events.person_id, lazy_persons.properties.email from events left join lazy_persons on lazy_persons.id = events.person_id limit 10"
+            "select event, distinct_id, events.person_id, persons.properties.email from events left join persons on persons.id = events.person_id limit 10"
         )
         expected = (
-            f"SELECT events.event, events.distinct_id, events__pdi.person_id, lazy_persons.properties___email FROM events "
+            f"SELECT events.event, events.distinct_id, events__pdi.person_id, person.properties___email FROM events "
             f"INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, "
             f"person_distinct_id2.distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) "
             f"GROUP BY person_distinct_id2.distinct_id HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) "
             f"AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (SELECT "
             f"argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), person.version) AS properties___email, "
             f"person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-            f"HAVING equals(argMax(person.is_deleted, person.version), 0)) AS lazy_persons ON equals(lazy_persons.id, events__pdi.person_id) "
+            f"HAVING equals(argMax(person.is_deleted, person.version), 0)) AS person ON equals(person.id, events__pdi.person_id) "
             f"WHERE equals(events.team_id, {self.team.pk}) LIMIT 10"
         )
         self.assertEqual(printed, expected)
