@@ -66,6 +66,7 @@ export enum Scene {
     Feedback = 'Feedback',
     Automations = 'Automations',
     Automation = 'Automation',
+    Issues = 'Issues',
 }
 
 export type SceneProps = Record<string, any>

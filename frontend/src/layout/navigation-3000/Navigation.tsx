@@ -7,6 +7,8 @@ import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
 import './Navigation.scss'
 import { themeLogic } from './themeLogic'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function Navigation({ children }: { children: ReactNode }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -28,7 +30,9 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
                 <Breadcrumbs />
                 <div className="Navigation3000__scene">
                     <div className="Navigation3000__content">{children}</div>
-                    <NotebookSideBar />
+                    <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
+                        <NotebookSideBar />
+                    </FlaggedFeature>
                 </div>
             </main>
 

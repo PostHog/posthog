@@ -119,3 +119,9 @@ jobs:
                   # the posthog-cloud code we've checked out.
                   build-args: |
                       BASE_IMAGE=ghcr.io/posthog/posthog/posthog:${{ needs.posthog_build.outputs.container_image_version }}
+
+    deploy_preview:
+        uses: ./.github/workflows/pr-deploy.yml
+        needs: [posthog_cloud_build]
+        secrets: inherit
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') }}
