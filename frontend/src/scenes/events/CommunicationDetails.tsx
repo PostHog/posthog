@@ -14,7 +14,11 @@ function Message({ communication, markdown = false }: { communication: any; mark
     return (
         <div className={'flex flex-col'}>
             <div className={'text-left text-xs text-muted mb-1'}>{communication.from}</div>
-            {markdown ? <>{communication.body_plain}</> : <TextContent text={communication.body_plain} />}
+            {markdown ? (
+                <div className={'p-2 w-full'}>{communication.body_plain}</div>
+            ) : (
+                <TextContent text={communication.body_plain} />
+            )}
             <>
                 <TZLabel time={communication.timestamp} className={'text-muted text-xs text-right'} noStyles={true} />
             </>
