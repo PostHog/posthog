@@ -30,6 +30,9 @@ function ReactFlowPro(): JSX.Element {
     const { flowSteps, flowEdges } = useValues(automationLogic)
     useLayout()
 
+    console.debug('flowSteps: ', flowSteps)
+    console.debug('flowEdges: ', flowEdges)
+
     return (
         <ReactFlow
             nodes={flowSteps}
