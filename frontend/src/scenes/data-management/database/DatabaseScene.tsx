@@ -27,7 +27,7 @@ export function DatabaseScene(): JSX.Element {
             />
             <DataManagementPageTabs tab={DataManagementTab.Database} />
             <div className="flex items-center justify-between gap-2 mb-4">
-                <div className="flex items-center justify-between gap-2 mb-4">
+                <div className="flex items-center justify-between gap-2">
                     <LemonInput
                         type="search"
                         placeholder="Search for tables"
