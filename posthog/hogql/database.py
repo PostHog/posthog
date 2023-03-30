@@ -472,7 +472,7 @@ class DataBeachTableAppendable(LazyTable):
 
     def get_asterisk(self) -> Dict[str, DatabaseField]:
         asterisk: Dict[str, DatabaseField] = {}
-        for field in ["id"] + self._field_names:
+        for field in self._field_names:
             asterisk[field] = self.__getattribute__(field)
         return asterisk
 

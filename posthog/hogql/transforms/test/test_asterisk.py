@@ -4,6 +4,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import ResolverException, resolve_refs
 from posthog.hogql.transforms import expand_asterisks
 from posthog.test.base import BaseTest
+from posthog.models import DataBeachTable, DataBeachField, DataBeachFieldType, DataBeachTableEngine
 
 
 class TestAsteriskExpander(BaseTest):
@@ -185,5 +186,29 @@ class TestAsteriskExpander(BaseTest):
                     ref=ast.FieldRef(name="elements_chain", table=inner_select_ref),
                 ),
                 ast.Field(chain=["created_at"], ref=ast.FieldRef(name="created_at", table=inner_select_ref)),
+            ],
+        )
+
+    def test_asterisk_expander_data_beach(self):
+        data_beach_table = DataBeachTable.objects.create(
+            team=self.team, name="new_table", engine=DataBeachTableEngine.APPENDABLE
+        )
+        DataBeachField.objects.create(
+            team=self.team, table=data_beach_table, name="string_field", type=DataBeachFieldType.String
+        )
+        DataBeachField.objects.create(
+            team=self.team, table=data_beach_table, name="int_field", type=DataBeachFieldType.Integer
+        )
+        self.database = create_hogql_database(self.team.pk)
+        node = parse_select("select * from new_table")
+        resolve_refs(node, self.database)
+        expand_asterisks(node)
+        query_ref = ast.LazyTableRef(table=self.database.new_table)
+        data_field_ref = ast.FieldRef(name="data", table=query_ref)
+        self.assertEqual(
+            node.select,
+            [
+                ast.Field(chain=["string_field"], ref=ast.PropertyRef(name="string_field", parent=data_field_ref)),
+                ast.Field(chain=["int_field"], ref=ast.PropertyRef(name="int_field", parent=data_field_ref)),
             ],
         )
