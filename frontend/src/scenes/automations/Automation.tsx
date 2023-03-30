@@ -64,7 +64,7 @@ function Automation(): JSX.Element {
     const { activeStepId } = useValues(automationStepConfigLogic)
     const { isMenuOpen } = useValues(automationStepMenuLogic)
     const { editingExistingAutomation, automationLoading, automation, automationId } = useValues(automationLogic)
-    const { setEditAutomation, loadAutomation } = useActions(automationLogic)
+    const { setEditAutomation, loadAutomation, submitAutomation } = useActions(automationLogic)
 
     if (automationLoading) {
         return <Skeleton active />
@@ -99,6 +99,7 @@ function Automation(): JSX.Element {
                             type="primary"
                             data-attr="save-automation"
                             htmlType="submit"
+                            onClick={submitAutomation}
                             loading={automationLoading}
                             disabled={automationLoading}
                         >

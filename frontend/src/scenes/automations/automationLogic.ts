@@ -2,7 +2,7 @@ import { Edge, Node } from 'reactflow'
 import { actions, kea, path, reducers, props, key, selectors, connect, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
@@ -13,6 +13,7 @@ import type { automationLogicType } from './automationLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { addPlaceholderFlowEdges, addPlaceholderFlowSteps, edgesToFlowEdges, stepsToFlowSteps } from './utils'
 import { automationStepConfigLogic } from './AutomationStepSidebar/automationStepConfigLogic'
+import { urls } from 'scenes/urls'
 
 const NEW_AUTOMATION: Automation = {
     id: 'new',
@@ -37,6 +38,7 @@ export const automationLogic = kea<automationLogicType>([
     }),
 
     actions({
+        createAutomation: true,
         addStep: (step: Node) => ({ step }),
         updateStep: (step: Node) => ({ step }),
         setEditAutomation: (editing: boolean) => ({ editing }),
@@ -124,8 +126,7 @@ export const automationLogic = kea<automationLogicType>([
                 name: !name && 'You have to enter a name.',
             }),
             submit: () => {
-                console.debug('submit')
-                // actions.createExperiment(true, exposure, sampleSize)
+                actions.createAutomation()
             },
         },
     })),
@@ -147,6 +148,43 @@ export const automationLogic = kea<automationLogicType>([
                 steps: values.steps.map((s) => (s.id === step.id ? step : s)),
                 edges: [{ source: 'Event sent', target: 'placeholder', type: 'workflow' }],
             })
+        },
+        createAutomation: async () => {
+            console.debug('listeners.createAutomation')
+            let response: Automation | null = null
+            const isUpdate = !!values.automationId && values.automationId !== 'new'
+            console.debug(isUpdate, values.automationId)
+            try {
+                if (isUpdate) {
+                    response = await api.update(
+                        `api/projects/${values.currentTeamId}/automations/${values.automationId}`,
+                        values.automation
+                    )
+                } else {
+                    response = await api.create(`api/projects/${values.currentTeamId}/experiments`, values.automation)
+                }
+            } catch (error: any) {
+                console.error(error)
+                lemonToast.error(error.detail || 'Failed to create automation')
+                return
+            }
+            if (response?.id) {
+                const automationId = response.id
+                router.actions.push(urls.automation(automationId))
+                lemonToast.success(
+                    `Automation ${isUpdate ? 'updated' : 'created'}`,
+                    isUpdate
+                        ? {}
+                        : {
+                              button: {
+                                  label: 'View it',
+                                  action: () => {
+                                      router.actions.push(urls.automation(automationId))
+                                  },
+                              },
+                          }
+                )
+            }
         },
     })),
     urlToAction(({ actions, values }) => ({
