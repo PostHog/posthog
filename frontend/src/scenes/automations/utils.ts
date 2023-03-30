@@ -133,12 +133,12 @@ export const randomLabel = (): string => {
 }
 
 export const stepsToFlowSteps = (steps: AnyAutomationStep[]): Node[] => {
-    return steps.map((step: AnyAutomationStep) => {
+    return steps.map((step: AnyAutomationStep, index) => {
         return {
             type: 'workflow',
             id: step.id,
             data: step,
-            position: { x: 0, y: 0 },
+            position: { x: 0, y: (index + 1) * 100 },
         }
     })
 }
