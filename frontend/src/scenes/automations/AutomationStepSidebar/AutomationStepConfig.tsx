@@ -21,9 +21,9 @@ export function WebhookDestinationConfig(): JSX.Element {
             <PureField label={'Destination url'}>
                 <LemonInput
                     placeholder="Where do you want to send the payload?"
-                    value={activeStep.url}
+                    value={activeStep?.data?.url}
                     onChange={(url) => {
-                        updateActiveStep(activeStep.id, { url })
+                        updateActiveStep(activeStep?.data?.id, { url })
                     }}
                 />
             </PureField>
@@ -33,8 +33,7 @@ export function WebhookDestinationConfig(): JSX.Element {
                     defaultNumberOfLines={4}
                     value={activeStep?.data?.payload}
                     onChange={(payload) => {
-                        debugger
-                        updateActiveStep(activeStep.id, { payload })
+                        updateActiveStep(activeStep?.data?.id, { payload })
                     }}
                 />
             </PureField>

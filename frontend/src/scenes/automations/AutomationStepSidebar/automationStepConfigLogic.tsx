@@ -56,7 +56,7 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
     })),
     actions({
         setActiveStepId: (id: string | null) => ({ id }),
-        updateActiveStep: (id: string, partialStep: Partial<AnyAutomationStep>) => ({ id, partialStep }),
+        updateActiveStep: (id: string, partialStep: Node) => ({ id, partialStep }),
     }),
     reducers({
         activeStepId: [
@@ -92,8 +92,8 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
     selectors({
         activeStep: [
             (s) => [s.activeStepId, s.flowSteps],
-            (activeStepId, flowSteps): AnyAutomationStep | null => {
-                return flowSteps.find((step: AnyAutomationStep) => step.id === activeStepId) || null
+            (activeStepId, flowSteps): Node | null => {
+                return flowSteps.find((step: Node) => step.id === activeStepId) || null
             },
         ],
         activeStepConfig: [
@@ -107,13 +107,13 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
         ],
         previewPayload: [
             (selectors) => [selectors.activeStep, selectors.exampleEvent],
-            (activeStep: AnyAutomationStep | null, exampleEvent: Partial<EventType>): JsonType | string | null => {
+            (activeStep: Node | null, exampleEvent: Partial<EventType>): JsonType | string | null => {
                 if (!activeStep) {
                     return null
                 }
                 try {
                     const examplePayload = applyEventToPayloadTemplate(
-                        JSON.parse(activeStep.payload),
+                        JSON.parse(activeStep?.data?.payload),
                         JSON.parse(exampleEvent)
                     )
                     return examplePayload
@@ -125,7 +125,14 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
     }),
     listeners(({ values, actions }) => ({
         updateActiveStep: ({ id, partialStep }) => {
-            const newSteps = values.steps.map((s) => (s.id === id ? { ...s, ...partialStep } : s))
+            const newSteps = values.steps.map((s) => {
+                if (s.id === id) {
+                    const newData = { ...s.data, ...partialStep.data }
+                    return { ...s, ...partialStep, data: newData }
+                } else {
+                    return s
+                }
+            })
             console.debug('listeners.updateActiveStep', id, partialStep, newSteps)
             actions.setAutomationValue('steps', newSteps)
         },
