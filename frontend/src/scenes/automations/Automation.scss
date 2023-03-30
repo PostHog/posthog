@@ -1,0 +1,9 @@
+.AutomationSidebar {
+    transition: 100ms ease flex-basis;
+    flex: 0 0 var(--sidebar-width);
+}
+
+.AutomationSidebarInner {
+    border-left: 1px solid var(--border);
+    height: 100%;
+}

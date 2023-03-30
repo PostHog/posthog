@@ -133,16 +133,20 @@ export function EventSentConfig(): JSX.Element {
     )
 }
 
-export function AutomationStepConfig(): JSX.Element {
+export function AutomationStepConfig({ isOpen }): JSX.Element {
     const { activeStep, activeStepConfig } = useValues(automationStepConfigLogic)
     const { setActiveStepId } = useActions(automationStepConfigLogic)
+
+    if (!isOpen) {
+        return null
+    }
 
     return (
         <AutomationStepSidebar onClose={() => setActiveStepId(null)}>
             {activeStep ? (
                 <>
                     <h2>New step: {activeStepConfig?.label}</h2>
-                    <LemonDivider />
+                    <LemonDivider className="mb-4" />
                     {activeStepConfig?.configComponent}
                 </>
             ) : (

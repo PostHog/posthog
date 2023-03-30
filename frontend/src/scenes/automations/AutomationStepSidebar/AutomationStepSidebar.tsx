@@ -14,14 +14,13 @@ export function AutomationStepSidebar({ onClose, children }: AutomationStepSideb
     useOutsideClickHandler(
         containerRef,
         () => {
-            console.debug('outside click')
             onClose()
         },
         []
     )
 
     return (
-        <div className="w-full m-4 p-8 border bg-white AutomationStepConfig relative" ref={containerRef}>
+        <div className="ml-4 -mr-4 pt-0 p-8 AutomationStepConfig" ref={containerRef}>
             <LemonButton
                 icon={<IconClose />}
                 size="small"

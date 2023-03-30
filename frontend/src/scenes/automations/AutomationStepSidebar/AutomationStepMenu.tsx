@@ -41,16 +41,20 @@ const stepOptions: AnyAutomationStep[] = [
     },
 ]
 
-export function AutomationStepMenu(): JSX.Element {
+export function AutomationStepMenu({ isOpen }): JSX.Element {
     const { closeMenu } = useActions(automationStepMenuLogic)
     const { setActiveStepId } = useActions(automationStepConfigLogic)
     const { addStep } = useActions(automationLogic)
     const { automation } = useValues(automationLogic)
 
+    if (!isOpen) {
+        return null
+    }
+
     return (
         <AutomationStepSidebar onClose={closeMenu}>
             <h2>New step</h2>
-            <LemonDivider />
+            <LemonDivider className="mb-4" />
             {Object.values(AutomationStepCategory).map((category: AutomationStepCategory) => (
                 <div key={category}>
                     <h3>{category}</h3>

@@ -1,3 +1,4 @@
+import './Automation.scss'
 import ReactFlow, { Background, ProOptions, ReactFlowProvider } from 'reactflow'
 
 import useLayout from './hooks/useLayout'
@@ -90,58 +91,70 @@ function Automation(): JSX.Element {
     }
 
     return (
-        <>
-            <PageHeader
-                title={editingExistingAutomation ? 'Edit automation' : 'New automation'}
-                buttons={
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            data-attr="cancel-automation"
-                            type="secondary"
-                            onClick={() => {
-                                if (editingExistingAutomation) {
-                                    setEditAutomation(false)
-                                    loadAutomation()
-                                } else {
-                                    router.actions.push(urls.automations())
-                                }
-                            }}
-                            disabled={automationLoading}
-                        >
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            data-attr="save-automation"
-                            htmlType="submit"
-                            onClick={submitAutomation}
-                            loading={automationLoading}
-                            disabled={automationLoading}
-                        >
-                            Save
-                        </LemonButton>
-                    </div>
-                }
-            />
-            <LemonDivider />
-            <div className="flex w-full h-full">
-                <div className="flex-1">
+        <div className="flex h-full">
+            <div className="flex-1">
+                <PageHeader
+                    title={editingExistingAutomation ? 'Edit automation' : 'New automation'}
+                    buttons={
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                data-attr="cancel-automation"
+                                type="secondary"
+                                onClick={() => {
+                                    if (editingExistingAutomation) {
+                                        setEditAutomation(false)
+                                        loadAutomation()
+                                    } else {
+                                        router.actions.push(urls.automations())
+                                    }
+                                }}
+                                disabled={automationLoading}
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                data-attr="save-automation"
+                                htmlType="submit"
+                                onClick={submitAutomation}
+                                loading={automationLoading}
+                                disabled={automationLoading}
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    }
+                />
+                <LemonDivider />
+                <div className="flex w-full h-full">
                     <ReactFlowProvider>
                         <ReactFlowPro />
                     </ReactFlowProvider>
                 </div>
-                {isMenuOpen && (
-                    <div className="flex-1">
-                        <AutomationStepMenu />
-                    </div>
-                )}
-                {activeStepId && (
-                    <div className="flex-1">
-                        <AutomationStepConfig />
-                    </div>
-                )}
             </div>
-        </>
+
+            <div
+                className={`AutomationSidebar ${!!isMenuOpen && 'AutomationSidebarInner ml-4'}`}
+                style={
+                    {
+                        '--sidebar-width': `${isMenuOpen ? 550 : 0}px`,
+                    } as React.CSSProperties
+                }
+            >
+                <AutomationStepMenu isOpen={isMenuOpen} />
+            </div>
+
+            <div
+                className={`AutomationSidebar ${!!activeStepId && 'AutomationSidebarInner ml-4'}`}
+                style={
+                    {
+                        '--sidebar-width': `${!!activeStepId ? 550 : 0}px`,
+                    } as React.CSSProperties
+                }
+            >
+                <AutomationStepConfig isOpen={!!activeStepId} />
+            </div>
+        </div>
     )
 }
 
