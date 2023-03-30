@@ -387,13 +387,13 @@ def import_from_airbyte_s3_destination(request: HttpRequest, team_id: int):
                     ]
 
                     # TOOO: make the insert actually work
-                    # sync_execute(
-                    #     """
-                    #     INSERT INTO data_beach_appendable (team_id, table_name, id, data)
-                    #     VALUES
-                    # """,
-                    #     values_to_insert,
-                    # )
+                    sync_execute(
+                        """
+                        INSERT INTO data_beach_appendable (team_id, table_name, id, data)
+                        VALUES
+                    """,
+                        values_to_insert,
+                    )
 
     return HttpResponse(status=200)
 
