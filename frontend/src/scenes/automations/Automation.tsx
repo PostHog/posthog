@@ -18,6 +18,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { automationStepMenuLogic } from './AutomationStepSidebar/automationStepMenuLogic'
 import { AutomationStepMenu } from './AutomationStepSidebar/AutomationStepMenu'
 import { AutomationStepConfig } from './AutomationStepSidebar/AutomationStepConfig'
+import { AutomationStepSidebar } from './AutomationStepSidebar/AutomationStepSidebar'
 
 const proOptions: ProOptions = { account: 'paid-pro', hideAttribution: true }
 
@@ -121,7 +122,7 @@ function Automation(): JSX.Element {
                 )}
                 {activeStepId && (
                     <div className="flex-1">
-                        <AutomationStepConfig />
+                        <AutomationStepSidebar />
                     </div>
                 )}
             </div>

@@ -82,6 +82,56 @@ export function EventSentConfig(): JSX.Element {
     )
 }
 
+export function WebhookDestinationConfig(): JSX.Element {
+    const { activeStep, activeStepConfig, exampleEvent, previewPayload } = useValues(automationStepConfigLogic)
+    const { updateActiveStep, setExampleEvent } = useActions(automationStepConfigLogic)
+    return (
+        <>
+            {/* <PureField label={'Destination url'}>
+                <LemonInput
+                    placeholder="Optional descriptive placeholder text"
+                    value={activeStep.url}
+                    onChange={(url) => {
+                        updateActiveStep(activeStep.id, { url })
+                    }}
+                />
+            </PureField> */}
+            <div className="mt-4" />
+            <PureField label={'Payload'} className="max-w-160">
+                <JSONEditorInput
+                    defaultNumberOfLines={4}
+                    value={activeStep.payload}
+                    onChange={(payload) => {
+                        updateActiveStep(activeStep.id, { payload })
+                    }}
+                />
+            </PureField>
+            <div className="mt-4" />
+            <PureField label={'Preview'} className="max-w-160">
+                <JSONEditorInput defaultNumberOfLines={4} value={JSON.stringify(previewPayload, null, 4)} readOnly />
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: '1',
+                            header: <span>Example event</span>,
+                            content: (
+                                <JSONEditorInput
+                                    defaultNumberOfLines={4}
+                                    value={exampleEvent}
+                                    onChange={(val) => {
+                                        setExampleEvent(val)
+                                    }}
+                                />
+                            ),
+                        },
+                    ]}
+                />
+            </PureField>
+            <div className="mt-4" />
+        </>
+    )
+}
+
 export function AutomationStepConfig(): JSX.Element {
     const { activeStep, activeStepConfig } = useValues(automationStepConfigLogic)
     const { setActiveStepId } = useActions(automationStepConfigLogic)

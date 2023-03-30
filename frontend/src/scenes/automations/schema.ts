@@ -1,4 +1,4 @@
-import { ActionFilter } from './../../types'
+import { ActionFilter, JsonType } from './../../types'
 import { UserBasicType } from '~/types'
 
 export enum AutomationStepCategory {
@@ -50,6 +50,7 @@ export type AutomationWebhookDestinationStep = AutomationStep & {
     kind: AutomationStepKind.WebhookDestination
     category: AutomationStepCategory.Destination
     url: string
+    payload: JsonType
 }
 
 export type AnyAutomationStep = AutomationEventSourceStep | AutomationWebhookDestinationStep | AutomationGenericStep
