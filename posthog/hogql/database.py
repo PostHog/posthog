@@ -398,7 +398,7 @@ class RawDataBeachTableAppendable(Table):
         return "data_beach_appendable"
 
     def hogql_table(self):
-        return "data_beach_appendable_raw"
+        return "raw_data_beach_appendable"
 
 
 class Database(BaseModel):
@@ -458,10 +458,10 @@ class DataBeachTableAppendable(LazyTable):
 
         return ast.SelectQuery(
             select=fields_to_select,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["data_beach_appendable_raw"])),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_data_beach_appendable"])),
             where=ast.CompareOperation(
                 op=ast.CompareOperationType.Eq,
-                left=ast.Field(chain=["data_beach_appendable_raw", "table_name"]),
+                left=ast.Field(chain=["raw_data_beach_appendable", "table_name"]),
                 right=ast.Constant(value=self._table_name),
             ),
         )
