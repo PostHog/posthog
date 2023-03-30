@@ -75,7 +75,24 @@ sudo apt install -y git
 # try to clone - if folder is already there pull latest for that branch
 git clone https://github.com/PostHog/posthog.git &> /dev/null || true
 cd posthog
-git pull
+
+if [[ "$POSTHOG_APP_TAG" = "latest-release" ]]
+then
+    git fetch --tags
+    latestReleaseTag=$(git describe --tags `git rev-list --tags --max-count=1`)
+    echo "Checking out latest PostHog release: $latestReleaseTag"
+    git checkout $latestReleaseTag
+elif [[ "$POSTHOG_APP_TAG" = "latest" ]]
+then
+    echo "Pulling latest from current branch: $(git branch --show-current)"
+    git pull
+else
+    releaseTag="${POSTHOG_APP_TAG/release-/""}"
+    git fetch --tags
+    echo "Checking out PostHog release: $releaseTag"
+    git checkout $releaseTag
+fi
+
 cd ..
 
 if [ -n "$3" ]

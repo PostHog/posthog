@@ -128,6 +128,7 @@ export function getAutomationTaskHandlers(hub: Hub, graphileWorker: GraphileWork
             // })
 
             try {
+                
                 await hub.automationManager.runAutomationJob(job as EnqueuedAutomationJob, graphileWorker)
                 // jobsExecutionSuccessCounter.labels(jobType).inc()
             } catch (e) {

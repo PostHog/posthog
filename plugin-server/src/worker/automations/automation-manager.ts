@@ -5,6 +5,7 @@ import {
     Automation,
     EnqueuedAutomationJob,
     JobName,
+    Person,
     PluginServerCapabilities,
     PostIngestionEvent,
     Team,
@@ -13,6 +14,7 @@ import { DB } from '../../utils/db/db'
 import { status } from '../../utils/status'
 import { ActionMatcher } from '../ingestion/action-matcher'
 import { AppMetrics } from '../ingestion/app-metrics'
+import { IngestionPersonData } from './../../types'
 
 export type AutomationMap = Record<string, Automation>
 type AutomationCache = Record<Team['id'], AutomationMap>
@@ -89,6 +91,14 @@ export class AutomationManager {
         this.ready = true
     }
 
+    private async getPersonFromDB(teamId: Team['id'], distinctId: string): Promise<Person | undefined> {
+        const person = await this.db.fetchPerson(teamId, distinctId)
+        if (!person) {
+            return
+        }
+        return person
+    }
+
     public getTeamAutomations(teamId: Team['id']): AutomationMap {
         if (!this.ready) {
             throw new Error('AutomationManager is not ready! Run AutomationManager.prepare() before this')
@@ -106,8 +116,11 @@ export class AutomationManager {
     public async startWithEvent(event: PostIngestionEvent, graphileWorker: GraphileWorker): Promise<void> {
         const teamAutomations = this.getTeamAutomations(event.teamId) // TODO: This returns an action, needs to be turned into an automation type
 
+        const person: IngestionPersonData | undefined = await this.getPersonFromDB(event.teamId, event.distinctId)
+        event.person = person
+
         for (const automation of Object.values(teamAutomations)) {
-            if (await this.actionMatcher.matchAutomation(automation, event)) {
+            if (await this.actionMatcher.matchAutomation(automation, event, person)) {
                 const job: EnqueuedAutomationJob = {
                     timestamp: Date.now(),
                     automation: automation,
