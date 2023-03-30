@@ -81,8 +81,7 @@ export const Issues = (): JSX.Element => {
                                 order: 0,
                             },
                         ],
-                        display: ChartDisplayType.ActionsLineGraph,
-                        interval: 'day',
+                        display: ChartDisplayType.ActionsBar,
                         properties: query.properties,
                     },
                 }}
