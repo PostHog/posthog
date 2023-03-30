@@ -100,5 +100,5 @@ class PropertySwapper(CloningVisitor):
         if type == "Integer":
             return ast.Call(name="toInt", args=[node])
         if type == "Boolean":
-            return parse_expr("{node} = true", {"node": node})
+            return parse_expr("{node} = 'true'", {"node": node})
         return node
