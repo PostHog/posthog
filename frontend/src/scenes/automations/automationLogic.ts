@@ -34,13 +34,11 @@ export const automationLogic = kea<automationLogicType>([
     path(['scenes', 'automations', 'automationLogic']),
     connect({
         values: [teamLogic, ['currentTeamId']],
-        // actions: [automationStepConfigLogic, ['setActiveStepId']],
     }),
 
     actions({
         createAutomation: true,
         addStep: (step: Node) => ({ step }),
-        updateStep: (step: Node) => ({ step }),
         setEditAutomation: (editing: boolean) => ({ editing }),
     }),
     reducers({
@@ -122,13 +120,13 @@ export const automationLogic = kea<automationLogicType>([
     forms(({ actions }) => ({
         automation: {
             defaults: { ...NEW_AUTOMATION } as Automation,
-            errors: ({}) => {
-                // if (!name) {
-                //     lemonToast.error('You have to enter a name.')
-                //     return { name: 'You have to enter a name.' }
-                // }
-                return { name: undefined }
-            },
+            // errors: ({}) => {
+            //     // if (!name) {
+            //     //     lemonToast.error('You have to enter a name.')
+            //     //     return { name: 'You have to enter a name.' }
+            //     // }
+            //     return { name: undefined }
+            // },
             submit: () => {
                 actions.createAutomation()
             },
@@ -147,16 +145,6 @@ export const automationLogic = kea<automationLogicType>([
             actions.setAutomationValues({
                 steps: newSteps,
                 edges: newEdges,
-            })
-            // actions.setActiveStepId(step.id)
-        },
-        updateStep: ({ step }) => {
-            console.debug('listeners.updateStep: ', step)
-            console.debug('values.steps: ', values.steps)
-
-            actions.setAutomationValues({
-                steps: values.steps.map((s) => (s.id === step.id ? step : s)),
-                edges: [{ source: 'Event sent', target: 'placeholder', type: 'workflow' }],
             })
         },
         createAutomation: async () => {

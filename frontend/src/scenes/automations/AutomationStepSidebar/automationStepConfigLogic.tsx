@@ -131,6 +131,7 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
     }),
     listeners(({ values, actions }) => ({
         updateActiveStep: ({ id, partialStep }) => {
+            console.debug('listeners.updateActiveStep!!')
             const newSteps = values.steps.map((s) => {
                 if (s.id === id) {
                     const newData = { ...s.data, ...partialStep.data }

@@ -10,6 +10,7 @@ import { FilterType, InsightType } from '~/types'
 import './AutomationStepConfig.scss'
 import { automationStepConfigLogic } from './automationStepConfigLogic'
 import { AutomationStepSidebar } from './AutomationStepSidebar'
+import { AutomationEventSourceStep } from '../schema'
 
 export function WebhookDestinationConfig(): JSX.Element {
     const { activeStep, activeStepConfig, exampleEvent, previewPayload } = useValues(automationStepConfigLogic)
@@ -81,10 +82,11 @@ export function EventSentConfig(): JSX.Element {
                 <ActionFilter
                     filters={{
                         insight: InsightType.TRENDS,
-                        events: (activeStep as AutomationEventSourceStep).data.filters,
-                        new_entity: (activeStep as AutomationEventSourceStep).data.new_entity,
+                        events: (activeStep as AutomationEventSourceStep)?.data?.filters,
+                        new_entity: (activeStep as AutomationEventSourceStep)?.data?.new_entity,
                     }}
                     setFilters={(filters: FilterType) => {
+                        console.debug('setfilters: ', filters)
                         updateActiveStep(activeStep.id, { filters: filters.events, new_entity: filters.new_entity })
                     }}
                     typeKey={'automation_step_event_sent_config'}
