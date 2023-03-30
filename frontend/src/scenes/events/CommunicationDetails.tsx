@@ -49,7 +49,7 @@ function ReceivedMessage({ communication }: { communication: any }): JSX.Element
 function InternalNote({ communication }: { communication: any }): JSX.Element {
     return (
         <div className={'flex flex-row justify-center'}>
-            <div className={'CommunicationMessage border rounded px-2 bg-primary-alt-highlight'}>
+            <div className={'CommunicationMessage border rounded px-4 py-2 bg-primary-alt-highlight'}>
                 <Message communication={communication} markdown={true} />
             </div>
         </div>
