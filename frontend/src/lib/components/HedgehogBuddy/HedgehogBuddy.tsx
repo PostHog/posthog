@@ -339,7 +339,13 @@ class HedgehogActor {
     }
 }
 
-export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element {
+export function HedgehogBuddy({
+    onClose,
+    popoverOverlay,
+}: {
+    onClose: () => void
+    popoverOverlay?: React.ReactNode
+}): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
 
     if (!actorRef.current) {
@@ -398,31 +404,39 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
                 // setAnimationName('fall')
             }}
             visible={popoverVisible}
+            placement="top"
             overlay={
-                <div className="p-2">
-                    <h3>Hello!</h3>
-                    <p>
-                        Don't mind me. I'm just here to keep you company.
-                        <br />
-                        You can move me around by clicking and dragging.
-                    </p>
-                    <div className="flex gap-2 my-2">
-                        {['jump', 'sign', 'spin', 'wave', 'walk'].map((x) => (
-                            <LemonButton key={x} type="secondary" size="small" onClick={() => actor.setAnimation(x)}>
-                                {capitalizeFirstLetter(x)}
+                popoverOverlay || (
+                    <div className="p-2">
+                        <h3>Hello!</h3>
+                        <p>
+                            Don't mind me. I'm just here to keep you company.
+                            <br />
+                            You can move me around by clicking and dragging.
+                        </p>
+                        <div className="flex gap-2 my-2">
+                            {['jump', 'sign', 'spin', 'wave', 'walk'].map((x) => (
+                                <LemonButton
+                                    key={x}
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => actor.setAnimation(x)}
+                                >
+                                    {capitalizeFirstLetter(x)}
+                                </LemonButton>
+                            ))}
+                        </div>
+                        <LemonDivider />
+                        <div className="flex justify-end gap-2">
+                            <LemonButton type="secondary" status="danger" onClick={() => disappear()}>
+                                Good bye!
                             </LemonButton>
-                        ))}
+                            <LemonButton type="secondary" onClick={() => setPopoverVisible(false)}>
+                                Carry on!
+                            </LemonButton>
+                        </div>
                     </div>
-                    <LemonDivider />
-                    <div className="flex justify-end gap-2">
-                        <LemonButton type="secondary" status="danger" onClick={() => disappear()}>
-                            Good bye!
-                        </LemonButton>
-                        <LemonButton type="secondary" onClick={() => setPopoverVisible(false)}>
-                            Carry on!
-                        </LemonButton>
-                    </div>
-                </div>
+                )
             }
         >
             {actor.render({ onClick })}

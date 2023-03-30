@@ -15,6 +15,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         hideActionsInfo: true,
         showFlags: true,
         hideFlags: true,
+        setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
         setExtensionPercentage: (percentage: number) => ({ percentage }),
         saveDragPosition: (x: number, y: number) => ({ x, y }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
@@ -92,6 +93,12 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             },
             {
                 saveFlagsPosition: (_, { x, y }) => ({ x, y }),
+            },
+        ],
+        hedgehogMode: [
+            false,
+            {
+                setHedgehogMode: (_, { hedgehogMode }) => hedgehogMode,
             },
         ],
     }),
