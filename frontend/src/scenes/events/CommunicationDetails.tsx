@@ -7,8 +7,81 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton/LemonSeg
 import { useEffect } from 'react'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import clsx from 'clsx'
-import './CommunicationDetails.scss'
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { TZLabel } from 'lib/components/TZLabel'
+
+function Message({ communication, markdown = false }: { communication: any; markdown?: boolean }): JSX.Element {
+    return (
+        <div className={'flex flex-col'}>
+            <div className={'text-left text-xs text-muted mb-1'}>{communication.from}</div>
+            {markdown ? <>{communication.body_plain}</> : <TextContent text={communication.body_plain} />}
+            <>
+                <TZLabel time={communication.timestamp} className={'text-muted text-xs text-right'} noStyles={true} />
+            </>
+        </div>
+    )
+}
+
+function SentMessage({ communication }: { communication: any }): JSX.Element {
+    return (
+        <div className={'flex flex-row justify-start'}>
+            <div className={'CommunicationMessage border rounded px-4 py-2 bg-warning-highlight'}>
+                <Message communication={communication} />
+            </div>
+        </div>
+    )
+}
+
+function ReceivedMessage({ communication }: { communication: any }): JSX.Element {
+    return (
+        <div className={'flex flex-row justify-end'}>
+            <div className={'CommunicationMessage border rounded px-4 py-2 bg-success-highlight'}>
+                <Message communication={communication} />
+            </div>
+        </div>
+    )
+}
+
+function InternalNote({ communication }: { communication: any }): JSX.Element {
+    return (
+        <div className={'flex flex-row justify-center'}>
+            <div className={'CommunicationMessage border rounded px-2 bg-primary-alt-highlight'}>
+                <Message communication={communication} markdown={true} />
+            </div>
+        </div>
+    )
+}
+
+function MessageHistory({
+    loading,
+    communications,
+}: {
+    communications: Record<string, any>
+    loading: boolean
+}): JSX.Element {
+    return (
+        <div className={'flex flex-col space-y-2 p-4'}>
+            <h3>Messages</h3>
+            <LemonDivider />
+            {loading ? (
+                <Spinner />
+            ) : communications?.results?.length > 0 ? (
+                communications.results.map((communication, index) => {
+                    console.log(communication)
+                    return communication?.event === '$communication_email_sent' ? (
+                        <SentMessage key={index} communication={communication} />
+                    ) : communication?.event === '$communication_email_received' ? (
+                        <ReceivedMessage key={index} communication={communication} />
+                    ) : (
+                        <InternalNote key={index} communication={communication} />
+                    )
+                })
+            ) : (
+                <div className={'text-muted text-center uppercase'}>No messages yet</div>
+            )}
+        </div>
+    )
+}
 
 export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
     const { publicReplyEnabled, replyType, noteContent, communications, communicationsLoading } = useValues(
@@ -77,33 +150,7 @@ export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
                 {/* TODO: pull all the historical communication, i.e. load events in the logic first */}
             </div>
             <LemonDivider />
-            <div className={'flex flex-col space-y-2 p-4'}>
-                <h3>Messages</h3>
-                <LemonDivider />
-                {communicationsLoading ? (
-                    <Spinner />
-                ) : communications?.results?.length > 0 ? (
-                    communications.results.map((communication, index) => {
-                        return (
-                            <div
-                                key={index}
-                                className={clsx(
-                                    'flex flex-row',
-                                    communication?.event === '$communication_email_sent'
-                                        ? 'justify-start'
-                                        : communication?.event === '$communication_email_received'
-                                        ? 'justify-end'
-                                        : 'justify-center'
-                                )}
-                            >
-                                <div className="CommunicationMessage">{communication.body_plain}</div>
-                            </div>
-                        )
-                    })
-                ) : (
-                    <div className={'text-muted text-center uppercase'}>No messages yet</div>
-                )}
-            </div>
+            <MessageHistory loading={communicationsLoading} communications={communications} />
         </div>
     )
 }

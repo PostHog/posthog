@@ -11,6 +11,16 @@ export interface CommunicationDetailsLogicProps {
     eventUUID: string | null
 }
 
+export interface MessageProperties {
+    body_plain: string
+    body_html?: string
+    subject: string
+    from: string
+    to?: string
+    bug_report_uuid: string
+    timestamp?: string
+}
+
 export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
     path(['scenes', 'events', 'communicationDetailsLogic']),
     props({ eventUUID: null } as CommunicationDetailsLogicProps),
@@ -70,16 +80,18 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
             // TODO: make it send an event to PostHog - should be whatever team we're on ??? -
             const event = values.publicReplyEnabled ? '$communication_email_sent' : '$communication_note_saved'
 
-            if (values.posthogSDK) {
-                values.posthogSDK.capture(event, {
+            if (values.posthogSDK && props.eventUUID) {
+                const messageProperties: MessageProperties = {
                     ...{
                         body_plain: content,
                         subject: `HogDesk Bug Report [${props.eventUUID}]`,
-                        from: 'bugs@posthog.com',
+                        from: values.user?.email || 'support agent',
                         bug_report_uuid: props.eventUUID,
                     },
                     ...(values.publicReplyEnabled ? { to: values.user?.email || 'unknown' } : {}),
-                })
+                }
+
+                values.posthogSDK.capture(event, messageProperties)
                 actions.sentSuccessfully()
             } else {
                 actions.sendingFailed()
