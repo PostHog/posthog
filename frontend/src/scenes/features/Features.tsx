@@ -1,4 +1,4 @@
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -33,7 +33,9 @@ export function Features(): JSX.Element {
                         render(_, row) {
                             return (
                                 <>
-                                    <div className="row-name">{row.name}</div>
+                                    <Link to={urls.feature(row.id)}>
+                                        <div className="row-name">{row.name}</div>
+                                    </Link>
                                     <div className="row-description">{row.description}</div>
                                 </>
                             )
