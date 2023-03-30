@@ -7,6 +7,7 @@ import { useActions, useValues } from 'kea'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { SHADOW_HEIGHT, SPRITE_SHEET_WIDTH, SPRITE_SIZE, standardAnimations } from './sprites/sprites'
+import './HedgehogBuddy.scss'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20
@@ -420,7 +421,7 @@ export function HedgehogBuddy({
             placement="top"
             overlay={
                 popoverOverlay || (
-                    <div className="p-2">
+                    <div className="HedgehogBuddyPopover p-2">
                         <h3>Hello!</h3>
                         <p>
                             Don't mind me. I'm just here to keep you company.
