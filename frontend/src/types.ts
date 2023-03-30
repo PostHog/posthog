@@ -1959,7 +1959,9 @@ export interface FeatureFlagBasicType {
     ensure_experience_continuity: boolean | null
 }
 
-export interface FeatureFlagType extends FeatureFlagBasicType {
+export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team_id'> {
+    /** Null means that the flag has never been saved yet (it's new). */
+    id: number | null
     created_by: UserBasicType | null
     created_at: string | null
     is_simple_flag: boolean
@@ -1990,7 +1992,7 @@ export interface FeatureType {
     feature_flag: FeatureFlagBasicType
     name: string
     description: string
-    status: 'concept' | 'alpha' | 'beta' | 'general-availability'
+    stage: 'concept' | 'alpha' | 'beta' | 'general-availability'
     image_url: string | null
     documentation_url: string | null
     created_at: string

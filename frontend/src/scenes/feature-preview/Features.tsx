@@ -2,6 +2,7 @@ import './Features.scss'
 import { featuresLogic } from './featuresLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonTable, LemonSwitch, LemonButton } from '@posthog/lemon-ui'
+import { FeaturePreview } from 'posthog-js'
 
 export function Features(): JSX.Element {
     return (
@@ -19,7 +20,12 @@ export function Features(): JSX.Element {
                                 <div>
                                     <div className="row-name">{row.name}</div>
                                     <div className="row-description">
-                                        {row.description}&nbsp;<a href={row.documentationUrl}>Read the docs</a>
+                                        {row.description}
+                                        {row.documentationUrl && (
+                                            <>
+                                                &nbsp;<a href={row.documentationUrl}>Read the docs</a>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             )
@@ -27,49 +33,48 @@ export function Features(): JSX.Element {
                     },
                     {
                         // make it so this is _either_ switch on _or_ if it's a register interest
-                        title: 'Status',
-                        key: 'status',
-                        render(_, row) {
+                        title: 'stage',
+                        dataIndex: 'stage',
+                        render(stage) {
                             let option
-                            if (row.status == 'beta') {
+                            if (stage == 'beta') {
                                 option = <LemonSwitch checked={false} label="Enabled" onChange={() => {}} />
                             } else {
-                                option = <LemonButton type="primary">Get Notified When Available</LemonButton>
+                                option = <LemonButton type="primary">Get notified when available</LemonButton>
                             }
 
                             return <div>{option}</div>
                         },
                     },
                 ]}
-                dataSource={[
-                    {
-                        id: 1779,
-                        name: 'Enable viewing console logs in session recordings',
-                        description: 'this is a wonderful feature',
-                        documentationUrl: 'https://example.com/',
-                        imageUrl: 'https://www.iana.org/_img/2022/iana-logo-header.svg',
-                        status: 'beta',
-                        flagKey: 'session-recording-console',
-                    },
-                    {
-                        id: 1779,
-                        name: 'Enable viewing console logs in session recordings',
-                        description: 'this is a wonderful feature',
-                        documentationUrl: 'https://example.com/',
-                        imageUrl: 'https://www.iana.org/_img/2022/iana-logo-header.svg',
-                        status: 'alpha',
-                        flagKey: 'session-recording-console',
-                    },
-                    {
-                        id: 1779,
-                        name: 'Enable viewing console logs in session recordings',
-                        description: 'this is a wonderful feature',
-                        documentationUrl: 'https://example.com/',
-                        imageUrl: 'https://www.iana.org/_img/2022/iana-logo-header.svg',
-                        status: 'beta',
-                        flagKey: 'session-recording-console',
-                    },
-                ]}
+                dataSource={
+                    [
+                        {
+                            name: 'Enable viewing console logs in session recordings',
+                            description: 'this is a wonderful feature',
+                            documentationUrl: 'https://example.com/',
+                            imageUrl: 'https://www.iana.org/_img/2022/iana-logo-header.svg',
+                            stage: 'beta',
+                            flagKey: 'session-recording-console',
+                        },
+                        {
+                            name: 'Enable viewing console logs in session recordings',
+                            description: 'this is a wonderful feature',
+                            documentationUrl: 'https://example.com/',
+                            imageUrl: 'https://www.iana.org/_img/2022/iana-logo-header.svg',
+                            stage: 'alpha',
+                            flagKey: 'session-recording-console',
+                        },
+                        {
+                            name: 'Enable viewing console logs in session recordings',
+                            description: 'this is a wonderful feature',
+                            documentationUrl: 'https://example.com/',
+                            imageUrl: 'https://www.iana.org/_img/2022/iana-logo-header.svg',
+                            stage: 'beta',
+                            flagKey: 'session-recording-console',
+                        },
+                    ] as FeaturePreview[]
+                }
             />
         </div>
     )

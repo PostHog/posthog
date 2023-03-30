@@ -32,6 +32,8 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.FeaturePreview]: () => import('./feature-preview/Features'),
+    [Scene.Features]: () => import('./features/Features'),
+    [Scene.Feature]: () => import('./features/Feature'),
     [Scene.OrganizationSettings]: () => import('./organization/Settings'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),

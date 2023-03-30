@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "status",
+                    "stage",
                     models.CharField(
                         choices=[
                             ("concept", "concept"),

@@ -171,7 +171,7 @@ def get_decide(request: HttpRequest):
                     # v4 returns the feature previews as well
                     response["featurePreviews"] = FeaturePreviewSerializer(
                         Feature.objects.filter(team=team)
-                        .exclude(status=Feature.Status.GENERAL_AVAILABILITY)
+                        .exclude(status=Feature.Stage.GENERAL_AVAILABILITY)
                         .select_related("feature_flag"),
                         many=True,
                     ).data

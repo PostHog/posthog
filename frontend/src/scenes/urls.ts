@@ -24,7 +24,6 @@ import { PluginTab } from './plugins/types'
 export const urls = {
     default: (): string => '/',
     dashboards: (): string => '/dashboard',
-    featurePreview: (): string => '/feature-preview',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
     dashboardTextTile: (id: string | number, textTileId: string | number): string =>
@@ -85,6 +84,9 @@ export const urls = {
     experiments: (): string => '/experiments',
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
+    featurePreview: (): string => '/feature-preview',
+    features: (): string => '/features',
+    feature: (id: ':id' | 'new' | number): string => `/features/${id}`,
     annotations: (): string => '/annotations',
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,

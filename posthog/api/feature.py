@@ -21,7 +21,7 @@ class FeaturePreviewSerializer(serializers.ModelSerializer):
         fields = [
             "name",
             "description",
-            "status",
+            "stage",
             "imageUrl",
             "documentationUrl",
             "flagKey",
@@ -39,7 +39,7 @@ class FeatureSerializer(serializers.ModelSerializer):
             "feature_flag",
             "name",
             "description",
-            "status",
+            "stage",
             "image_url",
             "documentation_url",
             "created_at",

@@ -1092,13 +1092,13 @@ const api = {
             return await new ApiRequest().feature(featureId).get()
         },
         async create(
-            data: Pick<FeatureType, 'name' | 'description' | 'status' | 'image_url' | 'documentation_url'>
+            data: Pick<FeatureType, 'name' | 'description' | 'stage' | 'image_url' | 'documentation_url'>
         ): Promise<SubscriptionType> {
             return await new ApiRequest().features().create({ data })
         },
         async update(
             featureId: FeatureType['id'],
-            data: Pick<FeatureType, 'name' | 'description' | 'status' | 'image_url' | 'documentation_url'>
+            data: Pick<FeatureType, 'name' | 'description' | 'stage' | 'image_url' | 'documentation_url'>
         ): Promise<FeatureType> {
             return await new ApiRequest().feature(featureId).update({ data })
         },

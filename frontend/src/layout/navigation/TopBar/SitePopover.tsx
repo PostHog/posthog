@@ -14,6 +14,7 @@ import {
     IconSettings,
     IconCorporate,
     IconPlus,
+    IconNewReleases,
 } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { Link } from 'lib/lemon-ui/Link'
@@ -227,11 +228,13 @@ function InstanceSettings(): JSX.Element | null {
     )
 }
 
-function FeaturePreview(): JSX.Element {
+function PreviewFeaturesButton(): JSX.Element {
+    const { closeSitePopover } = useActions(navigationLogic)
+
     return (
-        <Link to={urls.featurePreview()} className="SitePopover__side-link">
-            Feature preview
-        </Link>
+        <LemonButton to={urls.featurePreview()} onClick={closeSitePopover} icon={<IconNewReleases />} fullWidth>
+            Preview features
+        </LemonButton>
     )
 }
 
@@ -292,7 +295,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 </SitePopoverSection>
             )}
             <SitePopoverSection>
-                <FeaturePreview />
+                <PreviewFeaturesButton />
             </SitePopoverSection>
             <SitePopoverSection>
                 <SignOutButton />

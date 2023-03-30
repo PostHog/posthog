@@ -130,11 +130,17 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Feature Flags',
     },
+    [Scene.FeatureFlag]: {
+        projectBased: true,
+    },
     [Scene.FeaturePreview]: {
         projectBased: true,
         name: 'Feature Preview',
     },
-    [Scene.FeatureFlag]: {
+    [Scene.Features]: {
+        projectBased: true,
+    },
+    [Scene.Feature]: {
         projectBased: true,
     },
     [Scene.Annotations]: {
@@ -323,6 +329,8 @@ export const routes: Record<string, Scene> = {
     [urls.experiments()]: Scene.Experiments,
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.featurePreview()]: Scene.FeaturePreview,
+    [urls.features()]: Scene.Features,
+    [urls.feature(':id')]: Scene.Feature,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,
