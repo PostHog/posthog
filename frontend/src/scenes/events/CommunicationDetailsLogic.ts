@@ -41,7 +41,7 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
         saveNote: (content: string) => ({ content }),
         setReplyType: (type: 'internal' | 'public') => ({ type }),
         setNoteContent: (content: string) => ({ content }),
-        sentSuccessfully: true,
+        sentSuccessfully: (message: CommunicationResponseItem) => ({ message }),
         sendingFailed: true,
     }),
     loaders(({ props }) => ({
@@ -54,6 +54,14 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
         },
     })),
     reducers({
+        communications: {
+            sentSuccessfully: (state, { message }) => {
+                return {
+                    ...state,
+                    results: [{ ...message, timestamp: new Date(Date.now()).toISOString() }, ...state.results],
+                }
+            },
+        },
         replyType: [
             'internal' as 'internal' | 'public',
             {
@@ -103,7 +111,7 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
                 }
 
                 values.posthogSDK.capture(event, messageProperties)
-                actions.sentSuccessfully()
+                actions.sentSuccessfully({ ...messageProperties, event })
             } else {
                 actions.sendingFailed()
             }
