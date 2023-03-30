@@ -21,6 +21,8 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
         editDataBeachTable: (id: number | 'new' = 'new') => ({ id }),
         deleteDataBeachTable: (id: number) => ({ id }),
         hideEditDataBeachTable: true,
+        showIngestionForDataBeachTable: (id: number) => ({ id }),
+        hideIngestionForDataBeachTable: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         appendDataBeachTable: (dataBeachTable: DataBeachTableType) => ({ dataBeachTable }),
         updateDataBeachTable: (dataBeachTable: DataBeachTableType) => ({ dataBeachTable }),
@@ -45,6 +47,10 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
         editingDataBeachTable: [
             null as 'new' | number | null,
             { editDataBeachTable: (_, { id }) => id, hideEditDataBeachTable: () => null },
+        ],
+        ingestingDataBeachTable: [
+            null as number | null,
+            { showIngestionForDataBeachTable: (_, { id }) => id, hideIngestionForDataBeachTable: () => null },
         ],
         searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
         dataBeachTables: {
@@ -112,6 +118,11 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
             (s) => [s.dataBeachTables, s.editingDataBeachTable],
             (dataBeachTables, editingDataBeachTable) =>
                 editingDataBeachTable ? dataBeachTables?.find(({ id }) => id === editingDataBeachTable) : null,
+        ],
+        ingestingDataBeachTableObject: [
+            (s) => [s.dataBeachTables, s.ingestingDataBeachTable],
+            (dataBeachTables, ingestingDataBeachTable) =>
+                ingestingDataBeachTable ? dataBeachTables?.find(({ id }) => id === ingestingDataBeachTable) : null,
         ],
     }),
     listeners({

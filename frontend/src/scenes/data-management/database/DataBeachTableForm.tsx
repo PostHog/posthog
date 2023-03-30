@@ -35,7 +35,7 @@ export function DataBeachTableForm(props: DataBeachTableFormProps): JSX.Element 
     }
     const logic = dataBeachTableFormLogic(logicProps)
     const { isDataBeachTableSubmitting, fields } = useValues(logic)
-    const { setDataBeachTableValue } = useActions(logic)
+    const { setDataBeachTableValue, submitDataBeachTable } = useActions(logic)
 
     return (
         <LemonModal
@@ -51,7 +51,12 @@ export function DataBeachTableForm(props: DataBeachTableFormProps): JSX.Element 
                                 Cancel
                             </LemonButton>
                         ) : null}
-                        <LemonButton loading={isDataBeachTableSubmitting} htmlType="submit" type="primary">
+                        <LemonButton
+                            onClick={submitDataBeachTable}
+                            loading={isDataBeachTableSubmitting}
+                            htmlType="submit"
+                            type="primary"
+                        >
                             Save changes
                         </LemonButton>
                     </div>

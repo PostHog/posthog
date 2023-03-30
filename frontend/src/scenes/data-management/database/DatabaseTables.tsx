@@ -11,7 +11,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export function DatabaseTables(): JSX.Element {
     const { filteredTables, loading } = useValues(databaseSceneLogic)
-    const { editDataBeachTable, deleteDataBeachTable } = useActions(databaseSceneLogic)
+    const { editDataBeachTable, deleteDataBeachTable, showIngestionForDataBeachTable } = useActions(databaseSceneLogic)
 
     return (
         <>
@@ -81,6 +81,13 @@ export function DatabaseTables(): JSX.Element {
                                                     fullWidth
                                                 >
                                                     Edit
+                                                </LemonButton>
+                                                <LemonButton
+                                                    status="stealth"
+                                                    onClick={() => showIngestionForDataBeachTable(dataBeachTableId)}
+                                                    fullWidth
+                                                >
+                                                    Insert data
                                                 </LemonButton>
                                                 <LemonDivider />
                                                 <LemonButton

@@ -6,9 +6,17 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { DataBeachTableForm } from './DataBeachTableForm'
 import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
+import { DataBeachIngestionForm } from 'scenes/data-management/database/DataBeachIngestionForm'
 
 export function DatabaseScene(): JSX.Element {
-    const { editingDataBeachTable, editingDataBeachTableObject, searchTerm, category } = useValues(databaseSceneLogic)
+    const {
+        editingDataBeachTable,
+        editingDataBeachTableObject,
+        searchTerm,
+        category,
+        ingestingDataBeachTable,
+        ingestingDataBeachTableObject,
+    } = useValues(databaseSceneLogic)
     const {
         editDataBeachTable,
         hideEditDataBeachTable,
@@ -16,6 +24,7 @@ export function DatabaseScene(): JSX.Element {
         appendDataBeachTable,
         updateDataBeachTable,
         setCategory,
+        hideIngestionForDataBeachTable,
     } = useActions(databaseSceneLogic)
 
     return (
@@ -72,6 +81,11 @@ export function DatabaseScene(): JSX.Element {
                     }
                     hideEditDataBeachTable()
                 }}
+            />
+            <DataBeachIngestionForm
+                isOpen={!!ingestingDataBeachTable}
+                dataBeachTable={ingestingDataBeachTableObject ?? null}
+                onClose={hideIngestionForDataBeachTable}
             />
         </div>
     )
