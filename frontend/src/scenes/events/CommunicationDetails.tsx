@@ -109,7 +109,7 @@ export function CommunicationDetails({ uuid }: { uuid: string }): JSX.Element {
                         value: key,
                     }
                 })}
-                value={issueStatus}
+                value={issueStatus ? issueStatus : 'Update status to ...'}
             />
             <div className={'flex flex-col space-y-2 p-4'}>
                 <div className={'flex flex-col space-y-2 p-4'}>

@@ -78,7 +78,7 @@ export const communicationDetailsLogic = kea<communicationDetailsLogicType>([
             },
         ],
         issueStatus: [
-            'open' as IssueStatusOptions, // TODO: load the actual status
+            null as IssueStatusOptions | null, // TODO: load the actual status
             {
                 setIssueStatus: (_, { status }) => status,
             },
