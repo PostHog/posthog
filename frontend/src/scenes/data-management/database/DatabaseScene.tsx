@@ -27,17 +27,27 @@ export function DatabaseScene(): JSX.Element {
             />
             <DataManagementPageTabs tab={DataManagementTab.Database} />
             <div className="flex items-center justify-between gap-2 mb-4">
-                <LemonInput type="search" placeholder="Search for tables" onChange={setSearchTerm} value={searchTerm} />
-                <LemonSegmentedButton
-                    size={'small'}
-                    onChange={setCategory}
-                    value={category}
-                    options={[
-                        { label: 'All tables', value: 'all' },
-                        { label: 'PostHog tables', value: 'posthog' },
-                        { label: 'DataBeach tables', value: 'databeach' },
-                    ]}
-                />
+                <div className="flex items-center justify-between gap-2 mb-4">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for tables"
+                        onChange={setSearchTerm}
+                        value={searchTerm}
+                    />
+                    <LemonSegmentedButton
+                        size={'medium'}
+                        onChange={setCategory}
+                        value={category}
+                        options={[
+                            { label: 'All tables', value: 'all' },
+                            { label: 'PostHog', value: 'posthog' },
+                            { label: 'DataBeach', value: 'databeach' },
+                        ]}
+                    />
+                </div>
+                <LemonButton type="primary" onClick={() => editDataBeachTable('new')}>
+                    New DataBeach table
+                </LemonButton>
             </div>
             <div className="flex items-center justify-between gap-2 mb-4">
                 <div>
@@ -47,10 +57,6 @@ export function DatabaseScene(): JSX.Element {
                     </a>
                     .
                 </div>
-
-                <LemonButton type="secondary" onClick={() => editDataBeachTable('new')}>
-                    Add DataBeach table
-                </LemonButton>
             </div>
             <DatabaseTables />
             <LemonModal
