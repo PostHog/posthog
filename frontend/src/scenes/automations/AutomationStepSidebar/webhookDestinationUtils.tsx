@@ -30,6 +30,9 @@ const exampleWebhook = {
 export function applyEventToPayloadTemplate(payloadTemplate: JsonType, event: Partial<EventType>): JsonType {
     function replaceTemplateRecursive(obj: any, path: string[]): any {
         if (typeof obj === 'string') {
+            if (obj == '{event}') {
+                return event
+            }
             const matches = obj.match(/\{event\.[a-zA-Z0-9_.]+\}/g)
             if (matches) {
                 for (const match of matches) {
