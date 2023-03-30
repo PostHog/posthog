@@ -74,9 +74,6 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
 export const scene: SceneExport = {
@@ -489,16 +486,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
-                                                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS}>
-                                                    <span>
-                                                        <AddToNotebook
-                                                            node={NotebookNodeType.FeatureFlag}
-                                                            properties={{ flag: id }}
-                                                            type="secondary"
-                                                            size="medium"
-                                                        />
-                                                    </span>
-                                                </FlaggedFeature>
                                             </div>
                                         </>
                                     }

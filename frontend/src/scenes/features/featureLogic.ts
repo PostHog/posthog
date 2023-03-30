@@ -42,7 +42,6 @@ export const featureLogic = kea<featureLogicType>([
             defaults: { ...NEW_FEATURE } as NewFeatureType | FeatureType,
             errors: (payload) => ({
                 name: !payload.name ? 'You need to set a name' : undefined,
-                description: !payload.description ? 'You need to provide a description' : undefined,
                 feature_flag_key:
                     'feature_flag_key' in payload ? validateFeatureFlagKey(payload.feature_flag_key) : undefined,
             }),

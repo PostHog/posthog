@@ -3,11 +3,8 @@ import { featuresLogic } from './featuresLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonTable, LemonSwitch, LemonButton } from '@posthog/lemon-ui'
 import { posthog } from 'posthog-js'
-import { useState } from 'react'
 
 export function Features(): JSX.Element {
-    const [switchedFlag, setSwitchedFlag] = useState<[string, boolean] | null>(null)
-
     return (
         <div className="feature-scene">
             <LemonTable
@@ -41,22 +38,13 @@ export function Features(): JSX.Element {
                         render(key, row) {
                             let option
                             if (row.stage == 'beta') {
-                                let isEnabled = posthog.isFeatureEnabled(key as string)
-                                if (switchedFlag && switchedFlag[0] == key) {
-                                    isEnabled = switchedFlag[1]
-                                }
+                                const isEnabled = posthog.isFeatureEnabled(key as string)
                                 option = (
                                     <LemonSwitch
                                         checked={isEnabled}
                                         label={isEnabled ? 'Enabled' : 'Disabled'}
                                         onChange={() => {
                                             posthog.updateFeaturePreviewEnrollment(key as string, !isEnabled)
-                                            setSwitchedFlag([key as string, !isEnabled])
-                                            // Reload flags momentarily
-                                            setTimeout(() => posthog.reloadFeatureFlags(), 100)
-                                            // Also reload a bit later, just in case things didn't manage
-                                            // to get processed in time before
-                                            setTimeout(() => posthog.reloadFeatureFlags(), 1000)
                                         }}
                                     />
                                 )

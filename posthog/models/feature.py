@@ -21,7 +21,7 @@ class Feature(UUIDModel):
         related_query_name="feature",
     )
     name: models.CharField = models.CharField(max_length=200)
-    description: models.TextField = models.TextField()
+    description: models.TextField = models.TextField(blank=True)
     stage: models.CharField = models.CharField(max_length=40, choices=Stage.choices)
     image_url: models.URLField = models.URLField(max_length=800, blank=True)
     documentation_url: models.URLField = models.URLField(max_length=800, blank=True)

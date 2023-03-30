@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useActions } from 'kea'
-import { Card, Row } from 'antd'
+import { Row } from 'antd'
 import { IconFlag, IconInfo, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import './FeatureFlagInstructions.scss'
@@ -67,6 +67,8 @@ function FeatureFlagInstructionsHeader({
                     }
                 }}
                 value={selectedOptionValue}
+                disabledReason={options.length == 1 ? `Only ${selectedOptionValue} is supported currently` : undefined}
+                tooltipPlacement="left"
             />
         </Row>
     )
@@ -294,7 +296,7 @@ export function CodeInstructions({
                     <div />
                 </div>
             ) : (
-                <Card size="small">
+                <div className="border rounded p-3">
                     <FeatureFlagInstructionsHeader
                         dataAttr={dataAttr}
                         options={options}
@@ -311,7 +313,7 @@ export function CodeInstructions({
                     </div>
                     <LemonDivider />
                     <FeatureFlagInstructionsFooter documentationLink={selectedOption.documentationLink} />
-                </Card>
+                </div>
             )}
         </>
     )

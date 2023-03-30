@@ -20,8 +20,10 @@
         width: fit-content;
         max-width: calc(100% + 0.5rem);
         min-height: 2rem;
-        padding: 0.25rem; // Some padding to give the focus outline more breathing space
-        margin: -0.25rem;
+        padding: 0.25rem 0; // Some padding to give the focus underline more breathing space
+        margin: -0.25rem 0;
+        border-top: 1px solid transparent;
+        border-bottom: 1px solid transparent;
         white-space: pre-wrap;
         overflow: auto;
     }
@@ -30,8 +32,7 @@
         align-items: flex-end;
         width: auto;
         max-width: calc(100% + 0.5rem);
-        outline: 1px solid var(--border);
-        border-radius: var(--radius);
+        border-bottom-color: var(--border);
     }
     .EditableField__autosize {
         align-self: center;
@@ -55,9 +56,6 @@
         width: 100%;
     }
     button {
-        &:first-of-type {
-            margin-left: 0.75rem;
-        }
         margin-left: 0.5rem;
     }
 }

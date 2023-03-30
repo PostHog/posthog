@@ -1,23 +1,17 @@
 import './LemonTextArea.scss'
-import React, { createRef, useEffect, useRef, useState } from 'react'
+import React, { createRef, useRef, useState } from 'react'
 import clsx from 'clsx'
 import TextareaAutosize from 'react-textarea-autosize'
 import { IconMarkdown, IconTools } from 'lib/lemon-ui/icons'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import posthog from 'posthog-js'
-import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { LemonFileInput, useUploadFiles } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonTabs } from '../LemonTabs'
-
-const lazyBlobReducer = async (f: File): Promise<Blob> => {
-    const blobReducer = (await import('image-blob-reduce')).default()
-    return blobReducer.toBlob(f, { max: 2000 })
-}
 
 export interface LemonTextAreaProps
     extends Pick<
@@ -77,38 +71,19 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
     const { objectStorageAvailable } = useValues(preflightLogic)
 
     const [isPreviewShown, setIsPreviewShown] = useState(false)
-    const [uploading, setUploading] = useState(false)
-    const [filesToUpload, setFilesToUpload] = useState<File[]>([])
     const dropRef = createRef<HTMLDivElement>()
-
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
 
-    useEffect(() => {
-        const uploadFiles = async (): Promise<void> => {
-            if (filesToUpload.length === 0) {
-                setUploading(false)
-                return
-            }
-
-            try {
-                setUploading(true)
-                const formData = new FormData()
-                const reducedBlob = await lazyBlobReducer(filesToUpload[0])
-                formData.append('image', reducedBlob)
-                const media = await api.media.upload(formData)
-                onChange?.(value + `\n\n![${media.name}](${media.image_location})`)
-                posthog.capture('markdown image uploaded', { name: media.name })
-            } catch (error) {
-                const errorDetail = (error as any).detail || 'unknown error'
-                posthog.capture('markdown image upload failed', { error: errorDetail })
-                lemonToast.error(`Error uploading image: ${errorDetail}`)
-            } finally {
-                setUploading(false)
-                setFilesToUpload([])
-            }
-        }
-        uploadFiles().catch(console.error)
-    }, [filesToUpload])
+    const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
+        onUpload: (url, fileName) => {
+            onChange?.(value + `\n\n![${fileName}](${url})`)
+            posthog.capture('markdown image uploaded', { name: fileName })
+        },
+        onError: (detail) => {
+            posthog.capture('markdown image upload failed', { error: detail })
+            lemonToast.error(`Error uploading image: ${detail}`)
+        },
+    })
 
     return (
         <LemonTabs

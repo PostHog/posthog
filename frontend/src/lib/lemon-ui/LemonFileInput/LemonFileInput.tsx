@@ -4,6 +4,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import clsx from 'clsx'
 import './LemonFileInput.scss'
+import api from 'lib/api'
 
 export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' | 'accept'> {
     value?: File[]
@@ -17,6 +18,50 @@ export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' |
      * styling is applied to the alternativeDropTargetRef
      * **/
     alternativeDropTargetRef?: RefObject<HTMLElement>
+}
+
+export function useUploadFiles({
+    onUpload,
+    onError,
+}: {
+    onUpload?: (url: string, fileName: string) => void
+    onError: (detail: string) => void
+}): {
+    setFilesToUpload: (files: File[]) => void
+    filesToUpload: File[]
+    uploading: boolean
+} {
+    const [uploading, setUploading] = useState(false)
+    const [filesToUpload, setFilesToUpload] = useState<File[]>([])
+    useEffect(() => {
+        const uploadFiles = async (): Promise<void> => {
+            if (filesToUpload.length === 0) {
+                setUploading(false)
+                return
+            }
+
+            try {
+                setUploading(true)
+                const formData = new FormData()
+                let blob: Blob = filesToUpload[0]
+                if (blob.type.startsWith('image/')) {
+                    blob = await lazyImageBlobReducer(blob)
+                }
+                formData.append('image', blob)
+                const media = await api.media.upload(formData)
+                onUpload?.(media.image_location, media.name)
+            } catch (error) {
+                const errorDetail = (error as any).detail || 'unknown error'
+                onError(errorDetail)
+            } finally {
+                setUploading(false)
+                setFilesToUpload([])
+            }
+        }
+        uploadFiles().catch(console.error)
+    }, [filesToUpload])
+
+    return { setFilesToUpload, filesToUpload, uploading }
 }
 
 export const LemonFileInput = ({
@@ -145,4 +190,9 @@ export const LemonFileInput = ({
             </div>
         </>
     )
+}
+
+const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
+    const blobReducer = (await import('image-blob-reduce')).default()
+    return blobReducer.toBlob(blob, { max: 2000 })
 }

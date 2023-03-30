@@ -22,20 +22,20 @@ export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.JavaScript} wrap>
-                {`// Ensure flags are loaded before usage.
-// You'll only need to call this on the code for when the first time a user visits.
+                {`// Ensure flags are loaded before usage
+// You'll only need to call this the first time a user visits
 
 posthog.onFeatureFlags(function() {
-    // feature flags should be available at this point
+    // Feature flags should be available at this point
     if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
-        // do something
+        // Do something
     }
 })
 
-// Otherwise, you can just do
+// Otherwise, you can just do:
 
 if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
-    // do something
+    // Do something
 }`}
             </CodeSnippet>
         </>
@@ -166,20 +166,20 @@ export function APISnippet(): JSX.Element {
 export function JSMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript} wrap>
-            {`// Ensure flags are loaded before usage.
-// You'll only need to call this on the code for when the first time a user visits.
+            {`// Ensure flags are loaded before usage
+// You'll only need to call this the first time a user visits
 
-posthog.onFeatureFlags(function() {
-// feature flags should be available at this point
-if (posthog.getFeatureFlag('${flagKey ?? ''}') === 'example-variant') {
-// do something
-}
+posthog.onFeatureFlags(() => {
+    // Feature flags should be available at this point
+    if (posthog.getFeatureFlag('${flagKey ?? ''}') === 'example-variant') {
+        // Do something
+    }
 })
 
-// Otherwise, you can just do
+// Otherwise, you can just do:
 
 if (posthog.getFeatureFlag('${flagKey ?? ''}') === 'example-variant') {
-// do something
+    // Do something
 }`}
         </CodeSnippet>
     )

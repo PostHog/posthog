@@ -1,4 +1,4 @@
-import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -9,6 +9,12 @@ import { featureLogic } from './featureLogic'
 import { Field as KeaField, Form } from 'kea-forms'
 import { Radio } from 'antd'
 import { slugify } from 'lib/utils'
+import { CodeInstructions } from 'scenes/feature-flags/FeatureFlagInstructions'
+import { FeatureType, NewFeatureType } from '~/types'
+import { InstructionOption, OPTIONS } from 'scenes/feature-flags/FeatureFlagCodeOptions'
+import { LemonFileInput, useUploadFiles } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { useRef } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const scene: SceneExport = {
     component: Feature,
@@ -18,12 +24,34 @@ export const scene: SceneExport = {
     }),
 }
 
+export function FeatureInstructions({ feature }: { feature: FeatureType | NewFeatureType }): JSX.Element {
+    return (
+        <CodeInstructions
+            headerPrompt="Learn how to gate features"
+            featureFlagKey={'feature_flag_key' in feature ? feature.feature_flag_key : feature.feature_flag.key}
+            options={[OPTIONS.find((option) => option.value == 'JavaScript') as InstructionOption]}
+        />
+    )
+}
+
 export function Feature(): JSX.Element {
     const { feature, featureLoading, isFeatureSubmitting, mode } = useValues(featureLogic)
-    const { submitFeatureRequest, cancel, setFeatureValue } = useActions(featureLogic)
+    const { submitFeatureRequest, cancel, setFeatureValue, setFeatureManualErrors } = useActions(featureLogic)
+    const { objectStorageAvailable } = useValues(preflightLogic)
+
+    const imageDropTargetRef = useRef<HTMLDivElement>(null)
+
+    const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
+        onUpload: (url) => {
+            setFeatureValue('image_url', url)
+        },
+        onError: (detail) => {
+            setFeatureManualErrors({ image_url: `Failed to upload image: ${detail}` })
+        },
+    })
 
     return (
-        <Form formKey="feature" logic={featureLogic} className="space-y-4">
+        <Form formKey="feature" logic={featureLogic}>
             <PageHeader
                 title={
                     !featureLoading ? (
@@ -79,38 +107,79 @@ export function Feature(): JSX.Element {
                 }
                 delimited
             />
-
-            <Field name="feature_flag_key" label="Flag key">
-                <LemonInput
-                    data-attr="feature-key"
-                    className="ph-ignore-input"
-                    autoComplete="off"
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    placeholder="Reserve a feature flag key"
-                />
-            </Field>
-            <Field name="description" label="Description">
-                <LemonTextArea className="ph-ignore-input" placeholder="Help your users understand the feature" />
-            </Field>
-            <Field name="image_url" label="Image URL" showOptional>
-                <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-            </Field>
-
-            <Field name="documentation_url" label="Documentation URL" showOptional>
-                <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-            </Field>
-            <Field name="stage" label="Stage">
+            <div className="flex gap-4">
+                <div className="flex flex-col flex-1 min-w-40 gap-4">
+                    <Field name="feature_flag_key" label="Feature key">
+                        <LemonInput
+                            data-attr="feature-key"
+                            className="ph-ignore-input"
+                            autoComplete="off"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            placeholder="Inferred from feature name by default"
+                        />
+                    </Field>
+                    <Field name="description" label="Description" showOptional>
+                        <LemonTextArea
+                            className="ph-ignore-input"
+                            placeholder="Help your users understand the feature"
+                        />
+                    </Field>
+                    <Field name="documentation_url" label="Documentation URL" showOptional>
+                        <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+                    </Field>
+                    <Field name="image_url" label="Image URL" showOptional>
+                        {({ value, onChange }) => {
+                            let isUrlValid = true
+                            try {
+                                new URL(value)
+                            } catch {
+                                isUrlValid = false
+                            }
+                            return (
+                                <div className="flex flex-col gap-2" ref={imageDropTargetRef}>
+                                    <LemonInput
+                                        autoComplete="off"
+                                        autoCapitalize="off"
+                                        autoCorrect="off"
+                                        spellCheck={false}
+                                        value={value}
+                                        onChange={onChange}
+                                    />
+                                    {isUrlValid && <img src={value} className="rounded max-w-full" />}
+                                    {objectStorageAvailable && (
+                                        <LemonFileInput
+                                            accept="image/*"
+                                            multiple={false}
+                                            alternativeDropTargetRef={imageDropTargetRef}
+                                            onChange={setFilesToUpload}
+                                            loading={uploading}
+                                            value={filesToUpload}
+                                        />
+                                    )}
+                                </div>
+                            )
+                        }}
+                    </Field>
+                </div>
+                {feature.stage !== 'general-availability' && (
+                    <div className="w-1/2 max-w-160">
+                        <FeatureInstructions feature={feature} />
+                    </div>
+                )}
+            </div>
+            <LemonDivider className="my-4" />
+            <KeaField name="stage" label={<h3 className="text-xl font-semibold my-4">Stage</h3>}>
                 {({ value, onChange }) => (
                     <Radio.Group optionType="default" value={value} onChange={(e) => onChange(e.target.value)}>
                         <Radio value="concept">Concept</Radio>
-                        {/* TODO: <Radio value="alpha">Alpha</Radio> */}
+                        <Radio value="alpha">Alpha</Radio>
                         <Radio value="beta">Beta</Radio>
                         <Radio value="general-availability">General availability</Radio>
                     </Radio.Group>
                 )}
-            </Field>
+            </KeaField>
         </Form>
     )
 }
