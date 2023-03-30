@@ -7,10 +7,13 @@ import {
 import { Form, Group } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
+import { IconDelete, IconPlus } from 'lib/lemon-ui/icons'
 
 export interface DataBeachTableFormProps {
+    title: string
+    isOpen: boolean
     dataBeachTable: DataBeachTableType | null
     onCancel: () => void
     onSave: (dataBeachTable: DataBeachTableType) => void
@@ -35,63 +38,74 @@ export function DataBeachTableForm(props: DataBeachTableFormProps): JSX.Element 
     const { setDataBeachTableValue } = useActions(logic)
 
     return (
-        <Form
-            logic={dataBeachTableFormLogic}
-            props={logicProps}
-            formKey="dataBeachTable"
-            className="space-y-4"
-            enableFormOnSubmit // makes the HTML "submit" button work directly
+        <LemonModal
+            title={props.title}
+            isOpen={props.isOpen}
+            onClose={props.onCancel}
+            width={560}
+            footer={
+                <div className="flex-1 flex items-center justify-end">
+                    <div className="flex items-center gap-2">
+                        {props.onCancel ? (
+                            <LemonButton onClick={props.onCancel} htmlType="button" type="secondary">
+                                Cancel
+                            </LemonButton>
+                        ) : null}
+                        <LemonButton loading={isDataBeachTableSubmitting} htmlType="submit" type="primary">
+                            Save changes
+                        </LemonButton>
+                    </div>
+                </div>
+            }
         >
-            <Field name="name" label="Table name">
-                <LemonInput placeholder="The name of the table you'll use in your SQL queries" />
-            </Field>
-            <Field name="engine" label="Table engine">
-                <LemonSelect options={[{ value: 'appendable', label: 'Appendable table (default)' }]} />
-            </Field>
-            <div>
-                <LemonLabel className="mb-2">Fields</LemonLabel>
-                <table>
-                    <tbody>
-                        {fields.map((_, index) => (
-                            <tr key={index}>
-                                <Group name={['fields', index]}>
-                                    <td>
-                                        <Field name="name">
-                                            <LemonInput placeholder="Field name" />
-                                        </Field>
-                                    </td>
-                                    <td>
-                                        <Field name="type">
-                                            <LemonSelect options={fieldTypes} />
-                                        </Field>
-                                    </td>
-                                    <td>
-                                        <LemonButton
-                                            onClick={() => {
-                                                const newFields = fields.filter((_, i) => i !== index)
-                                                setDataBeachTableValue('fields', newFields)
-                                            }}
-                                        >
-                                            Delete
-                                        </LemonButton>
-                                    </td>
-                                </Group>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-                <LemonButton onClick={() => setDataBeachTableValue('fields', [...fields, EMPTY_DATA_BEACH_FIELD])}>
-                    Add new Field
-                </LemonButton>
-            </div>
-            <LemonButton loading={isDataBeachTableSubmitting} htmlType="submit" type="primary">
-                Save changes
-            </LemonButton>
-            {props.onCancel ? (
-                <LemonButton onClick={props.onCancel} htmlType="button" type="secondary">
-                    Cancel
-                </LemonButton>
-            ) : null}
-        </Form>
+            <Form
+                logic={dataBeachTableFormLogic}
+                props={logicProps}
+                formKey="dataBeachTable"
+                className="space-y-4"
+                enableFormOnSubmit // makes the HTML "submit" button work directly
+            >
+                <Field name="name" label="Table name">
+                    <LemonInput placeholder="The name of the table you'll use in your SQL queries" />
+                </Field>
+                <Field name="engine" label="Table engine">
+                    <LemonSelect options={[{ value: 'appendable', label: 'Appendable table (default)' }]} />
+                </Field>
+                <div>
+                    <LemonLabel className="mb-2">Fields</LemonLabel>
+                    {fields.map((_, index) => (
+                        <div key={index} className="w-full flex gap-2 mb-2">
+                            <Group name={['fields', index]}>
+                                <Field name="name">
+                                    <LemonInput placeholder="Field name" className="w-60" />
+                                </Field>
+                                <Field name="type">
+                                    <LemonSelect options={fieldTypes} />
+                                </Field>
+                                <div className="flex flex-1 justify-end">
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={() => {
+                                            const newFields = fields.filter((_, i) => i !== index)
+                                            setDataBeachTableValue('fields', newFields)
+                                        }}
+                                        icon={<IconDelete />}
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                </div>
+                            </Group>
+                        </div>
+                    ))}
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => setDataBeachTableValue('fields', [...fields, EMPTY_DATA_BEACH_FIELD])}
+                        icon={<IconPlus />}
+                    >
+                        Add Field
+                    </LemonButton>
+                </div>
+            </Form>
+        </LemonModal>
     )
 }

@@ -3,7 +3,7 @@ import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-managemen
 import { SceneExport } from 'scenes/sceneTypes'
 import { databaseSceneLogic } from './databaseSceneLogic'
 import { useActions, useValues } from 'kea'
-import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { DataBeachTableForm } from './DataBeachTableForm'
 import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 
@@ -59,25 +59,20 @@ export function DatabaseScene(): JSX.Element {
                 </div>
             </div>
             <DatabaseTables />
-            <LemonModal
+            <DataBeachTableForm
                 title={editingDataBeachTable === 'new' ? 'Add new DataBeach table' : 'Edit DataBeach table'}
                 isOpen={!!editingDataBeachTable}
-                onClose={hideEditDataBeachTable}
-                width={560}
-            >
-                <DataBeachTableForm
-                    dataBeachTable={editingDataBeachTableObject ?? null}
-                    onCancel={hideEditDataBeachTable}
-                    onSave={(table) => {
-                        if (editingDataBeachTable === 'new') {
-                            appendDataBeachTable(table)
-                        } else {
-                            updateDataBeachTable(table)
-                        }
-                        hideEditDataBeachTable()
-                    }}
-                />
-            </LemonModal>
+                dataBeachTable={editingDataBeachTableObject ?? null}
+                onCancel={hideEditDataBeachTable}
+                onSave={(table) => {
+                    if (editingDataBeachTable === 'new') {
+                        appendDataBeachTable(table)
+                    } else {
+                        updateDataBeachTable(table)
+                    }
+                    hideEditDataBeachTable()
+                }}
+            />
         </div>
     )
 }
