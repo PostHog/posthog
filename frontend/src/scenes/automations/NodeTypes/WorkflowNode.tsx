@@ -38,8 +38,11 @@ const renderBodyForStep = (step: AnyAutomationStep): React.ReactNode => {
 const WorkflowNode = ({ id, data }: NodeProps<AnyAutomationStep>): JSX.Element => {
     const { activeStepId } = useValues(automationStepConfigLogic)
     const { setActiveStepId } = useActions(automationStepConfigLogic)
+
+    const isActive = activeStepId && activeStepId === id
+
     const onClick = () => {
-        if (activeStepId && activeStepId === id) {
+        if (isActive) {
             setActiveStepId(null)
         } else {
             setActiveStepId(id)
@@ -47,7 +50,13 @@ const WorkflowNode = ({ id, data }: NodeProps<AnyAutomationStep>): JSX.Element =
     }
 
     return (
-        <div onClick={onClick} className="bg-white p-3 w-60 cursor-pointer" title="click to add a child node">
+        <div
+            onClick={onClick}
+            title="click to add a child node"
+            className={`bg-white pt-4 pb-5 px-5 w-60 cursor-pointer rounded-sm border ${
+                isActive ? 'border-primary' : 'border-white'
+            }`}
+        >
             <div className="font-medium border-b border-primary-highlight pb-1 mb-2">
                 <span className="mr-1 text-primary-light">{kindToConfig[data.kind].icon}</span>
                 <span>{kindToConfig[data.kind].label}</span>
