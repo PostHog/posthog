@@ -5,6 +5,7 @@ import {
     AutomationEventSourceStep,
     AutomationStepKind,
     AutomationWebhookDestinationStep,
+    AutomationSlackDestinationStep,
 } from './schema'
 import { uuid } from 'lib/utils'
 
@@ -200,4 +201,10 @@ export function isAutomationWebhookDestinationStep(
     node?: AnyAutomationStep | null
 ): node is AutomationWebhookDestinationStep {
     return node?.kind === AutomationStepKind.WebhookDestination
+}
+
+export function isAutomationSlackDestinationStep(
+    node?: AnyAutomationStep | null
+): node is AutomationSlackDestinationStep {
+    return node?.kind === AutomationStepKind.SlackDestination
 }

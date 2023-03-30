@@ -5,7 +5,11 @@ import './NodeTypes.scss'
 import { AnyAutomationStep } from '../schema'
 import { automationStepConfigLogic, kindToConfig } from '../AutomationStepSidebar/automationStepConfigLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { isAutomationEventSourceStep, isAutomationWebhookDestinationStep } from '../utils'
+import {
+    isAutomationEventSourceStep,
+    isAutomationSlackDestinationStep,
+    isAutomationWebhookDestinationStep,
+} from '../utils'
 import { useActions, useValues } from 'kea'
 
 const renderBodyForStep = (step: AnyAutomationStep): React.ReactNode => {
@@ -29,7 +33,25 @@ const renderBodyForStep = (step: AnyAutomationStep): React.ReactNode => {
             </div>
         )
     } else if (isAutomationWebhookDestinationStep(step)) {
-        return 'webhook'
+        if (!step.data || !step.url) {
+            return <span className="italic">Not setup.</span>
+        }
+
+        return (
+            <div className="overflow-hidden  whitespace-nowrap	">
+                Sent to <span className="bg-primary-highlight rounded-sm p-1 text-clip truncate">{step.url}</span>.
+            </div>
+        )
+    } else if (isAutomationSlackDestinationStep(step)) {
+        if (!step.data || !step.channel) {
+            return <span className="italic">Not setup.</span>
+        }
+
+        return (
+            <div>
+                Sent to <span className="bg-primary-highlight rounded-sm p-1">{step.channel}</span>.
+            </div>
+        )
     }
 
     return 'other node'
