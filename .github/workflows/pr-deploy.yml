@@ -69,19 +69,6 @@ jobs:
                   envsubst < posthog/.github/pr-deploy/tailscale.yaml.tmpl > posthog/.github/pr-deploy/tailscale.yaml
                   envsubst < posthog/.github/pr-deploy/values.yaml.tmpl > posthog/.github/pr-deploy/values.yaml
 
-                  ls -lah
-                  cat posthog/.github/pr-deploy/values.yaml
-
-                  echo helm upgrade --install \
-                  -f posthog/.github/pr-deploy/values.yaml \
-                  --set image.tag=pr-$PR_NUM \
-                  --timeout 30m \
-                  --create-namespace \
-                  --namespace $NAMESPACE \
-                  $RELEASE_NAME charts-clickhouse/charts/posthog \
-                  --wait \
-                  --wait-for-jobs
-
                   helm upgrade --install \
                   -f posthog/.github/pr-deploy/values.yaml \
                   --set image.tag=pr-$PR_NUM \
