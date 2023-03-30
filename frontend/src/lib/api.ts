@@ -262,6 +262,13 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_beach_tables').addPathComponent(dataBeachTableId)
     }
 
+    public dataBeachTableInsert(dataBeachTableId: number, teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('data_beach_tables')
+            .addPathComponent(dataBeachTableId)
+            .addPathComponent('insert_data')
+    }
+
     // # Cohorts
     public cohorts(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('cohorts')
@@ -848,6 +855,10 @@ const api = {
 
         async delete(dataBeachTableId: number): Promise<void> {
             await new ApiRequest().dataBeachTableDetail(dataBeachTableId).delete()
+        },
+
+        async insert(dataBeachTableId: number, rows: Record<string, any>[]): Promise<DataBeachTableType> {
+            return await new ApiRequest().dataBeachTableInsert(dataBeachTableId).create({ data: rows })
         },
     },
 

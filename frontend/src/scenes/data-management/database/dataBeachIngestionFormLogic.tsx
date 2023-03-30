@@ -3,6 +3,8 @@ import { forms } from 'kea-forms'
 import { DataBeachTableType } from '~/types'
 
 import type { dataBeachIngestionFormLogicType } from './dataBeachIngestionFormLogicType'
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export interface DataBeachIngestionFormLogicProps {
     dataBeachTable: DataBeachTableType | null
@@ -18,12 +20,21 @@ export const dataBeachIngestionFormLogic = kea<dataBeachIngestionFormLogicType>(
     props({} as DataBeachIngestionFormLogicProps),
     key((props) => props.dataBeachTable?.id ?? 'disabled'),
 
-    forms(() => ({
+    forms(({ props }) => ({
         ingestionForm: {
             defaults: { rows: [{}] } as IngestionForm,
             submit: async (ingestionForm) => {
+                if (!props.dataBeachTable?.id) {
+                    return
+                }
                 const { rows } = ingestionForm
-                console.log({ rows })
+                try {
+                    await api.dataBeachTables.insert(props.dataBeachTable.id, rows)
+                    lemonToast.success(`${rows.length} row${rows.length === 1 ? '' : 's'} inserted`)
+                    props.onClose?.()
+                } catch (error: any) {
+                    lemonToast.error(String(error?.detail ?? error?.message ?? error?.status ?? error))
+                }
             },
         },
     })),

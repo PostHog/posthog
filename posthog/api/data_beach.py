@@ -1,11 +1,15 @@
+import json
 from typing import Any, Dict
 
 from rest_framework import authentication, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication
+from posthog.clickhouse.client import sync_execute
 from posthog.models import DataBeachTable, DataBeachField
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -87,3 +91,21 @@ class DataBeachTableViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         return queryset.filter(team_id=self.team_id).prefetch_related("fields")
+
+    @action(methods=["POST"], detail=True)
+    def insert_data(self, request, **kwargs):
+        data_beach_table = self.get_object()
+
+        for row in request.data:
+            sync_execute(
+                """
+                INSERT INTO data_beach_appendable (
+                    team_id,
+                    table_name,
+                    id,
+                    data
+                ) VALUES
+            """,
+                [(self.team_id, data_beach_table.name, "", json.dumps(row))],
+            )
+        return Response({"success": True})
