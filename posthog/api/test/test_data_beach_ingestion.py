@@ -349,24 +349,24 @@ def test_import_from_airbyte_s3_destination(client: Client):
     }
 
     # TODO: check the results
-    # # Check that the data is in ClickHouse
-    # results = sync_execute(
-    #     f"""
-    #         SELECT team_id, table_name, id, data
-    #         FROM data_beach_appendable
-    #         WHERE id = '{id}'
-    #         AND table_name = 'stripe_customers'
-    #     """
-    # )
+    # Check that the data is in ClickHouse
+    results = sync_execute(
+        f"""
+            SELECT team_id, table_name, id, data
+            FROM data_beach_appendable
+            WHERE id = '{id}'
+            AND table_name = 'stripe_customers'
+        """
+    )
 
-    # assert results == [
-    #     (
-    #         team.pk,
-    #         "stripe_customers",
-    #         id,
-    #         '{"account_balance": 1000, "email": "tim@posthog.com", "name": "Tim"}',
-    #     )
-    # ]
+    assert results == [
+        (
+            team.pk,
+            "stripe_customers",
+            str(id),
+            f'{{"_airbyte_ab_id": "{id}", "_airbyte_emitted_at": "1970-01-01T00:00:00.123000+00:00", "account_balance": 1000, "email": "tim@posthog.com", "name": "Tim"}}',
+        )
+    ]
 
     # Check we can run it again and it doesn't duplicate the data
     response = trigger_import_from_airbyte_s3_destination(
