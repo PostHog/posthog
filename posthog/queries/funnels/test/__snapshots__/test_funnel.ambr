@@ -286,8 +286,8 @@
                           WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
                        WHERE team_id = 2
                          AND event IN ['$autocapture', 'user signed up', '$autocapture', '$autocapture']
-                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2023-03-23 00:00:00', 'UTC')
-                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-03-30 23:59:59', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2023-03-24 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-03-31 23:59:59', 'UTC')
                          AND notEmpty(e.person_id)
                          AND (step_0 = 1
                               OR step_1 = 1
