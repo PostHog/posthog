@@ -10,29 +10,29 @@ export enum AutomationStepCategory {
 export enum AutomationStepKind {
     // Sources
     EventSource = 'EventSource',
-    ActionSource = 'ActionSource',
-    CronJobSource = 'CronJobSource',
+    // ActionSource = 'ActionSource',
+    // CronJobSource = 'CronJobSource',
 
     // Business Logic
     // e.g. Delay, Branch
-    PauseForLogic = 'PauseForLogic',
-    PauseUntilLogic = 'PauseUntilLogic',
+    // PauseForLogic = 'PauseForLogic',
+    // PauseUntilLogic = 'PauseUntilLogic',
 
     // Destinations
-    GithubIssueDestination = 'GithubIssueDestination',
-    UserPropertyDestination = 'UserPropertyDestination',
-    CohortDestination = 'CohortDestination',
-    FeatureFlagDestination = 'FeatureFlagDestination',
+    // GithubIssueDestination = 'GithubIssueDestination',
+    // UserPropertyDestination = 'UserPropertyDestination',
+    // CohortDestination = 'CohortDestination',
+    // FeatureFlagDestination = 'FeatureFlagDestination',
     SlackDestination = 'SlackDestination',
-    ZapierDestination = 'ZapierDestination',
-    EmailDestination = 'EmailDestination',
-    InAppMessageDestination = 'InAppMessageDestination',
+    // ZapierDestination = 'ZapierDestination',
+    // EmailDestination = 'EmailDestination',
+    // InAppMessageDestination = 'InAppMessageDestination',
     WebhookDestination = 'WebhookDestination',
 }
 
 export type AutomationStep = {
     id: string
-    data: JsonType
+    data?: JsonType
 }
 
 export type AutomationGenericStep = AutomationStep & {

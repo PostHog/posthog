@@ -3,52 +3,49 @@ import { useActions, useValues } from 'kea'
 import { automationLogic } from '../automationLogic'
 import './AutomationStepConfig.scss'
 import { automationStepConfigLogic, kindToConfig } from './automationStepConfigLogic'
-import { AutomationStepCategory, AutomationStepKind } from '../schema'
+import { AnyAutomationStep, AutomationStepCategory, AutomationStepKind } from '../schema'
 import { automationStepMenuLogic } from './automationStepMenuLogic'
 import { AutomationStepSidebar } from './AutomationStepSidebar'
 import { uuid } from 'lib/utils'
 
-type AutomationStepMenuOption = {
-    kind: AutomationStepKind
-    category: AutomationStepCategory
-}
+type AnyAutomationStepWithCategory = AnyAutomationStep & { category: AutomationStepCategory }
 
-const stepOptions: AutomationStepMenuOption[] = [
+const stepOptions: AnyAutomationStepWithCategory[] = [
     {
         kind: AutomationStepKind.EventSource,
-        // id: 'new',
         category: AutomationStepCategory.Source,
-        // filters: [],
+        id: 'new',
+        filters: [],
     },
-    { kind: AutomationStepKind.ActionSource, category: AutomationStepCategory.Source },
-    { kind: AutomationStepKind.CronJobSource, category: AutomationStepCategory.Source },
-    { kind: AutomationStepKind.PauseForLogic, category: AutomationStepCategory.Logic },
-    { kind: AutomationStepKind.PauseUntilLogic, category: AutomationStepCategory.Logic },
-    {
-        kind: AutomationStepKind.GithubIssueDestination,
-        category: AutomationStepCategory.Destination,
-    },
-    {
-        kind: AutomationStepKind.UserPropertyDestination,
-        category: AutomationStepCategory.Destination,
-    },
-    { kind: AutomationStepKind.CohortDestination, category: AutomationStepCategory.Destination },
-    {
-        kind: AutomationStepKind.FeatureFlagDestination,
-        category: AutomationStepCategory.Destination,
-    },
+    // { kind: AutomationStepKind.ActionSource, category: AutomationStepCategory.Source },
+    // { kind: AutomationStepKind.CronJobSource, category: AutomationStepCategory.Source },
+    // { kind: AutomationStepKind.PauseForLogic, category: AutomationStepCategory.Logic },
+    // { kind: AutomationStepKind.PauseUntilLogic, category: AutomationStepCategory.Logic },
+    // {
+    //     kind: AutomationStepKind.GithubIssueDestination,
+    //     category: AutomationStepCategory.Destination,
+    // },
+    // {
+    //     kind: AutomationStepKind.UserPropertyDestination,
+    //     category: AutomationStepCategory.Destination,
+    // },
+    // { kind: AutomationStepKind.CohortDestination, category: AutomationStepCategory.Destination },
+    // {
+    //     kind: AutomationStepKind.FeatureFlagDestination,
+    //     category: AutomationStepCategory.Destination,
+    // },
     {
         kind: AutomationStepKind.WebhookDestination,
-        // id: 'new',
         category: AutomationStepCategory.Destination,
+        id: 'new',
     },
-    { kind: AutomationStepKind.SlackDestination, category: AutomationStepCategory.Destination },
-    { kind: AutomationStepKind.ZapierDestination, category: AutomationStepCategory.Destination },
-    { kind: AutomationStepKind.EmailDestination, category: AutomationStepCategory.Destination },
-    {
-        kind: AutomationStepKind.InAppMessageDestination,
-        category: AutomationStepCategory.Destination,
-    },
+    { kind: AutomationStepKind.SlackDestination, category: AutomationStepCategory.Destination, id: 'new' },
+    // { kind: AutomationStepKind.ZapierDestination, category: AutomationStepCategory.Destination },
+    // { kind: AutomationStepKind.EmailDestination, category: AutomationStepCategory.Destination },
+    // {
+    //     kind: AutomationStepKind.InAppMessageDestination,
+    //     category: AutomationStepCategory.Destination,
+    // },
 ]
 
 type AutomationStepMenuProps = {
