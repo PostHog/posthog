@@ -1,7 +1,6 @@
 import './Automation.scss'
 import ReactFlow, { Background, ProOptions, ReactFlowProvider } from 'reactflow'
 
-import useLayout from './hooks/useLayout'
 import nodeTypes from './NodeTypes'
 import edgeTypes from './EdgeTypes'
 
@@ -33,8 +32,6 @@ function ReactFlowPro(): JSX.Element {
     const { closeMenu } = useActions(automationStepMenuLogic)
     const { activeStepId } = useValues(automationStepConfigLogic)
     const { setActiveStepId } = useActions(automationStepConfigLogic)
-
-    useLayout()
 
     console.debug('flowSteps: ', flowSteps)
     console.debug('flowEdges: ', flowEdges)
