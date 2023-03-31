@@ -55,7 +55,16 @@ export type AutomationWebhookDestinationStep = AutomationStep & {
     payload: JsonType
 }
 
-export type AnyAutomationStep = AutomationEventSourceStep | AutomationWebhookDestinationStep | AutomationGenericStep
+export type AutomationSlackDestinationStep = AutomationStep & {
+    kind: AutomationStepKind.SlackDestination
+    channel: string
+}
+
+export type AnyAutomationStep =
+    | AutomationEventSourceStep
+    | AutomationWebhookDestinationStep
+    | AutomationGenericStep
+    | AutomationSlackDestinationStep
 
 export type AutomationEdge = {
     id: string

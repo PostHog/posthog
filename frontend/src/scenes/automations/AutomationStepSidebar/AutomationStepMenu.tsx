@@ -3,17 +3,22 @@ import { useActions, useValues } from 'kea'
 import { automationLogic } from '../automationLogic'
 import './AutomationStepConfig.scss'
 import { automationStepConfigLogic, kindToConfig } from './automationStepConfigLogic'
-import { AnyAutomationStep, AutomationStepCategory, AutomationStepKind } from '../schema'
+import { AutomationStepCategory, AutomationStepKind } from '../schema'
 import { automationStepMenuLogic } from './automationStepMenuLogic'
 import { AutomationStepSidebar } from './AutomationStepSidebar'
 import { uuid } from 'lib/utils'
 
-const stepOptions: AnyAutomationStep[] = [
+type AutomationStepMenuOption = {
+    kind: AutomationStepKind
+    category: AutomationStepCategory
+}
+
+const stepOptions: AutomationStepMenuOption[] = [
     {
         kind: AutomationStepKind.EventSource,
-        id: 'new',
+        // id: 'new',
         category: AutomationStepCategory.Source,
-        filters: [],
+        // filters: [],
     },
     { kind: AutomationStepKind.ActionSource, category: AutomationStepCategory.Source },
     { kind: AutomationStepKind.CronJobSource, category: AutomationStepCategory.Source },
@@ -32,7 +37,11 @@ const stepOptions: AnyAutomationStep[] = [
         kind: AutomationStepKind.FeatureFlagDestination,
         category: AutomationStepCategory.Destination,
     },
-    { kind: AutomationStepKind.WebhookDestination, id: 'new', category: AutomationStepCategory.Destination },
+    {
+        kind: AutomationStepKind.WebhookDestination,
+        // id: 'new',
+        category: AutomationStepCategory.Destination,
+    },
     { kind: AutomationStepKind.SlackDestination, category: AutomationStepCategory.Destination },
     { kind: AutomationStepKind.ZapierDestination, category: AutomationStepCategory.Destination },
     { kind: AutomationStepKind.EmailDestination, category: AutomationStepCategory.Destination },
@@ -42,7 +51,11 @@ const stepOptions: AnyAutomationStep[] = [
     },
 ]
 
-export function AutomationStepMenu({ isOpen }): JSX.Element {
+type AutomationStepMenuProps = {
+    isOpen: boolean
+}
+
+export function AutomationStepMenu({ isOpen }: AutomationStepMenuProps): JSX.Element | null {
     const { closeMenu } = useActions(automationStepMenuLogic)
     const { setActiveStepId } = useActions(automationStepConfigLogic)
     const { addStep } = useActions(automationLogic)
@@ -61,8 +74,8 @@ export function AutomationStepMenu({ isOpen }): JSX.Element {
                     <h3>{category}</h3>
                     <div className="StepChooser mb-4">
                         {Object.values(stepOptions)
-                            .filter((option: AnyAutomationStep) => option.category === category)
-                            .map((option: AnyAutomationStep, key: number) => (
+                            .filter((option) => option.category === category)
+                            .map((option, key: number) => (
                                 <LemonButton
                                     type="secondary"
                                     icon={kindToConfig[option.kind].icon}

@@ -7,7 +7,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
-import { Automation, AutomationEdge } from './schema'
+import { AnyAutomationStep, Automation, AutomationEdge } from './schema'
 
 import type { automationLogicType } from './automationLogicType'
 import { teamLogic } from 'scenes/teamLogic'
@@ -38,7 +38,7 @@ export const automationLogic = kea<automationLogicType>([
 
     actions({
         createAutomation: true,
-        addStep: (step: Node) => ({ step }),
+        addStep: (step: AnyAutomationStep) => ({ step }),
         setEditAutomation: (editing: boolean) => ({ editing }),
     }),
     reducers({
@@ -134,8 +134,8 @@ export const automationLogic = kea<automationLogicType>([
     })),
     listeners(({ actions, values }) => ({
         addStep: ({ step }) => {
-            const newSteps = [...values.steps, step]
-            const newEdges = []
+            const newSteps: AnyAutomationStep[] = [...values.steps, step]
+            const newEdges: AutomationEdge[] = []
 
             for (let index = 1; index < newSteps.length; index++) {
                 const edge: AutomationEdge = { id: uuid(), source: newSteps[index - 1].id, target: newSteps[index].id }
@@ -148,10 +148,8 @@ export const automationLogic = kea<automationLogicType>([
             })
         },
         createAutomation: async () => {
-            console.debug('listeners.createAutomation')
             let response: Automation | null = null
             const isUpdate = !!values.automationId && values.automationId !== 'new'
-            console.debug(isUpdate, values.automationId)
             try {
                 if (isUpdate) {
                     response = await api.update(

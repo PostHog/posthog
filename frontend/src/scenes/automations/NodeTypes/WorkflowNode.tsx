@@ -21,7 +21,7 @@ const renderBodyForStep = (step: AnyAutomationStep): React.ReactNode => {
         return (
             <div className="">
                 {step.filters.map((f) => (
-                    <div className="mb-1">
+                    <div className="mb-1" key={f.id}>
                         <span className="mr-1">Triggers on</span>
                         <PropertyKeyInfo
                             className="p-1 bg-primary-highlight rounded-sm"
@@ -63,7 +63,7 @@ const WorkflowNode = ({ id, data }: NodeProps<AnyAutomationStep>): JSX.Element =
 
     const isActive = activeStepId && activeStepId === id
 
-    const onClick = () => {
+    const onClick = (): void => {
         if (isActive) {
             setActiveStepId(null)
         } else {
