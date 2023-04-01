@@ -11,7 +11,6 @@ export default function PlaceholderEdge({
     targetY,
     sourcePosition,
     targetPosition,
-    style,
     markerEnd,
 }: EdgeProps): JSX.Element {
     const [edgePath] = getBezierPath({
@@ -23,5 +22,5 @@ export default function PlaceholderEdge({
         targetPosition,
     })
 
-    return <path id={id} style={style} className="placeholderPath" d={edgePath} markerEnd={markerEnd} />
+    return <path id={id} className="placeholderPath" d={edgePath} markerEnd={markerEnd} />
 }
