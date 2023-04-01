@@ -60,7 +60,7 @@ module.exports = {
         // 'alignSelf', // The align-self utilities like self-end
         // 'animation', // The animation utilities like animate-ping
         // 'appearance', // The appearance utilities like appearance-none
-        // 'aspectRatio', // The aspect-ratio utilities like aspect-square
+        'aspectRatio', // The aspect-ratio utilities like aspect-square
         // 'backdropBlur', // The backdrop-blur utilities like backdrop-blur-md
         // 'backdropBrightness', // The backdrop-brightness utilities like backdrop-brightness-100
         // 'backdropContrast', // The backdrop-contrast utilities like backdrop-contrast-100

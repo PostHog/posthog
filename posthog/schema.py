@@ -166,6 +166,7 @@ class EventType(BaseModel):
     person: Optional[Person] = None
     properties: Dict[str, Any]
     timestamp: str
+    uuid: Optional[str] = None
 
 
 class MathGroupTypeIndex1(float, Enum):

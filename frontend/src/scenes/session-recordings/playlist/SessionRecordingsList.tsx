@@ -30,6 +30,7 @@ export type SessionRecordingsListProps = {
     onCollapse?: (collapsed: boolean) => void
     empty?: React.ReactNode
     className?: string
+    embedded?: boolean // if embedded don't show border
 }
 
 export function SessionRecordingsList({
@@ -47,6 +48,7 @@ export function SessionRecordingsList({
     onPropertyClick,
     activeRecordingId,
     className,
+    embedded = false,
 }: SessionRecordingsListProps): JSX.Element {
     const { reportRecordingListVisibilityToggled } = useActions(eventUsageLogic)
 
@@ -74,7 +76,7 @@ export function SessionRecordingsList({
 
     return (
         <div
-            className={clsx('flex flex-col w-full border rounded bg-light', className, {
+            className={clsx('flex flex-col w-full bg-white', className, !embedded && 'border rounded', {
                 'border-dashed': !recordings?.length,
                 'overflow-hidden': recordings?.length,
             })}
