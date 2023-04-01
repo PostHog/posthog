@@ -25,7 +25,7 @@ const renderBodyForStep = (step: AnyAutomationStep): React.ReactNode => {
                         <span className="mr-1">Triggers on</span>
                         <PropertyKeyInfo
                             className="p-1 bg-primary-highlight rounded-sm"
-                            value={f.name}
+                            value={f.name || ''}
                             disablePopover
                         />
                     </div>

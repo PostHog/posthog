@@ -1,24 +1,5 @@
-import { uuid } from 'lib/utils'
 import { JsonType } from 'posthog-js'
 import { EventType } from '~/types'
-import { AutomationStepCategory, AutomationStepKind, AutomationWebhookDestinationStep } from '../schema'
-
-const id = uuid()
-const exampleWebhook = {
-    kind: AutomationStepKind.WebhookDestination,
-    id: id,
-    category: AutomationStepCategory.Destination,
-    url: 'https://posthog.com',
-    payload: JSON.stringify(
-        {
-            event: '{event.event}',
-            properties: '{event.properties}',
-            person_ids: '{event.person.distinct_ids}',
-        },
-        null,
-        4
-    ),
-} as AutomationWebhookDestinationStep
 
 // given a JSON payload which can contain any properties
 // replace the parts in curly brackets with the event property values if they exist

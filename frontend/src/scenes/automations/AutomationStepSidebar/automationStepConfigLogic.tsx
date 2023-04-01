@@ -1,18 +1,18 @@
-import { actions, key, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { AnyAutomationStep, AutomationStepCategory, AutomationStepConfigType, AutomationStepKind } from '../schema'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { AutomationStepCategory, AutomationStepConfigType, AutomationStepKind } from '../schema'
 
 import {
-    GithubIcon,
-    IconAction,
-    IconApps,
-    IconArticle,
-    IconCoffee,
-    IconCohort,
+    // GithubIcon,
+    // IconAction,
+    // IconApps,
+    // IconArticle,
+    // IconCoffee,
+    // IconCohort,
     IconEvent,
-    IconFlag,
-    IconMonitor,
-    IconPerson,
-    IconSchedule,
+    // IconFlag,
+    // IconMonitor,
+    // IconPerson,
+    // IconSchedule,
     IconSlack,
     IconWebhook,
 } from 'lib/lemon-ui/icons'
@@ -24,6 +24,7 @@ import { applyEventToPayloadTemplate } from './webhookDestinationUtils'
 import { EventType, JsonType } from '~/types'
 import { automationStepMenuLogic } from './automationStepMenuLogic'
 import { SlackDestinationConfig } from './automationAppConfigs/AutomationSlackConfig'
+import { Node } from 'reactflow'
 
 export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> = {
     [AutomationStepKind.EventSource]: {
@@ -31,17 +32,17 @@ export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> 
         label: 'Event sent',
         configComponent: <EventSentConfig />,
     },
-    [AutomationStepKind.CronJobSource]: {
-        icon: <IconSchedule />,
-        label: 'Cron job',
-    },
-    [AutomationStepKind.ActionSource]: { icon: <IconAction />, label: 'Action triggered' },
-    [AutomationStepKind.PauseForLogic]: { icon: <IconCoffee />, label: 'Pause for' },
-    [AutomationStepKind.PauseUntilLogic]: { icon: <IconCoffee />, label: 'Pause until' },
-    [AutomationStepKind.GithubIssueDestination]: { icon: <GithubIcon />, label: 'Create a Github ticket' },
-    [AutomationStepKind.UserPropertyDestination]: { icon: <IconPerson />, label: 'Set user property' },
-    [AutomationStepKind.CohortDestination]: { icon: <IconCohort />, label: 'Add to cohort' },
-    [AutomationStepKind.FeatureFlagDestination]: { icon: <IconFlag />, label: 'Add to feature flags' },
+    // [AutomationStepKind.CronJobSource]: {
+    //     icon: <IconSchedule />,
+    //     label: 'Cron job',
+    // },
+    // [AutomationStepKind.ActionSource]: { icon: <IconAction />, label: 'Action triggered' },
+    // [AutomationStepKind.PauseForLogic]: { icon: <IconCoffee />, label: 'Pause for' },
+    // [AutomationStepKind.PauseUntilLogic]: { icon: <IconCoffee />, label: 'Pause until' },
+    // [AutomationStepKind.GithubIssueDestination]: { icon: <GithubIcon />, label: 'Create a Github ticket' },
+    // [AutomationStepKind.UserPropertyDestination]: { icon: <IconPerson />, label: 'Set user property' },
+    // [AutomationStepKind.CohortDestination]: { icon: <IconCohort />, label: 'Add to cohort' },
+    // [AutomationStepKind.FeatureFlagDestination]: { icon: <IconFlag />, label: 'Add to feature flags' },
     [AutomationStepKind.WebhookDestination]: {
         icon: <IconWebhook />,
         label: 'Send a webhook',
@@ -52,9 +53,9 @@ export const kindToConfig: Record<AutomationStepKind, AutomationStepConfigType> 
         label: 'Send to slack',
         configComponent: <SlackDestinationConfig />,
     },
-    [AutomationStepKind.ZapierDestination]: { icon: <IconApps />, label: 'Send to Zapier' },
-    [AutomationStepKind.EmailDestination]: { icon: <IconArticle />, label: 'Send an email' },
-    [AutomationStepKind.InAppMessageDestination]: { icon: <IconMonitor />, label: 'In-app message' },
+    // [AutomationStepKind.ZapierDestination]: { icon: <IconApps />, label: 'Send to Zapier' },
+    // [AutomationStepKind.EmailDestination]: { icon: <IconArticle />, label: 'Send an email' },
+    // [AutomationStepKind.InAppMessageDestination]: { icon: <IconMonitor />, label: 'In-app message' },
 }
 
 export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
@@ -141,7 +142,6 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
     }),
     listeners(({ values, actions }) => ({
         updateActiveStep: ({ id, partialStep }) => {
-            console.debug('listeners.updateActiveStep!!')
             const newSteps = values.steps.map((s) => {
                 if (s.id === id) {
                     const newData = { ...s.data, ...partialStep.data }
@@ -150,15 +150,14 @@ export const automationStepConfigLogic = kea<automationStepConfigLogicType>([
                     return s
                 }
             })
-            console.debug('listeners.updateActiveStep', id, partialStep, newSteps)
             actions.setAutomationValue('steps', newSteps)
         },
         setActiveStepId: ({ id }) => {
             if (id !== null) {
                 actions.closeMenu()
                 if (
-                    values.activeStep.data.kind === AutomationStepKind.WebhookDestination &&
-                    values.activeStep.data.payload === undefined
+                    values.activeStep?.data.kind === AutomationStepKind.WebhookDestination &&
+                    values.activeStep?.data.payload === undefined
                 ) {
                     actions.updateActiveStep(id, {
                         payload: JSON.stringify(

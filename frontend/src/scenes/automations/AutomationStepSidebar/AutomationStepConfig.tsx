@@ -13,7 +13,7 @@ import { AutomationStepSidebar } from './AutomationStepSidebar'
 import { AutomationEventSourceStep } from '../schema'
 
 export function WebhookDestinationConfig(): JSX.Element {
-    const { activeStep, activeStepConfig, exampleEvent, previewPayload } = useValues(automationStepConfigLogic)
+    const { activeStep, exampleEvent, previewPayload } = useValues(automationStepConfigLogic)
     const { updateActiveStep, setExampleEvent } = useActions(automationStepConfigLogic)
 
     console.log('activeStep', activeStep)
@@ -76,7 +76,6 @@ export function EventSentConfig(): JSX.Element {
         <div className="mb-6">
             <div className="mb-2">
                 <LemonLabel>Event filtering</LemonLabel>
-                {/* <p className="text-sm text-muted">{variable.description}</p> */}
             </div>
             <div>
                 <ActionFilter
