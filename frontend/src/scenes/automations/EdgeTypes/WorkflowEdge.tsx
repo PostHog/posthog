@@ -1,6 +1,5 @@
 import { EdgeProps, getBezierPath } from 'reactflow'
 
-import useEdgeClick from '../hooks/useEdgeClick'
 import './EdgeTypes.scss'
 
 export default function CustomEdge({
