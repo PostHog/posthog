@@ -50,7 +50,7 @@ export const pathsLogic = kea<pathsLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters as inflightFilters', 'insight', 'insightLoading'],
+            ['filters as inflightFilters', 'insight', 'insightLoading', 'lastRefresh'],
             trendsLogic(props),
             ['aggregationTargetLabel'],
         ],
@@ -90,6 +90,7 @@ export const pathsLogic = kea<pathsLogicType>({
                         label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                         isDropOff: Boolean(path_dropoff_key),
                     }),
+                    cacheInvalidationKey: values.lastRefresh,
                 })
             }
         },

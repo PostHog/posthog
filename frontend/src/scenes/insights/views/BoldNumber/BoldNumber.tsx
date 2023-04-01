@@ -79,7 +79,7 @@ function useBoldNumberTooltip({
 }
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
-    const { insight, filters } = useValues(insightLogic)
+    const { insight, filters, lastRefresh } = useValues(insightLogic)
     const [textFitTimer, setTextFitTimer] = useState<NodeJS.Timeout | null>(null)
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
@@ -121,6 +121,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                                       openPersonsModal({
                                           url: resultSeries.persons?.url,
                                           title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
+                                          cacheInvalidationKey: lastRefresh,
                                       })
                                   }
                               }
@@ -141,7 +142,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
 }
 
 function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPersonsModal'>): JSX.Element {
-    const { insight } = useValues(insightLogic)
+    const { insight, lastRefresh } = useValues(insightLogic)
 
     const [currentPeriodSeries, previousPeriodSeries] = insight.result as TrendResult[]
 
@@ -192,6 +193,7 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                                 openPersonsModal({
                                     url: previousPeriodSeries.persons?.url,
                                     title: <PropertyKeyInfo value={previousPeriodSeries.label} disablePopover />,
+                                    cacheInvalidationKey: lastRefresh,
                                 })
                             }
                         }}

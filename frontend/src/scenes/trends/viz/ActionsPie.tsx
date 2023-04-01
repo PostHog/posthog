@@ -17,7 +17,7 @@ import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps, insight, lastRefresh } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, labelGroupType, hiddenLegendKeys, filters } = useValues(logic)
 
@@ -85,6 +85,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                                                   urls,
                                                   urlsIndex: index,
                                                   title: <PropertyKeyInfo value={label || ''} disablePopover />,
+                                                  cacheInvalidationKey: lastRefresh,
                                               })
                                           }
                                       }

@@ -33,6 +33,7 @@ export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
         value: string
     }[]
     title: React.ReactNode | ((actorLabel: string) => React.ReactNode)
+    cacheInvalidationKey?: string
 }
 
 export function PersonsModal({
@@ -42,12 +43,14 @@ export function PersonsModal({
     title,
     onAfterClose,
     inline,
+    cacheInvalidationKey,
 }: PersonsModalProps): JSX.Element {
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
     const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
 
     const logic = personsModalLogic({
         url: originalUrl,
+        cacheInvalidationKey: cacheInvalidationKey,
     })
 
     const {
