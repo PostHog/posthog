@@ -89,9 +89,13 @@ class LazyTableResolver(TraversingVisitor):
         tables_to_add: Dict[str, TableToAdd] = {}
 
         # First properties, then fields. This way we always get the smallest units to query first.
-        sorted_properties = [property for property in field_collector if isinstance(property, ast.PropertyRef)] + [
-            field for field in field_collector if not isinstance(field, ast.PropertyRef)
+        matched_properties: List[ast.PropertyRef | ast.FieldRef] = [
+            property for property in field_collector if isinstance(property, ast.PropertyRef)
         ]
+        matched_fields: List[ast.PropertyRef | ast.FieldRef] = [
+            field for field in field_collector if isinstance(field, ast.FieldRef)
+        ]
+        sorted_properties: List[ast.PropertyRef | ast.FieldRef] = matched_properties + matched_fields
 
         for field_or_property in sorted_properties:
             if isinstance(field_or_property, ast.FieldRef):
@@ -126,8 +130,6 @@ class LazyTableResolver(TraversingVisitor):
                     new_join = joins_to_add[to_table]
                     if table_ref == field.table:
                         chain = []
-                        # if isinstance(table_ref, ast.LazyJoinRef):
-                        #     chain.append(table_ref.resolve_database_table().hogql_table())
                         chain.append(field.name)
                         if property is not None:
                             chain.append(property.name)
@@ -145,8 +147,6 @@ class LazyTableResolver(TraversingVisitor):
                     new_table = tables_to_add[table_name]
                     if table_ref == field.table:
                         chain = []
-                        # if isinstance(table_ref, ast.LazyTableRef) and table_ref.resolve_database_table():
-                        #     chain.append(table_ref.resolve_database_table().hogql_table())
                         chain.append(field.name)
                         if property is not None:
                             chain.append(property.name)

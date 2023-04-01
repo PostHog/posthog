@@ -35,6 +35,7 @@ from . import (
     team,
     uploaded_media,
     user,
+    person_communication,
 )
 from .dashboards import dashboard, dashboard_templates
 
@@ -232,4 +233,11 @@ project_insights_router.register(
     sharing.SharingConfigurationViewSet,
     "project_insight_sharing",
     ["team_id", "insight_id"],
+)
+
+projects_router.register(
+    r"person_communications",
+    person_communication.PersonCommunicationViewSet,
+    "project_person_communications",
+    ["team_id"],
 )
