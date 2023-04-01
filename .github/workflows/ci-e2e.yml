@@ -142,7 +142,8 @@ jobs:
                   # If we're on master, use the latest tag, if we are a
                   # GitHub Actions pull_request event, use the pr tag.
                   tags: |
-                      type=raw,value=${{ github.ref == 'refs/heads/master' && 'latest' || 'pr-${{ github.event.number }}' }}
+                      type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+                      type=pr,enable=${{ github.event_name == 'pull_request' }}
 
             - name: Start PostHog
               run: |
