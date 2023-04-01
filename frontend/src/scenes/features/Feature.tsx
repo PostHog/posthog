@@ -1,8 +1,8 @@
-import { LemonButton, LemonDivider, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
-import { Field } from 'lib/forms/Field'
+import { Field, PureField } from 'lib/forms/Field'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { featureLogic } from './featureLogic'
@@ -15,6 +15,8 @@ import { InstructionOption, OPTIONS } from 'scenes/feature-flags/FeatureFlagCode
 import { LemonFileInput, useUploadFiles } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { SQLTable } from '~/queries/Query/SQLTable'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: Feature,
@@ -24,7 +26,7 @@ export const scene: SceneExport = {
     }),
 }
 
-export function FeatureInstructions({ feature }: { feature: FeatureType | NewFeatureType }): JSX.Element {
+function FeatureInstructions({ feature }: { feature: FeatureType | NewFeatureType }): JSX.Element {
     return (
         <CodeInstructions
             headerPrompt="Learn how to gate features"
@@ -62,6 +64,7 @@ export function Feature(): JSX.Element {
                                     value={value}
                                     onChange={(value) => {
                                         const shouldUpdateKey =
+                                            !('id' in feature) &&
                                             'feature_flag_key' in feature &&
                                             feature.feature_flag_key === slugify(feature.name)
                                         onChange(value)
@@ -109,17 +112,25 @@ export function Feature(): JSX.Element {
             />
             <div className="flex gap-4">
                 <div className="flex flex-col flex-1 min-w-40 gap-4">
-                    <Field name="feature_flag_key" label="Feature key">
-                        <LemonInput
-                            data-attr="feature-key"
-                            className="ph-ignore-input"
-                            autoComplete="off"
-                            autoCapitalize="off"
-                            autoCorrect="off"
-                            spellCheck={false}
-                            placeholder="Inferred from feature name by default"
-                        />
-                    </Field>
+                    {'feature_flag' in feature ? (
+                        <PureField label="Feature flag">
+                            <Link to={urls.featureFlag(feature.feature_flag.id)} className="font-semibold">
+                                {feature.feature_flag.key}
+                            </Link>
+                        </PureField>
+                    ) : (
+                        <Field name="feature_flag_key" label="Feature flag key">
+                            <LemonInput
+                                data-attr="feature-key"
+                                className="ph-ignore-input"
+                                autoComplete="off"
+                                autoCapitalize="off"
+                                autoCorrect="off"
+                                spellCheck={false}
+                                placeholder="Generated from feature name by default"
+                            />
+                        </Field>
+                    )}
                     <Field name="description" label="Description" showOptional>
                         <LemonTextArea
                             className="ph-ignore-input"
@@ -180,6 +191,16 @@ export function Feature(): JSX.Element {
                     </Radio.Group>
                 )}
             </KeaField>
+            {'feature_flag' in feature && feature.stage === 'beta' && (
+                <div className="mt-4">
+                    <SQLTable
+                        query={`SELECT
+                    concat(properties.name, ' (', properties.email, ')') AS Person
+                FROM persons
+                WHERE properties.$feature_enrollment/${feature.feature_flag.key}`}
+                    />
+                </div>
+            )}
         </Form>
     )
 }

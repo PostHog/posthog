@@ -135,7 +135,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.FeaturePreview]: {
         projectBased: true,
-        name: 'Feature Preview',
+        name: 'Feature Previews',
     },
     [Scene.Features]: {
         projectBased: true,
