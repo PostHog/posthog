@@ -143,7 +143,7 @@ jobs:
                   # GitHub Actions pull_request event, use the pr tag.
                   tags: |
                       type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
-                      type=pr,enable=${{ github.event_name == 'pull_request' }}
+                      type=ref,event=pr,enable=${{ github.event_name == 'pull_request' }}
 
             - name: Start PostHog
               run: |
