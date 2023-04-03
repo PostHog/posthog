@@ -33,7 +33,8 @@
             "type": "AND",
             "values": []
         },
-        "funnel_viz_type": "steps"
+        "funnel_viz_type": "steps",
+        "sampling_factor": 0.1
     },
     "filters_hash": "cache_85ca8909ab22e34f387fa4f17e919410",
     "order": null,

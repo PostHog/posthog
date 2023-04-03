@@ -69,3 +69,27 @@ services:
         ports:
             - '1080:1080'
             - '1025:1025'
+
+    # Temporal containers
+    elasticsearch:
+        extends:
+            file: docker-compose.base.yml
+            service: elasticsearch
+        expose:
+            - 9200
+    temporal:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal
+        ports:
+            - 7233:7233
+    temporal-admin-tools:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-admin-tools
+    temporal-ui:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-ui
+        ports:
+            - 8081:8080

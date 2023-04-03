@@ -9,7 +9,6 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     BinCountValue,
-    BreakdownKeyType,
     CorrelationConfigType,
     ElementPropertyFilter,
     EntityTypes,
@@ -52,6 +51,7 @@ import {
     isValidBreakdownParameter,
     stepsWithConversionMetrics,
     flattenedStepsByBreakdown,
+    generateBaselineConversionUrl,
 } from './funnelUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -119,7 +119,7 @@ export const funnelLogic = kea<funnelLogicType>({
             groupPropertiesModel,
             ['groupProperties'],
         ],
-        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
+        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
 
@@ -169,7 +169,6 @@ export const funnelLogic = kea<funnelLogicType>({
         }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
-        toggleVisibilityByBreakdown: (breakdownValue?: BreakdownKeyType) => ({ breakdownValue }),
         toggleAdvancedMode: true,
 
         // Correlation related actions
@@ -896,16 +895,16 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         excludedPropertyNames: [
             () => [selectors.currentTeam],
-            (currentTeam) =>
+            (currentTeam): string[] =>
                 currentTeam?.correlation_config?.excluded_person_property_names || DEFAULT_EXCLUDED_PERSON_PROPERTIES,
         ],
         excludedEventNames: [
             () => [selectors.currentTeam],
-            (currentTeam) => currentTeam?.correlation_config?.excluded_event_names || [],
+            (currentTeam): string[] => currentTeam?.correlation_config?.excluded_event_names || [],
         ],
         excludedEventPropertyNames: [
             () => [selectors.currentTeam],
-            (currentTeam) => currentTeam?.correlation_config?.excluded_event_property_names || [],
+            (currentTeam): string[] => currentTeam?.correlation_config?.excluded_event_property_names || [],
         ],
         inversePropertyNames: [
             (s) => [s.filters, s.personProperties, s.groupProperties],
@@ -1035,11 +1034,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 actions.setFilters({ funnel_step_reference: stepReference }, true, true)
             }
         },
-        toggleVisibilityByBreakdown: ({ breakdownValue }) => {
-            const key = getVisibilityKey(breakdownValue)
-            const currentIsHidden = !!values.hiddenLegendKeys?.[key]
-            actions.setHiddenById({ [key]: !currentIsHidden })
-        },
         setFilters: ({ filters, mergeWithExisting }) => {
             const cleanedParams = cleanFilters(
                 mergeWithExisting
@@ -1085,7 +1079,8 @@ export const funnelLogic = kea<funnelLogicType>({
             }
 
             openPersonsModal({
-                url: converted ? step.converted_people_url : step.dropped_people_url,
+                // openPersonsModalForStep is for the baseline - for breakdown series use openPersonsModalForSeries
+                url: generateBaselineConversionUrl(converted ? step.converted_people_url : step.dropped_people_url),
                 title: funnelTitle({
                     converted,
                     // Note - when in a legend the step.order is always 0 so we use stepIndex instead

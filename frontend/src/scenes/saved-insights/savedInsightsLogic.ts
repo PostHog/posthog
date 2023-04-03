@@ -83,22 +83,21 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                     await breakpoint(300)
                 }
                 const { filters } = values
+                const includeQueryInsights = !!values.featureFlags[FEATURE_FLAGS.HOGQL]
+
                 const params = {
                     ...values.paramsFromFilters,
                     basic: true,
-                    include_query_insights: !!values.featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS],
+                    include_query_insights: includeQueryInsights,
                 }
+
                 const response = await api.get(
                     `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
-                        const include_queries = !!values.featureFlags[
-                            FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS
-                        ]
-                            ? '&include_query_insights=true'
-                            : ''
+                        const include_queries = includeQueryInsights ? '&include_query_insights=true' : ''
                         const insight: InsightModel = await api.get(
                             `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}${include_queries}`
                         )

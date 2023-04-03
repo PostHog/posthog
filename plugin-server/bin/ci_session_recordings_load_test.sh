@@ -23,7 +23,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
 # The number of sessions to generate and ingest, defaulting to 10 if not already
 # set.
-SESSONS_COUNT=${SESSONS_COUNT:-10}
+SESSIONS_COUNT=${SESSIONS_COUNT:-10}
 TOKEN=e2e_token_1239 # Created by the setup_dev management command.
 
 LOG_FILE=$(mktemp)
@@ -86,13 +86,10 @@ docker compose \
     --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP \
     --topic $SESSION_RECORDING_EVENTS_TOPIC >/dev/null 2>&1
 
-echo Creating test user
-"$DIR"/../../manage.py setup_dev >/dev/null 2>&1 || echo 'User already exists' # Assume a failure means it has already been run.
-
 # Generate the session recording events and send them to Kafka.
-echo "Generating $SESSONS_COUNT session recording events"
+echo "Generating $SESSIONS_COUNT session recording events"
 "$DIR"/generate_session_recordings_messages.py \
-    --count "$SESSONS_COUNT" \
+    --count "$SESSIONS_COUNT" \
     --token $TOKEN |
     docker compose \
         -f "$DIR"/../../docker-compose.dev.yml exec \
@@ -109,13 +106,14 @@ echo "Generating $SESSONS_COUNT session recording events"
 # will be some time between the plugin server starting and the consumer group
 # being ready to consume messages, so we want to add a sufficient number of
 # messages if we want to make this time insignificant.
-PLUGIN_SERVER_MODE=recordings-ingestion node dist/index.js >"$LOG_FILE" 2>&1 &
+echo "Starting plugin-server, logging to $LOG_FILE"
+PLUGIN_SERVER_MODE=recordings-ingestion "$DIR"/../node_modules/.bin/0x --output-dir=./profile/ dist/index.js >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
 # On exit, see if the process is still running, and if so, kill it. We also
 # print the plugin server logs in this case as we assume that we are in a
 # situation where we didn't make it to the end.
-trap 'if kill -0 $SERVER_PID; then echo "Killing plugin server"; kill $SERVER_PID; echo "::group::Plugin Server logs"; cat "$LOG_FILE"; echo "::endgroup::"; fi' EXIT
+trap 'if kill -0 $SERVER_PID; then echo "Killing plugin server"; kill %; echo "::group::Plugin Server logs"; cat "$LOG_FILE"; echo "::endgroup::"; fi' EXIT
 
 # Wait for the plugin server health check to be ready, and timeout after 10
 # seconds with exit code 1.
@@ -123,7 +121,7 @@ SECONDS=0
 
 until curl http://localhost:6738/_health; do
 
-    if ((SECONDS > 10)); then
+    if ((SECONDS > 20)); then
         echo 'Timed out waiting for plugin-server to be ready'
         echo '::endgroup::'
         echo '::group::Plugin Server logs'
@@ -177,11 +175,11 @@ fi
 # second that were ingested.
 echo "Ingestion lag dropped to zero after $SECONDS seconds"
 
-SESSIONS_PER_SECOND=$(echo "$SESSONS_COUNT $SECONDS" | awk '{printf "%.2f", $1 / $2}')
+SESSIONS_PER_SECOND=$(echo "$SESSIONS_COUNT $SECONDS" | awk '{printf "%.2f", $1 / $2}')
 echo "Sessions per second: $SESSIONS_PER_SECOND" | tee -a "$GITHUB_STEP_SUMMARY"
 
 # Kill the plugin server process and poll for up to 60 seconds for it to exit.
-kill $SERVER_PID
+kill %
 SECONDS=0
 
 while kill -0 $SERVER_PID; do

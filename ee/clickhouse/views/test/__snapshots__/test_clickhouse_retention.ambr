@@ -6,7 +6,7 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-               e.distinct_id as target
+               e.distinct_id AS target
         FROM events e
         WHERE team_id = 2
           AND e.event = 'target event'
@@ -16,7 +16,7 @@
                  event_date),
           target_event_query as
        (SELECT min(toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))) as event_date,
-               e.distinct_id as target,
+               e.distinct_id AS target,
                [
                           dateDiff(
                               'Day',

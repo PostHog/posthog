@@ -8,6 +8,7 @@ class TestVisitor(BaseTest):
     def test_visitor_pattern(self):
         class ConstantVisitor(CloningVisitor):
             def __init__(self):
+                super().__init__()
                 self.constants = []
                 self.fields = []
                 self.operations = []
@@ -79,6 +80,10 @@ class TestVisitor(BaseTest):
                                 left=ast.Field(chain=["d"]),
                                 right=ast.Field(chain=["e"]),
                             ),
+                        ),
+                        sample=ast.SampleExpr(
+                            sample_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=2)),
+                            offset_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=2)),
                         ),
                     ),
                     where=ast.Constant(value=True),

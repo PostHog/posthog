@@ -260,7 +260,6 @@ def generate_snapshot_messages(
     ip = faker.ipv4()
     site_url = faker.url()
 
-    snapshot_messages = []
     for full_snapshot_count, incremental_snapshot_count in zip(
         full_snapshot_count_samples, incremental_snapshot_count_samples
     ):
@@ -334,7 +333,8 @@ def generate_snapshot_messages(
                     "token": token,
                 }
 
-                snapshot_messages.append(message)
+                stdout.write(json.dumps(message))
+                stdout.write("\n")
 
         for incremental_snapshot_size in incremental_snapshot_size_samples[:incremental_snapshot_count]:
             incremental_snapshot_data = faker.pystr(
@@ -381,9 +381,8 @@ def generate_snapshot_messages(
                     "token": token,
                 }
 
-                snapshot_messages.append(message)
-
-    return snapshot_messages
+                stdout.write(json.dumps(message))
+                stdout.write("\n")
 
 
 def main():
@@ -402,7 +401,7 @@ def main():
 
     numpy.random.seed(args.seed_value)
 
-    snapshot_messages = generate_snapshot_messages(
+    generate_snapshot_messages(
         faker=faker,
         count=args.count,
         full_snapshot_size_mean=args.full_snapshot_size_mean,
@@ -417,10 +416,6 @@ def main():
         token=args.token,
         verbose=args.verbose,
     )
-
-    for message in snapshot_messages:
-        stdout.write(json.dumps(message))
-        stdout.write("\n")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,13 @@
 import { UUIDT } from '../src/utils/utils'
-import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from './api'
+import {
+    capture,
+    createOrganization,
+    createTeam,
+    fetchEvents,
+    fetchPersons,
+    getMetric,
+    reloadDictionaries,
+} from './api'
 import { waitForExpect } from './expectations'
 
 let organizationId: string
@@ -387,8 +395,81 @@ test.concurrent(`event ingestion: initial login flow keeps the same person_id`, 
     await waitForExpect(async () => {
         const events = await fetchEvents(teamId)
         expect(events.length).toBe(2)
+        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
         expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
     }, 10000)
+})
+
+test.concurrent(`events still ingested even if merge fails`, async () => {
+    const teamId = await createTeam(organizationId)
+    const illegalDistinctId = '0'
+    const distinctId = new UUIDT().toString()
+
+    // First we emit anoymous events and wait for the persons to be created.
+    await capture({ teamId, distinctId: illegalDistinctId, uuid: new UUIDT().toString(), event: 'custom event' })
+    await capture({ teamId, distinctId: distinctId, uuid: new UUIDT().toString(), event: 'custom event 2' })
+
+    await waitForExpect(async () => {
+        const persons = await fetchPersons(teamId)
+        expect(persons.length).toBe(2)
+    }, 10000)
+
+    await capture({
+        teamId,
+        distinctId: distinctId,
+        uuid: new UUIDT().toString(),
+        event: '$merge_dangerously',
+        properties: {
+            distinct_id: distinctId,
+            alias: illegalDistinctId,
+            $set: { prop: 'value' },
+        },
+    })
+
+    await waitForExpect(async () => {
+        const events = await fetchEvents(teamId)
+        expect(events.length).toBe(3)
+    }, 10000)
+
+    await waitForExpect(async () => {
+        const events = await fetchEvents(teamId)
+        expect(events.length).toBe(3)
+        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
+        expect(new Set(events.map((event) => event.person_id)).size).toBe(2)
+    }, 10000)
+})
+
+test.concurrent(`properties still $set even if merge fails`, async () => {
+    const teamId = await createTeam(organizationId)
+    const illegalDistinctId = '0'
+    const distinctId = new UUIDT().toString()
+
+    await capture({
+        teamId,
+        distinctId: distinctId,
+        uuid: new UUIDT().toString(),
+        event: '$merge_dangerously',
+        properties: {
+            distinct_id: distinctId,
+            alias: illegalDistinctId,
+            $set: { prop: 'value' },
+        },
+    })
+
+    const firstUuid = new UUIDT().toString()
+    await capture({ teamId, distinctId, uuid: firstUuid, event: 'custom event', properties: {} })
+    await waitForExpect(async () => {
+        const [event] = await fetchEvents(teamId, firstUuid)
+        expect(event).toEqual(
+            expect.objectContaining({
+                person_properties: expect.objectContaining({
+                    prop: 'value',
+                }),
+            })
+        )
+    })
 })
 
 const testIfPoEEmbraceJoinEnabled =
@@ -440,17 +521,16 @@ testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the
         event: '$identify',
         properties: {
             distinct_id: personIdentifier,
-            $anon_distinct_id: secondEventId,
+            $anon_distinct_id: secondDistinctId,
         },
     })
 
     await waitForExpect(async () => {
         const events = await fetchEvents(teamId)
         expect(events.length).toBe(4)
-        events.forEach((event) => {
-            expect(event?.person_id).toBeDefined()
-        })
-        // TODO: update fetchEvents to join with person overrides & assert that all personIDs are the same
+        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
+        expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
     }, 10000)
 })
 
@@ -493,13 +573,17 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
     })
 
     await waitForExpect(async () => {
+        const result = await reloadDictionaries()
+        expect(result).toBe('')
+    })
+
+    await waitForExpect(async () => {
         const events = await fetchEvents(teamId)
         expect(events.length).toBe(5)
-        events.forEach((event) => {
-            expect(event?.person_id).toBeDefined()
-        })
-        // TODO: update fetchEvents to join with person overrides & assert that all personIDs are the same
-    }, 10000)
+        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
+        expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
+    }, 20000)
 })
 
 testIfPoEEmbraceJoinEnabled(
@@ -552,25 +636,30 @@ testIfPoEEmbraceJoinEnabled(
         }, 10000)
 
         // Then we merge 2-3
-        // TODO: make this a valid merge event instead of $identify
         await capture({
             teamId,
             distinctId: initialDistinctId,
             uuid: new UUIDT().toString(),
-            event: '$identify',
+            event: '$merge_dangerously',
             properties: {
                 distinct_id: secondDistinctId,
-                $anon_distinct_id: thirdDistinctId,
+                alias: thirdDistinctId,
             },
         })
+
+        await waitForExpect(async () => {
+            const result = await reloadDictionaries()
+            // This should return 'ok' according to ClickHouse JS docs but apparently it's empty string.
+            expect(result).toBe('')
+        })
+
         await waitForExpect(async () => {
             const events = await fetchEvents(teamId)
             expect(events.length).toBe(7)
-            events.forEach((event) => {
-                expect(event?.person_id).toBeDefined()
-            })
-            // TODO: update fetchEvents to join with person overrides & assert that all personIDs are the same
-        }, 10000)
+            expect(events[0].person_id).toBeDefined()
+            expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
+            expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
+        }, 20000)
     }
 )
 

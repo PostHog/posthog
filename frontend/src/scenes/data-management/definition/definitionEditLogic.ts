@@ -25,7 +25,7 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
     props({} as DefinitionEditLogicProps),
     key((props) => props.id || 'new'),
     connect(({ id }: DefinitionEditLogicProps) => ({
-        values: [definitionLogic({ id }), ['isEvent', 'singular', 'mode', 'hasTaxonomyFeatures']],
+        values: [definitionLogic({ id }), ['isEvent', 'isProperty', 'singular', 'mode', 'hasTaxonomyFeatures']],
         actions: [
             definitionLogic({ id }),
             ['setDefinition', 'setPageMode'],

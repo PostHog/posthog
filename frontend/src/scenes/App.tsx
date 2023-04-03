@@ -10,7 +10,7 @@ import { models } from '~/models'
 import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { appScenes } from 'scenes/appScenes'
-import { Navigation } from '~/layout/navigation/Navigation'
+import { Navigation as NavigationClassic } from '~/layout/navigation/Navigation'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -21,8 +21,10 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonModal } from '@posthog/lemon-ui'
 import { Setup2FA } from './authentication/Setup2FA'
 import { membersLogic } from './organization/Settings/membersLogic'
-import { Prompt } from 'lib/logic/newPrompt/Prompt'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Navigation as Navigation3000 } from '~/layout/navigation-3000/Navigation'
+import { Prompt } from 'lib/logic/newPrompt/Prompt'
+import { useEffect } from 'react'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -70,7 +72,16 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
+
+    useEffect(() => {
+        if (featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+            document.body.classList.add('posthog-3000')
+        } else {
+            document.body.classList.remove('posthog-3000')
+        }
+    }, [featureFlags])
 
     if (showApp) {
         return (
@@ -154,6 +165,8 @@ function AppScene(): JSX.Element | null {
             </>
         ) : null
     }
+
+    const Navigation = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? Navigation3000 : NavigationClassic
 
     return (
         <>

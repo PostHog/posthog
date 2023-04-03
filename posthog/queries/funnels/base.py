@@ -25,7 +25,6 @@ from posthog.models.property.util import (
     parse_prop_grouped_clauses,
 )
 from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_cohort_name,
@@ -33,8 +32,8 @@ from posthog.queries.breakdown_props import (
 )
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.util import correct_result_for_sampling
-from posthog.utils import relative_date_parse
+from posthog.queries.util import correct_result_for_sampling, get_person_properties_mode
+from posthog.utils import PersonOnEventsMode, relative_date_parse
 
 
 class ClickhouseFunnelBase(ABC):
@@ -69,7 +68,7 @@ class ClickhouseFunnelBase(ABC):
         self._include_preceding_timestamp = include_preceding_timestamp
         self._include_properties = include_properties or []
 
-        self._filter.hogql_context.using_person_on_events = team.person_on_events_querying_enabled
+        self._filter.hogql_context.person_on_events_mode = team.person_on_events_mode
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
@@ -426,7 +425,7 @@ class ClickhouseFunnelBase(ABC):
             team=self._team,
             extra_fields=[*self._extra_event_fields, *extra_fields],
             extra_event_properties=self._extra_event_properties,
-            using_person_on_events=self._team.person_on_events_querying_enabled,
+            person_on_events_mode=self._team.person_on_events_mode,
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
@@ -542,9 +541,7 @@ class ClickhouseFunnelBase(ABC):
                 team_id=self._team.pk,
                 action=action,
                 prepend=f"{entity_name}_{step_prefix}step_{index}",
-                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-                if self._team.person_on_events_querying_enabled
-                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+                person_properties_mode=get_person_properties_mode(self._team),
                 person_id_joined_alias="person_id",
                 hogql_context=self._filter.hogql_context,
             )
@@ -566,9 +563,7 @@ class ClickhouseFunnelBase(ABC):
             team_id=self._team.pk,
             property_group=entity.property_groups,
             prepend=str(index),
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=get_person_properties_mode(self._team),
             person_id_joined_alias="person_id",
             hogql_context=self._filter.hogql_context,
         )
@@ -714,7 +709,7 @@ class ClickhouseFunnelBase(ABC):
         self.params.update({"breakdown": self._filter.breakdown})
         if self._filter.breakdown_type == "person":
 
-            if self._team.person_on_events_querying_enabled:
+            if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED:
                 basic_prop_selector = get_single_or_multi_property_string_expr(
                     self._filter.breakdown,
                     table="events",
@@ -741,7 +736,7 @@ class ClickhouseFunnelBase(ABC):
             # :TRICKY: We only support string breakdown for group properties
             assert isinstance(self._filter.breakdown, str)
 
-            if self._team.person_on_events_querying_enabled and groups_on_events_querying_enabled():
+            if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED and groups_on_events_querying_enabled():
                 properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
                 expression, _ = get_property_string_expr(
                     table="events",
@@ -850,9 +845,7 @@ class ClickhouseFunnelBase(ABC):
                 self._team,
                 extra_params={"offset": 0},
                 use_all_funnel_entities=use_all_funnel_entities,
-                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-                if self._team.person_on_events_querying_enabled
-                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+                person_properties_mode=get_person_properties_mode(self._team),
             )
 
         return None

@@ -1,14 +1,19 @@
+import uuid
+
+from django.test import override_settings
+
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person import Person
 from posthog.queries.retention import Retention
-from posthog.queries.test.test_retention import _create_events, _date, pluck
+from posthog.queries.test.test_retention import _create_event, _create_events, _date, pluck
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     also_test_with_materialized_columns,
+    create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
 
@@ -203,6 +208,140 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
                 pluck(result, "values", "count"),
                 [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
             )
+
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @snapshot_clickhouse_queries
+    def test_groups_filtering_person_on_events_v2(self):
+        self._create_groups_and_events()
+
+        person_id1 = str(uuid.uuid4())
+        person_id2 = str(uuid.uuid4())
+        person_id3 = str(uuid.uuid4())
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="person1",
+            person_id=person_id1,
+            timestamp=_date(1),
+            properties={"$group_0": "org:5"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="person2",
+            person_id=person_id2,
+            timestamp=_date(2),
+            properties={"$group_0": "org:5"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="person1",
+            person_id=person_id1,
+            timestamp=_date(3),
+            properties={"$group_0": "org:5"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="person2",
+            person_id=person_id2,
+            timestamp=_date(4),
+            properties={"$group_0": "org:5"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="person1",
+            person_id=person_id1,
+            timestamp=_date(5),
+            properties={"$group_0": "org:5"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="person2",
+            person_id=person_id2,
+            timestamp=_date(6),
+            properties={"$group_0": "org:5"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="person1",
+            person_id=person_id1,
+            timestamp=_date(7),
+            properties={"$group_0": "org:5"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="person2",
+            person_id=person_id2,
+            timestamp=_date(8),
+            properties={"$group_0": "org:5"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="person3",
+            person_id=person_id3,
+            timestamp=_date(1),
+            properties={"$group_1": "project:4"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="person3",
+            person_id=person_id3,
+            timestamp=_date(1),
+            properties={"$group_1": "project:4"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="person3",
+            person_id=person_id3,
+            timestamp=_date(1),
+            properties={"$group_1": "project:4"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="person3",
+            person_id=person_id3,
+            timestamp=_date(1),
+            properties={"$group_1": "project:4"},
+        )
+
+        create_person_id_override_by_distinct_id("person1", "person2", self.team.pk)
+
+        result = Retention().run(
+            RetentionFilter(
+                data={
+                    "date_to": _date(8),
+                    "period": "Day",
+                    "total_intervals": 7,
+                    "properties": [
+                        {
+                            "key": "industry",
+                            "value": "",
+                            "type": "group",
+                            "group_type_index": 0,
+                            "operator": "is_set",
+                        }
+                    ],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+
+        # We expect 1s across the board due to the override set up from person1 to person2, making them the same person
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [[1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1], [1, 1], [1]],
+        )
 
     @also_test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries

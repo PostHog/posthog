@@ -1306,16 +1306,16 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
-                "showEventsBufferWarning": {
-                    "description": "Show warning about live events being buffered max 60 sec (default: false)",
-                    "type": "boolean"
-                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
                 },
                 "showHogQLEditor": {
                     "description": "Include a HogQL query editor above HogQL tables",
+                    "type": "boolean"
+                },
+                "showOpenEditorButton": {
+                    "description": "Show a button to open the current query as a new insight. (default: true)",
                     "type": "boolean"
                 },
                 "showPropertyFilter": {
@@ -1359,6 +1359,21 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "DatabaseSchemaQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "DatabaseSchemaQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         },
         "DateRange": {
@@ -1533,6 +1548,9 @@
                     "type": "object"
                 },
                 "timestamp": {
+                    "type": "string"
+                },
+                "uuid": {
                     "type": "string"
                 }
             },
@@ -1808,6 +1826,7 @@
         },
         "FunnelsFilter": {
             "additionalProperties": false,
+            "description": "`FunnelsFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_breakdowns`",
             "properties": {
                 "bin_count": {
                     "$ref": "#/definitions/BinCountValue"
@@ -1889,18 +1908,11 @@
                 "funnel_window_interval_unit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
                 },
-                "hidden_legend_keys": {
-                    "additionalProperties": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "not": {}
-                            }
-                        ]
+                "hidden_legend_breakdowns": {
+                    "items": {
+                        "type": "string"
                     },
-                    "type": "object"
+                    "type": "array"
                 },
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout"
@@ -1962,6 +1974,9 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },
@@ -2092,7 +2107,7 @@
             ]
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "QUERY"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -2129,6 +2144,7 @@
         },
         "LifecycleFilter": {
             "additionalProperties": false,
+            "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "show_values_on_series": {
                     "type": "boolean"
@@ -2195,6 +2211,9 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },
@@ -2207,6 +2226,67 @@
         "LifecycleToggle": {
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
+        },
+        "NewEntityNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "event": {
+                    "type": ["string", "null"]
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "NewEntityNode",
+                    "type": "string"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/GroupMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
         },
         "PathCleaningFilter": {
             "additionalProperties": false,
@@ -2226,6 +2306,7 @@
         },
         "PathsFilter": {
             "additionalProperties": false,
+            "description": "`PathsFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "edge_limit": {
                     "type": "number"
@@ -2527,6 +2608,9 @@
                 },
                 {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaQuery"
                 }
             ]
         },
@@ -2575,6 +2659,7 @@
         },
         "RetentionFilter": {
             "additionalProperties": false,
+            "description": "`RetentionFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod"
@@ -2681,6 +2766,7 @@
         },
         "StickinessFilter": {
             "additionalProperties": false,
+            "description": "`StickinessFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
             "properties": {
                 "compare": {
                     "type": "boolean"
@@ -2688,18 +2774,11 @@
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
-                "hidden_legend_keys": {
-                    "additionalProperties": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "not": {}
-                            }
-                        ]
+                "hidden_legend_indexes": {
+                    "items": {
+                        "type": "number"
                     },
-                    "type": "object"
+                    "type": "array"
                 },
                 "show_legend": {
                     "type": "boolean"
@@ -2762,6 +2841,9 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },
@@ -2787,11 +2869,8 @@
                     "type": "string"
                 },
                 "response": {
-                    "description": "Cached query response",
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/TimeToSeeDataSessionsQueryResponse",
+                    "description": "Cached query response"
                 },
                 "teamId": {
                     "description": "Project to filter on. Defaults to current project",
@@ -2801,8 +2880,22 @@
             "required": ["kind"],
             "type": "object"
         },
+        "TimeToSeeDataSessionsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "TrendsFilter": {
             "additionalProperties": false,
+            "description": "`TrendsFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
             "properties": {
                 "aggregation_axis_format": {
                     "$ref": "#/definitions/AggregationAxisFormat"
@@ -2823,18 +2916,11 @@
                     "$ref": "#/definitions/ChartDisplayType"
                 },
                 "formula": {},
-                "hidden_legend_keys": {
-                    "additionalProperties": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "not": {}
-                            }
-                        ]
+                "hidden_legend_indexes": {
+                    "items": {
+                        "type": "number"
                     },
-                    "type": "object"
+                    "type": "array"
                 },
                 "show_legend": {
                     "type": "boolean"
@@ -2901,6 +2987,9 @@
                             },
                             {
                                 "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/NewEntityNode"
                             }
                         ]
                     },

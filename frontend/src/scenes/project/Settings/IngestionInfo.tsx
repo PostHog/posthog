@@ -6,6 +6,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
+import { AutocaptureSettings } from './AutocaptureSettings'
 
 export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Element }): JSX.Element {
     const { currentTeam, currentTeamLoading, isTeamTokenResetAvailable } = useValues(teamLogic)
@@ -33,27 +34,26 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
     return (
         <>
             <h2 id="snippet" className="subtitle">
-                Website event autocapture
+                Web snippet
             </h2>
             <p>
-                To integrate PostHog into your website and get event autocapture with no additional work, include the
-                following snippet in your&nbsp;website's&nbsp;HTML. Ideally, put it just above the&nbsp;
-                <code>{'</head>'}</code>&nbsp;tag.
+                PostHog's configurable web snippet allows you to (optionally) autocapture events, record user sessions,
+                and more with no extra work. Place the following snippet in your website's HTML, ideally just above the{' '}
+                <code>{'</head>'}</code> tag.
             </p>
-            <br />
             <p>
                 For more guidance, including on identifying users,{' '}
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
             </p>
             {currentTeamLoading && !currentTeam ? loadingComponent : <JSSnippet />}
+            <LemonDivider className="my-6" />
+            <AutocaptureSettings />
+            <LemonDivider className="my-6" />
+            <p>Need test PostHog on a live site without changing any code?</p>
             <p>
-                You can even test PostHog out on a live site without changing any code.
-                <br />
                 Just drag the bookmarklet below to your bookmarks bar, open the website you want to test PostHog on and
-                click it.
-                <br />
-                This will enable our tracking, on the currently loaded page only. The data will show up in this project.
-                <br />
+                click it. This will enable our tracking, on the currently loaded page only. The data will show up in
+                this project.
             </p>
             <div>{currentTeam && <JSBookmarklet team={currentTeam} />}</div>
             <LemonDivider className="my-6" />
