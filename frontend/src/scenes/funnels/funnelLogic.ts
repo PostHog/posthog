@@ -8,7 +8,6 @@ import type { funnelLogicType } from './funnelLogicType'
 import {
     AnyPropertyFilter,
     BinCountValue,
-    CorrelationConfigType,
     ElementPropertyFilter,
     EntityTypes,
     FilterType,
@@ -65,6 +64,7 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { appendToCorrelationConfig } from './funnelCorrelationLogic'
 
 // List of events that should be excluded, if we don't have an explicit list of
 // excluded properties. Copied from
@@ -178,7 +178,6 @@ export const funnelLogic = kea<funnelLogicType>({
 
         setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
         excludePropertyFromProject: (propertyName: string) => ({ propertyName }),
-        excludeEventFromProject: (eventName: string) => ({ eventName }),
         excludeEventPropertyFromProject: (eventName: string, propertyName: string) => ({ eventName, propertyName }),
 
         addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
@@ -1034,13 +1033,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             )
         },
-        excludeEventFromProject: async ({ eventName }) => {
-            appendToCorrelationConfig('excluded_event_names', values.excludedEventNames, eventName)
-
-            eventUsageLogic.actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'exclude event', {
-                event_name: eventName,
-            })
-        },
         excludePropertyFromProject: ({ propertyName }) => {
             appendToCorrelationConfig('excluded_person_property_names', values.excludedPropertyNames, propertyName)
 
@@ -1092,39 +1084,6 @@ export const funnelLogic = kea<funnelLogicType>({
         },
     }),
 })
-
-const appendToCorrelationConfig = (
-    configKey: keyof CorrelationConfigType,
-    currentValue: string[],
-    configValue: string
-): void => {
-    // Helper to handle updating correlationConfig within the Team model. Only
-    // handles further appending to current values.
-
-    // When we exclude a property, we want to update the config stored
-    // on the current Team/Project.
-    const oldCurrentTeam = teamLogic.values.currentTeam
-
-    // If we haven't actually retrieved the current team, we can't
-    // update the config.
-    if (oldCurrentTeam === null || !currentValue) {
-        console.warn('Attempt to update correlation config without first retrieving existing config')
-        return
-    }
-
-    const oldCorrelationConfig = oldCurrentTeam.correlation_config
-
-    const configList = [...Array.from(new Set(currentValue.concat([configValue])))]
-
-    const correlationConfig = {
-        ...oldCorrelationConfig,
-        [configKey]: configList,
-    }
-
-    teamLogic.actions.updateCurrentTeam({
-        correlation_config: correlationConfig,
-    })
-}
 
 const parseBreakdownValue = (
     item: string

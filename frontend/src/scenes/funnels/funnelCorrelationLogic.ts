@@ -11,7 +11,14 @@ import {
     actions,
     defaults,
 } from 'kea'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, InsightLogicProps } from '~/types'
+import {
+    CorrelationConfigType,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelCorrelationType,
+    FunnelsFilterType,
+    InsightLogicProps,
+} from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -22,18 +29,32 @@ import type { funnelCorrelationLogicType } from './funnelCorrelationLogicType'
 import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
+import { funnelDataLogic } from './funnelDataLogic'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('insight_funnel')),
     path((key) => ['scenes', 'funnels', 'funnelCorrelationLogic', key]),
     connect({
-        values: [funnelLogic, ['filters'], teamLogic, ['currentTeamId', 'currentTeam']],
+        values: [
+            insightLogic,
+            ['isUsingDataExploration'],
+            funnelLogic,
+            ['filters'],
+            funnelDataLogic,
+            ['querySource'],
+            teamLogic,
+            ['currentTeamId', 'currentTeam'],
+        ],
         actions: [funnelLogic, ['loadResultsSuccess']],
         logic: [eventUsageLogic],
     }),
     actions({
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        excludeEventFromProject: (eventName: string) => ({ eventName }),
     }),
     defaults({
         // This is a hack to get `FunnelCorrelationResultsType` imported in `funnelCorrelationLogicType.ts`
@@ -108,6 +129,29 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
         ],
     }),
     selectors({
+        apiParams: [
+            (s) => [s.isUsingDataExploration, s.dataExplorationApiParams, s.legacyApiParams],
+            (isUsingDataExploration, dataExplorationApiParams, legacyApiParams) => {
+                return isUsingDataExploration ? dataExplorationApiParams : legacyApiParams
+            },
+        ],
+        dataExplorationApiParams: [
+            (s) => [s.querySource],
+            (querySource) => {
+                const cleanedParams: Partial<FunnelsFilterType> = querySource
+                    ? cleanFilters(queryNodeToFilter(querySource))
+                    : {}
+                return cleanedParams
+            },
+        ],
+        legacyApiParams: [
+            (s) => [s.filters],
+            (filters) => {
+                const cleanedParams: Partial<FunnelsFilterType> = cleanFilters(filters)
+                return cleanedParams
+            },
+        ],
+
         correlationPropKey: [
             () => [(_, props) => props],
             (props): string => `correlation-${keyForInsightLogicProps('insight_funnel')(props)}`,
@@ -175,5 +219,46 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                 { types }
             )
         },
+
+        excludeEventFromProject: async ({ eventName }) => {
+            appendToCorrelationConfig('excluded_event_names', values.excludedEventNames, eventName)
+
+            eventUsageLogic.actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'exclude event', {
+                event_name: eventName,
+            })
+        },
     })),
 ])
+
+export const appendToCorrelationConfig = (
+    configKey: keyof CorrelationConfigType,
+    currentValue: string[],
+    configValue: string
+): void => {
+    // Helper to handle updating correlationConfig within the Team model. Only
+    // handles further appending to current values.
+
+    // When we exclude a property, we want to update the config stored
+    // on the current Team/Project.
+    const oldCurrentTeam = teamLogic.values.currentTeam
+
+    // If we haven't actually retrieved the current team, we can't
+    // update the config.
+    if (oldCurrentTeam === null || !currentValue) {
+        console.warn('Attempt to update correlation config without first retrieving existing config')
+        return
+    }
+
+    const oldCorrelationConfig = oldCurrentTeam.correlation_config
+
+    const configList = [...Array.from(new Set(currentValue.concat([configValue])))]
+
+    const correlationConfig = {
+        ...oldCorrelationConfig,
+        [configKey]: configList,
+    }
+
+    teamLogic.actions.updateCurrentTeam({
+        correlation_config: correlationConfig,
+    })
+}

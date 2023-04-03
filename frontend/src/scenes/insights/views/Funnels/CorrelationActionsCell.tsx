@@ -7,12 +7,15 @@ import { FunnelCorrelation, FunnelCorrelationResultsType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 
 export const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { excludeEventPropertyFromProject, excludeEventFromProject, setFunnelCorrelationDetails } = useActions(logic)
-    const { isEventPropertyExcluded, isEventExcluded } = useValues(logic)
+    const { isEventPropertyExcluded } = useValues(funnelLogic(insightProps))
+    const { excludeEventPropertyFromProject, setFunnelCorrelationDetails } = useActions(funnelLogic(insightProps))
+    const { isEventExcluded } = useValues(funnelCorrelationLogic(insightProps))
+    const { excludeEventFromProject } = useActions(funnelCorrelationLogic(insightProps))
+
     const components = record.event.event.split('::')
     const [popoverOpen, setPopoverOpen] = useState(false)
 
