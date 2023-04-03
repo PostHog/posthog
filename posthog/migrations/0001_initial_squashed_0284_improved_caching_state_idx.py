@@ -25,7 +25,6 @@ import posthog.utils
 
 
 class Migration(migrations.Migration):
-
     replaces = [
         ("posthog", "0001_initial"),
         ("posthog", "0002_person"),
@@ -347,10 +346,23 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("date_joined", models.DateTimeField(default=django.utils.timezone.now, verbose_name="date joined")),
-                ("uuid", models.UUIDField(default=posthog.models.utils.UUIDT, editable=False, unique=True)),
-                ("email", models.EmailField(max_length=254, unique=True, verbose_name="email address")),
-                ("temporary_token", models.CharField(blank=True, max_length=200, null=True, unique=True)),
-                ("distinct_id", models.CharField(blank=True, max_length=200, null=True, unique=True)),
+                # NOTE: to achieve parity with the constraint names from the
+                # unsquashed migration, we need to apply uniqueness separately
+                # as Django appears to have different behaviour in these cases.
+                # See the below AlterField operations for more details.
+                (
+                    "uuid",
+                    models.UUIDField(default=posthog.models.utils.UUIDT, editable=False),
+                ),  # NOTE: we make this unique later
+                (
+                    "email",
+                    models.EmailField(max_length=254, verbose_name="email address"),
+                ),  # NOTE: we make this unique later
+                (
+                    "temporary_token",
+                    models.CharField(blank=True, max_length=200, null=True),
+                ),  # NOTE: we make this unique later
+                ("distinct_id", models.CharField(blank=True, max_length=200)),  # NOTE: we make this unique later
                 ("email_opt_in", models.BooleanField(blank=True, default=False, null=True)),
                 ("partial_notification_settings", models.JSONField(blank=True, null=True)),
                 ("anonymize_data", models.BooleanField(blank=True, default=False, null=True)),
@@ -375,6 +387,30 @@ class Migration(migrations.Migration):
                 ("objects", posthog.models.user.UserManager()),
             ],
         ),
+        # NOTE: to achieve parity with the constraint names from the
+        # unsquashed migration, we need to apply uniqueness separately
+        # as Django appears to have different behaviour in these cases.
+        migrations.AlterField(
+            model_name="user",
+            name="distinct_id",
+            field=models.CharField(blank=True, max_length=200, null=True, unique=True),
+        ),
+        migrations.AlterField(
+            model_name="user",
+            name="email",
+            field=models.EmailField(max_length=254, unique=True, verbose_name="email address"),
+        ),
+        migrations.AlterField(
+            model_name="user",
+            name="temporary_token",
+            field=models.CharField(blank=True, max_length=200, null=True, unique=True),
+        ),
+        migrations.AlterField(
+            model_name="user",
+            name="uuid",
+            field=models.UUIDField(default=posthog.models.utils.UUIDT, unique=True, editable=False),
+        ),
+        # NOTE: End of AlterField operations for uniqueness for User model.
         migrations.CreateModel(
             name="Action",
             fields=[
@@ -478,8 +514,12 @@ class Migration(migrations.Migration):
                 ("delete_verified_at", models.DateTimeField(blank=True, null=True)),
             ],
         ),
+        # NOTE: We need to create the AsyncMigration as SpecialMigration first
+        # as this is what the original migration did, and then changed it to
+        # AsyncMigration. Renames appear to not change e.g. the underlying seq
+        # id name.
         migrations.CreateModel(
-            name="AsyncMigration",
+            name="SpecialMigration",
             fields=[
                 ("id", models.BigAutoField(primary_key=True, serialize=False)),
                 ("name", models.CharField(max_length=50)),
@@ -495,6 +535,14 @@ class Migration(migrations.Migration):
                 ("posthog_max_version", models.CharField(blank=True, max_length=20, null=True)),
                 ("parameters", models.JSONField(default=dict)),
             ],
+        ),
+        migrations.AddConstraint(
+            model_name="specialmigration",
+            constraint=models.UniqueConstraint(fields=("name",), name="unique name"),
+        ),
+        migrations.RenameModel(
+            old_name="SpecialMigration",
+            new_name="AsyncMigration",
         ),
         migrations.CreateModel(
             name="AsyncMigrationError",
@@ -1102,20 +1150,22 @@ class Migration(migrations.Migration):
             name="Team",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("uuid", models.UUIDField(default=posthog.models.utils.UUIDT, editable=False, unique=True)),
+                (
+                    "uuid",
+                    models.UUIDField(default=posthog.models.utils.UUIDT, editable=False),
+                ),  # NOTE: we make this unique later
                 (
                     "api_token",
                     models.CharField(
                         default=posthog.models.utils.generate_random_token_project,
                         max_length=200,
-                        unique=True,
                         validators=[
                             django.core.validators.MinLengthValidator(
                                 10, "Project's API token must be at least 10 characters long!"
                             )
                         ],
                     ),
-                ),
+                ),  # NOTE: we make this unique later
                 (
                     "app_urls",
                     django.contrib.postgres.fields.ArrayField(
@@ -1643,6 +1693,29 @@ class Migration(migrations.Migration):
             options={
                 "abstract": False,
             },
+        ),
+        # NOTE: to achieve parity with the constraint names from the
+        # unsquashed migration, we need to apply uniqueness separately
+        # as Django appears to have different behaviour in these cases.
+        # See the below AlterField operations for more details.
+        migrations.AlterField(
+            model_name="team",
+            name="uuid",
+            field=models.UUIDField(default=posthog.models.utils.UUIDT, editable=False, unique=True),
+        ),
+        migrations.AlterField(
+            model_name="team",
+            name="api_token",
+            field=models.CharField(
+                default=posthog.models.utils.generate_random_token_project,
+                max_length=200,
+                unique=True,
+                validators=[
+                    django.core.validators.MinLengthValidator(
+                        10, "Project's API token must be at least 10 characters long!"
+                    )
+                ],
+            ),
         ),
         migrations.CreateModel(
             name="UserPromptState",
@@ -2502,10 +2575,6 @@ class Migration(migrations.Migration):
             model_name="asyncmigrationerror",
             name="async_migration",
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.asyncmigration"),
-        ),
-        migrations.AddConstraint(
-            model_name="asyncmigration",
-            constraint=models.UniqueConstraint(fields=("name",), name="unique name"),
         ),
         migrations.AddField(
             model_name="asyncdeletion",
