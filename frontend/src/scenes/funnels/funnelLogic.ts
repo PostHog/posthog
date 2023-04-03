@@ -1240,7 +1240,7 @@ export const funnelLogic = kea<funnelLogicType>({
             },
             breakpoint: BreakPointFunction
         ) => {
-            if (visible && values.correlationAnalysisAvailable && values.shouldReportCorrelationViewed) {
+            if (visible && values.shouldReportCorrelationViewed) {
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0)
                 await breakpoint(10000)
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10)
@@ -1255,7 +1255,7 @@ export const funnelLogic = kea<funnelLogicType>({
             },
             breakpoint: BreakPointFunction
         ) => {
-            if (visible && values.correlationAnalysisAvailable && values.shouldReportPropertyCorrelationViewed) {
+            if (visible && values.shouldReportPropertyCorrelationViewed) {
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0, true)
                 await breakpoint(10000)
                 eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10, true)
