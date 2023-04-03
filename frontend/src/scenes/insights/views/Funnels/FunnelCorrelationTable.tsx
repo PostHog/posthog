@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
-import { ConfigProvider, Row, Table } from 'antd'
+import { useEffect } from 'react'
+import { ConfigProvider, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
-import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
@@ -15,11 +15,11 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { CorrelationMatrix } from './CorrelationMatrix'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
+import { CorrelationActionsCell } from './CorrelationActionsCell'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -354,53 +354,4 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             </div>
         </VisibilitySensor>
     ) : null
-}
-
-const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
-    const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { excludeEventPropertyFromProject, excludeEventFromProject, setFunnelCorrelationDetails } = useActions(logic)
-    const { isEventPropertyExcluded, isEventExcluded } = useValues(logic)
-    const components = record.event.event.split('::')
-    const [popoverOpen, setPopoverOpen] = useState(false)
-
-    return (
-        <Row style={{ justifyContent: 'flex-end' }}>
-            <Popover
-                visible={popoverOpen}
-                actionable
-                onClickOutside={() => setPopoverOpen(false)}
-                overlay={
-                    <>
-                        {record.result_type === FunnelCorrelationResultsType.Events && (
-                            <LemonButton onClick={() => setFunnelCorrelationDetails(record)} fullWidth status="stealth">
-                                View correlation details
-                            </LemonButton>
-                        )}
-                        <LemonButton
-                            disabled={
-                                record.result_type === FunnelCorrelationResultsType.EventWithProperties
-                                    ? isEventPropertyExcluded(components[1])
-                                    : isEventExcluded(components[0])
-                            }
-                            onClick={() =>
-                                record.result_type === FunnelCorrelationResultsType.EventWithProperties
-                                    ? excludeEventPropertyFromProject(components[0], components[1])
-                                    : excludeEventFromProject(components[0])
-                            }
-                            fullWidth
-                            title="Remove this event from any correlation analysis report in this project."
-                            status="stealth"
-                        >
-                            Exclude event from project
-                        </LemonButton>
-                    </>
-                }
-            >
-                <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
-                    <EllipsisOutlined className="insight-dropdown-actions" />
-                </LemonButton>
-            </Popover>
-        </Row>
-    )
 }
