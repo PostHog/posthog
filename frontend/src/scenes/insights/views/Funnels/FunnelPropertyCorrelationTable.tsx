@@ -19,10 +19,11 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
+import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
+    const { correlationPropKey } = useValues(funnelCorrelationLogic)
     const {
         steps,
         propertyCorrelationValues,
@@ -32,15 +33,14 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         propertyCorrelationsLoading,
         inversePropertyNames,
         propertyNames,
-        correlationPropKey,
         allProperties,
         filters,
         aggregationTargetLabel,
         loadedPropertyCorrelationsTableOnce,
-    } = useValues(logic)
+    } = useValues(funnelLogic(insightProps))
 
     const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal, loadPropertyCorrelations } =
-        useActions(logic)
+        useActions(funnelLogic(insightProps))
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
 

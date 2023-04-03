@@ -20,10 +20,11 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
 import { CorrelationActionsCell } from './CorrelationActionsCell'
+import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
+    const { correlationPropKey } = useValues(funnelCorrelationLogic)
     const {
         steps,
         correlationValues,
@@ -34,11 +35,10 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         correlationsLoading,
         eventWithPropertyCorrelationsLoading,
         nestedTableExpandedKeys,
-        correlationPropKey,
         filters,
         aggregationTargetLabel,
         loadedEventCorrelationsTableOnce,
-    } = useValues(logic)
+    } = useValues(funnelLogic(insightProps))
     const {
         setCorrelationTypes,
         loadEventWithPropertyCorrelations,
@@ -46,7 +46,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         removeNestedTableExpandedKey,
         openCorrelationPersonsModal,
         loadEventCorrelations,
-    } = useActions(logic)
+    } = useActions(funnelLogic(insightProps))
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
 

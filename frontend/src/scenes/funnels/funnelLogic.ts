@@ -1,4 +1,4 @@
-import { BreakPointFunction, kea } from 'kea'
+import { kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -58,7 +58,6 @@ import { isFunnelsFilter, keyForInsightLogicProps } from 'scenes/insights/shared
 import { teamLogic } from '../teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
@@ -391,30 +390,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 },
                 loadEventCorrelationsSuccess: () => {
                     return []
-                },
-            },
-        ],
-        shouldReportCorrelationViewed: [
-            true as boolean,
-            {
-                loadResultsSuccess: () => true,
-                [eventUsageLogic.actionTypes.reportCorrelationViewed]: (current, { propertiesTable }) => {
-                    if (!propertiesTable) {
-                        return false // don't report correlation viewed again, since it was for events earlier
-                    }
-                    return current
-                },
-            },
-        ],
-        shouldReportPropertyCorrelationViewed: [
-            true as boolean,
-            {
-                loadResultsSuccess: () => true,
-                [eventUsageLogic.actionTypes.reportCorrelationViewed]: (current, { propertiesTable }) => {
-                    if (propertiesTable) {
-                        return false
-                    }
-                    return current
                 },
             },
         ],
@@ -864,10 +839,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         ],
-        correlationPropKey: [
-            () => [(_, props) => props],
-            (props): string => `correlation-${keyForInsightLogicProps('insight_funnel')(props)}`,
-        ],
         disableFunnelBreakdownBaseline: [
             () => [(_, props) => props],
             (props: InsightLogicProps): boolean => !!props.cachedInsight?.disable_baseline,
@@ -1230,35 +1201,6 @@ export const funnelLogic = kea<funnelLogicType>({
             if (feedbackBoxVisible) {
                 // Don't send event when resetting reducer
                 eventUsageLogic.actions.reportCorrelationAnalysisFeedback(rating)
-            }
-        },
-        [visibilitySensorLogic({ id: values.correlationPropKey }).actionTypes.setVisible]: async (
-            {
-                visible,
-            }: {
-                visible: boolean
-            },
-            breakpoint: BreakPointFunction
-        ) => {
-            if (visible && values.shouldReportCorrelationViewed) {
-                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0)
-                await breakpoint(10000)
-                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10)
-            }
-        },
-
-        [visibilitySensorLogic({ id: `${values.correlationPropKey}-properties` }).actionTypes.setVisible]: async (
-            {
-                visible,
-            }: {
-                visible: boolean
-            },
-            breakpoint: BreakPointFunction
-        ) => {
-            if (visible && values.shouldReportPropertyCorrelationViewed) {
-                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0, true)
-                await breakpoint(10000)
-                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10, true)
             }
         },
     }),
