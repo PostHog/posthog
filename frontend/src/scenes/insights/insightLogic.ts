@@ -192,6 +192,12 @@ export const insightLogic = kea<insightLogicType>([
                     const load_query_insight_query_params = !!values.featureFlags[FEATURE_FLAGS.HOGQL]
                         ? '&include_query_insights=true'
                         : ''
+                    console.debug('insightLogic.values.featureFlags: ', values.featureFlags)
+                    console.debug(
+                        '!!values.featureFlags[FEATURE_FLAGS.HOGQL]: ',
+                        !!values.featureFlags[FEATURE_FLAGS.HOGQL]
+                    )
+                    console.debug('load_query_insight_query_params: ', load_query_insight_query_params)
                     const response = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
                             shortId
