@@ -255,7 +255,6 @@ export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
-    '/': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.projectApps(),

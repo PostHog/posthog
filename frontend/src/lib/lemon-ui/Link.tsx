@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
+import { addProjectIdIfMissing } from '~/initKea'
 
 type RoutePart = string | Record<string, any>
 
@@ -54,7 +55,7 @@ export function Link({ to, target, disableClientSideRouting, preventClick = fals
     return (
         <a
             {...props}
-            href={typeof to === 'string' ? to : '#'}
+            href={typeof to === 'string' ? (to.includes('://') ? to : addProjectIdIfMissing(to)) : '#'}
             onClick={onClick}
             target={target}
             rel={target === '_blank' ? 'noopener noreferrer' : undefined}

@@ -59,24 +59,36 @@ export const loggerPlugin: () => KeaPlugin = () => ({
     },
 })
 
-export function addProjectIdToPathUnless(path: string): boolean {
+export function pathsWithoutProjectId(path: string): boolean {
     return !!(
-        path.match(/^\/p\/\d+/) ||
         path.match(/^\/me\//) ||
         path.match(/^\/instance\//) ||
-        path.match(/^\/organization\//)
+        path.match(/^\/organization\//) ||
+        path.match(/^\/preflight/) ||
+        path.match(/^\/signup/)
     )
 }
 
+export function addProjectIdUnlessPresent(path: string): string {
+    if (path.match(/^\/project\/\d+/)) {
+        return path
+    }
+    const prefix = `/project/${getCurrentTeamId()}`
+    if (path == '/') {
+        return prefix
+    }
+    return `${prefix}/${path.startsWith('/') ? path.slice(1) : path}`
+}
+
 export function removeProjectIdIfPresent(path: string): string {
-    if (path.match(/^\/p\/\d+/)) {
+    if (path.match(/^\/project\/\d+/)) {
         return '/' + path.split('/').splice(3).join('/')
     }
     return path
 }
 
-export function addProjectId(path: string): string {
-    return `/p/${getCurrentTeamId()}/${path.startsWith('/') ? path.slice(1) : path}`
+export function addProjectIdIfMissing(path: string): string {
+    return pathsWithoutProjectId(path) ? removeProjectIdIfPresent(path) : addProjectIdUnlessPresent(path)
 }
 
 export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
@@ -93,10 +105,10 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                 segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
             },
             pathFromRoutesToWindow: (path) => {
-                return addProjectIdToPathUnless(path) ? removeProjectIdIfPresent(path) : addProjectId(path)
+                return addProjectIdIfMissing(path)
             },
             transformPathInActions: (path) => {
-                return addProjectIdToPathUnless(path) ? removeProjectIdIfPresent(path) : addProjectId(path)
+                return addProjectIdIfMissing(path)
             },
             pathFromWindowToRoutes: (path) => {
                 return removeProjectIdIfPresent(path)
