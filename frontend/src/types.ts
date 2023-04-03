@@ -2342,6 +2342,8 @@ export enum HelpType {
     Email = 'email',
     Docs = 'docs',
     Updates = 'updates',
+    Chat = 'chat',
+    Squeak = 'squeak',
 }
 
 export interface VersionType {

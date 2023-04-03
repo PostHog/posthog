@@ -9,6 +9,7 @@ import './Navigation.scss'
 import { themeLogic } from './themeLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import MaxAI from 'lib/components/MaxAI/MaxAI'
 
 export function Navigation({ children }: { children: ReactNode }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -37,6 +38,7 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
             </main>
 
             <CommandPalette />
+            <MaxAI />
         </div>
     )
 }

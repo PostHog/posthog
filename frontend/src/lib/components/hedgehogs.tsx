@@ -25,6 +25,7 @@ import laptopHog4 from 'public/hedgehog/laptop-hog-04.png'
 import laptopHogEU from 'public/hedgehog/laptop-hog-eu.png'
 import detectiveHog from 'public/hedgehog/detective-hog.png'
 import mailHog from 'public/hedgehog/mail-hog.png'
+import chatHog from 'public/hedgehog/chat-hog.png'
 
 type HedgehogProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>
 
@@ -111,4 +112,7 @@ export const DetectiveHog = (props: HedgehogProps): JSX.Element => {
 }
 export const MailHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={mailHog} {...props} />
+}
+export const ChatHog = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={chatHog} {...props} />
 }

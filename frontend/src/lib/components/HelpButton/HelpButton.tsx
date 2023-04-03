@@ -110,11 +110,22 @@ export function HelpButton({
                             </LemonButton>
                         )}
                         <LemonButton
+                            icon={<IconFlare />}
+                            status="stealth"
+                            fullWidth
+                            onClick={() => {
+                                reportHelpButtonUsed(HelpType.Chat)
+                                hideHelp()
+                            }}
+                        >
+                            Chat with Max AI
+                        </LemonButton>
+                        <LemonButton
                             icon={<IconQuestionAnswer />}
                             status="stealth"
                             fullWidth
                             onClick={() => {
-                                reportHelpButtonUsed(HelpType.Slack)
+                                reportHelpButtonUsed(HelpType.Squeak)
                                 hideHelp()
                             }}
                             to={`https://posthog.com/questions${HELP_UTM_TAGS}`}
