@@ -128,7 +128,7 @@ specifiers:
   kea-forms: ^3.0.3
   kea-loaders: ^3.0.0
   kea-localstorage: ^3.1.0
-  kea-router: ^3.1.3
+  kea-router: ^3.1.4
   kea-subscriptions: ^3.0.0
   kea-test-utils: ^0.2.4
   kea-typegen: ^3.1.5
@@ -244,7 +244,7 @@ dependencies:
   kea-forms: 3.0.3_kea@3.1.5
   kea-loaders: 3.0.0_kea@3.1.5
   kea-localstorage: 3.1.0_kea@3.1.5
-  kea-router: 3.1.3_kea@3.1.5
+  kea-router: 3.1.4_kea@3.1.5
   kea-subscriptions: 3.0.0_kea@3.1.5
   kea-test-utils: 0.2.4_kea@3.1.5
   kea-waitfor: 0.2.1_kea@3.1.5
@@ -13160,8 +13160,8 @@ packages:
       kea: 3.1.5_react@16.14.0
     dev: false
 
-  /kea-router/3.1.3_kea@3.1.5:
-    resolution: {integrity: sha512-+Pk+RZ4PzEXskL3D3903M33Mt94vqJlHb0LCBRn7lFTg0age/53n8CkMvB6QT9SgvtDXqiWgViCWdtaACDQY7A==}
+  /kea-router/3.1.4_kea@3.1.5:
+    resolution: {integrity: sha512-KjATA2vwh90GDcO3iiUrQwhRSzRbvyplvtyDzEWevfSHccbrtxdDm/ZCApAvMACPZZH0Klk4aHk1ZAZ1DJtcbg==}
     peerDependencies:
       kea: '>= 3'
     dependencies:
