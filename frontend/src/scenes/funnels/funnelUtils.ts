@@ -1,4 +1,4 @@
-import { clamp } from 'lib/utils'
+import { autoCaptureEventToDescription, clamp } from 'lib/utils'
 import {
     FunnelStepRangeEntityFilter,
     FunnelStep,
@@ -11,6 +11,8 @@ import {
     Breakdown,
     FunnelStepWithConversionMetrics,
     FlattenedFunnelStepByBreakdown,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
@@ -513,4 +515,32 @@ export const transformLegacyHiddenLegendKeys = (
         }
     }
     return hiddenLegendKeys
+}
+
+export const parseDisplayNameForCorrelation = (
+    record: FunnelCorrelation
+): { first_value: string; second_value?: string } => {
+    let first_value = undefined
+    let second_value = undefined
+    const values = record.event.event.split('::')
+
+    if (record.result_type === FunnelCorrelationResultsType.Events) {
+        first_value = record.event.event
+        return { first_value, second_value }
+    } else if (record.result_type === FunnelCorrelationResultsType.Properties) {
+        first_value = values[0]
+        second_value = values[1]
+        return { first_value, second_value }
+    } else if (values[0] === '$autocapture' && values[1] === 'elements_chain') {
+        // special case for autocapture elements_chain
+        first_value = autoCaptureEventToDescription({
+            ...record.event,
+            event: '$autocapture',
+        }) as string
+        return { first_value, second_value }
+    } else {
+        // FunnelCorrelationResultsType.EventWithProperties
+        // Events here come in the form of event::property::value
+        return { first_value: values[1], second_value: values[2] }
+    }
 }

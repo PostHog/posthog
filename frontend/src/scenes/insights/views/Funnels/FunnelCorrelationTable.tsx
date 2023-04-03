@@ -28,10 +28,21 @@ import { CorrelationActionsCell } from './CorrelationActionsCell'
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Noun } from '~/models/groupsModel'
+import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
 
 export function FunnelCorrelationTableDataExploration(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { steps, querySource, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { loadedEventCorrelationsTableOnce } = useValues(funnelCorrelationLogic(insightProps))
+    const { loadEventCorrelations } = useActions(funnelCorrelationLogic(insightProps))
+
+    // Load correlations only if this component is mounted, and then reload if query changes
+    useEffect(() => {
+        // We only automatically refresh results when the query changes after the user has manually asked for the first results to be loaded
+        if (loadedEventCorrelationsTableOnce) {
+            loadEventCorrelations({})
+        }
+    }, [querySource])
 
     return (
         <FunnelCorrelationTableComponent
@@ -45,6 +56,16 @@ export function FunnelCorrelationTableDataExploration(): JSX.Element | null {
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { steps, filters, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { loadedEventCorrelationsTableOnce } = useValues(funnelCorrelationLogic(insightProps))
+    const { loadEventCorrelations } = useActions(funnelCorrelationLogic(insightProps))
+
+    // Load correlations only if this component is mounted, and then reload if filters change
+    useEffect(() => {
+        // We only automatically refresh results when filters change after the user has manually asked for the first results to be loaded
+        if (loadedEventCorrelationsTableOnce) {
+            loadEventCorrelations({})
+        }
+    }, [filters])
 
     return (
         <FunnelCorrelationTableComponent
@@ -67,37 +88,28 @@ export function FunnelCorrelationTableComponent({
     aggregationTargetLabel,
 }: FunnelCorrelationTableComponentProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { correlationPropKey } = useValues(funnelCorrelationLogic(insightProps))
     const {
-        correlationValues,
+        correlationPropKey,
         correlationTypes,
+        correlationValues,
+        correlationsLoading,
+        loadedEventCorrelationsTableOnce,
+    } = useValues(funnelCorrelationLogic(insightProps))
+    const { setCorrelationTypes, loadEventCorrelations } = useActions(funnelCorrelationLogic(insightProps))
+    const { reportCorrelationInteraction } = useActions(eventUsageLogic)
+
+    const {
         eventHasPropertyCorrelations,
         eventWithPropertyCorrelationsValues,
-        parseDisplayNameForCorrelation,
-        correlationsLoading,
         eventWithPropertyCorrelationsLoading,
         nestedTableExpandedKeys,
-        filters,
-        loadedEventCorrelationsTableOnce,
     } = useValues(funnelLogic(insightProps))
     const {
-        setCorrelationTypes,
         loadEventWithPropertyCorrelations,
         addNestedTableExpandedKey,
         removeNestedTableExpandedKey,
         openCorrelationPersonsModal,
-        loadEventCorrelations,
     } = useActions(funnelLogic(insightProps))
-
-    const { reportCorrelationInteraction } = useActions(eventUsageLogic)
-
-    // Load correlations only if this component is mounted, and then reload if filters change
-    useEffect(() => {
-        // We only automatically refresh results when filters change after the user has manually asked for the first results to be loaded
-        if (loadedEventCorrelationsTableOnce) {
-            loadEventCorrelations({})
-        }
-    }, [filters])
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (correlationTypes) {

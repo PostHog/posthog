@@ -20,6 +20,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
+import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -29,7 +30,6 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         propertyCorrelationValues,
         propertyCorrelationTypes,
         excludedPropertyNames,
-        parseDisplayNameForCorrelation,
         propertyCorrelationsLoading,
         inversePropertyNames,
         propertyNames,
