@@ -16,8 +16,12 @@ Utilities used by the insights API to determine whether
 or not to refresh an insight upon a client request to do so
 """
 
-# default minimum wait time for refreshing an insight
-DEFAULT_CLIENT_INSIGHT_ALLOWED_REFRESH_FREQUENCY = timedelta(minutes=15)
+# Default minimum wait time for refreshing an insight
+BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=15)
+# Wait time for short-term insights
+REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=3)
+# Wait time for insights on shared insight/dashboard pages
+INCREASED_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=30)
 
 
 # returns should_refresh, refresh_frequency
@@ -38,9 +42,12 @@ def should_refresh_insight(
         delta = filter.date_to - filter.date_from
         delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
 
-    refresh_frequency = DEFAULT_CLIENT_INSIGHT_ALLOWED_REFRESH_FREQUENCY
-    if (hasattr(filter, "interval") and filter.interval == "hour") or (delta_days is not None and delta_days <= 7):
-        refresh_frequency = timedelta(minutes=3)
+    refresh_frequency = BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
+    if getattr(filter, "interval", None) == "hour" or (delta_days is not None and delta_days <= 7):
+        if not is_shared:  # The interval is always longer for shared insights/dashboard
+            refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+    elif is_shared:  # The interval is always longer for shared insights/dashboard
+        refresh_frequency = INCREASED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
     refresh_insight_now = False
     if len(caching_state) == 0 or caching_state[0].last_refresh is None:
@@ -49,8 +56,8 @@ def should_refresh_insight(
     elif (refresh_requested_by_client(request) or is_shared) and (
         caching_state[0].last_refresh + refresh_frequency <= datetime.now(tz=pytz.timezone("UTC"))
     ):
-        # Also refresh if the user has requested and refresh and enough time has passed since last refresh
-        # We treat loading a shared dashboard/insight as a refresh request
+        # Also refresh if the user has requested a refresh and enough time has passed since last refresh
+        # Note: We treat loading a shared dashboard/insight as a refresh request
         refresh_insight_now = True
 
     return refresh_insight_now, refresh_frequency
