@@ -23,7 +23,7 @@ import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { correlationPropKey } = useValues(funnelCorrelationLogic)
+    const { correlationPropKey } = useValues(funnelCorrelationLogic(insightProps))
     const {
         steps,
         propertyCorrelationValues,

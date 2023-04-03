@@ -5,7 +5,12 @@ import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
+import {
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelCorrelationType,
+    FunnelStepWithNestedBreakdown,
+} from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
@@ -21,12 +26,49 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
 import { CorrelationActionsCell } from './CorrelationActionsCell'
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { Noun } from '~/models/groupsModel'
+
+export function FunnelCorrelationTableDataExploration(): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { steps, querySource, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+
+    return (
+        <FunnelCorrelationTableComponent
+            steps={steps}
+            aggregation_group_type_index={querySource?.aggregation_group_type_index}
+            aggregationTargetLabel={aggregationTargetLabel}
+        />
+    )
+}
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { correlationPropKey } = useValues(funnelCorrelationLogic)
+    const { steps, filters, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+
+    return (
+        <FunnelCorrelationTableComponent
+            steps={steps}
+            aggregation_group_type_index={filters?.aggregation_group_type_index}
+            aggregationTargetLabel={aggregationTargetLabel}
+        />
+    )
+}
+
+type FunnelCorrelationTableComponentProps = {
+    steps: FunnelStepWithNestedBreakdown[]
+    aggregation_group_type_index?: number | undefined
+    aggregationTargetLabel: Noun
+}
+
+export function FunnelCorrelationTableComponent({
+    steps,
+    aggregation_group_type_index,
+    aggregationTargetLabel,
+}: FunnelCorrelationTableComponentProps): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { correlationPropKey } = useValues(funnelCorrelationLogic(insightProps))
     const {
-        steps,
         correlationValues,
         correlationTypes,
         eventHasPropertyCorrelations,
@@ -36,7 +78,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         eventWithPropertyCorrelationsLoading,
         nestedTableExpandedKeys,
         filters,
-        aggregationTargetLabel,
         loadedEventCorrelationsTableOnce,
     } = useValues(funnelLogic(insightProps))
     const {
@@ -96,7 +137,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 </h4>
                 <div>
                     {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                    {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
+                    {aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
                     <mark>
                         <b>
                             {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
@@ -258,7 +299,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         expandable={{
                             expandedRowRender: (record) => renderNestedTable(record.event.event),
                             expandedRowKeys: nestedTableExpandedKeys,
-                            rowExpandable: () => filters.aggregation_group_type_index === undefined,
+                            rowExpandable: () => aggregation_group_type_index === undefined,
                             expandIcon: ({ expanded, onExpand, record, expandable }) => {
                                 if (!expandable) {
                                     return null
@@ -309,7 +350,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                     Completed
                                     <Tooltip
                                         title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                            filters.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                            aggregation_group_type_index != undefined ? 'that' : 'who'
                                         } performed the event and completed the entire funnel.`}
                                     >
                                         <InfoCircleOutlined className="column-info" />
@@ -329,8 +370,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                         title={
                                             <>
                                                 {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                                                {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
-                                                performed the event and did <b>not complete</b> the entire funnel.
+                                                {aggregation_group_type_index != undefined ? 'that' : 'who'} performed
+                                                the event and did <b>not complete</b> the entire funnel.
                                             </>
                                         }
                                     >
