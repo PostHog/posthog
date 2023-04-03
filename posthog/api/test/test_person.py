@@ -375,7 +375,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             distinct_id="some_distinct_id",
             ip=None,
             site_url=None,
-            team_id=self.team.id,
+            token=self.team.api_token,
             now=mock.ANY,
             sent_at=None,
             event={
@@ -401,7 +401,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             distinct_id="some_distinct_id",
             ip=None,
             site_url=None,
-            team_id=self.team.id,
+            token=self.team.api_token,
             now=mock.ANY,
             sent_at=None,
             event={
