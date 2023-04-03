@@ -1,5 +1,4 @@
 import re
-import pytz
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Literal, Optional, Union, cast
@@ -10,7 +9,12 @@ from posthog.hogql import ast
 from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS, HogQLSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database import Table, create_hogql_database
-from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier, print_clickhouse_string
+from posthog.hogql.print_string import (
+    print_clickhouse_identifier,
+    print_hogql_identifier,
+    print_clickhouse_string,
+    print_hogql_string,
+)
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_refs
 from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
 from posthog.hogql.transforms.macros import expand_macros
@@ -339,7 +343,6 @@ class _Printer(Visitor):
             raise ValueError(f"Unknown CompareOperationType: {type(node.op).__name__}")
 
     def visit_constant(self, node: ast.Constant):
-        key = f"hogql_val_{len(self.context.values)}"
         if isinstance(node.value, bool) and node.value is True:
             return "true"
         elif isinstance(node.value, bool) and node.value is False:
@@ -348,20 +351,13 @@ class _Printer(Visitor):
             # :WATCH_OUT: isinstance(True, int) is True (!), so check for numbers lower down the chain
             return str(node.value)
         elif isinstance(node.value, datetime):
-            if self.dialect == "clickhouse":
-                # timezone handling done inside self._print_string
-                return self._print_string(node.value)
-            else:
-                # print a version of the function call without the timezone for hogql
-                datetime_string_in_timezone = node.value.astimezone(pytz.timezone(self._get_timezone())).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
-                return f"toDateTime({self._print_string(datetime_string_in_timezone)})"
-
+            # timezone handling done inside self._print_string
+            return self._print_string(node.value)
         elif isinstance(node.value, str) or isinstance(node.value, list):
+            # inline the string in hogql, but use %(hogql_val_0)s in clichkouse
             if self.dialect == "hogql":
-                # inline the string in hogql
                 return self._print_string(node.value)
+            key = f"hogql_val_{len(self.context.values)}"
             self.context.values[key] = node.value
             return f"%({key})s"
         elif node.value is None:
@@ -609,7 +605,9 @@ class _Printer(Visitor):
         return print_hogql_identifier(name)
 
     def _print_string(self, name: str | list | tuple | datetime) -> str:
-        return print_clickhouse_string(name, timezone=self._get_timezone())
+        if self.dialect == "clickhouse":
+            return print_clickhouse_string(name, timezone=self._get_timezone())
+        return print_hogql_string(name, timezone=self._get_timezone())
 
     def _get_materialized_column(
         self, table_name: TablesWithMaterializedColumns, property_name: PropertyName, field_name: TableColumn
