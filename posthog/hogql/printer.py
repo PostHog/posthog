@@ -1,6 +1,9 @@
 import re
+import pytz
 from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Literal, Optional, Union, cast
+
 
 from ee.clickhouse.materialized_columns.columns import TablesWithMaterializedColumns, get_materialized_columns
 from posthog.hogql import ast
@@ -344,6 +347,11 @@ class _Printer(Visitor):
         elif isinstance(node.value, int) or isinstance(node.value, float):
             # :WATCH_OUT: isinstance(True, int) is True (!), so check for numbers lower down the chain
             return str(node.value)
+        elif isinstance(node.value, datetime):
+            datetime_string_in_timezone = node.value.astimezone(pytz.timezone(self._get_timezone())).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            return f"toDateTime({self._print_string(datetime_string_in_timezone)}, {self._print_string(self._get_timezone())})"
         elif isinstance(node.value, str) or isinstance(node.value, list):
             if self.dialect == "hogql":
                 return self._print_string(str(node.value))
