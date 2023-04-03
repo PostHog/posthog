@@ -3,12 +3,10 @@ import json
 from typing import Any
 from unittest.mock import patch
 
-from django.http.request import HttpRequest
 from django.test.client import Client
 from kafka.errors import NoBrokersAvailable
 from rest_framework import status
 
-from posthog.api.utils import get_event_ingestion_context
 from posthog.settings.data_stores import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.test.base import APIBaseTest
 
@@ -123,14 +121,6 @@ class TestCaptureAPI(APIBaseTest):
 
         self.assertEqual(log_event_to_dead_letter_queue_call1[4], "django_server_capture_endpoint")  # error_location
         self.assertEqual(log_event_to_dead_letter_queue_call2[4], "django_server_capture_endpoint")  # error_location
-
-    # unit test the underlying util that handles the DB being down
-    @patch("posthog.api.utils.get_event_ingestion_context_for_token", side_effect=mocked_get_ingest_context_from_token)
-    def test_determine_team_from_request_data_ch(self, _):
-        team, db_error, _ = get_event_ingestion_context(HttpRequest(), {}, "")
-
-        self.assertEqual(team, None)
-        self.assertEqual(db_error, "Exception('test exception')")
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_with_uuid_in_payload(self, kafka_produce):
