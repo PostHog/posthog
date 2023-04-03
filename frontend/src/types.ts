@@ -1048,34 +1048,63 @@ export interface BillingV2FeatureType {
 }
 
 export interface BillingV2TierType {
+    flat_amount_usd: string
     unit_amount_usd: string
-    current_amount_usd?: string | null
+    current_amount_usd: string | null
+    current_usage: number
+    projected_usage: number | null
+    projected_amount_usd: number | null
     up_to: number | null
 }
 
 export interface BillingProductV2Type {
-    type: 'events' | 'recordings' | 'enterprise' | 'base'
+    type: string
+    usage_key: string
     name: string
-    description?: string
-    price_description?: string
-    image_url?: string
-    free_allocation?: number
-    tiers?: BillingV2TierType[]
+    description: string
+    price_description: string | null
+    image_url: string | null
+    free_allocation: number
+    subscribed: boolean
+    tiers: BillingV2TierType[] | null
     tiered: boolean
-    current_usage?: number
-    projected_usage?: number
+    current_usage: number
+    projected_usage: number | null
+    projected_amount_usd: string | null
     percentage_usage: number
-    current_amount_usd?: string
-    usage_limit?: number
+    current_amount_usd_before_addons: string | null
+    current_amount_usd: string | null
+    usage_limit: number | null
+    has_exceeded_limit: boolean
     unit: string
     unit_amount_usd: string | null
+    plans: string[]
     feature_groups: {
+        // deprecated, remove after removing the billing plans table
         group: string
         name: string
         features: BillingV2FeatureType[]
     }[]
+    addons: BillingProductV2AddonType[]
 }
 
+export interface BillingProductV2AddonType {
+    name: string
+    description: string
+    price_description: string | null
+    image_url: string | null
+    type: string
+    tiers: BillingV2TierType[] | null
+    tiered: boolean
+    subscribed: boolean
+    unit: string | null
+    unit_amount_usd: string | null
+    current_amount_usd: string | null
+    current_usage: number
+    projected_usage: number | null
+    projected_amount_usd: string | null
+    plans: string[]
+}
 export interface BillingV2Type {
     customer_id: string
     has_active_subscription: boolean
@@ -1085,7 +1114,6 @@ export interface BillingV2Type {
     current_total_amount_usd?: string
     current_total_amount_usd_after_discount?: string
     products: BillingProductV2Type[]
-    products_enterprise?: BillingProductV2Type[]
 
     custom_limits_usd?: {
         [key: string]: string | null | undefined

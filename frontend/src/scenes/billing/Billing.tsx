@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { billingLogic } from './billingLogic'
-import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -21,6 +21,7 @@ import { BillingProduct as BillingProductTest } from './test/BillingProduct'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Billing as BillingTest } from './test/Billing'
+import { Field, Form } from 'kea-forms'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -33,7 +34,7 @@ export function BillingPageHeader(): JSX.Element {
 
 export function Billing(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { billing, billingLoading } = useValues(billingLogic)
+    const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const cloudOrDev = preflight?.cloud || preflight?.is_debug
@@ -191,6 +192,29 @@ export function Billing(): JSX.Element {
                         >
                             Manage subscription
                         </LemonButton>
+                    ) : showLicenseDirectInput ? (
+                        <>
+                            <Form
+                                logic={billingLogic}
+                                formKey="activateLicense"
+                                enableFormOnSubmit
+                                className="space-y-4"
+                            >
+                                <Field name="license" label={'Activate license key'}>
+                                    <LemonInput fullWidth autoFocus />
+                                </Field>
+
+                                <LemonButton
+                                    type="primary"
+                                    htmlType="submit"
+                                    loading={isActivateLicenseSubmitting}
+                                    fullWidth
+                                    center
+                                >
+                                    Activate license key
+                                </LemonButton>
+                            </Form>
+                        </>
                     ) : null}
                     {!cloudOrDev && billing?.license?.plan ? (
                         <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">

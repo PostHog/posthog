@@ -56,9 +56,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         freeTier: [
-            (s, p) => [s.billing, p.product],
-            (billing, product) => {
-                return (billing?.has_active_subscription ? product.tiers?.[0]?.up_to : product.free_allocation) || 0
+            (s, p) => [p.product],
+            (product) => {
+                return (product.subscribed ? product.tiers?.[0]?.up_to : product.free_allocation) || 0
             },
         ],
         billingLimitAsUsage: [

@@ -91,16 +91,38 @@ class BillingViewset(viewsets.GenericViewSet):
         if redirect_path.startswith("/"):
             redirect_path = redirect_path[1:]
 
-        plan = request.GET.get("plan", "standard")
-
         redirect_uri = f"{settings.SITE_URL or request.headers.get('Host')}/{redirect_path}"
-        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}&plan={plan}"
+        url = f"{BILLING_SERVICE_URL}/activation?redirect_uri={redirect_uri}&organization_name={organization.name}"
+
+        plan = request.GET.get("plan", None)
+        product_keys = request.GET.get("products", None)
+        if not plan and not product_keys:
+            # If no plan or product keys are specified, we default to the standard plan
+            # This is to support the old activation flow
+            plan = "standard"
+
+        if plan:
+            url = f"{url}&plan={plan}"
+        if product_keys:
+            url = f"{url}&products={product_keys}"
 
         if license:
             billing_service_token = build_billing_token(license, organization)
             url = f"{url}&token={billing_service_token}"
 
         return redirect(url)
+
+    @action(methods=["GET"], detail=False)
+    def deactivate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = License.objects.first_valid()
+        organization = self._get_org_required()
+
+        product = request.GET.get("products", None)
+        if not product:
+            raise ValidationError("Products must be specified")
+
+        BillingManager(license).deactivate_products(organization, product)
+        return self.list(request, *args, **kwargs)
 
     @action(methods=["PATCH"], detail=False)
     def license(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:

@@ -29,7 +29,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             : convertAmountToUsage(customLimitUsd || '', product.tiers)
         : 0
 
-    const productType = { plural: product.type, singular: product.type.slice(0, -1) }
+    const productType = { plural: `${product.unit}s`, singular: product.unit }
 
     const updateBillingLimit = (value: number | undefined): any => {
         const actuallyUpdateLimit = (): void => {

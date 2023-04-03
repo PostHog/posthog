@@ -1,17 +1,17 @@
-import { kea, path, actions, connect, afterMount, selectors, listeners } from 'kea'
+import { kea, path, actions, connect, afterMount, selectors, listeners, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { BillingProductV2Type, BillingV2Type } from '~/types'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '@posthog/lemon-ui'
-import { projectUsage } from './billing-utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
 import type { billingLogicType } from './billingLogicType'
+import { forms } from 'kea-forms'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -30,10 +30,6 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
             current_period_end: dayjs(data.billing_period.current_period_end),
             interval: data.billing_period.interval,
         }
-
-        data.products?.forEach((x) => {
-            x.projected_usage = projectUsage(x.current_usage, data.billing_period)
-        })
     }
 
     data.free_trial_until = data.free_trial_until ? dayjs(data.free_trial_until) : undefined
@@ -44,6 +40,7 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
 export const billingLogic = kea<billingLogicType>([
     path(['scenes', 'billing', 'billingLogic']),
     actions({
+        setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingV2Shown: true,
         registerInstrumentationProps: true,
@@ -51,6 +48,14 @@ export const billingLogic = kea<billingLogicType>([
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
         actions: [userLogic, ['loadUser']],
+    }),
+    reducers({
+        showLicenseDirectInput: [
+            false,
+            {
+                setShowLicenseDirectInput: (_, { show }) => show,
+            },
+        ],
     }),
     loaders(() => ({
         billing: [
@@ -66,6 +71,12 @@ export const billingLogic = kea<billingLogicType>([
                     const response = await api.update('api/billing-v2', { custom_limits_usd: limits })
 
                     lemonToast.success('Billing limits updated')
+                    return parseBillingResponse(response)
+                },
+
+                deactivateProduct: async (key: string) => {
+                    const response = await api.get('api/billing-v2/deactivate?products=' + key)
+                    lemonToast.success('Product downgraded')
                     return parseBillingResponse(response)
                 },
             },
@@ -143,6 +154,33 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
+    forms(({ actions }) => ({
+        activateLicense: {
+            defaults: { license: '' } as { license: string },
+            errors: ({ license }) => ({
+                license: !license ? 'Please enter your license key' : undefined,
+            }),
+            submit: async ({ license }, breakpoint) => {
+                breakpoint(500)
+                try {
+                    await api.update('api/billing-v2/license', {
+                        license,
+                    })
+
+                    // Reset the URL so we don't trigger the license submission again
+                    router.actions.replace('/organization/billing?success=true')
+                    setTimeout(() => {
+                        window.location.reload() // Permissions, projects etc will be out of date at this point, so refresh
+                    }, 100)
+                } catch (e: any) {
+                    actions.setActivateLicenseManualErrors({
+                        license: e.detail || 'License could not be activated. Please contact support.',
+                    })
+                    throw e
+                }
+            },
+        },
+    })),
     listeners(({ actions, values }) => ({
         reportBillingV2Shown: () => {
             posthog.capture('billing v2 shown')
@@ -201,4 +239,14 @@ export const billingLogic = kea<billingLogicType>([
     afterMount(({ actions }) => {
         actions.loadBilling()
     }),
+    urlToAction(({ actions }) => ({
+        // IMPORTANT: This needs to be above the "*" so it takes precedence
+        '/organization/billing': (_params, _search, hash) => {
+            if (hash.license) {
+                actions.setShowLicenseDirectInput(true)
+                actions.setActivateLicenseValues({ license: hash.license })
+                actions.submitActivateLicense()
+            }
+        },
+    })),
 ])
