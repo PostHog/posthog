@@ -6,7 +6,6 @@ import random
 import string
 import zlib
 from collections import Counter
-from contextlib import contextmanager
 from datetime import datetime, timedelta
 from datetime import timezone as tz
 from typing import Any, Dict, List, Union, cast
@@ -17,10 +16,6 @@ from urllib.parse import quote
 import lzstring
 import pytest
 import structlog
-from django.db import DEFAULT_DB_ALIAS
-from django.db import Error as DjangoDatabaseError
-from django.db import connections
-from django.test import override_settings
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
@@ -36,22 +31,8 @@ from posthog.api.capture import get_distinct_id, is_randomly_partitioned
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
-from posthog.models.feature_flag import FeatureFlag
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.utils import generate_random_token_personal
 from posthog.settings import DATA_UPLOAD_MAX_MEMORY_SIZE, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.test.base import BaseTest
-
-
-@contextmanager
-def simulate_postgres_error():
-    """
-    Causes any call to cursor to raise the upper most Error in djangos db
-    Exception hierachy
-    """
-    with patch.object(connections[DEFAULT_DB_ALIAS], "cursor") as cursor_mock:
-        cursor_mock.side_effect = DjangoDatabaseError  # This should be the most general
-        yield
 
 
 def mocked_get_ingest_context_from_token(_: Any) -> None:
@@ -93,7 +74,7 @@ class TestCapture(BaseTest):
             "ip": args["ip"],
             "site_url": args["site_url"],
             "data": json.loads(args["data"]),
-            "team_id": args["team_id"],
+            "token": args["token"],
             "now": args["now"],
             "sent_at": args["sent_at"],
         }
@@ -187,7 +168,7 @@ class TestCapture(BaseTest):
                 ],
             },
         }
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(0):  # Capture does not hit PG anymore
             response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
 
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
@@ -197,13 +178,13 @@ class TestCapture(BaseTest):
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
                 "data": data,
-                "team_id": self.team.pk,
+                "token": self.team.api_token,
             },
             self._to_arguments(kafka_produce),
         )
         log_context = structlog.contextvars.get_contextvars()
-        assert "team_id" in log_context
-        assert log_context["team_id"] == self.team.pk
+        assert "token" in log_context
+        assert log_context["token"] == self.team.api_token
 
     @patch("axes.middleware.AxesMiddleware")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -221,7 +202,7 @@ class TestCapture(BaseTest):
                 ],
             },
         }
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(0):
             response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         self.assertDictContainsSubset(
@@ -230,7 +211,7 @@ class TestCapture(BaseTest):
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
                 "data": data,
-                "team_id": self.team.pk,
+                "token": self.team.api_token,
             },
             self._to_arguments(kafka_produce),
         )
@@ -294,7 +275,7 @@ class TestCapture(BaseTest):
                 "ip": "1.2.3.4",
                 "site_url": "http://testserver",
                 "data": data,
-                "team_id": self.team.pk,
+                "token": self.team.api_token,
             },
             self._to_arguments(kafka_produce),
         )
@@ -314,7 +295,7 @@ class TestCapture(BaseTest):
                 "ip": "2345:0425:2CA1:0000:0000:0567:5673:23b5",
                 "site_url": "http://testserver",
                 "data": data,
-                "team_id": self.team.pk,
+                "token": self.team.api_token,
             },
             self._to_arguments(kafka_produce),
         )
@@ -335,23 +316,8 @@ class TestCapture(BaseTest):
                 "ip": "1.2.3.4",
                 "site_url": "http://testserver",
                 "data": data,
-                "team_id": self.team.pk,
+                "token": self.team.api_token,
             },
-            self._to_arguments(kafka_produce),
-        )
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_capture_event_ip_anonymize(self, kafka_produce):
-        data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token}}
-
-        self.team.anonymize_ips = True
-        self.team.save()
-
-        self.client.get(
-            "/e/?data=%s" % quote(self._to_json(data)), HTTP_X_FORWARDED_FOR="1.2.3.4", HTTP_ORIGIN="https://localhost"
-        )
-        self.assertDictContainsSubset(
-            {"distinct_id": "2", "ip": None, "site_url": "http://testserver", "data": data, "team_id": self.team.pk},
             self._to_arguments(kafka_produce),
         )
 
@@ -398,92 +364,6 @@ class TestCapture(BaseTest):
             self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
 
         mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_personal_api_key(self, kafka_produce):
-        key_value = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(key_value))
-        data = {
-            "event": "$autocapture",
-            "api_key": key_value,
-            "project_id": self.team.id,
-            "properties": {
-                "distinct_id": 2,
-                "$elements": [
-                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
-                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
-                ],
-            },
-        }
-        now = timezone.now()
-        with freeze_time(now):
-            with self.assertNumQueries(5):
-                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
-        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
-        arguments = self._to_arguments(kafka_produce)
-        arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
-        self.assertDictEqual(
-            arguments,
-            {
-                "uuid": mock.ANY,
-                "distinct_id": "2",
-                "ip": "127.0.0.1",
-                "site_url": "http://testserver",
-                "data": data,
-                "team_id": self.team.pk,
-            },
-        )
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_personal_api_key_from_batch_request(self, kafka_produce):
-        key_value = generate_random_token_personal()
-        key = PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(key_value))
-        key.save()
-        data = [
-            {
-                "event": "$pageleave",
-                "api_key": key_value,
-                "project_id": self.team.id,
-                "properties": {
-                    "$os": "Linux",
-                    "$browser": "Chrome",
-                    "$device_type": "Desktop",
-                    "distinct_id": "94b03e599131fd5026b",
-                    "token": "fake token",  # as this is invalid, will do API key authentication
-                },
-                "timestamp": "2021-04-20T19:11:33.841Z",
-            }
-        ]
-        response = self.client.get("/e/?data=%s" % quote(self._to_json(data)))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        arguments = self._to_arguments(kafka_produce)
-        arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
-        self.assertDictEqual(
-            arguments,
-            {
-                "uuid": mock.ANY,
-                "distinct_id": "94b03e599131fd5026b",
-                "ip": "127.0.0.1",
-                "site_url": "http://testserver",
-                "data": {
-                    "event": "$pageleave",
-                    "api_key": key_value,
-                    "project_id": self.team.id,
-                    "properties": {
-                        "$os": "Linux",
-                        "$browser": "Chrome",
-                        "$device_type": "Desktop",
-                        "distinct_id": "94b03e599131fd5026b",
-                        "token": "fake token",
-                    },
-                    "timestamp": "2021-04-20T19:11:33.841Z",
-                },
-                "team_id": self.team.id,
-            },
-        )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_multiple_events(self, kafka_produce):
@@ -673,7 +553,7 @@ class TestCapture(BaseTest):
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
                 "data": {**data, "properties": {}},  # type: ignore
-                "team_id": self.team.pk,
+                "token": self.team.api_token,
             },
         )
 
@@ -761,7 +641,7 @@ class TestCapture(BaseTest):
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
                 "data": {**data["batch"][0], "properties": {}},
-                "team_id": self.team.pk,
+                "token": self.team.api_token,
             },
         )
 
@@ -792,7 +672,7 @@ class TestCapture(BaseTest):
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
                 "data": {**data["batch"][0], "properties": {}},
-                "team_id": self.team.pk,
+                "token": self.team.api_token,
             },
         )
 
@@ -822,7 +702,7 @@ class TestCapture(BaseTest):
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
                 "data": {**data["batch"][0], "properties": {}},
-                "team_id": self.team.pk,
+                "token": self.team.api_token,
             },
         )
 
@@ -844,33 +724,9 @@ class TestCapture(BaseTest):
 
         validate_response(openapi_spec, response)
 
-    def test_batch_incorrect_token(self):
-        response = self.client.post(
-            "/batch/",
-            data={
-                "api_key": "this-token-doesnt-exist",
-                "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "whatever"}],
-            },
-            content_type="application/json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(
-            response.json(),
-            self.unauthenticated_response(
-                "Project API key invalid. You can find your project API key in PostHog project settings.",
-                code="invalid_api_key",
-            ),
-        )
-
-        validate_response(openapi_spec, response)
-
-    @override_settings(LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL=True)
-    def test_batch_incorrect_token_with_lightweight_capture(self):
-        # With lightweight capture, we are performing additional checks on the
-        # token. We want to make sure this path works as expected. It could be
-        # more extensively tested, but this is a good start.
-        # TODO: switch all tests to use `LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL=True`
+    def test_batch_incorrect_token_shape(self):
+        # Capture does not validate the token anymore, but runs some basic checks
+        # on the token shape, returning 401s in that case.
         response = self.client.post(
             "/batch/",
             data={
@@ -962,7 +818,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "3",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "team_id": self.team.pk,
+                "token": self.team.api_token,
             },
         )
 
@@ -976,7 +832,7 @@ class TestCapture(BaseTest):
             },
         )
         arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["team_id"], self.team.pk)
+        self.assertEqual(arguments["token"], self.team.api_token)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_base64_decode_variations(self, kafka_produce):
@@ -989,7 +845,7 @@ class TestCapture(BaseTest):
             "/track/", data={"data": base64, "api_key": self.team.api_token}  # main difference in this test
         )
         arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["team_id"], self.team.pk)
+        self.assertEqual(arguments["token"], self.team.api_token)
         self.assertEqual(arguments["distinct_id"], "eeeeeeegϥeeeee")
 
         # POST with " " in the base64 instead of the "+"
@@ -998,7 +854,7 @@ class TestCapture(BaseTest):
             data={"data": base64.replace("+", " "), "api_key": self.team.api_token},  # main difference in this test
         )
         arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["team_id"], self.team.pk)
+        self.assertEqual(arguments["token"], self.team.api_token)
         self.assertEqual(arguments["distinct_id"], "eeeeeeegϥeeeee")
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1192,20 +1048,6 @@ class TestCapture(BaseTest):
         statsd_incr_first_call = statsd_incr.call_args_list[0]
         self.assertEqual(statsd_incr_first_call.args[0], "invalid_event_uuid")
 
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_add_feature_flags_if_missing(self, kafka_produce) -> None:
-        self.assertListEqual(self.team.event_properties_numerical, [])
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test-ff", rollout_percentage=100)
-        self.client.post(
-            "/track/",
-            data={
-                "data": json.dumps([{"event": "purchase", "properties": {"distinct_id": "xxx", "$lib": "web"}}]),
-                "api_key": self.team.api_token,
-            },
-        )
-        arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
-
     def test_handle_lacking_event_name_field(self):
         response = self.client.post(
             "/e/",
@@ -1232,31 +1074,6 @@ class TestCapture(BaseTest):
             self.validation_error_response(
                 'Invalid payload: $snapshot events must contain property "$snapshot_data"!', code="invalid_payload"
             ),
-        )
-
-    def test_batch_request_with_invalid_auth(self):
-        data = [
-            {
-                "event": "$pageleave",
-                "project_id": self.team.id,
-                "properties": {
-                    "$os": "Linux",
-                    "$browser": "Chrome",
-                    "token": "fake token",  # as this is invalid, will do API key authentication
-                },
-                "timestamp": "2021-04-20T19:11:33.841Z",
-            }
-        ]
-        response = self.client.get("/e/?data=%s" % quote(self._to_json(data)))
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "authentication_error",
-                "code": "invalid_personal_api_key",
-                "detail": "Invalid Personal API key.",
-                "attr": None,
-            },
         )
 
     def test_sentry_tracing_headers(self):
@@ -1447,55 +1264,6 @@ class TestCapture(BaseTest):
         self._send_session_recording_event(event_data=data)
         topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
         self.assertGreater(topic_counter[KAFKA_SESSION_RECORDING_EVENTS], 1)
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_database_unavailable(self, kafka_produce):
-        with simulate_postgres_error():
-            # currently we send events to the dead letter queue if Postgres is unavailable
-            data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
-            response = self.client.post(
-                "/batch/", data={"api_key": self.team.api_token, "batch": [data]}, content_type="application/json"
-            )
-            kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
-
-            self.assertEqual(kafka_topic_used, "events_dead_letter_queue_test")
-
-            validate_response(openapi_spec, response)
-
-            # the new behavior (currently defined by LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS)
-            # is to not hit postgres at all in this endpoint, and rather pass the token in the Kafka
-            # message so that the plugin server can handle the team_id and IP anonymization
-            with self.settings(LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS=[self.team.api_token]):
-                data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
-                response = self.client.post(
-                    "/batch/", data={"api_key": self.team.api_token, "batch": [data]}, content_type="application/json"
-                )
-                arguments = self._to_arguments(kafka_produce)
-                arguments.pop("now")  # can't compare fakedate
-                arguments.pop("sent_at")  # can't compare fakedate
-                self.assertDictEqual(
-                    arguments,
-                    {
-                        "uuid": mock.ANY,
-                        "distinct_id": "2",
-                        "ip": "127.0.0.1",
-                        "site_url": "http://testserver",
-                        "data": {**data, "properties": {}},  # type: ignore
-                        "team_id": None,  # this will be set by the plugin server later
-                    },
-                )
-
-                # many tests depend on _to_arguments so changing its behavior is a larger
-                # refactor best suited for another PR, hence accessing the call_args
-                # directly here
-                self.assertEqual(kafka_produce.call_args[1]["data"]["token"], "token123")
-
-                validate_response(openapi_spec, response)
-
-                log_context = structlog.contextvars.get_contextvars()
-                # Lightweight capture doesn't get ingestion_context/team_id.
-                assert "team_id" in log_context
-                assert log_context["team_id"] is None
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_can_override_attributes_important_in_replicator_exports(self, kafka_produce):
