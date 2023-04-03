@@ -18,6 +18,10 @@ export default {
             iframeHeight: 400,
             source: { state: 'close' },
         },
+        testOptions: {
+            waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas',
+        },
+        mockDate: '2023-02-01',
         viewMode: 'story',
     },
 } as ComponentMeta<typeof Exporter>

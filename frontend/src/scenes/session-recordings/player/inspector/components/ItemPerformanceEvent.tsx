@@ -95,7 +95,13 @@ export function ItemPerformanceEvent({
     const bytes = humanizeBytes(item.encoded_body_size || item.decoded_body_size || 0)
     const startTime = item.start_time || item.fetch_start || 0
     const duration = item.duration || 0
-    const eventName = item.name && isURL(item.name) ? new URL(item.name).pathname : item.name || '(empty string)'
+
+    const callerOrigin = isURL(item.current_url) ? new URL(item.current_url).origin : undefined
+    const eventName = item.name || '(empty string)'
+
+    const shortEventName =
+        callerOrigin && eventName.startsWith(callerOrigin) ? eventName.replace(callerOrigin, '') : eventName
+
     const contextLengthMs = finalTimestamp?.diff(dayjs(item.time_origin), 'ms') || 1000
 
     const {
@@ -149,7 +155,7 @@ export function ItemPerformanceEvent({
                         <>
                             <div className="flex gap-2 items-start p-2 text-xs">
                                 <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
-                                    Navigated to {eventName}
+                                    Navigated to {shortEventName}
                                 </span>
                             </div>
                             <LemonDivider className="my-0" />
@@ -184,7 +190,9 @@ export function ItemPerformanceEvent({
                         </>
                     ) : (
                         <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
-                            <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>{eventName}</span>
+                            <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
+                                {shortEventName}
+                            </span>
                             {/* We only show the status if it exists and is an error status */}
                             {otherProps.response_status && otherProps.response_status >= 400 ? (
                                 <span

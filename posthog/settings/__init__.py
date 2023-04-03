@@ -24,6 +24,7 @@ from posthog.settings.access import *
 from posthog.settings.async_migrations import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
+from posthog.settings.demo import *
 from posthog.settings.dynamic_settings import *
 from posthog.settings.ee import *
 from posthog.settings.ingestion import *
@@ -35,7 +36,7 @@ from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *
 from posthog.settings.statsd import *
 from posthog.settings.object_storage import *
-from posthog.settings.demo import *
+from posthog.settings.temporal import *
 from posthog.settings.web import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
@@ -75,11 +76,16 @@ NPM_TOKEN = os.getenv("NPM_TOKEN", None)
 # Whether to capture time-to-see-data metrics
 CAPTURE_TIME_TO_SEE_DATA = get_from_env("CAPTURE_TIME_TO_SEE_DATA", False, type_cast=str_to_bool)
 
+# Whether kea should be act in verbose mode
+KEA_VERBOSE_LOGGING = get_from_env("KEA_VERBOSE_LOGGING", False, type_cast=str_to_bool)
+
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_OVERRIDE = get_from_env("PERSON_ON_EVENTS_OVERRIDE", optional=True, type_cast=str_to_bool)
 
-HOOK_EVENTS: Dict[str, str] = {}
+# Only written in specific scripts - do not use outside of them.
+PERSON_ON_EVENTS_V2_OVERRIDE = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE", optional=True, type_cast=str_to_bool)
 
+HOOK_EVENTS: Dict[str, str] = {}
 
 # Support creating multiple organizations in a single instance. Requires a premium license.
 MULTI_ORG_ENABLED = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)
@@ -94,6 +100,7 @@ AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
 CONTAINER_HOSTNAME = os.getenv("HOSTNAME", "unknown")
 
+PROM_PUSHGATEWAY_ADDRESS = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

@@ -32,7 +32,7 @@ from posthog.constants import (
     OFFSET,
 )
 from posthog.event_usage import report_user_action
-from posthog.models import Cohort, User
+from posthog.models import Cohort, FeatureFlag, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.filters.filter import Filter
@@ -94,12 +94,6 @@ class CohortSerializer(serializers.ModelSerializer):
             if filter_data:
                 insert_cohort_from_insight_filter.delay(cohort.pk, filter_data)
 
-    def _handle_csv(self, file, cohort: Cohort) -> None:
-        decoded_file = file.read().decode("utf-8").splitlines()
-        reader = csv.reader(decoded_file)
-        distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
-        calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
-
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
         Team.objects.get(pk=self.context["team_id"])
@@ -128,6 +122,21 @@ class CohortSerializer(serializers.ModelSerializer):
     def validate_filters(self, request_filters: Dict):
 
         if isinstance(request_filters, dict) and "properties" in request_filters:
+            if self.context["request"].method == "PATCH":
+                parsed_filter = Filter(data=request_filters)
+                instance = cast(Cohort, self.instance)
+                cohort_id = instance.pk
+                flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
+                    team_id=self.context["team_id"], active=True, deleted=False
+                )
+                for prop in parsed_filter.property_groups.flat:
+                    if prop.type == "behavioral":
+                        if [flag for flag in flags if cohort_id in flag.cohort_ids]:
+                            raise serializers.ValidationError(
+                                detail=f"Behavioral filters cannot be added to cohorts used in feature flags.",
+                                code="behavioral_cohort_found",
+                            )
+
             return request_filters
         else:
             raise ValidationError("Filters must be a dictionary with a 'properties' key.")

@@ -27,7 +27,6 @@ import { userLogic } from 'scenes/userLogic'
 import { insightLogic } from '../insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { InsightTypeSelector } from './InsightTypeSelector'
 import './EditorFilters.scss'
 import clsx from 'clsx'
 import { Attribution } from './AttributionFilter'
@@ -39,7 +38,7 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { SamplingFilter } from './SamplingFilter'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -56,7 +55,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
     const isTrends = isTrendsFilter(filters)
     const isLifecycle = isLifecycleFilter(filters)
@@ -82,13 +80,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
         {
             title: 'General',
             editorFilters: filterFalsy([
-                usingEditorPanels
-                    ? {
-                          key: 'insight',
-                          label: 'Type',
-                          component: InsightTypeSelector,
-                      }
-                    : undefined,
                 isRetention && {
                     key: 'retention-summary',
                     label: 'Retention Summary',
@@ -170,7 +161,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                     : null,
                 {
                     key: 'properties',
-                    label: !usingEditorPanels ? 'Filters' : undefined,
+                    label: 'Filters',
                     position: 'right',
                     component: GlobalAndOrFilters,
                 },
@@ -204,8 +195,10 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
 
                           tooltip: (
                               <div>
-                                  Attribution type determines which property value to use for the entire funnel.
-                                  <ul className="list-disc pl-4">
+                                  When breaking funnels down by a property, you can choose how to assign users to the
+                                  various property values. This is useful because property values can change for a
+                                  user/group as someone travels through the funnel.
+                                  <ul className="list-disc pl-4 pt-4">
                                       <li>First step: the first property value seen from all steps is chosen.</li>
                                       <li>Last step: last property value seen from all steps is chosen.</li>
                                       <li>Specific step: the property value seen at that specific step is chosen.</li>
@@ -244,11 +237,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             editorFilters: filterFalsy([
                 isPaths && {
                     key: 'paths-advanced',
-                    component: (props) => (
-                        <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
-                            <PathsAdvanced {...props} />
-                        </PayGateMini>
-                    ),
+                    component: PathsAdvanced,
                 },
                 isFunnels && {
                     key: 'funnels-advanced',
@@ -256,51 +245,56 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                 },
             ]),
         },
+        {
+            title: 'Sampling',
+            position: 'right',
+            editorFilters: filterFalsy([
+                {
+                    key: 'sampling',
+                    label: '',
+                    position: 'right',
+                    component: SamplingFilter,
+                },
+            ]),
+        },
     ].filter((x) => x.editorFilters.length > 0)
 
-    let legacyEditorFilterGroups: InsightEditorFilterGroup[] = []
+    const leftFilters = editorFilters.reduce(
+        (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position !== 'right')),
+        [] as InsightEditorFilter[]
+    )
+    const rightFilters = editorFilters.reduce(
+        (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position === 'right')),
+        [] as InsightEditorFilter[]
+    )
 
-    if (!usingEditorPanels) {
-        const leftFilters = editorFilters.reduce(
-            (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position !== 'right')),
-            [] as InsightEditorFilter[]
-        )
-        const rightFilters = editorFilters.reduce(
-            (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position === 'right')),
-            [] as InsightEditorFilter[]
-        )
-
-        legacyEditorFilterGroups = [
-            {
-                title: 'Left',
-                editorFilters: leftFilters,
-            },
-            {
-                title: 'right',
-                editorFilters: rightFilters,
-            },
-        ]
-    }
+    const legacyEditorFilterGroups: InsightEditorFilterGroup[] = [
+        {
+            title: 'Left',
+            editorFilters: leftFilters,
+        },
+        {
+            title: 'right',
+            editorFilters: rightFilters,
+        },
+    ]
 
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <div
                 className={clsx('EditorFiltersWrapper', {
-                    'EditorFiltersWrapper--editorpanels': usingEditorPanels,
-                    'EditorFiltersWrapper--singlecolumn': usingEditorPanels || isFunnels,
+                    'EditorFiltersWrapper--singlecolumn': isFunnels,
                 })}
             >
                 <div className="EditorFilters">
-                    {(usingEditorPanels || isFunnels ? editorFilters : legacyEditorFilterGroups).map(
-                        (editorFilterGroup) => (
-                            <EditorFilterGroup
-                                key={editorFilterGroup.title}
-                                editorFilterGroup={editorFilterGroup}
-                                insight={insight}
-                                insightProps={insightProps}
-                            />
-                        )
-                    )}
+                    {(isFunnels ? editorFilters : legacyEditorFilterGroups).map((editorFilterGroup) => (
+                        <EditorFilterGroup
+                            key={editorFilterGroup.title}
+                            editorFilterGroup={editorFilterGroup}
+                            insight={insight}
+                            insightProps={insightProps}
+                        />
+                    ))}
                 </div>
             </div>
         </CSSTransition>

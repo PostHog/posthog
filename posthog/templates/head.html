@@ -22,6 +22,7 @@
     window.JS_POSTHOG_HOST = {{js_posthog_host | safe}};
     window.JS_POSTHOG_SELF_CAPTURE = {{self_capture | yesno:"true,false" }};
     window.POSTHOG_USER_IDENTITY_WITH_FLAGS = JSON.parse("{{ posthog_bootstrap | escapejs }}")
+    window.IMPERSONATED_SESSION = {{impersonated_session | yesno:"true,false"}};
     </script>
 {% endif %}
 {% if sentry_dsn %}
@@ -34,4 +35,5 @@
     // frontent JS from a CDN
     window.JS_URL = "{{ js_url|default:"" }}";
     window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
+    window.JS_KEA_VERBOSE_LOGGING = {{js_kea_verbose_logging | yesno:"true,false"}};
 </script>

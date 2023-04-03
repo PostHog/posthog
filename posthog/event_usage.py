@@ -38,6 +38,7 @@ def report_user_signed_up(
         "realm": get_instance_realm(),
         "role_at_organization": role_at_organization,
         "referral_source": referral_source,
+        "is_email_verified": user.is_email_verified,
     }
     if user_analytics_metadata is not None:
         props.update(user_analytics_metadata)
@@ -55,8 +56,21 @@ def report_user_signed_up(
     )
 
 
+def report_user_verified_email(current_user: User) -> None:
+    """
+    Triggered after a user verifies their email address.
+    """
+    posthoganalytics.capture(
+        current_user.distinct_id,
+        "user verified email",
+        properties={
+            "$set": current_user.get_analytics_metadata(),
+        },
+    )
+
+
 def alias_invite_id(user: User, invite_id: str) -> None:
-    posthoganalytics.alias(f"invite_{invite_id}", user.distinct_id)
+    posthoganalytics.alias(user.distinct_id, f"invite_{invite_id}")
 
 
 def report_user_joined_organization(organization: Organization, current_user: User) -> None:
@@ -205,8 +219,25 @@ def groups(organization: Optional[Organization] = None, team: Optional[Team] = N
     return result
 
 
-def report_team_action(team: Team, event: str, properties: Dict = {}):
+def report_team_action(team: Team, event: str, properties: Dict = {}, group_properties: Optional[Dict] = None):
     """
     For capturing events where it is unclear which user was the core actor we can use the team instead
     """
     posthoganalytics.capture(str(team.uuid), event, properties=properties, groups=groups(team=team))
+
+    if group_properties:
+        posthoganalytics.group_identify("team", str(team.id), properties=group_properties)
+
+
+def report_organization_action(
+    organization: Organization, event: str, properties: Dict = {}, group_properties: Optional[Dict] = None
+):
+    """
+    For capturing events where it is unclear which user was the core actor we can use the organization instead
+    """
+    posthoganalytics.capture(
+        str(organization.id), event, properties=properties, groups=groups(organization=organization)
+    )
+
+    if group_properties:
+        posthoganalytics.group_identify("organization", str(organization.id), properties=group_properties)

@@ -11,7 +11,7 @@ from statshog.defaults.django import statsd
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import User
 from posthog.models.filters.utils import get_filter
-from posthog.utils import should_refresh
+from posthog.utils import refresh_requested_by_client
 
 from .utils import generate_cache_key, get_safe_cache
 
@@ -46,7 +46,7 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
         tag_queries(cache_key=cache_key)
 
         # return cached result when possible
-        if not should_refresh(request):
+        if not refresh_requested_by_client(request):
             cached_result_package = get_safe_cache(cache_key)
 
             # ignore the bare exception warning. we never want this to fail

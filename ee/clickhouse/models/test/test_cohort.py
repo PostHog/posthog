@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from unittest.mock import patch
 
 from django.utils import timezone
 from freezegun import freeze_time
@@ -16,7 +15,7 @@ from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.util import PersonPropertiesMode
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -26,6 +25,7 @@ from posthog.test.base import (
     snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
 )
+from posthog.utils import PersonOnEventsMode
 
 
 def _create_action(**kwargs):
@@ -109,9 +109,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -151,9 +151,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -166,9 +166,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -208,9 +208,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -223,9 +223,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -364,32 +364,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         results = self._get_cohortpeople(cohort1)
         self.assertEqual(len(results), 2)
-
-    @patch("time.sleep", return_value=None)
-    def test_cohortpeople_basic_paginating(self, mock_sleep):
-        for i in range(15):
-            Person.objects.create(
-                team_id=self.team.pk,
-                distinct_ids=[f"{i}"],
-                properties={"$some_prop": "something", "$another_prop": "something"},
-            )
-
-        cohort1: Cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {
-                    "properties": [
-                        {"key": "$some_prop", "value": "something", "type": "person"},
-                        {"key": "$another_prop", "value": "something", "type": "person"},
-                    ]
-                }
-            ],
-            name="cohort1",
-        )
-
-        cohort1.calculate_people(new_version=cohort1.version, batch_size=2, pg_batch_size=1)
-
-        self.assertEqual(len(cohort1.people.all()), 15)
 
     def test_cohortpeople_action_basic(self):
         action = _create_action(team=self.team, name="$pageview")
@@ -598,12 +572,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.calculate_people_ch(pending_version=0)
 
         with freeze_time((datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")):
-            _create_person(
-                uuid=p2.uuid,
-                team_id=self.team.pk,
-                version=1,
-                properties={"$some_prop": "another", "$another_prop": "another"},
-            )
+            p2.version = 1
+            p2.properties = ({"$some_prop": "another", "$another_prop": "another"},)
+            p2.save()
 
         cohort1.calculate_people_ch(pending_version=1)
 
@@ -670,7 +641,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            sql, _ = format_filter_query(cohort, 0, HogQLContext())
+            sql, _ = format_filter_query(cohort, 0, HogQLContext(team_id=self.team.pk))
             self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):

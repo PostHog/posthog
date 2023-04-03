@@ -81,9 +81,11 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "uuid",
             "name",
             "api_token",
+            "autocapture_opt_out",
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
             "session_recording_opt_in",
+            "session_recording_version",
             "recording_domains",
             "inject_web_apps",
         ]
@@ -117,9 +119,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "data_attributes",
             "person_display_name_properties",
             "correlation_config",
+            "autocapture_opt_out",
             "session_recording_opt_in",
             "capture_console_log_opt_in",
             "capture_performance_opt_in",
+            "session_recording_version",
             "effective_membership_level",
             "access_control",
             "has_group_types",
@@ -170,6 +174,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             )
             if org_membership.level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied(OrganizationAdminAnyPermissions.message)
+
+        if "session_recording_version" in attrs:
+            if attrs["session_recording_version"] not in ["v1", "v2"]:
+                raise exceptions.ValidationError("Invalid session recording version")
 
         return super().validate(attrs)
 

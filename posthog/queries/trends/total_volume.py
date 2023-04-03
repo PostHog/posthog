@@ -2,6 +2,7 @@ import urllib.parse
 from datetime import date, datetime
 from typing import Any, Callable, Dict, List, Tuple, Union
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
     MONTHLY_ACTIVE,
     NON_TIME_SERIES_DISPLAY_TYPES,
@@ -38,7 +39,7 @@ from posthog.queries.trends.util import (
     process_math,
 )
 from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch
-from posthog.utils import encode_get_request_params
+from posthog.utils import PersonOnEventsMode, encode_get_request_params
 
 
 class TrendsTotalVolume:
@@ -50,7 +51,9 @@ class TrendsTotalVolume:
             entity,
             team,
             event_table_alias=TrendsEventQuery.EVENT_TABLE_ALIAS,
-            person_id_alias=f"person_id" if team.person_on_events_querying_enabled else "pdi.person_id",
+            person_id_alias=f"person_id"
+            if team.person_on_events_mode != PersonOnEventsMode.DISABLED
+            else "pdi.person_id",
         )
 
         trend_event_query = TrendsEventQuery(
@@ -61,7 +64,7 @@ class TrendsTotalVolume:
             if join_condition != ""
             or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
             else False,
-            using_person_on_events=team.person_on_events_querying_enabled,
+            person_on_events_mode=team.person_on_events_mode,
         )
         event_query_base, event_query_params = trend_event_query.get_query_base()
 
@@ -75,7 +78,9 @@ class TrendsTotalVolume:
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
+            tag_queries(trend_volume_display="non_time_series")
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                tag_queries(trend_volume_type="active_users")
                 content_sql = ACTIVE_USERS_AGGREGATE_SQL.format(
                     event_query_base=event_query_base,
                     aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
@@ -85,23 +90,28 @@ class TrendsTotalVolume:
             elif entity.math in PROPERTY_MATH_FUNCTIONS and entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
+                tag_queries(trend_volume_type="session_duration_math")
                 content_sql = SESSION_DURATION_AGGREGATE_SQL.format(
                     event_query_base=event_query_base, **content_sql_params
                 )
             elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
+                tag_queries(trend_volume_type="count_per_actor")
                 content_sql = VOLUME_PER_ACTOR_AGGREGATE_SQL.format(
                     event_query_base=event_query_base,
                     **content_sql_params,
                     aggregator=determine_aggregator(entity, team),
                 )
             else:
+                tag_queries(trend_volume_type="volume_aggregate")
                 content_sql = VOLUME_AGGREGATE_SQL.format(event_query_base=event_query_base, **content_sql_params)
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
         else:
+            tag_queries(trend_volume_display="time_series")
             null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                tag_queries(trend_volume_type="active_users")
                 content_sql = ACTIVE_USERS_SQL.format(
                     event_query_base=event_query_base,
                     parsed_date_to=trend_event_query.parsed_date_to,
@@ -110,9 +120,9 @@ class TrendsTotalVolume:
                     **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
-                # null_sql = ""
             elif filter.display == TRENDS_CUMULATIVE and entity.math in (UNIQUE_USERS, UNIQUE_GROUPS):
                 # :TODO: Consider using bitmap-per-date to speed this up
+                tag_queries(trend_volume_type="cumulative_actors")
                 cumulative_sql = CUMULATIVE_SQL.format(
                     actor_expression=determine_aggregator(entity, team),
                     event_query_base=event_query_base,
@@ -124,6 +134,7 @@ class TrendsTotalVolume:
                     **content_sql_params,
                 )
             elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
+                tag_queries(trend_volume_type="count_per_actor")
                 # Calculate average number of events per actor
                 # (only including actors with at least one matching event in a period)
                 content_sql = VOLUME_PER_ACTOR_SQL.format(
@@ -132,6 +143,7 @@ class TrendsTotalVolume:
                     **content_sql_params,
                 )
             elif entity.math_property == "$session_duration":
+                tag_queries(trend_volume_type="session_duration_math")
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_SQL.format(
@@ -139,6 +151,7 @@ class TrendsTotalVolume:
                     **content_sql_params,
                 )
             else:
+                tag_queries(trend_volume_type="volume")
                 content_sql = VOLUME_SQL.format(
                     timestamp_column="timestamp",
                     event_query_base=event_query_base,
@@ -175,7 +188,7 @@ class TrendsTotalVolume:
             parsed_results = []
             if result is not None:
                 for stats in result:
-                    parsed_result = parse_response(stats, filter)
+                    parsed_result = parse_response(stats, filter, entity=entity)
                     point_dates: List[Union[datetime, date]] = stats[0]
                     # Ensure we have datetimes for all points
                     point_datetimes: List[datetime] = [

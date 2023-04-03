@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import insight from '../__mocks__/trendsLine.json'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId } from '~/types'
-import { createInsightScene } from 'scenes/insights/__mocks__/createInsightScene'
+import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 import { App } from 'scenes/App'
 
 // some metadata and optional parameters
@@ -86,4 +86,4 @@ export function TimeoutState(): JSX.Element {
     return <App />
 }
 
-export const FunnelSingleStep = createInsightScene(funnelOneStep as any)
+export const FunnelSingleStep = createInsightStory(funnelOneStep as any)

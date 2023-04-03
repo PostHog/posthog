@@ -33,6 +33,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import api from 'lib/api'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -272,17 +273,6 @@ describe('insightLogic', () => {
                 filters: partial({ hidden_legend_keys: { 0: true, 10: true } }),
             })
         })
-        it('setHiddenById', async () => {
-            logic = insightLogic({
-                dashboardItemId: undefined,
-            })
-            logic.mount()
-
-            expectLogic(logic, () => {
-                logic.actions.setHiddenById({ '0': true, '2': false })
-                logic.actions.setHiddenById({ '8': true, '2': true })
-            }).toMatchValues({ hiddenLegendKeys: { 0: true, 2: true, 8: true } })
-        })
         it('toggleVisibility', async () => {
             logic = insightLogic({
                 dashboardItemId: undefined,
@@ -370,6 +360,38 @@ describe('insightLogic', () => {
             })
         })
 
+        describe('props with query and cached results', () => {
+            beforeEach(() => {
+                logic = insightLogic({
+                    dashboardItemId: Insight42,
+                    cachedInsight: {
+                        short_id: Insight42,
+                        results: ['cached result'],
+                        filters: {},
+                        query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                    },
+                })
+                logic.mount()
+            })
+
+            it('has the key set to the id', () => {
+                expect(logic.key).toEqual('42')
+            })
+
+            it('no query to load results', async () => {
+                await expectLogic(logic)
+                    .toMatchValues({
+                        insight: partial({
+                            short_id: Insight42,
+                            results: ['cached result'],
+                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                        }),
+                        filters: {},
+                    })
+                    .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
+            })
+        })
+
         describe('props with filters, no cached results', () => {
             it('makes a query to load the results', async () => {
                 logic = insightLogic({
@@ -405,6 +427,36 @@ describe('insightLogic', () => {
                     .delay(1)
                     // do not override the insight if querying with different filters
                     .toNotHaveDispatchedActions(['updateInsight', 'updateInsightSuccess'])
+            })
+        })
+
+        describe('props with query, no cached results', () => {
+            it('still does not make a query to load the results', async () => {
+                logic = insightLogic({
+                    dashboardItemId: Insight42,
+                    cachedInsight: {
+                        short_id: Insight42,
+                        results: undefined,
+                        filters: {},
+                        query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                    },
+                })
+                logic.mount()
+
+                await expectLogic(logic)
+                    .toDispatchActions([])
+                    .toMatchValues({
+                        insight: partial({ short_id: Insight42, query: { kind: NodeKind.TimeToSeeDataSessionsQuery } }),
+                        filters: {},
+                    })
+                    .delay(1)
+                    // do not override the insight if querying with different filters
+                    .toNotHaveDispatchedActions([
+                        'loadResults',
+                        'loadResultsSuccess',
+                        'updateInsight',
+                        'updateInsightSuccess',
+                    ])
             })
         })
 
@@ -968,20 +1020,43 @@ describe('insightLogic', () => {
         })
     })
 
-    describe('setFilters with new entity', () => {
-        it('does not call the api on empty filters', async () => {
+    describe('emptyFilters', () => {
+        let theEmptyFiltersLogic: ReturnType<typeof insightLogic.build>
+        beforeEach(() => {
             const insight = {
                 result: ['result from api'],
             }
-            logic = insightLogic({
+            theEmptyFiltersLogic = insightLogic({
                 dashboardItemId: undefined,
                 cachedInsight: insight,
             })
-            logic.mount()
+            theEmptyFiltersLogic.mount()
+        })
 
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
+        it('does not call the api on setting empty filters', async () => {
+            await expectLogic(theEmptyFiltersLogic, () => {
+                theEmptyFiltersLogic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
             }).toNotHaveDispatchedActions(['loadResults'])
+        })
+
+        it('does not call the api on update when empty filters and no query', async () => {
+            await expectLogic(theEmptyFiltersLogic, () => {
+                theEmptyFiltersLogic.actions.updateInsight({
+                    name: 'name',
+                    filters: {},
+                    query: undefined,
+                })
+            }).toNotHaveDispatchedActions(['updateInsightSuccess'])
+        })
+
+        it('does call the api on update when empty filters but query is present', async () => {
+            await expectLogic(theEmptyFiltersLogic, () => {
+                theEmptyFiltersLogic.actions.updateInsight({
+                    name: 'name',
+                    filters: {},
+                    query: { kind: NodeKind.DataTableNode } as DataTableNode,
+                })
+            }).toDispatchActions(['updateInsightSuccess'])
         })
     })
 
@@ -1271,6 +1346,42 @@ describe('insightLogic', () => {
                     `api/projects/${MOCK_TEAM_ID}/insights/cancel`,
                     {
                         client_query_id: seenQueryIDs[seenQueryIDs.length - 2],
+                    },
+                ],
+            ])
+        })
+    })
+
+    describe('saving query based insights', () => {
+        beforeEach(async () => {
+            logic = insightLogic({
+                dashboardItemId: 'new',
+            })
+            logic.mount()
+        })
+
+        it('sends query when saving', async () => {
+            jest.spyOn(api, 'create')
+
+            await expectLogic(logic, () => {
+                logic.actions.setInsight(
+                    { filters: {}, query: { kind: NodeKind.DataTableNode } as DataTableNode },
+                    { overrideFilter: true }
+                )
+                logic.actions.saveInsight()
+            })
+
+            const mockCreateCalls = (api.create as jest.Mock).mock.calls
+            expect(mockCreateCalls).toEqual([
+                [
+                    `api/projects/${MOCK_TEAM_ID}/insights/`,
+                    {
+                        derived_name: '',
+                        filters: {},
+                        query: {
+                            kind: 'DataTableNode',
+                        },
+                        saved: true,
                     },
                 ],
             ])

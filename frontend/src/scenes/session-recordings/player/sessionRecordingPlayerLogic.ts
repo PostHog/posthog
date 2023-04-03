@@ -17,6 +17,7 @@ import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     comparePlayerPositions,
+    deleteRecording,
     getPlayerPositionFromPlayerTime,
     getPlayerTimeFromPlayerPosition,
     getSegmentFromPlayerPosition,
@@ -28,7 +29,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { delay } from 'kea-test-utils'
 import { ExportedSessionRecordingFile } from '../file-playback/sessionRecordingFilePlaybackLogic'
 import { userLogic } from 'scenes/userLogic'
-import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
+import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { wrapConsole } from 'lib/utils/wrapConsole'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -118,6 +123,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
         updateFromMetadata: true,
         exportRecordingToFile: true,
+        deleteRecording: true,
     }),
     reducers(({ props }) => ({
         rootFrame: [
@@ -319,7 +325,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const initialSegment = values.sessionPlayerData?.metadata?.segments[0]
             if (initialSegment) {
                 actions.setCurrentSegment(initialSegment)
-                actions.setCurrentPlayerPosition(initialSegment.startPlayerPosition)
+
+                // Ensure seek time initialized from url doesn't get overwritten
+                if (!cache.initializedFromUrl) {
+                    actions.setCurrentPlayerPosition(initialSegment.startPlayerPosition)
+                }
 
                 if (!values.player) {
                     actions.tryInitReplayer()
@@ -657,17 +667,38 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 pending: 'Exporting recording...',
             })
         },
+        deleteRecording: async () => {
+            await deleteRecording(props.sessionRecordingId)
+
+            // Handles locally updating recordings sidebar so that we don't have to call expensive load recordings every time.
+            const listLogic =
+                !!props.playlistShortId &&
+                sessionRecordingsListLogic.isMounted({ playlistShortId: props.playlistShortId })
+                    ? // On playlist page
+                      sessionRecordingsListLogic({ playlistShortId: props.playlistShortId })
+                    : // In any other context with a list of recordings (recent recordings)
+                      sessionRecordingsListLogic.findMounted({ updateSearchParams: true })
+
+            if (listLogic) {
+                listLogic.actions.loadAllRecordings()
+                // Reset selected recording to first one in the list
+                listLogic.actions.setSelectedRecordingId(null)
+            } else if (router.values.location.pathname.includes('/recordings')) {
+                // On a page that displays a single recording `recordings/:id` that doesn't contain a list
+                router.actions.push(urls.sessionRecordings())
+            } else {
+                // No-op a modal session recording. Delete icon is hidden in modal contexts since modals should be read only views.
+            }
+        },
     })),
     windowValues({
         isSmallScreen: (window: any) => window.innerWidth < getBreakpoint('md'),
     }),
     events(({ values, actions, cache }) => ({
         beforeUnmount: () => {
+            cache.resetConsoleWarn?.()
             values.player?.replayer?.pause()
             actions.setPlayer(null)
-            if (cache.originalWarning) {
-                console.warn = cache.originalWarning
-            }
             actions.reportRecordingViewedSummary({
                 viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
                 recording_duration_ms: values.sessionPlayerData?.metadata
@@ -691,13 +722,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             cache.openTime = performance.now()
-            cache.originalWarning = console.warn
-            console.warn = function (...args: Array<unknown>) {
+
+            cache.resetConsoleWarn = wrapConsole('warn', (args) => {
                 if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
                     actions.incrementWarningCount()
                 }
-                cache.originalWarning(...args)
-            }
+            })
         },
     })),
 ])

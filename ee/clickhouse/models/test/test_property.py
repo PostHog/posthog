@@ -23,10 +23,10 @@ from posthog.models.property.util import (
     prop_filter_json_extract,
 )
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_optimizer import PropertyOptimizer
+from posthog.queries.util import PersonPropertiesMode
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -1011,10 +1011,11 @@ def test_events(db, team) -> List[UUID]:
 
 @pytest.fixture
 def clean_up_materialised_columns():
-    yield
-
-    # after test cleanup
-    cleanup_materialized_columns()
+    try:
+        yield
+    finally:
+        # after test cleanup
+        cleanup_materialized_columns()
 
 
 TEST_PROPERTIES = [

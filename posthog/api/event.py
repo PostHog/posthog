@@ -18,12 +18,8 @@ from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import Element, Filter, Person
-from posthog.models.event.query_event_list import (
-    QUERY_DEFAULT_EXPORT_LIMIT,
-    QUERY_DEFAULT_LIMIT,
-    QUERY_MAXIMUM_LIMIT,
-    query_events_list,
-)
+from posthog.models.event.events_query import QUERY_DEFAULT_EXPORT_LIMIT, QUERY_DEFAULT_LIMIT, QUERY_MAXIMUM_LIMIT
+from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import GET_CUSTOM_EVENTS, SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
@@ -31,7 +27,7 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.property_values import get_property_values_for_key
-from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.utils import convert_property_value, flatten
 
 
@@ -58,7 +54,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     serializer_class = ClickhouseEventSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
+    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
 
     def _build_next_url(self, request: request.Request, last_event_timestamp: datetime, order_by: List[str]) -> str:
         params = request.GET.dict()

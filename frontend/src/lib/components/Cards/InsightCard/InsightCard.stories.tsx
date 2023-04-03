@@ -181,7 +181,7 @@ const EXAMPLE_TRENDS: InsightModel = {
         uuid: uuid(),
         distinct_id: 'xyz',
         first_name: 'Michael',
-        email: 'michael@posthog.com',
+        email: 'michael@example.com',
     },
     description: 'Shows the number of unique users that use your app every day.',
     updated_at: '2021-12-14T12:58:26.665942Z',
@@ -262,7 +262,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
         uuid: '017ef865-19da-0000-3b60-1506093bf40f',
         distinct_id: '7Qj57yoNMQfmdFnZEn0Lb68RzNh7Rh5AgkubTCKK7FZ',
         first_name: 'Michael',
-        email: 'michael@posthog.com',
+        email: 'michael@example.com',
     },
     description: '',
     updated_at: '2022-02-16T19:49:55.741547Z',
@@ -275,7 +275,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
         uuid: '017ef865-19da-0000-3b60-1506093bf40f',
         distinct_id: '7Qj57yoNMQfmdFnZEn0Lb68RzNh7Rh5AgkubTCKK7FZ',
         first_name: 'Michael',
-        email: 'michael@posthog.com',
+        email: 'michael@example.com',
     },
     is_sample: false,
     effective_restriction_level: 21,
@@ -334,6 +334,7 @@ export const InsightCard: Story = (args) => {
                     removeFromDashboard={() => setWasItemRemoved(true)}
                     rename={() => {}}
                     duplicate={() => {}}
+                    placement={'SavedInsightGrid'}
                 />
             )}
             <InsightCardComponent
@@ -346,11 +347,13 @@ export const InsightCard: Story = (args) => {
                 }}
                 rename={() => {}}
                 duplicate={() => {}}
+                placement={'SavedInsightGrid'}
             />
             <InsightCardComponent
                 insight={{ ...EXAMPLE_TRENDS, name: '', description: '', last_modified_by: null }}
                 rename={() => {}}
                 duplicate={() => {}}
+                placement={'SavedInsightGrid'}
             />
             <InsightCardComponent
                 insight={{
@@ -361,11 +364,13 @@ export const InsightCard: Story = (args) => {
                 }}
                 rename={() => {}}
                 duplicate={() => {}}
+                placement={'SavedInsightGrid'}
             />
             <InsightCardComponent
                 insight={{ ...EXAMPLE_FUNNEL, name: 'What a plentiful funnel' }}
                 rename={() => {}}
                 duplicate={() => {}}
+                placement={'SavedInsightGrid'}
             />
             <InsightCardComponent
                 insight={{
@@ -377,6 +382,7 @@ export const InsightCard: Story = (args) => {
                 }}
                 rename={() => {}}
                 duplicate={() => {}}
+                placement={'SavedInsightGrid'}
             />
         </div>
     )

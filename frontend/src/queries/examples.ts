@@ -5,6 +5,7 @@ import {
     EventsNode,
     EventsQuery,
     FunnelsQuery,
+    HogQLQuery,
     LegacyQuery,
     LifecycleQuery,
     Node,
@@ -13,8 +14,9 @@ import {
     PersonsNode,
     RetentionQuery,
     StickinessQuery,
-    TimeToSeeDataQuery,
+    TimeToSeeDataJSONNode,
     TimeToSeeDataSessionsQuery,
+    TimeToSeeDataWaterfallNode,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -35,6 +37,7 @@ const Events: EventsQuery = {
     properties: [
         { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
     ],
+    after: '-24h',
     limit: 100,
 }
 
@@ -53,7 +56,7 @@ const TotalEvents: EventsQuery = {
     select: ['count()'],
 }
 
-const TotalEventsTable: DataTableNode = {
+export const TotalEventsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
     source: TotalEvents,
@@ -65,7 +68,7 @@ const PropertyFormulas: EventsQuery = {
         '1 + 2 + 3',
         'event',
         'person.created_at',
-        "concat(properties['$browser'], ' 💚 ', properties['$geoip_city_name']) # Browser 💚 City",
+        "concat(properties['$browser'], ' 💚 ', properties['$geoip_city_name']) -- Browser 💚 City",
         "'random string'",
     ],
     limit: 100,
@@ -83,9 +86,9 @@ const EventAggregations: DataTableNode = {
     source: {
         kind: NodeKind.EventsQuery,
         select: [
-            "concat(properties['$geoip_city_name'], ' ', 'Rocks') # City",
+            "concat(properties['$geoip_city_name'], ' ', 'Rocks') -- City",
             'event',
-            'count() + 100000 # Inflamed total',
+            'count() + 100000 -- Inflamed total',
             '1 + 2',
         ],
         orderBy: ['-count()'],
@@ -265,15 +268,92 @@ const InsightLifecycleQuery: LifecycleQuery = {
     },
 }
 
-const TimeToSeeDataSessions: TimeToSeeDataSessionsQuery = {
+const TimeToSeeDataSessionsTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    columns: [
+        'session_id',
+        'session_start',
+        'session_end',
+        'duration_ms',
+        'team_events_last_month',
+        'events_count',
+        'interactions_count',
+        'total_interaction_time_to_see_data_ms',
+        'frustrating_interactions_count',
+        'user.email',
+    ],
+    source: {
+        kind: NodeKind.TimeToSeeDataSessionsQuery,
+    },
+}
+
+const TimeToSeeDataSessionsJSON: TimeToSeeDataSessionsQuery = {
     kind: NodeKind.TimeToSeeDataSessionsQuery,
 }
 
-const TimeToSeeData: TimeToSeeDataQuery = {
-    kind: NodeKind.TimeToSeeDataQuery,
+const TimeToSeeDataJSON: TimeToSeeDataJSONNode = {
+    kind: NodeKind.TimeToSeeDataSessionsJSONNode,
+    source: {
+        kind: NodeKind.TimeToSeeDataQuery,
+        sessionId: 'complete_me',
+        sessionStart: 'iso_date',
+        sessionEnd: 'iso_date',
+    },
 }
 
-export const examples: Record<string, Node> = {
+const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
+    kind: NodeKind.TimeToSeeDataSessionsWaterfallNode,
+    source: {
+        kind: NodeKind.TimeToSeeDataQuery,
+        sessionId: 'complete_me',
+        sessionStart: 'iso_date',
+        sessionEnd: 'iso_date',
+    },
+}
+
+const RecentPageViewsWithPerformance: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.RecentPerformancePageViewNode,
+        dateRange: {
+            date_to: null,
+            date_from: '-2h',
+        },
+    },
+    columns: ['page_url', 'duration', 'timestamp', 'context.columns.waterfallButton'],
+    expandable: false,
+    showExport: false,
+    showReload: true,
+    showActions: false,
+    showEventFilter: false,
+    showPropertyFilter: false,
+    showColumnConfigurator: false,
+}
+
+const HogQLRaw: HogQLQuery = {
+    kind: NodeKind.HogQLQuery,
+    query: `   select event,
+          person.properties.email,
+          properties.$browser,
+          count()
+     from events
+    where timestamp > now () - interval 1 day
+      and person.properties.email is not null
+ group by event,
+          properties.$browser,
+          person.properties.email
+ order by count() desc
+    limit 100`,
+}
+
+const HogQLTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: HogQLRaw,
+}
+
+/* a subset of examples including only those we can show all users and that don't use HogQL */
+export const queryExamples: Record<string, Node> = {
     Events,
     EventsTable,
     EventsTableFull,
@@ -290,8 +370,21 @@ export const examples: Record<string, Node> = {
     InsightPathsQuery,
     InsightStickinessQuery,
     InsightLifecycleQuery,
-    TimeToSeeDataSessions,
-    TimeToSeeData,
+    RecentPageViewsWithPerformance,
+}
+
+export const stringifiedQueryExamples: Record<string, string> = Object.fromEntries(
+    Object.entries(queryExamples).map(([key, node]) => [key, JSON.stringify(node)])
+)
+
+export const examples: Record<string, Node> = {
+    ...queryExamples,
+    TimeToSeeDataSessionsTable,
+    TimeToSeeDataSessionsJSON,
+    TimeToSeeDataWaterfall,
+    TimeToSeeDataJSON,
+    HogQLRaw,
+    HogQLTable,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(

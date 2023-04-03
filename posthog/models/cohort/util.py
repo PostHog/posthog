@@ -31,6 +31,7 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 # temporary marker to denote when cohortpeople table started being populated
@@ -197,7 +198,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
         hogql_context=filter.hogql_context,
     )
 
-    results = sync_execute(
+    results = insight_sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
             person_query=GET_LATEST_PERSON_SQL,
             distinct_query=filter_query,
@@ -207,6 +208,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
             limit="ORDER BY _timestamp ASC LIMIT %(limit)s" if limit else "",
         ),
         {**filter_params, "team_id": team.pk, "offset": offset, "limit": limit},
+        query_type="get_person_ids_by_cohort_id",
     )
 
     return [str(row[0]) for row in results]
@@ -228,7 +230,7 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
-    hogql_context = HogQLContext()
+    hogql_context = HogQLContext(within_non_hogql_query=True, team_id=cohort.team_id)
     cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
 
     before_count = get_cohort_size(cohort.pk, cohort.team_id)
@@ -360,3 +362,24 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
     cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
     static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
     return [*cohort_ids, *static_cohort_ids]
+
+
+def get_dependent_cohorts(cohort: Cohort) -> List[Cohort]:
+    cohorts = []
+    seen_cohort_ids = set()
+    seen_cohort_ids.add(cohort.id)
+
+    queue = [prop.value for prop in cohort.properties.flat if prop.type == "cohort"]
+
+    while queue:
+        cohort_id = queue.pop()
+        try:
+            cohort = Cohort.objects.get(pk=cohort_id)
+            if cohort.id not in seen_cohort_ids:
+                cohorts.append(cohort)
+                seen_cohort_ids.add(cohort.id)
+                queue += [prop.value for prop in cohort.properties.flat if prop.type == "cohort"]
+        except Cohort.DoesNotExist:
+            continue
+
+    return cohorts

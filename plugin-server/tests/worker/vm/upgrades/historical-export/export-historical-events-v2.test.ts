@@ -104,6 +104,12 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
     describe('exportHistoricalEvents()', () => {
         const exportHistoricalEvents = getTestMethod('exportHistoricalEvents')
+        const exportParams = {
+            id: 1,
+            parallelism: 3,
+            dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
+            dateTo: '2021-11-01T05:00:00.000Z' as ISOTimestamp,
+        }
 
         const defaultPayload: ExportHistoricalEventsJobPayload = {
             timestampCursor: 1635724800000,
@@ -118,19 +124,18 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
         beforeEach(async () => {
             await resetTestDatabase()
-            await storage().set(EXPORT_PARAMETERS_KEY, {
-                id: 1,
-                parallelism: 3,
-                dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
-                dateTo: '2021-11-01T05:00:00.000Z' as ISOTimestamp,
-            })
+            await storage().set(EXPORT_PARAMETERS_KEY, exportParams)
+        })
+
+        afterEach(() => {
+            jest.clearAllTimers()
+            jest.useRealTimers()
         })
 
         it('stores current progress in storage under `statusKey`', async () => {
             jest.mocked(fetchEventsForInterval).mockResolvedValue([])
 
             await exportHistoricalEvents({ ...defaultPayload, timestampCursor: 1635730000000 })
-
             expect(await storage().get('statusKey', null)).toEqual({
                 ...defaultPayload,
                 timestampCursor: 1635730000000,
@@ -161,10 +166,45 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
 
         it('calls exportEvents and logs with fetched events', async () => {
+            createVM()
+
+            jest.useFakeTimers({
+                // These are required otherwise queries and other things were breaking.
+                doNotFake: ['setImmediate', 'clearImmediate', 'clearInterval', 'nextTick', 'Date'],
+            })
+
+            jest.spyOn(vm.meta.storage, 'set')
+            jest.spyOn(global, 'clearInterval')
+
+            const defaultProgress =
+                (defaultPayload.timestampCursor - defaultPayload.startTime) /
+                (defaultPayload.endTime - defaultPayload.startTime)
+
+            jest.mocked(vm.methods.exportEvents).mockImplementationOnce(async () => {
+                let advanced = 0
+                while (advanced < 3) {
+                    // The +1 accounts for the first status update that happens once at the beginning of
+                    // exportHistoricalEvents.
+                    expect(vm.meta.storage.set).toHaveBeenCalledTimes(advanced + 1)
+
+                    expect(await storage().get('statusKey', null)).toEqual({
+                        ...defaultPayload,
+                        timestampCursor: defaultPayload.startTime,
+                        done: false,
+                        progress: defaultProgress,
+                        statusTime: Date.now(),
+                    })
+
+                    advanced = advanced + 1
+                    jest.advanceTimersByTime(60 * 1000)
+                }
+                return
+            })
             jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
 
             await exportHistoricalEvents(defaultPayload)
 
+            expect(clearInterval).toHaveBeenCalledTimes(1)
             expect(vm.methods.exportEvents).toHaveBeenCalledWith([1, 2, 3])
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -178,9 +218,11 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
         it('does not call exportEvents or log if no events in time range', async () => {
             jest.mocked(fetchEventsForInterval).mockResolvedValue([])
+            jest.spyOn(global, 'clearInterval')
 
             await exportHistoricalEvents(defaultPayload)
 
+            expect(clearInterval).toHaveBeenCalledTimes(1)
             expect(vm.methods.exportEvents).not.toHaveBeenCalled()
             expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
         })
@@ -209,11 +251,13 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         it('schedules a retry if exportEvents raises a RetryError', async () => {
             createVM()
 
+            jest.spyOn(global, 'clearInterval')
             jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
             jest.mocked(vm.methods.exportEvents).mockRejectedValue(new RetryError('Retry error'))
 
             await exportHistoricalEvents(defaultPayload)
 
+            expect(clearInterval).toHaveBeenCalledTimes(1)
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: expect.stringContaining(
@@ -228,7 +272,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             expect(runIn).toHaveBeenCalledWith(3, 'seconds')
         })
 
-        it('schedules a retry with exponential backoff', async () => {
+        it('schedules a retry with exponential backoff for exportEvents RetryError', async () => {
             createVM()
 
             jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
@@ -250,14 +294,37 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             expect(runIn).toHaveBeenCalledWith(96, 'seconds')
         })
 
+        it('schedules a retry with exponential backoff for fetchEventsForInterval RetryError', async () => {
+            createVM()
+
+            jest.mocked(fetchEventsForInterval).mockRejectedValue(new RetryError('Retry error'))
+
+            await exportHistoricalEvents({ ...defaultPayload, retriesPerformedSoFar: 5 })
+
+            expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining(
+                        'Failed to fetch events from 2021-11-01T00:00:00.000Z to 2021-11-01T01:00:00.000Z.'
+                    ),
+                })
+            )
+            expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
+                ...defaultPayload,
+                retriesPerformedSoFar: 6,
+            })
+            expect(runIn).toHaveBeenCalledWith(96, 'seconds')
+        })
+
         it('stops processing date if an unknown error was raised in exportEvents', async () => {
             createVM()
 
+            jest.spyOn(global, 'clearInterval')
             jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
             jest.mocked(vm.methods.exportEvents).mockRejectedValue(new Error('Unknown error'))
 
             await exportHistoricalEvents(defaultPayload)
 
+            expect(clearInterval).toHaveBeenCalledTimes(1)
             expect(vm.meta.jobs.exportHistoricalEventsV2).not.toHaveBeenCalled()
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -302,6 +369,19 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
             expect(fetchEventsForInterval).not.toHaveBeenCalled()
             expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
+        })
+
+        it('stops export if abortMessage is set', async () => {
+            await storage().set(EXPORT_PARAMETERS_KEY, { ...exportParams, abortMessage: 'test ABORT' })
+
+            await exportHistoricalEvents(defaultPayload)
+
+            expect(fetchEventsForInterval).not.toHaveBeenCalled()
+            expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining('test ABORT'),
+                })
+            )
         })
 
         it('does nothing if a different export is running', async () => {
@@ -517,6 +597,54 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 )
                 expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
             })
+
+            it('stops export if abortMessage is set', async () => {
+                await storage().set(EXPORT_PARAMETERS_KEY, { ...params, abortMessage: 'test aborting' })
+
+                await coordinateHistoricalExport({
+                    hasChanges: true,
+                    exportIsDone: false,
+                    progress: 0.7553,
+                    done: [
+                        '2021-10-29T00:00:00.000Z',
+                        '2021-10-30T00:00:00.000Z',
+                        '2021-10-31T00:00:00.000Z',
+                    ] as ISOTimestamp[],
+                    running: ['2021-11-01T00:00:00.000Z'] as ISOTimestamp[],
+                    toStartRunning: [['2021-11-01T00:00:00.000Z', '2021-11-01T05:00:00.000Z']] as Array<
+                        [ISOTimestamp, ISOTimestamp]
+                    >,
+                    toResume: [],
+                })
+
+                expect(vm.meta.jobs.exportHistoricalEventsV2).not.toHaveBeenCalled()
+                expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        message: expect.stringContaining('test aborting'),
+                    })
+                )
+                expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
+
+                // verify second call also nothing happens
+                await coordinateHistoricalExport({
+                    hasChanges: true,
+                    exportIsDone: false,
+                    progress: 0.7553,
+                    done: [
+                        '2021-10-29T00:00:00.000Z',
+                        '2021-10-30T00:00:00.000Z',
+                        '2021-10-31T00:00:00.000Z',
+                    ] as ISOTimestamp[],
+                    running: ['2021-11-01T00:00:00.000Z'] as ISOTimestamp[],
+                    toStartRunning: [['2021-11-01T00:00:00.000Z', '2021-11-01T05:00:00.000Z']] as Array<
+                        [ISOTimestamp, ISOTimestamp]
+                    >,
+                    toResume: [],
+                })
+
+                expect(vm.meta.jobs.exportHistoricalEventsV2).not.toHaveBeenCalled()
+                expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
+            })
         })
     })
 
@@ -631,7 +759,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             const dateStatus = {
                 done: false,
                 progress: 0.5,
-                statusTime: Date.now() - 20 * 60 * 1000,
+                statusTime: Date.now() - 70 * 60 * 1000,
                 retriesPerformedSoFar: 0,
             }
             await storage().set('EXPORT_DATE_STATUS_2021-10-29T00:00:00.000Z', dateStatus)
@@ -649,6 +777,32 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 toStartRunning: [],
                 toResume: [dateStatus],
                 progress: 0.125,
+                exportIsDone: false,
+            })
+        })
+
+        it('does not resume tasks that are done', async () => {
+            const dateStatus = {
+                done: true,
+                progress: 1,
+                statusTime: Date.now() - 70 * 60 * 1000,
+                retriesPerformedSoFar: 0,
+            }
+            await storage().set('EXPORT_DATE_STATUS_2021-10-29T00:00:00.000Z', dateStatus)
+
+            const result = await calculateCoordination(params, [], [
+                '2021-10-29T00:00:00.000Z',
+                '2021-10-30T00:00:00.000Z',
+                '2021-10-31T00:00:00.000Z',
+            ] as ISOTimestamp[])
+
+            expect(result).toEqual({
+                hasChanges: true,
+                done: ['2021-10-29T00:00:00.000Z'],
+                running: ['2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z', '2021-11-01T00:00:00.000Z'],
+                toStartRunning: [['2021-11-01T00:00:00.000Z', '2021-11-01T05:00:00.000Z']],
+                toResume: [],
+                progress: 0.25,
                 exportIsDone: false,
             })
         })
@@ -933,8 +1087,8 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             expect(shouldResume(status, 9_000_000_000)).toEqual(false)
             expect(shouldResume(status, 10_000_060_000)).toEqual(false)
             expect(shouldResume(status, 10_000_590_000)).toEqual(false)
-            expect(shouldResume(status, 10_000_660_000)).toEqual(true)
-            expect(shouldResume(status, 10_001_000_000)).toEqual(true)
+            expect(shouldResume(status, 10_000_600_000)).toEqual(false)
+            expect(shouldResume(status, 10_003_660_000)).toEqual(true)
         })
 
         it('accounts for retries exponential backoff', () => {

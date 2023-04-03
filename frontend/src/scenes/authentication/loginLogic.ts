@@ -5,10 +5,11 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import type { loginLogicType } from './loginLogicType'
 import { router } from 'kea-router'
-import { SSOProviders } from '~/types'
+import { SSOProvider } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 export interface AuthenticateResponseType {
     success: boolean
@@ -17,7 +18,7 @@ export interface AuthenticateResponseType {
 }
 
 export interface PrecheckResponseType {
-    sso_enforcement?: SSOProviders | null
+    sso_enforcement?: SSOProvider | null
     saml_available: boolean
     status: 'pending' | 'completed'
 }
@@ -38,6 +39,10 @@ export function handleLoginRedirect(): void {
 export interface LoginForm {
     email: string
     password: string
+}
+
+export interface TwoFactorForm {
+    token: number | null
 }
 
 export const loginLogic = kea<loginLogicType>([
@@ -100,6 +105,10 @@ export const loginLogic = kea<loginLogicType>([
                 } catch (e) {
                     const { code } = e as Record<string, any>
                     let { detail } = e as Record<string, any>
+                    if (code === '2fa_required') {
+                        router.actions.push(urls.login2FA())
+                        throw e
+                    }
                     if (values.featureFlags[FEATURE_FLAGS.REGION_SELECT] && code === 'invalid_credentials') {
                         detail += ' Make sure you have selected the right data region.'
                     }

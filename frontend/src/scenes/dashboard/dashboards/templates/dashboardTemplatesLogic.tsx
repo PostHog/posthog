@@ -1,65 +1,32 @@
-import { afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
+
+import { DashboardTemplateType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
-import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplatesLogic']),
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
+    actions({
+        setTemplates: (allTemplates: DashboardTemplateType[]) => ({ allTemplates }),
+    }),
     loaders({
-        repository: [
-            {} as Record<string, DashboardTemplatesRepositoryEntry>,
+        allTemplates: [
+            [] as DashboardTemplateType[],
             {
-                loadRepository: async () => {
-                    const results = await api.get('/api/projects/@current/dashboard_templates/repository')
-                    const repository: Record<string, DashboardTemplatesRepositoryEntry> = {}
-                    for (const template of results as DashboardTemplatesRepositoryEntry[]) {
-                        if (template.url) {
-                            repository[template.url.replace(/\/+$/, '')] = template
-                        }
-                    }
-                    return repository
-                },
-            },
-        ],
-        template: [
-            null,
-            {
-                installTemplate: async (payload: { name: string; url: string }) => {
-                    return await api.create('api/projects/@current/dashboard_templates/', payload)
+                getAllTemplates: async () => {
+                    const page = await api.dashboardTemplates.list()
+                    return page.results
                 },
             },
         ],
     }),
-    reducers(() => ({
-        templateBeingSaved: [
-            null as string | null,
-            {
-                installTemplateSuccess: () => null,
-                installTemplate: (_, { name }) => name,
-            },
-        ],
-        templatesList: [
-            [] as LemonSelectOption<string>[],
-            {
-                loadRepositorySuccess: (_, { repository }) => {
-                    return Object.values(repository)
-                        .filter((r) => !!r.installed)
-                        .map((entry) => ({
-                            value: entry.name,
-                            label: entry.name,
-                            'data-attr': `dashboard-select-${entry.name.replace(' ', '-')}`,
-                        }))
-                },
-            },
-        ],
-    })),
-    listeners(({ actions }) => ({
-        installTemplateSuccess: () => actions.loadRepository(),
-    })),
     afterMount(({ actions }) => {
-        actions.loadRepository()
+        actions.getAllTemplates()
     }),
 ])

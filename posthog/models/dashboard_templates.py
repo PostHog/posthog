@@ -5,13 +5,33 @@ from django.db.models import UniqueConstraint
 from posthog.models.utils import UUIDModel
 
 
+class DashboardTemplateManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
+
+
 class DashboardTemplate(UUIDModel):
+    objects = DashboardTemplateManager()
+    objects_including_soft_deleted = models.Manager()
+
+    class Scope(models.TextChoices):
+        """Visibility of the dashboard template"""
+
+        ONLY_TEAM = "team", "Only team"
+        GLOBAL = "global", "Global"
+
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
-    template_name: models.CharField = models.CharField(max_length=400, null=True)
-    dashboard_description: models.CharField = models.CharField(max_length=400, null=True)
-    dashboard_filters: models.JSONField = models.JSONField(null=True)
-    tiles: models.JSONField = models.JSONField(default=list)
-    tags: ArrayField = ArrayField(models.CharField(max_length=255), default=list)
+    template_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    dashboard_description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    dashboard_filters: models.JSONField = models.JSONField(null=True, blank=True)
+    tiles: models.JSONField = models.JSONField(blank=True, null=True)
+    variables: models.JSONField = models.JSONField(null=True, blank=True)
+    tags: ArrayField = ArrayField(models.CharField(max_length=255), blank=True, null=True)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True, null=True)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    deleted: models.BooleanField = models.BooleanField(blank=True, null=True)
+    image_url: models.CharField = models.CharField(max_length=8201, null=True, blank=True)
+    scope: models.CharField = models.CharField(max_length=24, choices=Scope.choices, null=True, blank=True)
     # URL length for browsers can be as much as 64Kb
     # see https://stackoverflow.com/questions/417142/what-is-the-maximum-length-of-a-url-in-different-browsers
     # but GitHub apparently is more likely 8kb https://stackoverflow.com/a/64565317
@@ -31,7 +51,7 @@ class DashboardTemplate(UUIDModel):
     @staticmethod
     def original_template() -> "DashboardTemplate":
         """
-        Must match the JSON at https://github.com/PostHog/templates-repository/blob/0b148dd021648d1ce4f0eeca5804cab5eae4253b/dashboards/posthog-product-analytics.json
+        This OG template is not stored in https://github.com/PostHog/templates-repository
         The system assumes this template is always present and doesn't wait to import it from the template repository
         """
         return DashboardTemplate(
@@ -64,12 +84,14 @@ class DashboardTemplate(UUIDModel):
                         "events": [
                             {
                                 "id": "$pageview",
-                                "math": "weekly_active",
+                                "math": "dau",
                                 "type": "events",
                             }
                         ],
+                        "display": "ActionsLineGraph",
                         "insight": "TRENDS",
                         "interval": "week",
+                        "date_from": "-90d",
                     },
                     "layouts": {
                         "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
@@ -173,4 +195,54 @@ class DashboardTemplate(UUIDModel):
                 },
             ],
             tags=[],
+        )
+
+    @staticmethod
+    def feature_flag_template(feature_flag_key: str) -> "DashboardTemplate":
+        return DashboardTemplate(
+            template_name=feature_flag_key + "Usage Information",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=[
+                {
+                    "name": "Daily active users (DAUs)",
+                    "type": "INSIGHT",
+                    "color": "blue",
+                    "filters": {
+                        "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
+                        "display": "ActionsLineGraph",
+                        "insight": "TRENDS",
+                        "interval": "day",
+                        "date_from": "-30d",
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                    },
+                    "description": "Shows the number of unique users that use your app every day.",
+                },
+                {
+                    "name": "Weekly active users (WAUs)",
+                    "type": "INSIGHT",
+                    "color": "green",
+                    "filters": {
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "math": "dau",
+                                "type": "events",
+                            }
+                        ],
+                        "display": "ActionsLineGraph",
+                        "insight": "TRENDS",
+                        "interval": "week",
+                        "date_from": "-90d",
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3},
+                    },
+                    "description": "Shows the number of unique users that use your app every week.",
+                },
+            ],
         )

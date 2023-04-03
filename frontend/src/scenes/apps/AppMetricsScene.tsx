@@ -1,5 +1,4 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { Tabs } from 'antd'
 import { appMetricsSceneLogic, AppMetricsTab } from 'scenes/apps/appMetricsSceneLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useValues, useActions } from 'kea'
@@ -7,10 +6,9 @@ import { MetricsTab } from './MetricsTab'
 import { HistoricalExportsTab } from './HistoricalExportsTab'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ErrorDetailsModal } from './ErrorDetailsModal'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: AppMetrics,
@@ -37,55 +35,43 @@ export function AppMetrics(): JSX.Element {
             {pluginConfigLoading || !activeTab ? (
                 <LemonSkeleton />
             ) : (
-                <Tabs
-                    tabPosition="top"
-                    animated={false}
+                <LemonTabs
                     activeKey={activeTab}
-                    onTabClick={(key) => setActiveTab(key as AppMetricsTab)}
-                >
-                    {showTab(AppMetricsTab.ProcessEvent) && (
-                        <Tabs.TabPane tab="processEvent metrics" key={AppMetricsTab.ProcessEvent}>
-                            <MetricsTab tab={AppMetricsTab.ProcessEvent} />
-                        </Tabs.TabPane>
-                    )}
-                    {showTab(AppMetricsTab.OnEvent) && (
-                        <Tabs.TabPane tab="onEvent metrics" key={AppMetricsTab.OnEvent}>
-                            <MetricsTab tab={AppMetricsTab.OnEvent} />
-                        </Tabs.TabPane>
-                    )}
-                    {showTab(AppMetricsTab.ExportEvents) && (
-                        <Tabs.TabPane tab="exportEvents metrics" key={AppMetricsTab.ExportEvents}>
-                            <MetricsTab tab={AppMetricsTab.ExportEvents} />
-                        </Tabs.TabPane>
-                    )}
-                    {showTab(AppMetricsTab.ScheduledTask) && (
-                        <Tabs.TabPane
-                            tab={
-                                <>
-                                    Scheduled tasks{' '}
-                                    <Tooltip
-                                        title={
-                                            'Shows metrics for app methods `runEveryMinute`, `runEveryHour` and `runEveryDay`'
-                                        }
-                                    >
-                                        <IconInfo />
-                                    </Tooltip>
-                                </>
-                            }
-                            key={AppMetricsTab.ScheduledTask}
-                        >
-                            <MetricsTab tab={AppMetricsTab.ScheduledTask} />
-                        </Tabs.TabPane>
-                    )}
-                    {showTab(AppMetricsTab.HistoricalExports) && (
-                        <Tabs.TabPane tab="Historical exports" key={AppMetricsTab.HistoricalExports}>
-                            <HistoricalExportsTab />
-                        </Tabs.TabPane>
-                    )}
-                    <Tabs.TabPane tab="History" key={AppMetricsTab.History}>
-                        <ActivityLog scope={ActivityScope.PLUGIN} id={pluginConfig?.id} />
-                    </Tabs.TabPane>
-                </Tabs>
+                    onChange={(newKey) => setActiveTab(newKey)}
+                    tabs={[
+                        showTab(AppMetricsTab.ProcessEvent) && {
+                            key: AppMetricsTab.ProcessEvent,
+                            label: <>processEvent metrics</>,
+                            content: <MetricsTab tab={AppMetricsTab.ProcessEvent} />,
+                        },
+                        showTab(AppMetricsTab.OnEvent) && {
+                            key: AppMetricsTab.OnEvent,
+                            label: <>onEvent metrics</>,
+                            content: <MetricsTab tab={AppMetricsTab.OnEvent} />,
+                        },
+                        showTab(AppMetricsTab.ExportEvents) && {
+                            key: AppMetricsTab.ExportEvents,
+                            label: <>exportEvents metrics</>,
+                            content: <MetricsTab tab={AppMetricsTab.ExportEvents} />,
+                        },
+                        showTab(AppMetricsTab.ScheduledTask) && {
+                            key: AppMetricsTab.ScheduledTask,
+                            label: 'Scheduled tasks',
+                            tooltip: 'Metrics for app methods `runEveryMinute`, `runEveryHour` and `runEveryDay`.',
+                            content: <MetricsTab tab={AppMetricsTab.ScheduledTask} />,
+                        },
+                        showTab(AppMetricsTab.HistoricalExports) && {
+                            key: AppMetricsTab.HistoricalExports,
+                            label: 'Historical exports',
+                            content: <HistoricalExportsTab />,
+                        },
+                        showTab(AppMetricsTab.History) && {
+                            key: AppMetricsTab.History,
+                            label: 'History',
+                            content: <ActivityLog scope={ActivityScope.PLUGIN} id={pluginConfig?.id} />,
+                        },
+                    ]}
+                />
             )}
 
             <ErrorDetailsModal />

@@ -124,7 +124,7 @@ export const sceneLogic = kea<sceneLogicType>({
         sceneConfig: [
             (s) => [s.scene, s.featureFlags],
             (scene: Scene, featureFlags): SceneConfig | null => {
-                if (scene === Scene.Events && featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]) {
+                if (scene === Scene.Events && featureFlags[FEATURE_FLAGS.HOGQL]) {
                     return {
                         ...sceneConfigurations[scene],
                         name: 'Event Explorer',
@@ -272,7 +272,8 @@ export const sceneLogic = kea<sceneLogicType>({
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.currentTeam.completed_snippet_onboarding &&
-                        !location.pathname.startsWith('/ingestion')
+                        !location.pathname.startsWith('/ingestion') &&
+                        !location.pathname.startsWith('/project/settings')
                     ) {
                         console.log('Ingestion tutorial not completed, redirecting to it')
                         router.actions.replace(urls.ingestion())

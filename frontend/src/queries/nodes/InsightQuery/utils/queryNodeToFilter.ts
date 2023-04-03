@@ -1,24 +1,25 @@
 import {
-    InsightQueryNode,
-    EventsNode,
     ActionsNode,
-    NodeKind,
     BreakdownFilter,
-    NewEntityNode,
+    EventsNode,
     InsightNodeKind,
+    InsightQueryNode,
+    NewEntityNode,
+    NodeKind,
 } from '~/queries/schema'
-import { FilterType, InsightType, ActionFilter, EntityTypes, TrendsFilterType, StickinessFilterType } from '~/types'
+import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 import {
-    isEventsNode,
-    isTrendsQuery,
-    isFunnelsQuery,
-    isRetentionQuery,
-    isPathsQuery,
-    isStickinessQuery,
-    isLifecycleQuery,
     isActionsNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
 } from '~/queries/utils'
 import { objectClean } from 'lib/utils'
+import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 
@@ -66,7 +67,13 @@ export const seriesToActionsAndEvents = (
     return { actions, events, new_entity }
 }
 
-const insightMap: Record<InsightNodeKind, InsightType> = {
+export const hiddenLegendItemsToKeys = (
+    hidden_items: number[] | string[] | undefined
+): Record<string, boolean | undefined> | undefined =>
+    // @ts-expect-error
+    hidden_items?.reduce((k: Record<string, boolean | undefined>, b: string | number) => ({ ...k, [b]: true }), {})
+
+export const insightMap: Record<InsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
     [NodeKind.RetentionQuery]: InsightType.RETENTION,
@@ -117,12 +124,23 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         filters.interval = query.interval
     }
 
-    if (isTrendsQuery(query)) {
-        ;(filters as TrendsFilterType).display = query.trendsFilter?.display
+    if (isTrendsQuery(query) && isTrendsFilter(filters)) {
+        filters.display = query.trendsFilter?.display
+        filters.hidden_legend_keys = hiddenLegendItemsToKeys(query.trendsFilter?.hidden_legend_indexes)
     }
 
-    if (isStickinessQuery(query)) {
-        ;(filters as StickinessFilterType).display = query.stickinessFilter?.display
+    if (isStickinessQuery(query) && isStickinessFilter(filters)) {
+        filters.display = query.stickinessFilter?.display
+        filters.hidden_legend_keys = hiddenLegendItemsToKeys(query.stickinessFilter?.hidden_legend_indexes)
+    }
+
+    if (isFunnelsQuery(query) && isFunnelsFilter(filters)) {
+        filters.hidden_legend_keys = hiddenLegendItemsToKeys(query.funnelsFilter?.hidden_legend_breakdowns)
+    }
+
+    if (isLifecycleQuery(query) && isLifecycleFilter(filters)) {
+        filters.toggledLifecycles = query.lifecycleFilter?.toggledLifecycles
+        filters.shown_as = query.lifecycleFilter?.shown_as
     }
 
     // get node specific filter properties e.g. trendsFilter, funnelsFilter, ...

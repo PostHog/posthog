@@ -6,13 +6,13 @@ from functools import lru_cache
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Sequence, Union
 
-import posthoganalytics
 import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
 from posthog.clickhouse.client.connection import Workload, get_pool
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.settings import TEST
@@ -40,35 +40,24 @@ is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORI
 
 @lru_cache(maxsize=1)
 def default_settings() -> Dict:
-    from posthog.version_requirement import ServiceVersionRequirement
-
     # On CH 22.3 we need to disable optimize_move_to_prewhere due to a bug. This is verified fixed on 22.8 (LTS),
     # so we only disable on versions below that.
     # This is calculated once per deploy
-    clickhouse_at_least_228, _ = ServiceVersionRequirement(
-        service="clickhouse", supported_version=">=22.8.0"
-    ).is_service_in_accepted_version()
-    if clickhouse_at_least_228:
-        return {}
+    if clickhouse_at_least_228():
+        return {"join_algorithm": "direct,parallel_hash", "distributed_replica_max_ignored_errors": 1000}
     else:
         return {"optimize_move_to_prewhere": 0}
 
 
-def extra_settings(query_id) -> Dict[str, Any]:
-    join_algorithm = (
-        posthoganalytics.get_feature_flag(
-            "join-algorithm",
-            str(query_id),
-            only_evaluate_locally=True,
-        )
-        or "default"
-    )
+@lru_cache(maxsize=1)
+def clickhouse_at_least_228() -> bool:
+    from posthog.version_requirement import ServiceVersionRequirement
 
-    # make sure the algorithm is supported - it's also possible to specify e.g. "algorithm1,algorithm2"
-    if len(list(filter(is_invalid_algorithm, join_algorithm.split(",")))) > 0:
-        join_algorithm = "default"
+    is_ch_version_228_or_above, _ = ServiceVersionRequirement(
+        service="clickhouse", supported_version=">=22.8.0"
+    ).is_service_in_accepted_version()
 
-    return {"join_algorithm": join_algorithm}
+    return is_ch_version_228_or_above
 
 
 def validated_client_query_id() -> Optional[str]:
@@ -89,7 +78,7 @@ def sync_execute(
     with_column_types=False,
     flush=True,
     *,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
 ):
     if TEST and flush:
         try:
@@ -105,7 +94,7 @@ def sync_execute(
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
 
         query_id = validated_client_query_id()
-        core_settings = {**default_settings(), **(settings or {}), **extra_settings(query_id)}
+        core_settings = {**default_settings(), **(settings or {})}
         tags["query_settings"] = core_settings
         settings = {**core_settings, "log_comment": json.dumps(tags, separators=(",", ":"))}
         try:
@@ -140,7 +129,7 @@ def query_with_columns(
     columns_to_remove: Optional[Sequence[str]] = None,
     columns_to_rename: Optional[Dict[str, str]] = None,
     *,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
 ) -> List[Dict]:
     if columns_to_remove is None:
         columns_to_remove = []
@@ -162,7 +151,7 @@ def query_with_columns(
 
 
 @patchable
-def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.ONLINE):
+def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.DEFAULT):
     """
     Given a string query with placeholders we do one of two things:
 
@@ -199,7 +188,7 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Wo
     else:
         # Else perform the substitution so we can perform operations on the raw
         # non-templated SQL
-        rendered_sql = client.substitute_params(query, args)
+        rendered_sql = substitute_params(query, args)
         prepared_args = None
 
     formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)

@@ -60,7 +60,7 @@ module.exports = {
         // 'alignSelf', // The align-self utilities like self-end
         // 'animation', // The animation utilities like animate-ping
         // 'appearance', // The appearance utilities like appearance-none
-        // 'aspectRatio', // The aspect-ratio utilities like aspect-square
+        'aspectRatio', // The aspect-ratio utilities like aspect-square
         // 'backdropBlur', // The backdrop-blur utilities like backdrop-blur-md
         // 'backdropBrightness', // The backdrop-brightness utilities like backdrop-brightness-100
         // 'backdropContrast', // The backdrop-contrast utilities like backdrop-contrast-100
@@ -157,7 +157,7 @@ module.exports = {
         'minHeight', // The min-height utilities like min-h-screen
         'minWidth', // The min-width utilities like min-w-min
         // 'mixBlendMode', // The mix-blend-mode utilities like mix-blend-hard-light
-        // 'objectFit', // The object-fit utilities like object-fill
+        'objectFit', // The object-fit utilities like object-fill
         // 'objectPosition', // The object-position utilities like object-left-top
         'opacity', // The opacity utilities like opacity-50
         // 'order', // The order utilities like order-8
@@ -174,7 +174,7 @@ module.exports = {
         // 'placeholderColor', // The placeholder color utilities like placeholder-red-600
         // 'placeholderOpacity', // The placeholder color opacity utilities like placeholder-opacity-25
         'pointerEvents', // The pointer-events utilities like pointer-events-none
-        // 'position', // The position utilities like absolute
+        'position', // The position utilities like absolute
         // 'preflight', // Tailwind's base/reset styles
         // 'resize', // The resize utilities like resize-y
         // 'ringColor', // The ring-color utilities like ring-green-700
@@ -199,8 +199,8 @@ module.exports = {
         // 'tableLayout', // The table-layout utilities like table-auto
         'textAlign', // The text-align utilities like text-right
         'textColor', // The text-color utilities like text-green-700
-        // 'textDecoration', // The text-decoration utilities like overline
-        // 'textDecorationColor', // The text-decoration-color utilities like decoration-green-700
+        'textDecoration', // The text-decoration utilities like overline
+        'textDecorationColor', // The text-decoration-color utilities like decoration-green-700
         // 'textDecorationStyle', // The text-decoration-style utilities like decoration-dotted
         // 'textDecorationThickness', // The text-decoration-thickness utilities like decoration-4
         // 'textIndent', // The text-indent utilities like indent-28

@@ -109,7 +109,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             spec = SimpleSpec(posthog_version.replace(" ", ""))
         except ValueError:
             raise ValidationError(f'Invalid PostHog semantic version requirement "{posthog_version}"!')
-        if not (Version(VERSION) in spec):
+        if Version(VERSION) not in spec:
             raise ValidationError(
                 f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "{posthog_version}".'
             )
@@ -218,7 +218,7 @@ class PluginConfig(models.Model):
     # Error when running this plugin on an event (frontend: PluginErrorType)
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
-    error: models.JSONField = models.JSONField(default=None, null=True)
+    error: models.JSONField = models.JSONField(default=None, null=True, blank=True)
     # Used to access site.ts from a public URL
     web_token: models.CharField = models.CharField(max_length=64, default=None, null=True)
 
@@ -469,7 +469,8 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 def sync_team_inject_web_apps(team: Team):
     inject_web_apps = len(get_decide_site_apps(team)) > 0
     if inject_web_apps != team.inject_web_apps:
-        Team.objects.filter(pk=team.pk).update(inject_web_apps=inject_web_apps)
+        team.inject_web_apps = inject_web_apps
+        team.save(update_fields=["inject_web_apps"])
 
 
 @mutable_receiver([post_save, post_delete], sender=PluginAttachment)

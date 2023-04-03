@@ -24,7 +24,6 @@ from posthog.models.property import PropertyGroup
 from posthog.models.property.util import get_property_string_expr, normalize_url_breakdown, parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
     format_breakdown_cohort_join_query,
@@ -56,13 +55,15 @@ from posthog.queries.trends.sql import (
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
     PROPERTY_MATH_FUNCTIONS,
+    correct_result_for_sampling,
     ensure_value_is_json_serializable,
     enumerate_time_range,
     get_active_user_params,
     parse_response,
     process_math,
 )
-from posthog.utils import encode_get_request_params
+from posthog.queries.util import PersonPropertiesMode
+from posthog.utils import PersonOnEventsMode, encode_get_request_params
 
 
 class TrendsBreakdown:
@@ -74,7 +75,7 @@ class TrendsBreakdown:
         filter: Filter,
         team: Team,
         column_optimizer: Optional[ColumnOptimizer] = None,
-        using_person_on_events: bool = False,
+        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
     ):
         self.entity = entity
         self.filter = filter
@@ -82,13 +83,13 @@ class TrendsBreakdown:
         self.team_id = team.pk
         self.params: Dict[str, Any] = {"team_id": team.pk}
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
-        self.using_person_on_events = using_person_on_events
+        self.person_on_events_mode = person_on_events_mode
 
     @cached_property
     def _person_properties_mode(self) -> PersonPropertiesMode:
         return (
             PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
-            if not self.using_person_on_events
+            if self.person_on_events_mode == PersonOnEventsMode.DISABLED
             else PersonPropertiesMode.DIRECT_ON_EVENTS
         )
 
@@ -105,7 +106,7 @@ class TrendsBreakdown:
         )
 
         target_properties: Optional[PropertyGroup] = props_to_filter
-        if not self.using_person_on_events:
+        if self.person_on_events_mode == PersonOnEventsMode.DISABLED:
             target_properties = self.column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
 
         return parse_prop_grouped_clauses(
@@ -114,7 +115,7 @@ class TrendsBreakdown:
             table_name="e",
             person_properties_mode=self._person_properties_mode,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-            if not self.using_person_on_events
+            if self.person_on_events_mode == PersonOnEventsMode.DISABLED
             else "person_id",
             hogql_context=self.filter.hogql_context,
         )
@@ -139,7 +140,7 @@ class TrendsBreakdown:
             self.team,
             event_table_alias="e",
             person_id_alias=f"person_id"
-            if self.using_person_on_events
+            if self.person_on_events_mode != PersonOnEventsMode.DISABLED
             else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
@@ -152,7 +153,7 @@ class TrendsBreakdown:
                 action=action,
                 table_name="e",
                 person_properties_mode=self._person_properties_mode,
-                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else 'e'}.person_id",
+                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self.person_on_events_mode == PersonOnEventsMode.DISABLED else 'e'}.person_id",
                 hogql_context=self.filter.hogql_context,
             )
 
@@ -173,7 +174,9 @@ class TrendsBreakdown:
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
             "filters": prop_filters,
-            "null_person_filter": f"AND notEmpty(e.person_id)" if self.using_person_on_events else "",
+            "null_person_filter": f"AND notEmpty(e.person_id)"
+            if self.person_on_events_mode != PersonOnEventsMode.DISABLED
+            else "",
         }
 
         _params, _breakdown_filter_params = {}, {}
@@ -195,12 +198,23 @@ class TrendsBreakdown:
             # a "real" SELECT for this, we only include the below dummy SELECT.
             # It's a drop-in replacement for a "real" one, simply always returning 0 rows.
             # See https://github.com/PostHog/posthog/pull/5674 for context.
-            return ("SELECT [now()] AS date, [0] AS data, '' AS breakdown_value LIMIT 0", {}, lambda _: [])
+            return ("SELECT [now()] AS date, [0] AS total, '' AS breakdown_value LIMIT 0", {}, lambda _: [])
 
         person_join_condition, person_join_params = self._person_join_condition()
         groups_join_condition, groups_join_params = self._groups_join_condition()
         sessions_join_condition, sessions_join_params = self._sessions_join_condition()
-        self.params = {**self.params, **_params, **person_join_params, **groups_join_params, **sessions_join_params}
+
+        sample_clause = "SAMPLE %(sampling_factor)s" if self.filter.sampling_factor else ""
+        sampling_params = {"sampling_factor": self.filter.sampling_factor}
+
+        self.params = {
+            **self.params,
+            **_params,
+            **person_join_params,
+            **groups_join_params,
+            **sessions_join_params,
+            **sampling_params,
+        }
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
         if self.filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
@@ -219,12 +233,15 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS
+                    if self.person_on_events_mode == PersonOnEventsMode.DISABLED
+                    else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
+                    sample_clause=sample_clause,
                     **active_user_format_params,
                     **breakdown_filter_params,
                 )
@@ -239,6 +256,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     breakdown_value=breakdown_value,
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
+                    sample_clause=sample_clause,
                 )
             elif self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 content_sql = VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL.format(
@@ -249,6 +267,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     aggregator=self.actor_aggregator,
                     breakdown_value=breakdown_value,
+                    sample_clause=sample_clause,
                 )
             else:
                 content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
@@ -258,6 +277,7 @@ class TrendsBreakdown:
                     sessions_join_condition=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
                     breakdown_value=breakdown_value,
+                    sample_clause=sample_clause,
                 )
             time_range = enumerate_time_range(self.filter, seconds_in_interval)
 
@@ -284,12 +304,15 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS
+                    if self.person_on_events_mode == PersonOnEventsMode.DISABLED
+                    else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
+                    sample_clause=sample_clause,
                     **active_user_format_params,
                     **breakdown_filter_params,
                 )
@@ -299,10 +322,13 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS
+                    if self.person_on_events_mode == PersonOnEventsMode.DISABLED
+                    else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
+                    sample_clause=sample_clause,
                     **breakdown_filter_params,
                 )
             elif self.entity.math in PROPERTY_MATH_FUNCTIONS and self.entity.math_property == "$session_duration":
@@ -317,6 +343,7 @@ class TrendsBreakdown:
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
+                    sample_clause=sample_clause,
                     **breakdown_filter_params,
                 )
             elif self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
@@ -329,6 +356,7 @@ class TrendsBreakdown:
                     interval_annotation=interval_annotation,
                     aggregator=self.actor_aggregator,
                     breakdown_value=breakdown_value,
+                    sample_clause=sample_clause,
                     **breakdown_filter_params,
                 )
             else:
@@ -340,6 +368,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
+                    sample_clause=sample_clause,
                     **breakdown_filter_params,
                 )
 
@@ -401,7 +430,7 @@ class TrendsBreakdown:
                 raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
 
         elif (
-            self.using_person_on_events
+            self.person_on_events_mode != PersonOnEventsMode.DISABLED
             and self.filter.breakdown_type == "group"
             and groups_on_events_querying_enabled()
         ):
@@ -409,7 +438,7 @@ class TrendsBreakdown:
             breakdown_value, _ = get_property_string_expr(
                 "events", breakdown, "%(key)s", properties_field, materialised_table_column=properties_field
             )
-        elif self.using_person_on_events and self.filter.breakdown_type != "group":
+        elif self.person_on_events_mode != PersonOnEventsMode.DISABLED and self.filter.breakdown_type != "group":
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr(
                     "events", breakdown, "%(key)s", "person_properties", materialised_table_column="person_properties"
@@ -492,7 +521,11 @@ class TrendsBreakdown:
                 }
                 parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
                 parsed_result = {
-                    "aggregated_value": aggregated_value,
+                    "aggregated_value": float(
+                        correct_result_for_sampling(aggregated_value, filter.sampling_factor, entity.math)
+                    )
+                    if aggregated_value is not None
+                    else None,
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
@@ -502,7 +535,10 @@ class TrendsBreakdown:
                     **additional_values,
                 }
                 parsed_results.append(parsed_result)
-            return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
+            try:
+                return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
+            except TypeError:
+                return sorted(parsed_results, key=lambda x: str(self.breakdown_sort_function(x)))
 
         return _parse
 
@@ -511,7 +547,7 @@ class TrendsBreakdown:
             parsed_results = []
             for stats in result:
                 result_descriptors = self._breakdown_result_descriptors(stats[2], filter, entity)
-                parsed_result = parse_response(stats, filter, additional_values=result_descriptors)
+                parsed_result = parse_response(stats, filter, additional_values=result_descriptors, entity=entity)
                 parsed_result.update(
                     {
                         "persons_urls": self._get_persons_url(
@@ -521,7 +557,11 @@ class TrendsBreakdown:
                 )
                 parsed_results.append(parsed_result)
                 parsed_result.update({"filter": filter.to_dict()})
-            return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
+
+            try:
+                return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
+            except TypeError:
+                return sorted(parsed_results, key=lambda x: str(self.breakdown_sort_function(x)))
 
         return _parse
 
@@ -585,7 +625,7 @@ class TrendsBreakdown:
             return str(value) or "none"
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
-        if self.using_person_on_events:
+        if self.person_on_events_mode != PersonOnEventsMode.DISABLED:
             return "", {}
 
         person_query = PersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
@@ -613,7 +653,7 @@ class TrendsBreakdown:
 
     def _groups_join_condition(self) -> Tuple[str, Dict]:
         return GroupsJoinQuery(
-            self.filter, self.team_id, self.column_optimizer, using_person_on_events=self.using_person_on_events
+            self.filter, self.team_id, self.column_optimizer, person_on_events_mode=self.person_on_events_mode
         ).get_join_query()
 
     def _sessions_join_condition(self) -> Tuple[str, Dict]:

@@ -28,7 +28,6 @@ import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { EventBufferNotice } from './EventBufferNotice'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
@@ -59,6 +58,7 @@ interface EventsTableProps {
     showPersonColumn?: boolean
     linkPropertiesToFilters?: boolean
     'data-attr'?: string
+    emptyPrompt?: string
 }
 
 export function EventsTable({
@@ -81,6 +81,7 @@ export function EventsTable({
     showPersonColumn = true,
     linkPropertiesToFilters = true,
     'data-attr': dataAttr,
+    emptyPrompt = `No events matching filters found in the last ${fetchMonths} months!`,
 }: EventsTableProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({
@@ -98,7 +99,6 @@ export function EventsTable({
         eventFilter,
         automaticLoadEnabled,
         highlightEvents,
-        months,
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(
         tableConfigLogic({
@@ -498,10 +498,6 @@ export function EventsTable({
                         </div>
                     </div>
                 ) : null}
-                <EventBufferNotice
-                    additionalInfo=" - this helps ensure accuracy of insights grouped by unique users"
-                    className="mb-4"
-                />
                 <LemonTable
                     data-attr={dataAttr}
                     dataSource={eventsFormatted}
@@ -513,7 +509,7 @@ export function EventsTable({
                     emptyState={
                         isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) ||
                           eventFilter ? (
-                            `No events matching filters found in the last ${months} months!`
+                            emptyPrompt
                         ) : (
                             <>
                                 This project doesn't have any events. If you haven't integrated PostHog yet,{' '}

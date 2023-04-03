@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from enum import Enum
 from functools import lru_cache
 
@@ -7,10 +8,15 @@ from django.conf import settings
 
 
 class Workload(Enum):
+    # Default workload
+    DEFAULT = "DEFAULT"
     # Analytics queries, other 'lively' queries
     ONLINE = "ONLINE"
     # Historical exports, other long-running processes where latency is less critical
     OFFLINE = "OFFLINE"
+
+
+_default_workload = Workload.ONLINE
 
 
 def get_pool(workload: Workload):
@@ -19,7 +25,9 @@ def get_pool(workload: Workload):
 
     Note that the same pool should be returned every call.
     """
-    if workload == Workload.OFFLINE and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
+    if (
+        workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
+    ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
         return make_ch_pool(host=settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST)
 
     return make_ch_pool()
@@ -66,6 +74,13 @@ def make_ch_pool(**overrides) -> ChPool:
     }
 
     return ChPool(**kwargs)
+
+
+@contextmanager
+def set_default_clickhouse_workload_type(workload: Workload):
+    global _default_workload
+
+    _default_workload = workload
 
 
 ch_pool = get_pool(workload=Workload.ONLINE)

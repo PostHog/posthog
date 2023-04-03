@@ -42,11 +42,16 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
         }
     }
 
-    return finder(element, {
-        attr: (name) => dataAttributes.some((dataAttribute) => wildcardMatch(dataAttribute)(name)),
-        tagName: (name) => !TAGS_TO_IGNORE.includes(name),
-        seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
-    })
+    try {
+        return finder(element, {
+            attr: (name) => dataAttributes.some((dataAttribute) => wildcardMatch(dataAttribute)(name)),
+            tagName: (name) => !TAGS_TO_IGNORE.includes(name),
+            seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
+        })
+    } catch (error) {
+        console.warn('Error while trying to find a selector for element', element, error)
+        return undefined
+    }
 }
 
 export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {

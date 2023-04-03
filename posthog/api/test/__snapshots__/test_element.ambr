@@ -12,12 +12,14 @@
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
          "posthog_user"."email",
+         "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -38,9 +40,11 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -84,6 +88,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",
@@ -93,5 +98,28 @@
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='element-stats',route='api/element/stats/%3F%24'*/
+  '
+---
+# name: TestElement.test_element_stats_postgres_queries_are_as_expected.3
+  '
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:HEATMAP_SAMPLE_N'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1 /*controller='element-stats',route='api/element/stats/%3F%24'*/
+  '
+---
+# name: TestElement.test_element_stats_postgres_queries_are_as_expected.4
+  '
+  SELECT "ee_license"."id",
+         "ee_license"."created_at",
+         "ee_license"."plan",
+         "ee_license"."valid_until",
+         "ee_license"."key",
+         "ee_license"."max_users"
+  FROM "ee_license"
+  WHERE ""ee_license"."valid_until">='LICENSE-TIMESTAMP'::timestamptz" /*controller='element-stats',route='api/element/stats/%3F%24'*/
   '
 ---

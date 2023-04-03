@@ -34,6 +34,7 @@ from . import (
     team,
     uploaded_media,
     user,
+    person_communication,
 )
 from .dashboards import dashboard, dashboard_templates
 
@@ -153,7 +154,8 @@ projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags",
 projects_router.register(r"query", query.QueryViewSet, "project_query", ["team_id"])
 
 # General endpoints (shared across CH & PG)
-router.register(r"login", authentication.LoginViewSet)
+router.register(r"login", authentication.LoginViewSet, "login")
+router.register(r"login/token", authentication.TwoFactorViewSet)
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet)
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet)
@@ -224,4 +226,11 @@ project_insights_router.register(
     sharing.SharingConfigurationViewSet,
     "project_insight_sharing",
     ["team_id", "insight_id"],
+)
+
+projects_router.register(
+    r"person_communications",
+    person_communication.PersonCommunicationViewSet,
+    "project_person_communications",
+    ["team_id"],
 )

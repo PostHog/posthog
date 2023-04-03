@@ -5,12 +5,12 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
 import { DatePicker } from 'lib/components/DatePicker'
 import { DateRange } from '~/queries/schema'
-import { insightDataLogic } from './insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function RetentionDatePickerDataExploration(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { dateRange, retentionFilter } = useValues(insightDataLogic(insightProps))
-    const { updateDateRange } = useActions(insightDataLogic(insightProps))
+    const { dateRange, retentionFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
 
     return (
         <RetentionDatePickerComponent

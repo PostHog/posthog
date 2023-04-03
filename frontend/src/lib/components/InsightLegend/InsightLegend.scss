@@ -1,18 +1,6 @@
-.InsightLegendButton {
-    display: flex;
-    align-items: center;
-
-    .InsightLegendButton-title {
-        margin-left: 0.5rem;
-        font-size: 14px;
-        font-weight: 500;
-    }
-}
-
 .InsightLegendMenu {
     box-shadow: none !important;
     background-color: var(--bg-light);
-    max-width: 300px;
     max-height: 100%;
 
     &.InsightLegendMenu--in-card-view {

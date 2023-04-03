@@ -146,7 +146,7 @@ const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): P
     if (flag.filters?.multivariate) {
         const newPayloads = {}
         flag.filters?.multivariate?.variants.forEach(({ key }, index) => {
-            const payload = flag.filters?.payloads[index]
+            const payload = flag.filters?.payloads?.[index]
             if (payload) {
                 newPayloads[key] = payload
             }
@@ -159,7 +159,19 @@ const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): P
             },
         }
     }
-
+    if (flag.filters && !flag.filters.multivariate) {
+        let cleanedPayloadValue = {}
+        if (flag.filters.payloads?.['true']) {
+            cleanedPayloadValue = { true: flag.filters.payloads['true'] }
+        }
+        return {
+            ...flag,
+            filters: {
+                ...flag.filters,
+                payloads: cleanedPayloadValue,
+            },
+        }
+    }
     return flag
 }
 
@@ -212,6 +224,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setAffectedUsers: (index: number, count?: number) => ({ index, count }),
         setTotalUsers: (count: number) => ({ count }),
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
+        generateUsageDashboard: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -512,7 +525,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        generateUsageDashboard: async () => {
+            if (props.id) {
+                await api.create(`api/projects/${values.currentTeamId}/feature_flags/${props.id}/dashboard`)
+                actions.loadFeatureFlag()
+            }
+        },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)

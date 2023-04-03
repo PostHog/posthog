@@ -20,7 +20,7 @@ export interface LemonModalProps {
     onAfterClose?: () => void
     width?: number | string
     inline?: boolean
-    title: React.ReactNode
+    title?: React.ReactNode
     description?: React.ReactNode
     footer?: React.ReactNode
     /** When enabled, the modal content will only include children allowing greater customisation */
@@ -34,6 +34,7 @@ export interface LemonModalProps {
     forceAbovePopovers?: boolean
     contentRef?: React.RefCallback<HTMLDivElement>
     overlayRef?: React.RefCallback<HTMLDivElement>
+    getPopupContainer?: () => HTMLElement
 }
 
 export const LemonModalHeader = ({ children, className }: LemonModalInnerProps): JSX.Element => {
@@ -68,6 +69,7 @@ export function LemonModal({
     forceAbovePopovers = false,
     contentRef,
     overlayRef,
+    getPopupContainer,
 }: LemonModalProps): JSX.Element {
     const modalContent = (
         <>
@@ -137,6 +139,7 @@ export function LemonModal({
             appElement={document.getElementById('root') as HTMLElement}
             contentRef={contentRef}
             overlayRef={overlayRef}
+            parentSelector={getPopupContainer}
         >
             {modalContent}
         </Modal>

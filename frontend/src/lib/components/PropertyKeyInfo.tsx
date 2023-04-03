@@ -234,6 +234,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Alias',
             description: 'An alias ID has been added to a user',
         },
+        $merge_dangerously: {
+            label: 'Merge',
+            description: 'An alias ID has been added to a user',
+        },
         $groupidentify: {
             label: 'Group Identify',
             description: 'A group has been identified with properties',

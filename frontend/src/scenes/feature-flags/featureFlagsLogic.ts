@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 
-export enum FeatureFlagsTabs {
+export enum FeatureFlagsTabs { // TODO: Rename to singular "FeatureFlagTab" in line with enum convention
     OVERVIEW = 'overview',
     HISTORY = 'history',
     EXPOSURE = 'exposure',
@@ -17,13 +17,19 @@ export enum FeatureFlagsTabs {
 export interface FeatureFlagsFilters {
     active: string
     created_by: string
+    type: string
 }
 
 interface FeatureFlagCreators {
     [id: string]: string
 }
 
+export interface FlagLogicProps {
+    flagPrefix?: string // used to filter flags by prefix e.g. for the user interview flags
+}
+
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
+    props: {} as FlagLogicProps,
     path: ['scenes', 'feature-flags', 'featureFlagsLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId']],
@@ -39,7 +45,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         featureFlags: {
             __default: [] as FeatureFlagType[],
             loadFeatureFlags: async () => {
-                const response = await api.get(`api/projects/${values.currentTeamId}/feature_flags`)
+                const response = await api.get(`api/projects/${values.currentTeamId}/feature_flags/?limit=300`)
                 return response.results as FeatureFlagType[]
             },
             updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
@@ -50,14 +56,25 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     }),
     selectors: {
         searchedFeatureFlags: [
-            (selectors) => [selectors.featureFlags, selectors.searchTerm, selectors.filters],
-            (featureFlags, searchTerm, filters) => {
-                if (!searchTerm && Object.keys(filters).length === 0) {
-                    return featureFlags
-                }
+            (selectors) => [
+                selectors.featureFlags,
+                selectors.searchTerm,
+                selectors.filters,
+                (_, props) => props.flagPrefix,
+            ],
+            (featureFlags, searchTerm, filters, flagPrefix) => {
                 let searchedFlags = featureFlags
+
+                if (flagPrefix) {
+                    searchedFlags = searchedFlags.filter((flag) => flag.key.startsWith(flagPrefix))
+                }
+
+                if (!searchTerm && Object.keys(filters).length === 0) {
+                    return searchedFlags
+                }
+
                 if (searchTerm) {
-                    searchedFlags = new Fuse(featureFlags, {
+                    searchedFlags = new Fuse(searchedFlags, {
                         keys: ['key', 'name'],
                         threshold: 0.3,
                     })
@@ -65,13 +82,25 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         .map((result) => result.item)
                 }
 
-                const { active, created_by } = filters
+                const { active, created_by, type } = filters
                 if (active) {
                     searchedFlags = searchedFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
                 }
                 if (created_by) {
                     searchedFlags = searchedFlags.filter((flag) => flag.created_by?.id === parseInt(created_by))
                 }
+                if (type === 'boolean') {
+                    searchedFlags = searchedFlags.filter(
+                        (flag) => flag.filters.multivariate?.variants?.length ?? 0 == 0
+                    )
+                }
+                if (type === 'multivariant') {
+                    searchedFlags = searchedFlags.filter((flag) => flag.filters.multivariate?.variants?.length ?? 0 > 0)
+                }
+                if (type === 'experiment') {
+                    searchedFlags = searchedFlags.filter((flag) => flag.experiment_set?.length ?? 0 > 0)
+                }
+
                 return searchedFlags
             },
         ],

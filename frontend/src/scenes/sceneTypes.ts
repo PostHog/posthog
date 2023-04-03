@@ -8,6 +8,7 @@ export enum Scene {
     ErrorProjectUnavailable = 'ProjectUnavailable',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
+    Database = 'Database',
     Insight = 'Insight',
     Cohorts = 'Cohorts',
     Cohort = 'Cohort',
@@ -37,14 +38,11 @@ export enum Scene {
     ProjectSettings = 'ProjectSettings',
     ProjectCreateFirst = 'ProjectCreate',
     SystemStatus = 'SystemStatus',
-    Licenses = 'Licenses',
     AsyncMigrations = 'AsyncMigrations',
     DeadLetterQueue = 'DeadLetterQueue',
     MySettings = 'MySettings',
     Annotations = 'Annotations',
     Billing = 'Billing',
-    BillingSubscribed = 'BillingSubscribed',
-    BillingLocked = 'BillingLocked',
     Plugins = 'Plugins',
     FrontendAppScene = 'FrontendAppScene',
     AppMetrics = 'AppMetrics',
@@ -54,6 +52,7 @@ export enum Scene {
     IntegrationsRedirect = 'IntegrationsRedirect',
     // Authentication, onboarding & initialization routes
     Login = 'Login',
+    Login2FA = 'Login2FA',
     Signup = 'Signup',
     InviteSignup = 'InviteSignup',
     PasswordReset = 'PasswordReset',
@@ -62,7 +61,10 @@ export enum Scene {
     Ingestion = 'IngestionWizard',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
-    Query = 'Query',
+    DebugQuery = 'DebugQuery',
+    VerifyEmail = 'VerifyEmail',
+    Feedback = 'Feedback',
+    Issues = 'Issues',
 }
 
 export type SceneProps = Record<string, any>

@@ -8,19 +8,10 @@ import {
     QueryEditorFilterProps,
     ChartDisplayType,
     AvailableFeature,
-    FunnelVizType,
 } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import {
-    isTrendsQuery,
-    isFunnelsQuery,
-    isPathsQuery,
-    isStickinessQuery,
-    isRetentionQuery,
-    isLifecycleQuery,
-} from '~/queries/utils'
 
 import { InsightQueryNode } from '~/queries/schema'
 import { EditorFilterGroup } from './EditorFilterGroup'
@@ -31,7 +22,6 @@ import { TrendsSeriesLabel } from './TrendsSeriesLabel'
 import { TrendsFormulaLabel } from './TrendsFormulaLabel'
 import { TrendsFormula } from './TrendsFormula'
 import { Breakdown } from './Breakdown'
-import { getBreakdown, getDisplay } from './utils'
 import { PathsEventsTypesDataExploration } from 'scenes/insights/EditorFilters/PathsEventTypes'
 import {
     PathsTargetEndDataExploration,
@@ -40,39 +30,33 @@ import {
 import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/PathsExclusions'
 import { PathsWildcardGroupsDataExploration } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { RetentionSummaryDataExploration } from 'scenes/insights/EditorFilters/RetentionSummary'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
+    showing: boolean
 }
 
-export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Element {
+export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps): JSX.Element {
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
 
-    const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
-
-    const isTrends = isTrendsQuery(query)
-    const isFunnels = isFunnelsQuery(query)
-    const isRetention = isRetentionQuery(query)
-    const isPaths = isPathsQuery(query)
-    const isStickiness = isStickinessQuery(query)
-    const isLifecycle = isLifecycleQuery(query)
-    const isTrendsLike = isTrends || isLifecycle || isStickiness
-    const display = getDisplay(query)
-    const breakdown = getBreakdown(query)
+    const { insight, insightProps } = useValues(insightLogic)
+    const { isTrends, isFunnels, isRetention, isPaths, isLifecycle, isTrendsLike, display, breakdown } = useValues(
+        insightVizDataLogic(insightProps)
+    )
+    const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
-        (isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps)
+        isStepsFunnel
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
-    const hasAttribution = isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps
-
-    const showFilters = true // TODO: implement with insightVizLogic
+    const hasAttribution = isStepsFunnel
 
     const editorFilters: QueryInsightEditorFilterGroup[] = [
         {
@@ -145,7 +129,6 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
         },
         {
             title: 'Filters',
-            count: filterPropertiesCount,
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {
@@ -189,8 +172,10 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                           position: 'right',
                           tooltip: (
                               <div>
-                                  Attribution type determines which property value to use for the entire funnel.
-                                  <ul className="list-disc pl-4">
+                                  When breaking funnels down by a property, you can choose how to assign users to the
+                                  various property values. This is useful because property values can change for a
+                                  user/group as someone travels through the funnel.
+                                  <ul className="list-disc pl-4 pt-4">
                                       <li>First step: the first property value seen from all steps is chosen.</li>
                                       <li>Last step: last property value seen from all steps is chosen.</li>
                                       <li>Specific step: the property value seen at that specific step is chosen.</li>
@@ -226,11 +211,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                 isPaths && {
                     key: 'paths-advanced',
                     position: 'left',
-                    component: (props) => (
-                        <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
-                            <PathsAdvancedDataExploration {...props} />
-                        </PayGateMini>
-                    ),
+                    component: PathsAdvancedDataExploration,
                 },
                 isFunnels && {
                     key: 'funnels-advanced',
@@ -264,7 +245,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     ]
 
     return (
-        <CSSTransition in={showFilters} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
+        <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <div
                 className={clsx('EditorFiltersWrapper', {
                     'EditorFiltersWrapper--singlecolumn': isFunnels,

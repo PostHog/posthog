@@ -13,13 +13,18 @@ from typing import (
     cast,
 )
 
-from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
 
+from posthog.clickhouse.client.escape import escape_param_for_clickhouse
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
 from posthog.constants import PropertyOperatorType
-from posthog.hogql.hogql import HogQLContext, translate_hogql
+from posthog.hogql import ast
+from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import TraversingVisitor
+from posthog.models.action.action import Action
+from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (
     format_cohort_subquery,
@@ -40,9 +45,9 @@ from posthog.models.property import (
     PropertyName,
 )
 from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.session_query import SessionQuery
+from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import is_json, is_valid_regex
 
 # Property Groups Example:
@@ -74,7 +79,6 @@ def parse_prop_grouped_clauses(
     group_properties_joined: bool = True,
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
-
     if not property_group or len(property_group.values) == 0:
         return "", {}
 
@@ -578,7 +582,7 @@ def get_single_or_multi_property_string_expr(
         expression, _ = get_property_string_expr(
             table,
             str(breakdown),
-            escape_param(breakdown),
+            escape_param_for_clickhouse(breakdown),
             column,
             allow_denormalized_props,
             materialised_table_column=materialised_table_column,
@@ -591,7 +595,7 @@ def get_single_or_multi_property_string_expr(
             expr, _ = get_property_string_expr(
                 table,
                 b,
-                escape_param(b),
+                escape_param_for_clickhouse(b),
                 column,
                 allow_denormalized_props,
                 materialised_table_column=materialised_table_column,
@@ -767,20 +771,54 @@ def build_selector_regex(selector: Selector) -> str:
     return regex
 
 
+class HogQLPropertyChecker(TraversingVisitor):
+    def __init__(self):
+        self.event_properties: List[str] = []
+        self.person_properties: List[str] = []
+
+    def visit_field(self, node: ast.Field):
+        if len(node.chain) > 1 and node.chain[0] == "properties":
+            self.event_properties.append(node.chain[1])
+
+        if len(node.chain) > 2 and node.chain[0] == "person" and node.chain[1] == "properties":
+            self.person_properties.append(node.chain[2])
+
+        if (
+            len(node.chain) > 3
+            and node.chain[0] == "pdi"
+            and node.chain[1] == "person"
+            and node.chain[2] == "properties"
+        ):
+            self.person_properties.append(node.chain[3])
+
+
 def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:
     counters: List[tuple] = []
     for prop in props:
         if prop.type == "hogql":
-            context = HogQLContext()
-            translate_hogql(prop.key, context)
-            for field_access in context.field_access_logs:
-                if field_access.type == "event.properties":
-                    counters.append((field_access.field, "event", None))
-                elif field_access.type == "person.properties":
-                    counters.append((field_access.field, "person", None))
+            counters.extend(count_hogql_properties(prop.key))
+        elif prop.type == "behavioral" and prop.event_type == "actions":
+            action = Action.objects.get(pk=prop.key)
+            action_counter = get_action_tables_and_properties(action)
+            counters.extend(action_counter)
         else:
             counters.append((prop.key, prop.type, prop.group_type_index))
     return Counter(cast(Iterable, counters))
+
+
+def count_hogql_properties(
+    expr: str, counter: Optional[TCounter[PropertyIdentifier]] = None
+) -> TCounter[PropertyIdentifier]:
+    if not counter:
+        counter = Counter()
+    node = parse_expr(expr)
+    property_checker = HogQLPropertyChecker()
+    property_checker.visit(node)
+    for field in property_checker.event_properties:
+        counter[(field, "event", None)] += 1
+    for field in property_checker.person_properties:
+        counter[(field, "person", None)] += 1
+    return counter
 
 
 def get_session_property_filter_statement(prop: Property, idx: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:

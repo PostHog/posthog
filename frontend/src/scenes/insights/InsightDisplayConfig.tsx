@@ -3,18 +3,14 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode } from '~/types'
-import { CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { NON_VALUES_ON_SERIES_DISPLAY_TYPES, FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode, TrendsFilterType } from '~/types'
+
 import { InsightDateFilter } from './filters/InsightDateFilter'
-import {
-    FunnelDisplayLayoutPicker,
-    FunnelDisplayLayoutPickerDataExploration,
-} from './views/Funnels/FunnelDisplayLayoutPicker'
-import { PathStepPicker, PathStepPickerDataExploration } from './views/Paths/PathStepPicker'
-import { RetentionDatePicker, RetentionDatePickerDataExploration } from './RetentionDatePicker'
-import { RetentionReferencePicker, RetentionReferencePickerDataExploration } from './filters/RetentionReferencePicker'
-import { Tooltip } from 'antd'
+import { FunnelDisplayLayoutPicker } from './views/Funnels/FunnelDisplayLayoutPicker'
+import { PathStepPicker } from './views/Paths/PathStepPicker'
+import { RetentionDatePicker } from './RetentionDatePicker'
+import { RetentionReferencePicker } from './filters/RetentionReferencePicker'
 import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'
@@ -30,6 +26,7 @@ import {
     isAreaChartDisplay,
     isLifecycleFilter,
 } from 'scenes/insights/sharedUtils'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -81,8 +78,30 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
+const showValueOnSeriesFilter = (filters: FilterType): boolean => {
+    if (isTrendsFilter(filters) || isStickinessFilter(filters)) {
+        return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(filters.display || ChartDisplayType.ActionsLineGraph)
+    } else if (isLifecycleFilter(filters)) {
+        return true
+    } else {
+        return false
+    }
+}
+
 function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
     return <span className="space-x-2 flex items-center text-sm">{props.children}</span>
+}
+
+function ValueOnSeriesFilter(props: { onChange: (checked: boolean) => void; checked: boolean }): JSX.Element {
+    return (
+        <LemonCheckbox
+            onChange={props.onChange}
+            checked={props.checked}
+            label={<span className="font-normal">Show values on series</span>}
+            bordered
+            size="small"
+        />
+    )
 }
 
 export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayConfigProps): JSX.Element {
@@ -90,37 +109,21 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
     const isPaths = isPathsFilter(filters)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { isUsingDataExploration, insightProps } = useValues(insightLogic)
-    const { setFilters } = useActions(insightLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { setFilters, setFiltersMerge } = useActions(insightLogic)
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
-            <div className="flex items-center space-x-2 flex-wrap my-2">
+            <div className="flex items-center space-x-2 flex-wrap my-2 gap-y-2">
                 {filters.insight && showDateFilter[filters.insight] && !disableTable && (
                     <ConfigFilter>
-                        <span>Date range</span>
-                        <InsightDateFilter
-                            disabled={isFunnels && isFunnelEmpty(filters)}
-                            makeLabel={(key) => (
-                                <>
-                                    <CalendarOutlined /> {key}
-                                    {key == 'All time' && (
-                                        <Tooltip title={`Only events dated after 2015 will be shown`}>
-                                            <InfoCircleOutlined className="info-indicator" />
-                                        </Tooltip>
-                                    )}
-                                </>
-                            )}
-                        />
+                        <InsightDateFilter disabled={isFunnels && isFunnelEmpty(filters)} />
                     </ConfigFilter>
                 )}
 
                 {showIntervalFilter(filters) && (
                     <ConfigFilter>
-                        <span>
-                            <span className="hide-lte-md">grouped </span>by
-                        </span>
-                        <IntervalFilter view={filters.insight || InsightType.TRENDS} />
+                        <IntervalFilter />
                     </ConfigFilter>
                 )}
 
@@ -136,22 +139,14 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
 
                 {isRetentionFilter(filters) && (
                     <ConfigFilter>
-                        {isUsingDataExploration ? <RetentionDatePickerDataExploration /> : <RetentionDatePicker />}
-                        {isUsingDataExploration ? (
-                            <RetentionReferencePickerDataExploration />
-                        ) : (
-                            <RetentionReferencePicker />
-                        )}
+                        <RetentionDatePicker />
+                        <RetentionReferencePicker />
                     </ConfigFilter>
                 )}
 
                 {isPaths && (
                     <ConfigFilter>
-                        {isUsingDataExploration ? (
-                            <PathStepPickerDataExploration insightProps={insightProps} />
-                        ) : (
-                            <PathStepPicker insightProps={insightProps} />
-                        )}
+                        <PathStepPicker insightProps={insightProps} />
                     </ConfigFilter>
                 )}
 
@@ -160,8 +155,30 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                         <CompareFilter />
                     </ConfigFilter>
                 )}
+
+                {showValueOnSeriesFilter(filters) && (
+                    <ConfigFilter>
+                        <ValueOnSeriesFilter
+                            checked={
+                                !!(
+                                    ((isTrendsFilter(filters) ||
+                                        isStickinessFilter(filters) ||
+                                        isLifecycleFilter(filters)) &&
+                                        filters.show_values_on_series) ||
+                                    // pie charts have value checked by default
+                                    (isTrendsFilter(filters) &&
+                                        filters.display === ChartDisplayType.ActionsPie &&
+                                        filters.show_values_on_series === undefined)
+                                )
+                            }
+                            onChange={(checked) => {
+                                setFiltersMerge({ show_values_on_series: checked } as TrendsFilterType)
+                            }}
+                        />
+                    </ConfigFilter>
+                )}
             </div>
-            <div className="flex items-center space-x-4 flex-wrap my-2">
+            <div className="flex items-center space-x-4 flex-wrap my-2 grow justify-end">
                 {isFilterWithDisplay(filters) && (
                     <>
                         {isTrendsFilter(filters) && (
@@ -170,7 +187,6 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                             </ConfigFilter>
                         )}
                         <ConfigFilter>
-                            <span>Chart type</span>
                             <ChartFilter filters={filters} />
                         </ConfigFilter>
                     </>
@@ -179,11 +195,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                 {isFunnels && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <ConfigFilter>
-                            {isUsingDataExploration ? (
-                                <FunnelDisplayLayoutPickerDataExploration />
-                            ) : (
-                                <FunnelDisplayLayoutPicker />
-                            )}
+                            <FunnelDisplayLayoutPicker />
                         </ConfigFilter>
                     </>
                 )}

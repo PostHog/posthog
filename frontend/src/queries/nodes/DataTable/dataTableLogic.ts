@@ -1,6 +1,14 @@
 import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
-import { AnyDataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema'
+import {
+    AnyDataNode,
+    DataTableNode,
+    EventsQuery,
+    HogQLExpression,
+    NodeKind,
+    QueryContext,
+    TimeToSeeDataSessionsQuery,
+} from '~/queries/schema'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
 import { objectsEqual, sortedKeys } from 'lib/utils'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
@@ -13,6 +21,7 @@ import equal from 'fast-deep-equal'
 export interface DataTableLogicProps {
     key: string
     query: DataTableNode
+    context?: QueryContext
 }
 
 export interface DataTableRow {
@@ -53,18 +62,14 @@ export const dataTableLogic = kea<dataTableLogicType>([
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         orderBy: [
             (_, p) => [p.query],
-            (query): string[] | null => (isEventsQuery(query.source) ? query.source.orderBy || ['-timestamp'] : null),
+            (query): string[] | null =>
+                isEventsQuery(query.source) ? query.source.orderBy || ['timestamp DESC'] : null,
             { resultEqualityCheck: objectsEqual },
         ],
         columnsInResponse: [
             (s) => [s.response],
             (response: AnyDataNode['response']): string[] | null =>
-                response &&
-                'columns' in response &&
-                Array.isArray(response.columns) &&
-                !response.columns.find((c) => typeof c !== 'string')
-                    ? (response?.columns as string[])
-                    : null,
+                response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
         ],
         dataTableRows: [
             (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery, s.columnsInResponse],
@@ -84,7 +89,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         }
 
                         const { results } = eventsQueryResponse
-                        const orderKey = orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]
+                        const orderKey = orderBy?.[0]?.endsWith(' DESC')
+                            ? orderBy[0].replace(/ DESC$/, '')
+                            : orderBy?.[0]
                         const orderKeyIndex =
                             columnsInResponse?.findIndex(
                                 (column) =>
@@ -115,14 +122,21 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         }
                     }
                 }
+
+                if (response && sourceKind === NodeKind.TimeToSeeDataSessionsQuery) {
+                    return (response as NonNullable<TimeToSeeDataSessionsQuery['response']>).results.map((row) => ({
+                        result: row,
+                    }))
+                }
+
                 return response && 'results' in response && Array.isArray(response.results)
                     ? response.results.map((result: any) => ({ result })) ?? null
                     : null
             },
         ],
         queryWithDefaults: [
-            (s, p) => [p.query, s.columnsInQuery, s.featureFlags],
-            (query: DataTableNode, columnsInQuery, featureFlags): Required<DataTableNode> => {
+            (s, p) => [p.query, s.columnsInQuery, s.featureFlags, (_, props) => props.context],
+            (query: DataTableNode, columnsInQuery, featureFlags, context): Required<DataTableNode> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
                 const flagQueryRunningTimeEnabled = featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
@@ -143,11 +157,17 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showDateRange: query.showDateRange ?? showIfFull,
                         showExport: query.showExport ?? showIfFull,
                         showReload: query.showReload ?? showIfFull,
-                        showElapsedTime: query.showElapsedTime ?? (flagQueryRunningTimeEnabled ? showIfFull : false),
+                        showElapsedTime:
+                            query.showElapsedTime ??
+                            (flagQueryRunningTimeEnabled || source.kind === NodeKind.HogQLQuery ? showIfFull : false),
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
                         showSavedQueries: query.showSavedQueries ?? false,
-                        showEventsBufferWarning: query.showEventsBufferWarning ?? showIfFull,
+                        showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
+                        showOpenEditorButton:
+                            context?.showOpenEditorButton !== undefined
+                                ? context.showOpenEditorButton
+                                : query.showOpenEditorButton ?? true,
                     }),
                 }
             },

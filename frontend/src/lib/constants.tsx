@@ -1,5 +1,5 @@
 import { urls } from 'scenes/urls'
-import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProviders } from '../types'
+import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProvider } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -14,6 +14,11 @@ export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
 /** Display types which only work with a single series. */
 export const SINGLE_SERIES_DISPLAY_TYPES = [ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber]
 
+export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.BoldNumber,
+]
 export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
@@ -113,8 +118,6 @@ export const FEATURE_FLAGS = {
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
-    INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
-    BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     PERSON_ON_EVENTS_ENABLED: 'person-on-events-enabled', //owner: @EDsCODE
     REGION_SELECT: 'region-select', //owner: @kappa90
@@ -125,22 +128,25 @@ export const FEATURE_FLAGS = {
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
     EXPOSURES_ON_FEATURE_FLAGS: 'exposures-on-feature-flags', // owner: @EDsCODE
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
-    WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
-    ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
     ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth
     FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
-    DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra
-    DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
-    BILLING_PLAN_MOST_POPULAR_EXPERIMENT: 'billing-plan-most-popular-experiment', // owner: #team-growth, @raquelmsmith
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
-    HOGQL_EXPRESSIONS: 'hogql_expressions', // owner @mariusandra
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
-    RECORDINGS_INSPECTOR_PERFORMANCE: 'recordings-inspector-performance', // owner: #team-session-recordings
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
-    FF_JSON_PAYLOADS: 'ff-json-payloads', // owner @EDsCODE
     PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
+    REQUIRE_EMAIL_VERIFICATION: 'require-email-verification', // owner: @raquelmsmith
+    SAMPLING: 'sampling', // owner: @yakkomajuri
+    RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
+    POSTHOG_3000: 'posthog-3000', // owner: @Twixes
+    ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
+    FF_CODE_EXAMPLE: 'ff-code-example', // owner: @liyiy
+    FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
+    RECORDINGS_LIST_V2: 'recordings-list-v2-enabled', // owner: #team-session-recordings
+    HOGQL: 'hogql', // owner: #team-product-analytics
+    NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
+    ARUBUG: 'arubug', // owner: #team-arubug
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -193,11 +199,11 @@ export enum CohortTypeEnum {
  */
 export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
 
-export const SSO_PROVIDER_NAMES: Record<SSOProviders, string> = {
+export const SSO_PROVIDER_NAMES: Record<SSOProvider, string> = {
     'google-oauth2': 'Google',
     github: 'GitHub',
     gitlab: 'GitLab',
-    saml: 'single sign-on (SAML)',
+    saml: 'Single sign-on (SAML)',
 }
 
 // TODO: Remove UPGRADE_LINK, as the billing page is now universal

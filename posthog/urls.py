@@ -9,6 +9,7 @@ from django.views.decorators import csrf
 from django.views.decorators.csrf import csrf_exempt
 from django_prometheus.exports import ExportToDjangoView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
     api_not_found,
@@ -130,6 +131,7 @@ urlpatterns = [
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
+    path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/prompts/webhook", prompt_webhook),
@@ -202,6 +204,7 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
+    "verify_email",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

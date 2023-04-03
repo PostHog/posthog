@@ -1,6 +1,6 @@
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { DependencyList } from 'react'
-import { HotKeys } from '~/types'
+import { HotKey } from '~/types'
 
 export interface HotkeyInterface {
     action: (e: KeyboardEvent) => void
@@ -9,7 +9,7 @@ export interface HotkeyInterface {
     willHandleEvent?: boolean
 }
 
-export type HotkeysInterface = Partial<Record<HotKeys, HotkeyInterface>>
+export type HotkeysInterface = Partial<Record<HotKey, HotkeyInterface>>
 /**
  * input boxes in the hovering toolbar do not have event target of input.
  * they are detected as for e.g.div#__POSTHOG_TOOLBAR__.ph-no-capture
@@ -49,13 +49,15 @@ export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyL
             }
 
             // Ignore typing on inputs (default behavior); except Esc key
-            const isDOMInput = IGNORE_INPUTS.includes((event.target as HTMLElement).tagName.toLowerCase())
+            const isDOMInput =
+                IGNORE_INPUTS.includes((event.target as HTMLElement).tagName.toLowerCase()) ||
+                (event.target as HTMLElement).isContentEditable
             if (key !== 'Escape' && (isDOMInput || isToolbarInput(event, IGNORE_INPUTS))) {
                 return
             }
 
             for (const relevantKey of Object.keys(hotkeys)) {
-                const hotkey = hotkeys[relevantKey as HotKeys]
+                const hotkey = hotkeys[relevantKey as HotKey]
 
                 if (!hotkey || hotkey.disabled) {
                     continue

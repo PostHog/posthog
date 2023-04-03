@@ -15,7 +15,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
     const logic = definitionEditLogic(props)
-    const { definitionLoading, definition, hasTaxonomyFeatures, isEvent } = useValues(logic)
+    const { definitionLoading, definition, hasTaxonomyFeatures, isEvent, isProperty } = useValues(logic)
     const { setPageMode, saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
 
@@ -31,7 +31,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             onClick={() => {
                                 setPageMode(DefinitionPageMode.View)
                             }}
-                            disabled={definitionLoading}
+                            disabledReason={definitionLoading ? 'Loading...' : undefined}
                         >
                             Cancel
                         </LemonButton>
@@ -41,7 +41,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             onClick={() => {
                                 saveDefinition({})
                             }}
-                            disabled={definitionLoading}
+                            disabledReason={definitionLoading ? 'Loading...' : undefined}
                         >
                             Save
                         </LemonButton>
@@ -96,7 +96,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                         </Field>
                     </div>
                 )}
-                {hasTaxonomyFeatures && !isEvent && (
+                {isProperty && (
                     <div className="mt-4 ph-ignore-input">
                         <Field name="property_type" label="Property Type" data-attr="property-type">
                             {({ value, onChange }) => (

@@ -4,6 +4,8 @@ import os
 from datetime import timedelta
 from typing import List
 
+from corsheaders.defaults import default_headers
+
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.statsd import STATSD_HOST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
@@ -37,12 +39,21 @@ INSTALLED_APPS = [
     "django_filters",
     "axes",
     "drf_spectacular",
+    "django_otp",
+    "django_otp.plugins.otp_static",
+    "django_otp.plugins.otp_totp",
+    # 'django_otp.plugins.otp_email',  # <- if you want email capability.
+    "two_factor",
+    # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
+    # 'two_factor.plugins.email',  # <- if you want email capability.
+    # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
 ]
 
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
+    "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
@@ -60,6 +71,8 @@ MIDDLEWARE = [
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.middleware.user_logging_context_middleware",
+    "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
@@ -151,6 +164,8 @@ SOCIAL_AUTH_GITLAB_KEY = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
+# 2FA
+TWO_FACTOR_REMEMBER_COOKIE_AGE = 60 * 60 * 24 * 30
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
@@ -188,6 +203,7 @@ LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/.*$"
+CORS_ALLOW_HEADERS = default_headers + ("traceparent", "request-id", "request-context")
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -205,8 +221,8 @@ REST_FRAMEWORK = {
     # These rate limits are defined in `rate_limit.py`, and they're only
     # applied if env variable `RATE_LIMIT_ENABLED` is set to True
     "DEFAULT_THROTTLE_CLASSES": [
-        "posthog.rate_limit.PassThroughBurstRateThrottle",
-        "posthog.rate_limit.PassThroughSustainedRateThrottle",
+        "posthog.rate_limit.BurstRateThrottle",
+        "posthog.rate_limit.SustainedRateThrottle",
     ],
     "STRICT_JSON": False,
 }
@@ -234,6 +250,17 @@ CSRF_COOKIE_NAME = "posthog_csrftoken"
 
 # see posthog.gzip_middleware.ScopedGZipMiddleware
 # for how adding paths here can add vulnerability to the "breach" attack
+GZIP_POST_RESPONSE_ALLOW_LIST = get_list(
+    os.getenv(
+        "GZIP_POST_RESPONSE_ALLOW_LIST",
+        ",".join(
+            [
+                "^/?api/projects/\\d+/query/?$",
+            ]
+        ),
+    )
+)
+
 GZIP_RESPONSE_ALLOW_LIST = get_list(
     os.getenv(
         "GZIP_RESPONSE_ALLOW_LIST",
@@ -265,9 +292,16 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/projects/\\d+/persons/?$",
                 "^/api/organizations/@current/plugins/?$",
                 "^api/projects/@current/feature_flags/my_flags/?$",
+                "^/?api/projects/\\d+/query/?$",
             ]
         ),
     )
 )
 
 KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS", None) or 10)
+
+# Prometheus Django metrics settings, see
+# https://github.com/korfuri/django-prometheus for more details
+
+# We keep the number of buckets low to reduce resource usage on the Prometheus
+PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1] + [float("inf")]

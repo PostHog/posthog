@@ -60,6 +60,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: web
+        command: /compose/start
         volumes:
             - ./compose:/compose
         image: posthog/posthog:$POSTHOG_APP_TAG
@@ -104,6 +105,37 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+
+    # Temporal containers
+    temporal:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal
+        environment:
+            - ENABLE_ES=false
+        ports:
+            - 7233:7233
+    temporal-admin-tools:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-admin-tools
+    temporal-ui:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-ui
+        ports:
+            - 8081:8080
+    temporal-django-worker:
+        command: /compose/temporal-django-worker
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-django-worker
+        volumes:
+            - ./compose:/compose
+        image: posthog/posthog:$POSTHOG_APP_TAG
+        environment:
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
 
 volumes:
     zookeeper-data:

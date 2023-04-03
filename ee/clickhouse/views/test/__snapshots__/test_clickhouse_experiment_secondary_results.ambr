@@ -1,5 +1,53 @@
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results
   '
+  /* user_id:48 celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.1
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.2
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.3
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.4
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
@@ -8,19 +56,19 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.1
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.5
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
-         groupArray(count) as data,
+         groupArray(count) AS total,
          breakdown_value
   FROM
     (SELECT SUM(total) as count,
@@ -49,8 +97,8 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['control', 'test', 'ablahebf', ''])
            GROUP BY day_start,
                     breakdown_value))
@@ -62,7 +110,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.2
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.6
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
@@ -72,15 +120,15 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['$pageleave_funnel', '$pageview_funnel']
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.3
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.7
   '
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
@@ -142,8 +190,8 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['$pageleave_funnel', '$pageview_funnel']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))

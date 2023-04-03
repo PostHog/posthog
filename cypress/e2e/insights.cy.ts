@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
-import { savedInsights, createInsight } from '../productAnalytics'
+import { savedInsights, createInsight, insight } from '../productAnalytics'
 
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
@@ -79,7 +79,7 @@ describe('Insights', () => {
 
     describe('unsaved insights confirmation', () => {
         it('can move away from an unchanged new insight without confirm()', () => {
-            cy.get('[data-attr="menu-item-insight"]').click()
+            insight.newInsight()
             cy.log('Navigate away')
             cy.get('[data-attr="menu-item-featureflags"]').click()
             cy.log('We should be on the Feature Flags page now')
@@ -87,7 +87,7 @@ describe('Insights', () => {
         })
 
         it('Can navigate away from unchanged saved insight without confirm()', () => {
-            cy.get('[data-attr="menu-item-insight"]').click()
+            insight.newInsight()
             cy.log('Add series')
             cy.get('[data-attr=add-action-event-button]').click()
             cy.log('Save')
@@ -104,7 +104,7 @@ describe('Insights', () => {
                 return false
             })
 
-            cy.get('[data-attr="menu-item-insight"]').click()
+            insight.newInsight()
             cy.log('Add series')
             cy.get('[data-attr=add-action-event-button]').click()
             cy.log('Navigate away')
@@ -117,7 +117,7 @@ describe('Insights', () => {
             cy.on('window:confirm', () => {
                 return true
             })
-            cy.get('[data-attr="menu-item-insight"]').click()
+            insight.newInsight()
             cy.log('Add series')
             cy.get('[data-attr=add-action-event-button]').click()
             cy.log('Navigate away')
@@ -133,7 +133,7 @@ describe('Insights', () => {
     })
 
     it('Stickiness graph', () => {
-        cy.get('.ant-tabs-tab').contains('Stickiness').click()
+        cy.get('[role=tab]').contains('Stickiness').click()
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-1]').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
@@ -142,7 +142,7 @@ describe('Insights', () => {
 
     it('Lifecycle graph', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist') // Wait until components are loaded
-        cy.get('.ant-tabs-tab').contains('Lifecycle').click()
+        cy.get('[role=tab]').contains('Lifecycle').click()
         cy.get('div').contains('Lifecycle Toggles').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.get('[data-attr=add-breakdown-button]').should('not.exist') // Can't do breakdown on this graph
@@ -155,6 +155,7 @@ describe('Insights', () => {
         cy.reload()
 
         cy.clickNavMenu('insight')
+        cy.get('[data-attr="menu-item-insight"]').click()
         cy.get('[data-attr=trend-element-subject-0] span').should('contain', 'Pageview')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.contains('Add graph series').click()

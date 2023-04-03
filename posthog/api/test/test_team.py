@@ -10,6 +10,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
+from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.test.base import APIBaseTest
 
 
@@ -188,6 +189,36 @@ class TestTeamAPI(APIBaseTest):
         )
         mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
+    def test_delete_bulky_postgres_data(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        team: Team = Team.objects.create_with_data(organization=self.organization)
+
+        self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
+
+        from posthog.models.cohort import Cohort, CohortPeople
+        from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
+
+        # from posthog.models.insight_caching_state import InsightCachingState
+        from posthog.models.person import Person
+
+        cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
+        person = Person.objects.create(
+            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+        person.add_distinct_id("test")
+        flag = FeatureFlag.objects.create(
+            team=team, name="test", key="test", rollout_percentage=50, created_by=self.user
+        )
+        FeatureFlagHashKeyOverride.objects.create(
+            team_id=team.pk, person_id=person.id, feature_flag_key=flag.key, hash_key="test"
+        )
+        CohortPeople.objects.create(cohort_id=cohort.pk, person_id=person.pk)
+
+        # if something is missing then teardown fails
+        delete_bulky_postgres_data([team.pk])
+
     def test_reset_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -319,6 +350,19 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(cached_team.name, "Test")
         self.assertEqual(cached_team.uuid, response.json()["uuid"])
         self.assertEqual(cached_team.session_recording_opt_in, True)
+
+    def test_update_recording_version(self):
+        response = self.client.get("/api/projects/@current/")
+        assert response.json()["session_recording_version"] is None
+
+        response = self.client.patch("/api/projects/@current/", {"session_recording_version": "not-allowed"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Invalid session recording version"
+
+        response = self.client.patch("/api/projects/@current/", {"session_recording_version": "v2"})
+        assert response.status_code == status.HTTP_200_OK
+        response = self.client.get("/api/projects/@current/")
+        assert response.json()["session_recording_version"] == "v2"
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

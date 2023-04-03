@@ -1,3 +1,5 @@
+@use 'sass:string';
+
 @import 'vars';
 @import 'mixins';
 
@@ -90,6 +92,27 @@
         .p#{str-slice($side, 0, 1)}-#{escape-number($space)} {
             padding-#{$side}: #{$space * 0.25}rem;
         }
+    }
+}
+
+@each $name, $size in $screens {
+    .w-#{$name} {
+        width: $size;
+    }
+    .h-#{$name} {
+        height: $size;
+    }
+    .min-w-#{$name} {
+        min-width: $size;
+    }
+    .max-w-#{$name} {
+        max-width: $size;
+    }
+    .min-h-#{$name} {
+        min-height: $size;
+    }
+    .max-h-#{$name} {
+        max-height: $size;
     }
 }
 
@@ -267,15 +290,38 @@
     border-style: none;
 }
 
+$decorations: underline, overline, line-through, no-underline;
+@each $decoration in $decorations {
+    .#{$decoration} {
+        text-decoration-line: $decoration;
+    }
+    .hover\:#{$decoration}:hover {
+        text-decoration-line: $decoration;
+    }
+}
+
+.decoration-inherit {
+    text-decoration-color: inherit;
+}
+.decoration-current {
+    text-decoration-color: currentColor;
+}
+.decoration-transparent {
+    text-decoration-color: transparent;
+}
+
 @each $name, $hex in $colors {
     .text-#{$name} {
-        color: $hex;
+        color: var(--#{$name});
     }
     .bg-#{$name} {
-        background-color: $hex;
+        background-color: var(--#{$name});
     }
     .border-#{$name} {
-        border-color: $hex;
+        border-color: var(--#{$name});
+    }
+    .decoration-#{$name} {
+        text-decoration-color: var(--#{$name});
     }
 }
 
@@ -395,6 +441,10 @@
 
 .float-left {
     float: left;
+}
+
+.align-middle {
+    vertical-align: middle;
 }
 
 // Position
@@ -855,8 +905,13 @@
     box-shadow: var(--shadow-elevation);
 }
 
-.object-contain {
-    object-fit: contain;
+@each $fitOption in ('contain', 'cover', 'fill', 'none', 'scale-down') {
+    .object-#{$fitOption} {
+        object-fit: string.unquote($fitOption);
+    }
+    hover\:object-#{$fitOption}:hover {
+        object-fit: string.unquote($fitOption);
+    }
 }
 
 .tracking-tighter {
@@ -936,4 +991,49 @@
 
 .resize-y {
     resize: vertical;
+}
+
+.static {
+    position: static;
+}
+
+.relative {
+    position: relative;
+}
+
+.absolute {
+    position: absolute;
+}
+
+.fixed {
+    position: fixed;
+}
+
+.sticky {
+    position: sticky;
+}
+
+.line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.transition-all {
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+
+.aspect-auto {
+    aspect-ratio: auto;
+}
+
+.aspect-square {
+    aspect-ratio: 1 / 1;
+}
+
+.aspect-video {
+    aspect-ratio: 16 / 9;
 }

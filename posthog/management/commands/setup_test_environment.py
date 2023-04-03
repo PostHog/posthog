@@ -28,8 +28,9 @@ class Command(BaseCommand):
         if not TEST:
             raise ValueError("TEST environment variable needs to be set for this command to function")
 
-        test_runner = TestRunner(interactive=False)
         disable_migrations()
+
+        test_runner = TestRunner(interactive=False)
         test_runner.setup_databases()
         test_runner.setup_test_environment()
 
@@ -84,7 +85,7 @@ def disable_migrations() -> None:
         def handle(self, *args, **kwargs):
             from django.db import connection
 
-            # :TRICKY: Create extension depended on by models.
+            # :TRICKY: Create extension and function depended on by models.
             with connection.cursor() as cursor:
                 cursor.execute("CREATE EXTENSION pg_trgm")
 

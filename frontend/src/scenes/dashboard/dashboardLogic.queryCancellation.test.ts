@@ -45,7 +45,7 @@ describe('dashboardLogic query cancellation', () => {
                     previous: null,
                     results: [{ ...dashboards['12'] }],
                 },
-                '/api/projects/:team/insights/:id/': (req) => {
+                '/api/projects/:team/insights/:id/': (req, _res, ctx) => {
                     const clientQueryId = req.url.searchParams.get('client_query_id')
                     if (clientQueryId !== null) {
                         seenQueryIDs.push(clientQueryId)
@@ -64,11 +64,7 @@ describe('dashboardLogic query cancellation', () => {
                         // delay for 2 seconds before response without pausing
                         // but only the first time that dashboard 12 refreshes its results
                         if (dashboardTwelveInsightLoadedCount === 1) {
-                            return new Promise((resolve) =>
-                                setTimeout(() => {
-                                    resolve([200, matched])
-                                }, 2000)
-                            )
+                            return [ctx.status(200), ctx.delay(2000), ctx.json(matched)]
                         }
                     }
                     return [200, matched]

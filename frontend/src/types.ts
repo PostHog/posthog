@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { InsightQueryNode, QuerySchema } from './queries/schema'
+import { InsightQueryNode, Node, QueryContext } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -96,7 +96,7 @@ export enum Region {
     EU = 'EU',
 }
 
-export type SSOProviders = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
@@ -119,6 +119,7 @@ interface UserBaseType {
 
 /* Type for User objects in nested serializers (e.g. created_by) */
 export interface UserBasicType extends UserBaseType {
+    is_email_verified?: any
     id: number
 }
 
@@ -138,6 +139,10 @@ export interface UserType extends UserBaseType {
     organizations: OrganizationBasicType[]
     realm?: Realm
     posthog_version?: string
+    is_email_verified?: boolean | null
+    pending_email?: string | null
+    is_2fa_enabled: boolean
+    has_social_auth: boolean
 }
 
 export interface NotificationSettings {
@@ -181,6 +186,7 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
+    enforce_2fa: boolean | null
     metadata?: OrganizationMetadata
 }
 
@@ -191,7 +197,7 @@ export interface OrganizationDomainType {
     verified_at: string // Datetime
     verification_challenge: string
     jit_provisioning_enabled: boolean
-    sso_enforcement: SSOProviders | ''
+    sso_enforcement: SSOProvider | ''
     has_saml: boolean
     saml_entity_id: string
     saml_acs_url: string
@@ -204,11 +210,15 @@ export interface BaseMemberType {
     user: UserBasicType
     joined_at: string
     updated_at: string
+    is_2fa_enabled: boolean
+    has_social_auth: boolean
 }
 
 export interface OrganizationMemberType extends BaseMemberType {
     /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
+    is_2fa_enabled: boolean
+    has_social_auth: boolean
 }
 
 export interface ExplicitTeamMemberType extends BaseMemberType {
@@ -283,10 +293,11 @@ export interface TeamType extends TeamBasicType {
     app_urls: string[]
     recording_domains: string[]
     slack_incoming_webhook: string
+    autocapture_opt_out: boolean
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
-
     capture_performance_opt_in: boolean
+    session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
     path_cleaning_filters: PathCleaningFilter[]
@@ -681,7 +692,7 @@ export type EntityFilter = {
     type?: EntityType
     id: Entity['id'] | null
     name?: string | null
-    custom_name?: string
+    custom_name?: string | null
     index?: number
     order?: number
 }
@@ -869,6 +880,7 @@ export interface EventType {
     elements_chain?: string | null
     /** Used in session recording events list */
     colonTimestamp?: string
+    uuid?: string
 }
 
 export interface RecordingTimeMixinType {
@@ -1026,23 +1038,6 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export interface BillingType {
-    should_setup_billing: boolean
-    is_billing_active: boolean
-    plan: PlanInterface | null
-    billing_period_ends: string | null
-    event_allocation: number | null
-    current_usage: number | null
-    subscription_url: string
-    current_bill_amount: number | null
-    current_bill_usage: number | null
-    should_display_current_bill: boolean
-    billing_limit: number | null
-    billing_limit_exceeded: boolean | null
-    current_bill_cycle: CurrentBillCycleType | null
-    tiers: BillingTierType[] | null
-}
-
 export type BillingVersion = 'v1' | 'v2'
 
 export interface BillingV2FeatureType {
@@ -1069,7 +1064,7 @@ export interface BillingProductV2Type {
     image_url?: string
     free_allocation?: number
     tiers?: BillingV2TierType[]
-    tiered?: boolean
+    tiered: boolean
     current_usage?: number
     projected_usage?: number
     percentage_usage: number
@@ -1090,6 +1085,7 @@ export interface BillingV2Type {
     stripe_portal_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string
+    current_total_amount_usd_after_discount?: string
     products: BillingProductV2Type[]
     products_enterprise?: BillingProductV2Type[]
 
@@ -1099,11 +1095,14 @@ export interface BillingV2Type {
     billing_period?: {
         current_period_start: Dayjs
         current_period_end: Dayjs
+        interval: 'month' | 'year'
     }
     license?: {
         plan: LicensePlan
     }
     available_plans?: BillingV2PlanType[]
+    discount_percent?: number
+    discount_amount_usd?: string
 }
 
 export interface BillingV2PlanType {
@@ -1112,14 +1111,6 @@ export interface BillingV2PlanType {
     description: string
     is_free?: boolean
     products: BillingProductV2Type[]
-}
-
-export interface BillingTierType {
-    name: string
-    price_per_event: number
-    number_of_events: number
-    subtotal: number
-    running_total: number
 }
 
 export interface PlanInterface {
@@ -1146,6 +1137,7 @@ export enum InsightColor {
 
 export interface Cacheable {
     last_refresh: string | null
+    next_allowed_client_refresh?: string | null
 }
 
 export interface TileLayout extends Omit<Layout, 'i'> {
@@ -1209,7 +1201,7 @@ export interface InsightModel extends Cacheable {
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
     filters: Partial<FilterType>
-    query?: QuerySchema
+    query?: Node | null
 }
 
 export interface DashboardType {
@@ -1230,6 +1222,38 @@ export interface DashboardType {
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+}
+
+export interface DashboardTemplateType {
+    id: string
+    team_id?: number
+    created_at?: string
+    template_name: string
+    dashboard_description?: string
+    dashboard_filters?: Record<string, JsonType>
+    tiles: DashboardTile[]
+    variables?: DashboardTemplateVariableType[]
+    tags?: string[]
+    image_url?: string
+    scope?: 'team' | 'global'
+}
+
+export interface MonacoMarker {
+    message: string
+}
+
+// makes the DashboardTemplateType properties optional and the tiles properties optional
+export type DashboardTemplateEditorType = Partial<Omit<DashboardTemplateType, 'tiles'>> & {
+    tiles: Partial<DashboardTile>[]
+}
+
+export interface DashboardTemplateVariableType {
+    id: string
+    name: string
+    description: string
+    type: 'event'
+    default: Record<string, JsonType> | null | undefined
+    required: boolean
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
@@ -1375,7 +1399,7 @@ export interface RawAnnotationType {
     insight_short_id?: InsightModel['short_id'] | null
     insight_name?: InsightModel['name'] | null
     deleted?: boolean
-    creation_type?: string
+    creation_type?: 'USR' | 'GIT'
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
@@ -1405,6 +1429,8 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
+    JSON = 'JSON',
+    SQL = 'SQL',
 }
 
 export enum PathType {
@@ -1447,6 +1473,11 @@ export interface FilterType {
     insight?: InsightType
     date_from?: string | null
     date_to?: string | null
+    /**
+     * Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period.
+     * Strings are cast to bools, e.g. "true" -> true.
+     */
+    explicit_date?: boolean | string | null
 
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
@@ -1471,6 +1502,7 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
+    sampling_factor?: number | null
 }
 
 export interface PropertiesTimelineFilterType {
@@ -1501,6 +1533,8 @@ export interface TrendsFilterType extends FilterType {
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+
+    show_values_on_series?: boolean
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
@@ -1509,6 +1543,8 @@ export interface StickinessFilterType extends FilterType {
     stickiness_days?: number
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+
+    show_values_on_series?: boolean
 }
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
@@ -1562,7 +1598,10 @@ export interface RetentionFilterType extends FilterType {
 }
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
+    show_values_on_series?: boolean
+    toggledLifecycles?: LifecycleToggle[]
 }
+
 export type LifecycleToggle = 'new' | 'resurrecting' | 'returning' | 'dormant'
 export type AnyFilterType =
     | TrendsFilterType
@@ -1633,6 +1672,7 @@ export interface InsightEditorFilter<T = EditorFilterProps> {
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
+    /** Editor filter component. Cannot be an anonymous function or the key would not work! */
     component?: (props: T) => JSX.Element | null
 }
 
@@ -1687,6 +1727,14 @@ export interface ActionFilter extends EntityFilter {
     properties?: AnyPropertyFilter[]
     type: EntityType
 }
+export interface TrendAPIResponse<ResultType = TrendResult[]> {
+    type: 'Trends'
+    is_cached: boolean
+    last_refresh: string | null
+    result: ResultType
+    timezone: string
+    next: string | null
+}
 
 export interface TrendResult {
     action: ActionFilter
@@ -1719,46 +1767,40 @@ export interface FunnelStep {
     median_conversion_time: number | null
     count: number
     name: string
-    custom_name?: string
+    custom_name?: string | null
     order: number
     people?: string[]
     type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
-    breakdowns?: Breakdown[]
+    breakdowns?: BreakdownKeyType[]
     breakdown_value?: BreakdownKeyType
     data?: number[]
     days?: string[]
 
-    // Url that you can GET to retrieve the people that converted in this step
+    /** Url that you can GET to retrieve the people that converted in this step */
     converted_people_url: string
 
-    // Url that you can GET to retrieve the people that dropped in this step
-    dropped_people_url: string
-}
-
-export interface FunnelStepWithNestedBreakdown extends FunnelStep {
-    nested_breakdown?: FunnelStep[]
-}
-
-export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionBins> {
-    is_cached: boolean
-    last_refresh: string | null
-    result: ResultType
-    type: 'Funnel'
+    /** Url that you can GET to retrieve the people that dropped in this step  */
+    dropped_people_url: string | null
 }
 
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
-    average_conversion_time: number
+    average_conversion_time: number | null
 }
 
-export interface HistogramGraphDatum {
-    id: number
-    bin0: number
-    bin1: number
-    count: number
-    label: string
+export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
+
+export interface FunnelAPIResponse<ResultType = FunnelResultType> {
+    is_cached: boolean
+    last_refresh: string | null
+    result: ResultType
+    timezone: string
+}
+
+export interface FunnelStepWithNestedBreakdown extends FunnelStep {
+    nested_breakdown?: FunnelStep[]
 }
 
 export interface FunnelTimeConversionMetrics {
@@ -1774,24 +1816,12 @@ export interface FunnelConversionWindow {
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
 export enum FunnelConversionWindowTimeUnit {
+    Second = 'second',
     Minute = 'minute',
     Hour = 'hour',
     Day = 'day',
     Week = 'week',
     Month = 'month',
-}
-
-export interface FunnelRequestParams extends FilterType {
-    refresh?: boolean
-    from_dashboard?: boolean | number
-    funnel_window_days?: number
-}
-
-export type FunnelAPIResponse = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
-
-export interface LoadedRawFunnelResults {
-    results: FunnelAPIResponse
-    filters: Partial<FilterType>
 }
 
 export enum FunnelStepReference {
@@ -1815,13 +1845,6 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
     }
 }
 
-export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
-    rowKey: number | string
-    nestedRowKeys?: string[]
-    isBreakdownParent?: boolean
-    breakdownIndex?: number
-}
-
 export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
@@ -1836,6 +1859,31 @@ export interface FlattenedFunnelStepByBreakdown {
     significant?: boolean
 }
 
+export interface FunnelCorrelation {
+    event: Pick<EventType, 'elements' | 'event' | 'properties'>
+    odds_ratio: number
+    success_count: number
+    success_people_url: string
+    failure_count: number
+    failure_people_url: string
+    correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
+    result_type:
+        | FunnelCorrelationResultsType.Events
+        | FunnelCorrelationResultsType.Properties
+        | FunnelCorrelationResultsType.EventWithProperties
+}
+
+export enum FunnelCorrelationType {
+    Success = 'success',
+    Failure = 'failure',
+}
+
+export enum FunnelCorrelationResultsType {
+    Events = 'events',
+    Properties = 'properties',
+    EventWithProperties = 'event_with_properties',
+}
+
 export enum BreakdownAttributionType {
     FirstTouch = 'first_touch',
     LastTouch = 'last_touch',
@@ -1847,6 +1895,16 @@ export interface ChartParams {
     inCardView?: boolean
     inSharedMode?: boolean
     showPersonsModal?: boolean
+    /** allows overriding by queries, e.g. setting empty state text*/
+    context?: QueryContext
+}
+
+export interface HistogramGraphDatum {
+    id: number
+    bin0: number
+    bin1: number
+    count: number
+    label: string
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
@@ -1909,6 +1967,7 @@ export interface FeatureFlagType {
     performed_rollback: boolean
     can_edit: boolean
     tags: string[]
+    usage_dashboard?: number
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -1990,6 +2049,7 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
+    FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
@@ -2001,7 +2061,7 @@ export enum DashboardMode { // Default mode is null
 }
 
 // Hotkeys for local (component) actions
-export type HotKeys =
+export type HotKey =
     | 'a'
     | 'b'
     | 'c'
@@ -2035,12 +2095,7 @@ export type HotKeys =
     | 'arrowdown'
     | 'arrowup'
 
-export interface LicenseType {
-    id: number
-    plan: LicensePlan
-    valid_until: string
-    created_at: string
-}
+export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export interface EventDefinition {
     id: string
@@ -2138,22 +2193,51 @@ export interface Experiment {
     end_date?: string | null
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
-    created_at: string
+    created_at: string | null
     created_by: UserBasicType | null
+    updated_at: string | null
 }
 
-export interface ExperimentResults {
-    insight: FunnelStep[][] | TrendResult[]
+export interface ExperimentVariant {
+    key: string
+    success_count: number
+    failure_count: number
+}
+
+interface BaseExperimentResults {
     probability: Record<string, number>
-    filters: FilterType
-    itemID: string
+    fakeInsightId: string
     significant: boolean
     noData?: boolean
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
     secondary_metric_results?: SecondaryMetricAPIResult[]
+    variants: ExperimentVariant[]
 }
+
+export interface _TrendsExperimentResults extends BaseExperimentResults {
+    insight: TrendResult[]
+    filters: TrendsFilterType
+}
+
+export interface _FunnelExperimentResults extends BaseExperimentResults {
+    insight: FunnelStep[][]
+    filters: FunnelsFilterType
+}
+
+export interface TrendsExperimentResults {
+    result: _TrendsExperimentResults
+    is_cached?: boolean
+    last_refresh?: string | null
+}
+export interface FunnelExperimentResults {
+    result: _FunnelExperimentResults
+    is_cached?: boolean
+    last_refresh?: string | null
+}
+
+export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
 
 export interface SecondaryMetricAPIResult {
     name: string
@@ -2244,20 +2328,6 @@ export interface PathEdgeParameters {
     max_edge_weight?: number | undefined
 }
 
-export interface FunnelCorrelation {
-    event: Pick<EventType, 'elements' | 'event' | 'properties'>
-    odds_ratio: number
-    success_count: number
-    success_people_url: string
-    failure_count: number
-    failure_people_url: string
-    correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
-    result_type:
-        | FunnelCorrelationResultsType.Events
-        | FunnelCorrelationResultsType.Properties
-        | FunnelCorrelationResultsType.EventWithProperties
-}
-
 export enum SignificanceCode {
     Significant = 'significant',
     NotEnoughExposure = 'not_enough_exposure',
@@ -2266,22 +2336,12 @@ export enum SignificanceCode {
     HighPValue = 'high_p_value',
 }
 
-export enum FunnelCorrelationType {
-    Success = 'success',
-    Failure = 'failure',
-}
-
-export enum FunnelCorrelationResultsType {
-    Events = 'events',
-    Properties = 'properties',
-    EventWithProperties = 'event_with_properties',
-}
-
 export enum HelpType {
     Slack = 'slack',
     GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
+    Updates = 'updates',
 }
 
 export interface VersionType {
@@ -2644,3 +2704,25 @@ export interface RecordingReportLoadTimes {
 }
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
+
+export type PromptButtonType = 'primary' | 'secondary'
+export type PromptType = 'modal' | 'popup'
+
+export type PromptPayload = {
+    title: string
+    body: string
+    type: PromptType
+    image?: string
+    url_match?: string
+    primaryButtonText?: string
+    secondaryButtonText?: string
+    primaryButtonURL?: string
+}
+
+export type PromptFlag = {
+    flag: string
+    payload: PromptPayload
+    showingPrompt: boolean
+    locationCSS?: Partial<CSSStyleDeclaration>
+    tooltipCSS?: Partial<CSSStyleDeclaration>
+}

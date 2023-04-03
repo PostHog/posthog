@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import tk from 'timekeeper'
 
 import { parseDate, parseEventTimestamp } from '../../../src/worker/ingestion/timestamps'
 
@@ -31,10 +30,10 @@ describe('parseDate()', () => {
 
 describe('parseEventTimestamp()', () => {
     beforeEach(() => {
-        tk.freeze('2020-08-12T01:02:00.000Z')
+        jest.useFakeTimers().setSystemTime(new Date('2020-08-12T01:02:00.000Z'))
     })
     afterEach(() => {
-        tk.reset()
+        jest.useRealTimers()
     })
 
     it('captures sent_at to adjusts timestamp', () => {
@@ -177,7 +176,7 @@ describe('parseEventTimestamp()', () => {
             ],
         ])
 
-        expect(timestamp.toISO()).toEqual('2021-10-29T02:30:00.000Z')
+        expect(timestamp.toISO()).toEqual('2021-10-29T01:00:00.000Z')
     })
 
     it('reports event_timestamp_in_future with negative offset', () => {

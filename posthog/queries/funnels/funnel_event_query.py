@@ -3,8 +3,9 @@ from typing import Any, Dict, Set, Tuple, Union
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import get_aggregation_target_field
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
+from posthog.queries.util import get_person_properties_mode
+from posthog.utils import PersonOnEventsMode
 
 
 class FunnelEventQuery(EventQuery):
@@ -17,18 +18,13 @@ class FunnelEventQuery(EventQuery):
         skip_entity_filter=False,
     ) -> Tuple[str, Dict[str, Any]]:
 
-        aggregation_target = (
-            get_aggregation_target_field(
-                self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, f"{self.EVENT_TABLE_ALIAS}.person_id"
-            )
-            if self._using_person_on_events
-            else get_aggregation_target_field(
-                self._filter.aggregation_group_type_index,
-                self.EVENT_TABLE_ALIAS,
-                f"{self.EVENT_TABLE_ALIAS}.distinct_id"
-                if self._aggregate_users_by_distinct_id
-                else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
-            )
+        _aggregation_target = self._person_id_alias
+
+        if self._aggregate_users_by_distinct_id:
+            _aggregation_target = f"{self.EVENT_TABLE_ALIAS}.distinct_id"
+
+        aggregation_target = get_aggregation_target_field(
+            self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, _aggregation_target
         )
 
         _fields = [
@@ -38,8 +34,8 @@ class FunnelEventQuery(EventQuery):
 
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
 
-        if self._using_person_on_events:
-            _fields += [f"{self.EVENT_TABLE_ALIAS}.person_id as person_id"]
+        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
+            _fields += [f"{self._person_id_alias} as person_id"]
 
             _fields.extend(
                 f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
@@ -48,7 +44,7 @@ class FunnelEventQuery(EventQuery):
 
         else:
             if self._should_join_distinct_ids:
-                _fields += [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id"]
+                _fields += [f"{self._person_id_alias} as person_id"]
             if self._should_join_persons:
                 _fields.extend(
                     f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
@@ -62,10 +58,8 @@ class FunnelEventQuery(EventQuery):
 
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
+            person_properties_mode=get_person_properties_mode(self._team),
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
         )
 
         self.params.update(prop_params)
@@ -84,7 +78,14 @@ class FunnelEventQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
-        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
+        null_person_filter = (
+            f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
+            if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+            else ""
+        )
+
+        sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
+        self.params.update({"sampling_factor": self._filter.sampling_factor})
 
         # KLUDGE: Ideally we wouldn't mix string variables with f-string interpolation
         # but due to ordering requirements in functions building this query we do
@@ -93,7 +94,8 @@ class FunnelEventQuery(EventQuery):
             SELECT {', '.join(_fields)}
             {{extra_select_fields}}
             FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_distinct_id_query()}
+            {sample_clause}
+            {self._get_person_ids_query()}
             {person_query}
             {groups_query}
             {{extra_join}}
@@ -108,17 +110,20 @@ class FunnelEventQuery(EventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if (
+        non_person_id_aggregation = (
             self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id
-        ) and not self._column_optimizer.is_using_cohort_propertes:
+        )
+        is_using_cohort_propertes = self._column_optimizer.is_using_cohort_propertes
+        if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED or (
+            non_person_id_aggregation and not is_using_cohort_propertes
+        ):
             self._should_join_distinct_ids = False
         else:
             self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._using_person_on_events:
-            self._should_join_distinct_ids = False
+        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
             self._should_join_persons = False
 
     def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:

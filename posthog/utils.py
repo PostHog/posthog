@@ -157,6 +157,30 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     return (period_start, period_end)
 
 
+def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
+    """
+    Returns a pair of datetimes, representing the start and end of the current day.
+    `at` is the datetime to use as a reference point.
+    """
+
+    if not at:
+        at = timezone.now()
+
+    period_end: datetime.datetime = datetime.datetime.combine(
+        at,
+        datetime.time.max,
+        tzinfo=pytz.UTC,
+    )  # very end of the previous day
+
+    period_start: datetime.datetime = datetime.datetime.combine(
+        period_end,
+        datetime.time.min,
+        tzinfo=pytz.UTC,
+    )  # very start of the previous day
+
+    return (period_start, period_end)
+
+
 def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
@@ -284,7 +308,8 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     template = get_template(template_name)
 
-    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False) or is_impersonated_session(request)
+    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
+    context["impersonated_session"] = is_impersonated_session(request)
     context["self_capture"] = settings.SELF_CAPTURE
 
     if os.environ.get("SENTRY_DSN"):
@@ -309,6 +334,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
+    context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: Dict[str, Any] = {
@@ -528,8 +554,9 @@ def cors_response(request, response):
 
     # Handle headers that sentry randomly sends for every request.
     # Would cause a CORS failure otherwise.
+    # specified here to override the default added by the cors headers package in web.py
     allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
-    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id"]]
+    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id", "request-context"]]
 
     response["Access-Control-Allow-Headers"] = "X-Requested-With,Content-Type" + (
         "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
@@ -964,7 +991,7 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
     return result
 
 
-def should_refresh(request: Request) -> bool:
+def refresh_requested_by_client(request: Request) -> bool:
     return _request_has_key_set("refresh", request)
 
 
@@ -1206,3 +1233,9 @@ def patchable(fn):
     inner._patch = patch  # type: ignore
 
     return inner
+
+
+class PersonOnEventsMode(str, Enum):
+    DISABLED = "disabled"
+    V1_ENABLED = "v1_enabled"
+    V2_ENABLED = "v2_enabled"

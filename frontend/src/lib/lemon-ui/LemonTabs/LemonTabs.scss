@@ -28,7 +28,7 @@
 
 .LemonTabs__slider {
     // This is a real element and not ::after to avoid initial transition from 0 width
-    transition: width 200ms ease-in-out, transform 200ms ease-in-out;
+    transition: width 200ms ease, transform 200ms ease;
     will-change: width, transform;
     position: absolute;
     bottom: 0;
@@ -42,6 +42,7 @@
 .LemonTabs__tab {
     transition: color 200ms ease;
     display: flex;
+    align-items: center;
     padding: 0.75rem 0;
     cursor: pointer;
     &:not(:last-child) {
@@ -56,5 +57,11 @@
     &.LemonTabs__tab--active {
         color: var(--primary);
         text-shadow: 0 0 0.25px currentColor; // Simulate increased weight without affecting width
+    }
+    a {
+        // Make tab labels that are links the same colors as regular tab labels
+        text-decoration: none;
+        color: inherit;
+        transition: none;
     }
 }

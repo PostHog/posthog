@@ -9,14 +9,12 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     BinCountValue,
-    BreakdownKeyType,
     CorrelationConfigType,
     ElementPropertyFilter,
     EntityTypes,
     FilterType,
-    FlattenedFunnelStep,
     FlattenedFunnelStepByBreakdown,
-    FunnelAPIResponse,
+    FunnelResultType,
     FunnelConversionWindowTimeUnit,
     FunnelCorrelation,
     FunnelCorrelationResultsType,
@@ -38,21 +36,22 @@ import {
     StepOrderValue,
     TrendResult,
 } from '~/types'
-import { BIN_COUNT_AUTO, FunnelLayout } from 'lib/constants'
+import { BIN_COUNT_AUTO } from 'lib/constants'
 
 import {
     aggregateBreakdownResult,
-    generateBaselineConversionUrl,
     getBreakdownStepValues,
     getClampedStepRangeFilter,
     getIncompleteConversionWindowStartDate,
     getLastFilledStep,
-    getMeanAndStandardDeviation,
     getReferenceStep,
     getVisibilityKey,
     isBreakdownFunnelResults,
     isStepsEmpty,
     isValidBreakdownParameter,
+    stepsWithConversionMetrics,
+    flattenedStepsByBreakdown,
+    generateBaselineConversionUrl,
 } from './funnelUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -69,12 +68,6 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
-
-/* Chosen via heuristics by eyeballing some values
- * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
- * which gives a ballpark of 1 highlighting every 10 breakdown values
- */
-const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 
 // List of events that should be excluded, if we don't have an explicit list of
 // excluded properties. Copied from
@@ -114,7 +107,7 @@ export const funnelLogic = kea<funnelLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters as inflightFilters', 'insight', 'insightLoading', 'isInDashboardContext', 'hiddenLegendKeys'],
+            ['filters as inflightFilters', 'insight', 'isInDashboardContext', 'hiddenLegendKeys'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -126,7 +119,7 @@ export const funnelLogic = kea<funnelLogicType>({
             groupPropertiesModel,
             ['groupProperties'],
         ],
-        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
+        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility']],
         logic: [eventUsageLogic, dashboardsModel],
     }),
 
@@ -176,7 +169,6 @@ export const funnelLogic = kea<funnelLogicType>({
         }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
-        toggleVisibilityByBreakdown: (breakdownValue?: BreakdownKeyType) => ({ breakdownValue }),
         toggleAdvancedMode: true,
 
         // Correlation related actions
@@ -217,7 +209,7 @@ export const funnelLogic = kea<funnelLogicType>({
         correlations: [
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
-                loadCorrelations: async (_, breakpoint) => {
+                loadEventCorrelations: async (_, breakpoint) => {
                     await breakpoint(100)
 
                     try {
@@ -345,8 +337,11 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         correlationFeedbackHidden: [
-            false,
+            true,
             {
+                // don't load the feedback form until after some results were loaded
+                loadEventCorrelations: () => false,
+                loadPropertyCorrelations: () => false,
                 sendCorrelationAnalysisFeedback: () => true,
                 hideCorrelationAnalysisFeedback: () => true,
             },
@@ -376,7 +371,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     ...eventWithPropertyCorrelations,
                 }
             },
-            loadCorrelationsSuccess: () => {
+            loadEventCorrelationsSuccess: () => {
                 return {}
             },
         },
@@ -398,7 +393,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 addNestedTableExpandedKey: (state, { expandKey }) => {
                     return [...state, expandKey]
                 },
-                loadCorrelationsSuccess: () => {
+                loadEventCorrelationsSuccess: () => {
                     return []
                 },
             },
@@ -452,6 +447,18 @@ export const funnelLogic = kea<funnelLogicType>({
                 showTooltip: (_, { origin }) => origin,
             },
         ],
+        loadedEventCorrelationsTableOnce: [
+            false,
+            {
+                loadEventCorrelations: () => true,
+            },
+        ],
+        loadedPropertyCorrelationsTableOnce: [
+            false,
+            {
+                loadPropertyCorrelations: () => true,
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
@@ -470,7 +477,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         results: [
             (s) => [s.insight],
-            ({ filters, result }): FunnelAPIResponse => {
+            ({ filters, result }): FunnelResultType => {
                 if (filters?.insight === InsightType.FUNNELS) {
                     if (Array.isArray(result) && Array.isArray(result[0]) && result[0][0].breakdowns) {
                         // in order to stop the UI having to check breakdowns and breakdown
@@ -507,7 +514,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         isStepsEmpty: [() => [selectors.filters], (filters: FunnelsFilterType) => isStepsEmpty(filters)],
         propertiesForUrl: [() => [selectors.filters], (filters: FunnelsFilterType) => cleanFilters(filters)],
-        isValidFunnel: [
+        hasFunnelResults: [
             () => [selectors.filters, selectors.steps, selectors.histogramGraphData],
             (filters, steps, histogramGraphData) => {
                 if (filters.funnel_viz_type === FunnelVizType.Steps || !filters.funnel_viz_type) {
@@ -550,7 +557,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 })
             },
         ],
-        areFiltersValid: [
+        isFunnelWithEnoughSteps: [
             () => [selectors.numberOfSeries],
             (numberOfSeries) => {
                 return numberOfSeries > 1
@@ -639,7 +646,7 @@ export const funnelLogic = kea<funnelLogicType>({
             (s) => [s.filters, s.results, s.apiParams],
             (
                 filters: Partial<FunnelsFilterType>,
-                results: FunnelAPIResponse,
+                results: FunnelResultType,
                 apiParams
             ): FunnelStepWithNestedBreakdown[] => {
                 const stepResults =
@@ -672,106 +679,7 @@ export const funnelLogic = kea<funnelLogicType>({
         stepsWithConversionMetrics: [
             () => [selectors.steps, selectors.stepReference],
             (steps, stepReference): FunnelStepWithConversionMetrics[] => {
-                const stepsWithConversionMetrics = steps.map((step, i) => {
-                    const previousCount = i > 0 ? steps[i - 1].count : step.count // previous is faked for the first step
-                    const droppedOffFromPrevious = Math.max(previousCount - step.count, 0)
-
-                    const nestedBreakdown = step.nested_breakdown?.map((breakdown, breakdownIndex) => {
-                        const firstBreakdownCount = steps[0]?.nested_breakdown?.[breakdownIndex].count || 0
-                        // firstBreakdownCount serves as previousBreakdownCount for the first step so that
-                        // "Relative to previous step" is shown correctly – later series use the actual previous steps
-                        const previousBreakdownCount =
-                            i === 0 ? firstBreakdownCount : steps[i - 1].nested_breakdown?.[breakdownIndex].count || 0
-                        const nestedDroppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
-                        const conversionRates = {
-                            fromPrevious: previousBreakdownCount === 0 ? 0 : breakdown.count / previousBreakdownCount,
-                            total: breakdown.count / firstBreakdownCount,
-                        }
-                        return {
-                            ...breakdown,
-                            droppedOffFromPrevious: nestedDroppedOffFromPrevious,
-                            conversionRates: {
-                                ...conversionRates,
-                                fromBasisStep:
-                                    stepReference === FunnelStepReference.total
-                                        ? conversionRates.total
-                                        : conversionRates.fromPrevious,
-                            },
-                        }
-                    })
-
-                    const conversionRatesTotal = step.count / steps[0].count
-                    const conversionRates = {
-                        fromPrevious: previousCount === 0 ? 0 : step.count / previousCount,
-
-                        // We get NaN from dividing 0/0 so we just show 0 instead
-                        // This is an empty funnel so dropped off percentage will show as 100%
-                        // and conversion percentage as 0% but that's better for users than `NaN%`
-                        total: Number.isNaN(conversionRatesTotal) ? 0 : conversionRatesTotal,
-                    }
-                    return {
-                        ...step,
-                        droppedOffFromPrevious,
-                        nested_breakdown: nestedBreakdown,
-                        conversionRates: {
-                            ...conversionRates,
-                            fromBasisStep:
-                                i > 0
-                                    ? stepReference === FunnelStepReference.total
-                                        ? conversionRates.total
-                                        : conversionRates.fromPrevious
-                                    : conversionRates.total,
-                        },
-                    }
-                })
-
-                if (!stepsWithConversionMetrics.length || !stepsWithConversionMetrics[0].nested_breakdown) {
-                    return stepsWithConversionMetrics
-                }
-
-                return stepsWithConversionMetrics.map((step) => {
-                    // Per step breakdown significance
-                    const [meanFromPrevious, stdDevFromPrevious] = getMeanAndStandardDeviation(
-                        step.nested_breakdown?.map((item) => item.conversionRates.fromPrevious)
-                    )
-                    const [meanFromBasis, stdDevFromBasis] = getMeanAndStandardDeviation(
-                        step.nested_breakdown?.map((item) => item.conversionRates.fromBasisStep)
-                    )
-                    const [meanTotal, stdDevTotal] = getMeanAndStandardDeviation(
-                        step.nested_breakdown?.map((item) => item.conversionRates.total)
-                    )
-
-                    const isOutlier = (value: number, mean: number, stdDev: number): boolean => {
-                        return (
-                            value > mean + stdDev * DEVIATION_SIGNIFICANCE_MULTIPLIER ||
-                            value < mean - stdDev * DEVIATION_SIGNIFICANCE_MULTIPLIER
-                        )
-                    }
-
-                    const nestedBreakdown = step.nested_breakdown?.map((item) => {
-                        return {
-                            ...item,
-                            significant: {
-                                fromPrevious: isOutlier(
-                                    item.conversionRates.fromPrevious,
-                                    meanFromPrevious,
-                                    stdDevFromPrevious
-                                ),
-                                fromBasisStep: isOutlier(
-                                    item.conversionRates.fromBasisStep,
-                                    meanFromBasis,
-                                    stdDevFromBasis
-                                ),
-                                total: isOutlier(item.conversionRates.total, meanTotal, stdDevTotal),
-                            },
-                        }
-                    })
-
-                    return {
-                        ...step,
-                        nested_breakdown: nestedBreakdown,
-                    }
-                })
+                return stepsWithConversionMetrics(steps, stepReference)
             },
         ],
         visibleStepsWithConversionMetrics: [
@@ -792,98 +700,10 @@ export const funnelLogic = kea<funnelLogicType>({
                 }))
             },
         ],
-        flattenedSteps: [
-            () => [selectors.stepsWithConversionMetrics],
-            (steps): FlattenedFunnelStep[] => {
-                const flattenedSteps: FlattenedFunnelStep[] = []
-                steps.forEach((step) => {
-                    const isBreakdownParent = !!step.nested_breakdown?.length
-                    flattenedSteps.push({
-                        ...step,
-                        rowKey: step.order,
-                        nestedRowKeys: step.nested_breakdown
-                            ? step.nested_breakdown.map((breakdownStep) =>
-                                  getVisibilityKey(breakdownStep.breakdown_value)
-                              )
-                            : [],
-                        isBreakdownParent,
-                        breakdown_value: isBreakdownParent ? ['Baseline'] : step.breakdown_value,
-                        breakdown: isBreakdownParent ? ['baseline'] : step.breakdown,
-                    })
-                    if (step.nested_breakdown?.length) {
-                        step.nested_breakdown.forEach((breakdownStep, i) => {
-                            flattenedSteps.push({
-                                ...breakdownStep,
-                                order: step.order,
-                                breakdownIndex: i,
-                                rowKey: getVisibilityKey(breakdownStep.breakdown_value),
-                                isBreakdownParent: false,
-                            })
-                        })
-                    }
-                })
-                return flattenedSteps
-            },
-        ],
         flattenedStepsByBreakdown: [
             () => [selectors.stepsWithConversionMetrics, selectors.filters, selectors.disableFunnelBreakdownBaseline],
             (steps, filters, disableBaseline): FlattenedFunnelStepByBreakdown[] => {
-                // Initialize with two rows for rendering graph and header
-                const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = [
-                    { rowKey: 'steps-meta' },
-                    { rowKey: 'graph' },
-                    { rowKey: 'table-header' },
-                ]
-                if (steps.length > 0) {
-                    const baseStep = steps[0]
-                    const lastStep = steps[steps.length - 1]
-                    const hasBaseline =
-                        !baseStep.breakdown ||
-                        ((filters.layout || FunnelLayout.vertical) === FunnelLayout.vertical &&
-                            (baseStep.nested_breakdown?.length ?? 0) > 1)
-                    // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
-                    if (hasBaseline && !disableBaseline) {
-                        flattenedStepsByBreakdown.push({
-                            ...getBreakdownStepValues(baseStep, 0, true),
-                            isBaseline: true,
-                            breakdownIndex: 0,
-                            steps: steps.map((s) => ({
-                                ...s,
-                                nested_breakdown: undefined,
-                                breakdown_value: 'Baseline',
-                                converted_people_url: generateBaselineConversionUrl(s.converted_people_url),
-                                dropped_people_url: generateBaselineConversionUrl(s.dropped_people_url),
-                            })),
-                            conversionRates: {
-                                total: (lastStep?.count ?? 0) / (baseStep?.count ?? 1),
-                            },
-                        })
-                    }
-                    // Per Breakdown
-                    if (baseStep.nested_breakdown?.length) {
-                        baseStep.nested_breakdown.forEach((breakdownStep, i) => {
-                            const stepsInBreakdown = steps
-                                .filter((s) => !!s?.nested_breakdown?.[i])
-                                .map((s) => s.nested_breakdown?.[i] as FunnelStepWithConversionMetrics)
-                            const offset = hasBaseline ? 1 : 0
-                            flattenedStepsByBreakdown.push({
-                                ...getBreakdownStepValues(breakdownStep, i + offset),
-                                isBaseline: false,
-                                breakdownIndex: i + offset,
-                                steps: stepsInBreakdown,
-                                conversionRates: {
-                                    total:
-                                        (stepsInBreakdown[stepsInBreakdown.length - 1]?.count ?? 0) /
-                                        (stepsInBreakdown[0]?.count ?? 1),
-                                },
-                                significant: stepsInBreakdown.some(
-                                    (step) => step.significant?.total || step.significant?.fromPrevious
-                                ),
-                            })
-                        })
-                    }
-                }
-                return flattenedStepsByBreakdown
+                return flattenedStepsByBreakdown(steps, filters.layout, disableBaseline)
             },
         ],
         flattenedBreakdowns: [
@@ -906,10 +726,10 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         exclusionDefaultStepRange: [
-            () => [selectors.numberOfSeries, selectors.areFiltersValid],
-            (numberOfSeries, areFiltersValid): Omit<FunnelStepRangeEntityFilter, 'id' | 'name'> => ({
+            () => [selectors.numberOfSeries, selectors.isFunnelWithEnoughSteps],
+            (numberOfSeries, isFunnelWithEnoughSteps): Omit<FunnelStepRangeEntityFilter, 'id' | 'name'> => ({
                 funnel_from_step: 0,
-                funnel_to_step: areFiltersValid ? numberOfSeries - 1 : 1,
+                funnel_to_step: isFunnelWithEnoughSteps ? numberOfSeries - 1 : 1,
             }),
         ],
         exclusionFilters: [
@@ -1075,16 +895,16 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         excludedPropertyNames: [
             () => [selectors.currentTeam],
-            (currentTeam) =>
+            (currentTeam): string[] =>
                 currentTeam?.correlation_config?.excluded_person_property_names || DEFAULT_EXCLUDED_PERSON_PROPERTIES,
         ],
         excludedEventNames: [
             () => [selectors.currentTeam],
-            (currentTeam) => currentTeam?.correlation_config?.excluded_event_names || [],
+            (currentTeam): string[] => currentTeam?.correlation_config?.excluded_event_names || [],
         ],
         excludedEventPropertyNames: [
             () => [selectors.currentTeam],
-            (currentTeam) => currentTeam?.correlation_config?.excluded_event_property_names || [],
+            (currentTeam): string[] => currentTeam?.correlation_config?.excluded_event_property_names || [],
         ],
         inversePropertyNames: [
             (s) => [s.filters, s.personProperties, s.groupProperties],
@@ -1214,11 +1034,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 actions.setFilters({ funnel_step_reference: stepReference }, true, true)
             }
         },
-        toggleVisibilityByBreakdown: ({ breakdownValue }) => {
-            const key = getVisibilityKey(breakdownValue)
-            const currentIsHidden = !!values.hiddenLegendKeys?.[key]
-            actions.setHiddenById({ [key]: !currentIsHidden })
-        },
         setFilters: ({ filters, mergeWithExisting }) => {
             const cleanedParams = cleanFilters(
                 mergeWithExisting
@@ -1264,7 +1079,8 @@ export const funnelLogic = kea<funnelLogicType>({
             }
 
             openPersonsModal({
-                url: converted ? step.converted_people_url : step.dropped_people_url,
+                // openPersonsModalForStep is for the baseline - for breakdown series use openPersonsModalForSeries
+                url: generateBaselineConversionUrl(converted ? step.converted_people_url : step.dropped_people_url),
                 title: funnelTitle({
                     converted,
                     // Note - when in a legend the step.order is always 0 so we use stepIndex instead

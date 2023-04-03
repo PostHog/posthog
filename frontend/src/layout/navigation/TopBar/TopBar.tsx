@@ -20,6 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeedbackButton } from './FeedbackButton'
 import ActivationSidebarToggle from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
+import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -30,7 +31,6 @@ export function TopBar(): JSX.Element {
     const { hideInviteModal } = useActions(inviteLogic)
     const { groupNamesTaxonomicTypes } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
-
     return (
         <>
             <Announcement />
@@ -68,6 +68,7 @@ export function TopBar(): JSX.Element {
                     <ActivationSidebarToggle />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
+                    {!!featureFlags[FEATURE_FLAGS.NOTEBOOKS] && <NotebookButton />}
                     {!!featureFlags[FEATURE_FLAGS.FEEDBACK_BUTTON] && <FeedbackButton />}
                     {!!featureFlags[FEATURE_FLAGS.HOG_BOOK] && <NotificationBell />}
                     <HelpButton />

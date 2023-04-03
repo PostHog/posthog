@@ -18,7 +18,6 @@ import {
     TrendResult,
     FunnelStep,
     SecondaryExperimentMetric,
-    AvailableFeature,
     SignificanceCode,
     SecondaryMetricAPIResult,
 } from '~/types'
@@ -28,13 +27,12 @@ import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { userLogic } from 'scenes/userLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { IconInfo } from 'lib/lemon-ui/icons'
@@ -53,8 +51,9 @@ const NEW_EXPERIMENT: Experiment = {
         ],
     },
     secondary_metrics: [],
-    created_at: '',
+    created_at: null,
     created_by: null,
+    updated_at: null,
 }
 
 export interface ExperimentLogicProps {
@@ -76,14 +75,7 @@ export const experimentLogic = kea<experimentLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            userLogic,
-            ['hasAvailableFeature'],
-            groupsModel,
-            ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
-        ],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
         actions: [
             experimentsLogic,
             ['updateExperiments', 'addToExperiments'],
@@ -526,14 +518,14 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         },
         experimentResults: [
-            null as ExperimentResults | null,
+            null as ExperimentResults['result'] | null,
             {
                 loadExperimentResults: async () => {
                     try {
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
                         )
-                        return { ...response, itemID: Math.random().toString(36).substring(2, 15) }
+                        return { ...response.result, fakeInsightId: Math.random().toString(36).substring(2, 15) }
                     } catch (error: any) {
                         actions.setExperimentResultCalculationError(error.detail)
                         return null
@@ -760,7 +752,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (!experimentResults) {
                         return errorResult
                     }
-                    const variantResults = (experimentResults?.insight as TrendResult[]).find(
+                    const variantResults = (experimentResults.insight as TrendResult[]).find(
                         (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
                     )
                     if (!variantResults) {
@@ -771,7 +763,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         highestProbabilityVariant: [
             (s) => [s.experimentResults],
-            (experimentResults) => {
+            (experimentResults: ExperimentResults['result']) => {
                 if (experimentResults) {
                     const maxValue = Math.max(...Object.values(experimentResults.probability))
                     return Object.keys(experimentResults.probability).find(
@@ -869,10 +861,6 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/experiments/:id': ({ id }, _, __, currentLocation, previousLocation) => {
-            if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
-                router.actions.push('/experiments')
-                return
-            }
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
             actions.setEditExperiment(false)
@@ -890,16 +878,6 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
     })),
-    afterMount(({ props, actions }) => {
-        const foundExperiment = experimentsLogic
-            .findMounted()
-            ?.values.experiments.find((experiment) => experiment.id === props.experimentId)
-        if (foundExperiment) {
-            actions.setExperiment(foundExperiment)
-        } else if (props.experimentId !== 'new') {
-            actions.loadExperiment()
-        }
-    }),
 ])
 
 function percentageDistribution(variantCount: number): number[] {

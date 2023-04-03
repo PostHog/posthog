@@ -1,157 +1,39 @@
-import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
-import { FilterType, FunnelVizType, InsightLogicProps, InsightType, PathType, RetentionPeriod } from '~/types'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { FilterType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import {
-    BreakdownFilter,
-    DateRange,
-    InsightFilter,
-    InsightNodeKind,
-    InsightQueryNode,
-    InsightVizNode,
-    Node,
-    NodeKind,
-} from '~/queries/schema'
-import { BaseMathType } from '~/types'
-import { ShownAsValue } from 'lib/constants'
+import { DataNode, InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import {
-    filterForQuery,
-    filterPropertyForQuery,
-    isTrendsQuery,
-    isFunnelsQuery,
-    isRetentionQuery,
-    isPathsQuery,
-    isStickinessQuery,
-    isLifecycleQuery,
-    isInsightQueryWithBreakdown,
-} from '~/queries/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { isInsightVizNode } from '~/queries/utils'
 import { cleanFilters } from './utils/cleanFilters'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { queryExportContext } from '~/queries/query'
+import { objectsEqual } from 'lib/utils'
 
-// TODO: should take the existing values.query and set params from previous view similar to
-// cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
-const getCleanedQuery = (kind: InsightNodeKind): InsightVizNode => {
-    if (kind === NodeKind.TrendsQuery) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        name: '$pageview',
-                        event: '$pageview',
-                        math: BaseMathType.TotalCount,
-                    },
-                ],
-                trendsFilter: {},
-            },
-        }
-    } else if (kind === NodeKind.FunnelsQuery) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.FunnelsQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        name: '$pageview',
-                        event: '$pageview',
-                    },
-                ],
-                funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
-                },
-            },
-        }
-    } else if (kind === NodeKind.RetentionQuery) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.RetentionQuery,
-                retentionFilter: {
-                    period: RetentionPeriod.Day,
-                    total_intervals: 11,
-                    target_entity: {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                    },
-                    returning_entity: {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                    },
-                    retention_type: 'retention_first_time',
-                },
-            },
-        }
-    } else if (kind === NodeKind.PathsQuery) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.PathsQuery,
-                pathsFilter: {
-                    include_event_types: [PathType.PageView],
-                },
-            },
-        }
-    } else if (kind === NodeKind.StickinessQuery) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.StickinessQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        name: '$pageview',
-                        event: '$pageview',
-                        math: BaseMathType.TotalCount,
-                    },
-                ],
-                stickinessFilter: {},
-            },
-        }
-    } else if (kind === NodeKind.LifecycleQuery) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.LifecycleQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        name: '$pageview',
-                        event: '$pageview',
-                        math: BaseMathType.TotalCount,
-                    },
-                ],
-                lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
-            },
-        }
-    } else {
-        throw new Error('should not reach here')
-    }
-}
-
-const getQueryFromFilters = (filters: Partial<FilterType>): InsightVizNode => {
-    return {
-        kind: NodeKind.InsightVizNode,
-        source: filtersToQueryNode(filters),
-    }
-}
-
-const getDefaultQuery = (insightProps: InsightLogicProps): InsightVizNode => ({
+const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
-    source: insightProps.cachedInsight?.filters
-        ? filtersToQueryNode(insightProps.cachedInsight.filters)
-        : { kind: NodeKind.TrendsQuery, series: [] },
+    source: filtersToQueryNode(filters),
 })
+
+export const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
+    kind: NodeKind.InsightVizNode,
+    source: nodeKindToDefaultQuery[kind],
+})
+
+const defaultQuery = (insightProps: InsightLogicProps): Node | null => {
+    const filters = insightProps.cachedInsight?.filters
+    const query = insightProps.cachedInsight?.query
+    return !!query && Object.keys(query).length > 0
+        ? query
+        : !!filters && !!Object.keys(filters).length
+        ? queryFromFilters(filters)
+        : null
+}
 
 export const insightDataLogic = kea<insightDataLogicType>([
     props({} as InsightLogicProps),
@@ -159,122 +41,127 @@ export const insightDataLogic = kea<insightDataLogicType>([
     path((key) => ['scenes', 'insights', 'insightDataLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [featureFlagLogic, ['featureFlags'], trendsLogic, ['toggledLifecycles as trendsLifecycles']],
+        values: [
+            insightLogic,
+            ['insight', 'isUsingDataExploration', 'isUsingDashboardQueries'],
+            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
+            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            ['dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
+        ],
         actions: [
             insightLogic,
-            ['setFilters', 'setActiveView', 'setInsight', 'loadInsightSuccess', 'loadResultsSuccess'],
-            trendsLogic(props),
-            ['setLifecycles as setTrendsLifecycles'],
+            ['setInsight', 'loadInsightSuccess', 'loadResultsSuccess', 'saveInsight as insightLogicSaveInsight'],
+            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
+            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            ['loadData'],
         ],
     })),
 
     actions({
         setQuery: (query: Node) => ({ query }),
-        updateQuerySource: (query: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ query }),
-        updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
-        updateDateRange: (dateRange: DateRange) => ({ dateRange }),
-        updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
+        saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        toggleQueryEditorPanel: true,
     }),
 
     reducers(({ props }) => ({
         query: [
-            getDefaultQuery(props) as Node,
+            defaultQuery(props) as Node | null,
             {
                 setQuery: (_, { query }) => query,
+            },
+        ],
+        showQueryEditor: [
+            false,
+            {
+                toggleQueryEditorPanel: (state) => !state,
             },
         ],
     })),
 
     selectors({
-        querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
+        isQueryBasedInsight: [
+            (s) => [s.query],
+            (query) => {
+                return !!query && !isInsightVizNode(query)
+            },
+        ],
 
-        dateRange: [(s) => [s.querySource], (q) => q.dateRange],
-        breakdown: [(s) => [s.querySource], (q) => (isInsightQueryWithBreakdown(q) ? q.breakdown : null)],
+        exportContext: [
+            (s) => [s.query, s.insight],
+            (query, insight) => {
+                if (!query) {
+                    // if we're here without a query then an empty query context is not the problem
+                    return undefined
+                }
+                const filename = ['export', insight.name || insight.derived_name].join('-')
+                return { ...queryExportContext(query), filename }
+            },
+        ],
 
-        insightFilter: [(s) => [s.querySource], (q) => filterForQuery(q)],
-        trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
-        funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
-        retentionFilter: [(s) => [s.querySource], (q) => (isRetentionQuery(q) ? q.retentionFilter : null)],
-        pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
-        stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
-        lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
+        queryChanged: [
+            (s) => [s.query, s.insight],
+            (query, insight) => {
+                return !objectsEqual(query, insight.query)
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
-        updateDateRange: ({ dateRange }) => {
-            const newQuerySource = { ...values.querySource, dateRange }
-            actions.updateQuerySource(newQuerySource)
+        setQuery: () => {
+            actions.loadData()
         },
-        updateBreakdown: ({ breakdown }) => {
-            const newQuerySource = { ...values.querySource, breakdown }
-            actions.updateQuerySource(newQuerySource)
-        },
-        updateInsightFilter: ({ insightFilter }) => {
-            const filterProperty = filterPropertyForQuery(values.querySource)
-            const newQuerySource = { ...values.querySource }
-            newQuerySource[filterProperty] = {
-                ...values.querySource[filterProperty],
-                ...insightFilter,
-            }
-            actions.updateQuerySource(newQuerySource)
-        },
-        updateQuerySource: ({ query }) => {
-            actions.setQuery({
-                ...values.query,
-                source: { ...(values.query as InsightVizNode).source, ...query },
-            } as Node)
-        },
-        setQuery: ({ query }) => {
-            // safeguard against accidentally overwriting filters for non-flagged users
-            if (!values.featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]) {
-                return
-            }
-
-            const querySource = (query as InsightVizNode).source
-            if (isLifecycleQuery(querySource)) {
-                const filters = queryNodeToFilter(querySource)
-                actions.setFilters(filters)
-
-                if (querySource.lifecycleFilter?.toggledLifecycles !== values.trendsLifecycles) {
-                    actions.setTrendsLifecycles(
-                        querySource.lifecycleFilter?.toggledLifecycles
-                            ? querySource.lifecycleFilter.toggledLifecycles
-                            : ['new', 'resurrecting', 'returning', 'dormant']
-                    )
-                }
-            }
-        },
-        setActiveView: ({ type }) => {
-            if (type === InsightType.TRENDS) {
-                actions.setQuery(getCleanedQuery(NodeKind.TrendsQuery))
-            } else if (type === InsightType.FUNNELS) {
-                actions.setQuery(getCleanedQuery(NodeKind.FunnelsQuery))
-            } else if (type === InsightType.RETENTION) {
-                actions.setQuery(getCleanedQuery(NodeKind.RetentionQuery))
-            } else if (type === InsightType.PATHS) {
-                actions.setQuery(getCleanedQuery(NodeKind.PathsQuery))
-            } else if (type === InsightType.STICKINESS) {
-                actions.setQuery(getCleanedQuery(NodeKind.StickinessQuery))
-            } else if (type === InsightType.LIFECYCLE) {
-                actions.setQuery(getCleanedQuery(NodeKind.LifecycleQuery))
-            }
-        },
-        setInsight: ({ insight: { filters }, options: { overrideFilter } }) => {
-            if (overrideFilter) {
-                actions.setQuery(getQueryFromFilters(cleanFilters(filters || {})))
+        setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
+            if (overrideFilter && query == null) {
+                actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
+            } else if (query) {
+                actions.setQuery(query)
             }
         },
         loadInsightSuccess: ({ insight }) => {
-            if (insight.filters) {
-                const query = getQueryFromFilters(insight.filters)
+            if (!!insight.query) {
+                actions.setQuery(insight.query)
+            } else if (!!insight.filters && !!Object.keys(insight.filters).length) {
+                const query = queryFromFilters(insight.filters)
                 actions.setQuery(query)
             }
         },
         loadResultsSuccess: ({ insight }) => {
-            if (insight.filters) {
-                const query = getQueryFromFilters(insight.filters)
+            if (!!insight.query) {
+                actions.setQuery(insight.query)
+            } else if (!!insight.filters && !!Object.keys(insight.filters).length) {
+                const query = queryFromFilters(insight.filters)
                 actions.setQuery(query)
             }
         },
+        saveInsight: ({ redirectToViewMode }) => {
+            let filters = values.insight.filters
+            if (values.isUsingDataExploration && isInsightVizNode(values.query)) {
+                const querySource = values.query.source
+                filters = queryNodeToFilter(querySource)
+            } else if (values.isUsingDashboardQueries && values.isQueryBasedInsight) {
+                filters = {}
+            }
+
+            let query = undefined
+            if (values.isUsingDashboardQueries && values.isQueryBasedInsight) {
+                query = values.query
+            }
+
+            actions.setInsight(
+                {
+                    ...values.insight,
+                    filters: filters,
+                    query: query ?? undefined,
+                },
+                { overrideFilter: true, fromPersistentApi: false }
+            )
+
+            actions.insightLogicSaveInsight(redirectToViewMode)
+        },
     })),
+    propsChanged(({ actions, props, values }) => {
+        if (props.cachedInsight?.query && !objectsEqual(props.cachedInsight.query, values.query)) {
+            actions.setQuery(props.cachedInsight.query)
+        }
+    }),
 ])

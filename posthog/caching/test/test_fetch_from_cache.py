@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.utils.timezone import now
 from freezegun import freeze_time
 
@@ -8,8 +10,8 @@ from posthog.caching.fetch_from_cache import (
     synchronously_update_cache,
 )
 from posthog.decorators import CacheType
-from posthog.models import Dashboard, DashboardTile, Insight
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.models import Insight
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_insight, flush_persons_and_events
 from posthog.utils import get_safe_cache
 
 
@@ -22,11 +24,12 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
         _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"prop": "another_val"})
         flush_persons_and_events()
 
-        self.dashboard = Dashboard.objects.create(team=self.team, filters={"properties": [{}]})
-        self.insight = Insight.objects.create(
-            team=self.team, filters={"events": [{"id": "$pageview"}], "properties": []}
+        insight, dashboard, dashboard_tile = _create_insight(
+            self.team, {"events": [{"id": "$pageview"}], "properties": []}, {"properties": [{}]}
         )
-        self.dashboard_tile = DashboardTile.objects.create(dashboard=self.dashboard, insight=self.insight)
+        self.dashboard = dashboard
+        self.insight = insight
+        self.dashboard_tile = dashboard_tile
 
     def test_synchronously_update_cache_insight(self):
         insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}], "properties": []})
@@ -42,7 +45,12 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
         assert insight.caching_state.last_refresh == result.last_refresh
 
         cached_result = get_safe_cache(result.cache_key)
-        assert cached_result == {"result": result.result, "type": CacheType.TRENDS, "last_refresh": result.last_refresh}
+        assert cached_result == {
+            "result": result.result,
+            "type": CacheType.TRENDS,
+            "last_refresh": result.last_refresh,
+            "next_allowed_client_refresh": None,
+        }
 
     def test_synchronously_update_cache_dashboard_tile(self):
         result = synchronously_update_cache(self.insight, self.dashboard)
@@ -57,11 +65,16 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
         assert self.dashboard_tile.caching_state.last_refresh == result.last_refresh
 
         cached_result = get_safe_cache(result.cache_key)
-        assert cached_result == {"result": result.result, "type": CacheType.TRENDS, "last_refresh": result.last_refresh}
+        assert cached_result == {
+            "result": result.result,
+            "type": CacheType.TRENDS,
+            "last_refresh": result.last_refresh,
+            "next_allowed_client_refresh": None,
+        }
 
     def test_fetch_cached_insight_result_from_cache(self):
-        cached_result = synchronously_update_cache(self.insight, self.dashboard)
-        from_cache_result = fetch_cached_insight_result(self.dashboard_tile)
+        cached_result = synchronously_update_cache(self.insight, self.dashboard, timedelta(minutes=3))
+        from_cache_result = fetch_cached_insight_result(self.dashboard_tile, timedelta(minutes=3))
 
         assert from_cache_result == InsightResult(
             result=cached_result.result,
@@ -69,10 +82,11 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
             cache_key=cached_result.cache_key,
             is_cached=True,
             timezone=None,
+            next_allowed_client_refresh=cached_result.next_allowed_client_refresh,
         )
 
     def test_fetch_nothing_yet_cached(self):
-        from_cache_result = fetch_cached_insight_result(self.dashboard_tile)
+        from_cache_result = fetch_cached_insight_result(self.dashboard_tile, timedelta(minutes=3))
 
         assert isinstance(from_cache_result, NothingInCacheResult)
         assert from_cache_result.result is None
@@ -82,7 +96,7 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
         self.insight.filters = {}
         self.insight.save()
 
-        from_cache_result = fetch_cached_insight_result(self.insight)
+        from_cache_result = fetch_cached_insight_result(self.insight, timedelta(minutes=3))
 
         assert isinstance(from_cache_result, NothingInCacheResult)
         assert from_cache_result.result is None

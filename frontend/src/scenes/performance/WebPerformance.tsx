@@ -40,7 +40,7 @@ function WaterfallButton(props: { record: RecentPerformancePageView; onClick: ()
 const EventsWithPerformanceTable = (): JSX.Element => {
     const { recentPageViews, recentPageViewsLoading } = useValues(webPerformanceLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     const oldFashionedColumns: LemonTableColumn<
         RecentPerformancePageView,
@@ -85,6 +85,10 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                         kind: NodeKind.DataTableNode,
                         source: {
                             kind: NodeKind.RecentPerformancePageViewNode,
+                            dateRange: {
+                                date_from: null,
+                                date_to: null,
+                            },
                         },
                         columns: [
                             'context.columns.page_url',
@@ -141,6 +145,7 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                                 },
                             },
                         },
+                        showOpenEditorButton: !!featureFlags[FEATURE_FLAGS.HOGQL],
                     }}
                 />
             ) : (

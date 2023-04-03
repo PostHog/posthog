@@ -9,6 +9,7 @@ import {
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
 import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
+import { PluginTab } from './plugins/types'
 
 /**
  * To add a new URL to the front end:
@@ -38,19 +39,23 @@ export const urls = {
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
-    propertyDefinitions: (): string => '/data-management/properties',
+    propertyDefinitions: (type?: string): string => combineUrl('/data-management/properties', type ? { type } : {}).url,
     propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
+    database: (): string => '/data-management/database',
     events: (): string => '/events',
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
-    insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null): string =>
-        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, filters ? { filters } : {}).url,
+    insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
+        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
+            ...(filters ? { filters } : {}),
+            ...(query ? { q: query } : {}),
+        }).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
-    savedInsights: (): string => '/insights',
+    savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     webPerformance: (): string => '/web-performance',
     webPerformanceWaterfall: (pageview?: PerformancePageView): string => {
         // KLUDGE: only allow no pageview param for urlToAction in the logic
@@ -71,17 +76,18 @@ export const urls = {
     persons: (): string => '/persons',
     groups: (groupTypeIndex: string): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
-    group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true): string =>
-        `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}`,
+    group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
+        `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     experiment: (id: string | number): string => `/experiments/${id}`,
     experiments: (): string => '/experiments',
-    featureFlags: (): string => '/feature_flags',
+    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     annotations: (): string => '/annotations',
-    projectApps: (): string => '/project/apps',
+    projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,
+    projectAppSearch: (name: string): string => `/project/apps?name=${name}`,
     projectAppLogs: (id: string | number): string => `/project/apps/${id}/logs`,
     projectAppSource: (id: string | number): string => `/project/apps/${id}/source`,
     frontendApp: (id: string | number): string => `/app/${id}`,
@@ -100,18 +106,19 @@ export const urls = {
     toolbarLaunch: (): string => '/toolbar',
     // Onboarding / setup routes
     login: (): string => '/login',
+    login2FA: (): string => '/login/2fa',
+    login2FASetup: (): string => '/login/2fa_setup',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
     signup: (): string => '/signup',
+    verifyEmail: (userUuid: string = '', token: string = ''): string =>
+        `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     ingestion: (): string => '/ingestion',
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
-    billingSubscribed: (): string => '/organization/billing/subscribed',
-    billingLocked: (): string => '/organization/billing/locked',
     // Self-hosted only
-    instanceLicenses: (): string => '/instance/licenses',
     instanceStatus: (): string => '/instance/status',
     instanceStaffUsers: (): string => '/instance/staff_users',
     instanceKafkaInspector: (): string => '/instance/kafka_inspector',
@@ -135,6 +142,8 @@ export const urls = {
             ...(exportOptions?.legend ? { legend: null } : {}),
             ...(exportOptions?.noHeader ? { noHeader: null } : {}),
         }).url,
-    query: (query?: string | Record<string, any>): string =>
-        combineUrl('/query', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
+    debugQuery: (query?: string | Record<string, any>): string =>
+        combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
+    feedback: (): string => '/feedback',
+    issues: (): string => '/issues',
 }

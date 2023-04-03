@@ -26,6 +26,10 @@ body strong {
     font-weight: 600;
 }
 
+.main-app-content {
+    background-color: var(--bg-light);
+}
+
 // Disable default styling for ul
 ul {
     margin-bottom: 0;
@@ -69,6 +73,9 @@ ul {
     @extend .text-sm;
     max-width: 48rem;
     margin-bottom: 1rem;
+    &.tabbed {
+        margin-bottom: 0.5rem;
+    }
 }
 
 .page-description {
@@ -581,6 +588,42 @@ input::-ms-clear {
 
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
+    &[theme='light'] {
+        --text-3000: var(--text-3000-light);
+        --muted-3000: var(--muted-3000-light);
+        --primary-3000: var(--primary-3000-light);
+        --secondary-3000: var(--secondary-3000-light);
+        --accent-3000: var(--accent-3000-light);
+        --bg-3000: var(--bg-3000-light);
+        --border-3000: var(--border-3000-light);
+        --glass-bg-3000: var(--glass-bg-3000-light);
+        --glass-border-3000: var(--glass-border-3000-light);
+        --bg-light: #fff;
+    }
+
+    &[theme='dark'] {
+        --text-3000: var(--text-3000-dark);
+        --muted-3000: var(--muted-3000-dark);
+        --primary-3000: var(--primary-3000-dark);
+        --secondary-3000: var(--secondary-3000-dark);
+        --accent-3000: var(--accent-3000-dark);
+        --bg-3000: var(--bg-3000-dark);
+        --border-3000: var(--border-3000-dark);
+        --glass-bg-3000: var(--glass-bg-3000-dark);
+        --glass-border-3000: var(--glass-border-3000-dark);
+        --bg-light: var(--accent-3000);
+    }
+
+    &.posthog-3000 {
+        --default: var(--text-3000);
+        --muted: var(--muted-3000);
+        --muted-alt: var(--muted-3000);
+        --border: var(--border-3000);
+        --light: var(--bg-3000);
+        --bg-mid: var(--bg-3000);
+        background: var(--bg-3000);
+    }
+
     h1,
     h2,
     h3,
@@ -667,8 +710,8 @@ body {
     }
 }
 
-.dangerously-stop-all-animations {
-    // Only use this class to achieve consistent snapshots by stopping all animations
+.storybook-test-runner {
+    // Only use this class in visual regression tests
     *,
     *::before,
     *::after {
@@ -676,5 +719,8 @@ body {
         animation-fill-mode: forwards !important;
         animation-duration: 0ms !important;
         animation-iteration-count: 1 !important;
+    }
+    ::-webkit-scrollbar {
+        display: none;
     }
 }

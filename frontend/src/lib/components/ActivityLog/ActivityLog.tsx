@@ -75,7 +75,7 @@ export const ActivityLogRow = ({
             <ProfilePicture
                 showName={false}
                 name={logItem.isSystem ? logItem.name : undefined}
-                isSystem={logItem.isSystem}
+                type={logItem.isSystem ? 'system' : 'person'}
                 email={logItem.email ?? undefined}
                 size={'xl'}
             />

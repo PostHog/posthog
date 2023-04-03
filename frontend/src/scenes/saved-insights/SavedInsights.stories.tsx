@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, Story } from '@storybook/react'
 
 import { App } from 'scenes/App'
 import insightsJson from './__mocks__/insights.json'
@@ -23,6 +23,7 @@ export default {
             excludeNavigationFromSnapshot: true,
         },
         viewMode: 'story',
+        mockDate: '2023-02-18',
     },
     decorators: [
         mswDecorator({
@@ -40,21 +41,24 @@ export default {
     ],
 } as Meta
 
-export const ListView = (): JSX.Element => {
+export const ListView: Story = () => {
     useEffect(() => {
         router.actions.push('/insights')
     })
     return <App />
 }
 
-export const CardView = (): JSX.Element => {
+export const CardView: Story = () => {
     useEffect(() => {
         router.actions.push('/insights?layoutView=card')
     })
     return <App />
 }
+CardView.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' },
+}
 
-export const EmptyState = (): JSX.Element => {
+export const EmptyState: Story = () => {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/insights': EMPTY_PAGINATED_RESPONSE,

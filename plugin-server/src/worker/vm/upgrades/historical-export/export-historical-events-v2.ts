@@ -131,6 +131,7 @@ export interface ExportParams {
     parallelism: number
     dateFrom: ISOTimestamp
     dateTo: ISOTimestamp
+    abortMessage?: string
 }
 
 interface CoordinationPayload {
@@ -252,6 +253,12 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
+        if (params.abortMessage) {
+            // For manually triggering the export to abort
+            await stopExport(params, `Export aborted: ${params.abortMessage}`, 'fail')
+            return
+        }
+
         const { done, running } = (await meta.storage.get(EXPORT_COORDINATION_KEY, {})) as CoordinationPayload
         update = update || (await calculateCoordination(params, done || [], running || []))
 
@@ -332,6 +339,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 doneDates.add(date)
                 runningDates.delete(date)
                 progress += progressPerDay
+                continue
             } else {
                 progress += progressPerDay * (dateStatus?.progress ?? 0)
             }
@@ -387,11 +395,22 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     async function exportHistoricalEvents(payload: ExportHistoricalEventsJobPayload): Promise<void> {
-        status.info('ℹ️', `Running export historical events with config ${pluginConfig} for payload: ${payload}`)
+        status.info('ℹ️', 'Running export historical events', {
+            pluginConfigId: pluginConfig.id,
+            payload,
+        })
 
         const activeExportParameters = await getExportParameters()
         if (activeExportParameters?.id != payload.exportId) {
             // This export has finished or has been stopped
+            return
+        }
+
+        if (activeExportParameters.abortMessage) {
+            // For manually triggering the export to abort
+            createLog(`Export manually aborted ${activeExportParameters.abortMessage}`, {
+                type: PluginLogEntryType.Info,
+            })
             return
         }
 
@@ -409,10 +428,12 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
+        const progress = (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime)
+
         await meta.storage.set(payload.statusKey, {
             ...payload,
             done: false,
-            progress: (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime),
+            progress: progress,
             statusTime: Date.now(),
         } as ExportChunkStatus)
 
@@ -429,18 +450,23 @@ export function addHistoricalEventsExportCapabilityV2(
             )
         } catch (error) {
             Sentry.captureException(error)
-            await processError(hub, pluginConfig, error)
-            await stopExport(
-                activeExportParameters,
-                'Failed fetching events. Stopping export - please try again later.',
-                'fail'
-            )
-            hub.statsd?.increment('historical_export.fetch_fail', {
-                teamId: pluginConfig.team_id.toString(),
-                plugin: pluginConfig.plugin?.name ?? '?',
-            })
+
+            await handleFetchError(error, activeExportParameters, payload)
             return
         }
+
+        // We bump the statusTime every minute to let the coordinator know we are still
+        // alive and we don't need to be resumed.
+        const interval = setInterval(async () => {
+            const now = Date.now()
+            createLog(`Still running, updating ${payload.statusKey} statusTime for plugin ${pluginConfig.id} to ${now}`)
+            await meta.storage.set(payload.statusKey, {
+                ...payload,
+                done: false,
+                progress: progress,
+                statusTime: now,
+            } as ExportChunkStatus)
+        }, 60 * 1000)
 
         if (events.length > 0) {
             try {
@@ -466,10 +492,14 @@ export function addHistoricalEventsExportCapabilityV2(
                     plugin: pluginConfig.plugin?.name ?? '?',
                 })
             } catch (error) {
+                clearInterval(interval)
+
                 await handleExportError(error, activeExportParameters, payload, events.length)
                 return
             }
         }
+
+        clearInterval(interval)
 
         const { timestampCursor, fetchTimeInterval, offset } = nextCursor(payload, events.length)
 
@@ -546,6 +576,66 @@ export function addHistoricalEventsExportCapabilityV2(
         }
     }
 
+    async function handleFetchError(
+        error: Error,
+        params: ExportParams,
+        payload: ExportHistoricalEventsJobPayload
+    ): Promise<void> {
+        if (error instanceof RetryError && payload.retriesPerformedSoFar + 1 < hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT) {
+            const nextRetrySeconds = retryDelaySeconds(payload.retriesPerformedSoFar)
+
+            createLog(
+                `Failed to fetch events from ${dateRange(
+                    payload.timestampCursor,
+                    payload.timestampCursor + payload.fetchTimeInterval
+                )}. Retrying in ${nextRetrySeconds}s`,
+                {
+                    type: PluginLogEntryType.Warn,
+                }
+            )
+            hub.statsd?.increment('historical_export.fetch_fail', {
+                teamId: pluginConfig.team_id.toString(),
+                plugin: pluginConfig.plugin?.name ?? '?',
+            })
+
+            await meta.jobs
+                .exportHistoricalEventsV2({
+                    ...payload,
+                    retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
+                } as ExportHistoricalEventsJobPayload)
+                .runIn(nextRetrySeconds, 'seconds')
+        } else {
+            if (error instanceof RetryError) {
+                const message = `Fetching chunk ${dateRange(payload.startTime, payload.endTime)} failed after ${
+                    hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT
+                } retries. Stopping export.`
+                await stopExport(params, message, 'fail')
+                await processError(hub, pluginConfig, message)
+            } else {
+                await processError(hub, pluginConfig, error)
+                await stopExport(params, 'Failed fetching events. Stopping export - please try again later.', 'fail')
+            }
+            hub.statsd?.increment('historical_export.chunks_error', {
+                teamId: pluginConfig.team_id.toString(),
+                plugin: pluginConfig.plugin?.name ?? '?',
+                retriable: 'false',
+            })
+            await hub.appMetrics.queueError(
+                {
+                    teamId: pluginConfig.team_id,
+                    pluginConfigId: pluginConfig.id,
+                    jobId: payload.exportId.toString(),
+                    category: 'exportEvents',
+                    failures: 1,
+                },
+                {
+                    error,
+                    eventCount: 1,
+                }
+            )
+        }
+    }
+
     async function stopExport(
         params: ExportParams,
         message: string,
@@ -602,6 +692,10 @@ export function addHistoricalEventsExportCapabilityV2(
     function shouldResume(status: ExportChunkStatus, now: number): boolean {
         // When a export hasn't updated in 10 minutes plus whatever time is spent on retries, it's likely already timed out or died
         // Note that status updates happen every time the export makes _any_ progress
+        // NOTE from the future: we discovered that 10 minutes was not enough time as we have exports running for longer
+        // without failing, and this logic was triggering multiple simultaneous resumes. Simultaneous resumes start to fight to update
+        // the status, and cause duplicate data to be exported. Overall, a nightmare.
+        // To mitigate this, we have historialExportEvents update the status as it waits.
         return now >= status.statusTime + TEN_MINUTES + retryDelaySeconds(status.retriesPerformedSoFar + 1) * 1000
     }
 

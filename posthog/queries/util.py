@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from enum import Enum, auto
+from typing import Any, Dict, Optional, Union
 
 import pytz
 from django.utils import timezone
@@ -8,7 +9,19 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
+from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
+from posthog.utils import PersonOnEventsMode
+
+
+class PersonPropertiesMode(Enum):
+    USING_SUBQUERY = auto()
+    USING_PERSON_PROPERTIES_COLUMN = auto()
+    # Used for generating query on Person table
+    DIRECT = auto()
+    DIRECT_ON_EVENTS = auto()
+    DIRECT_ON_PERSONS = auto()
+
 
 EARLIEST_TIMESTAMP = "2015-01-01"
 
@@ -81,6 +94,15 @@ def get_interval_func_ch(period: Optional[str]) -> str:
     return ch_function
 
 
+def get_time_in_seconds_for_period(period: Optional[str]) -> str:
+    if period is None:
+        period = "day"
+    seconds_in_period = TIME_IN_SECONDS.get(period.lower())
+    if seconds_in_period is None:
+        raise ValidationError(f"Interval {period} is unsupported.")
+    return seconds_in_period
+
+
 def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
     for key in params:
         if isinstance(params[key], dict) or isinstance(params[key], list):
@@ -92,3 +114,28 @@ def convert_to_datetime_aware(date_obj):
     if date_obj.tzinfo is None:
         date_obj = date_obj.replace(tzinfo=timezone.utc)
     return date_obj
+
+
+def correct_result_for_sampling(
+    value: Union[int, float], sampling_factor: Optional[float], entity_math: Optional[str] = None
+) -> Union[int, float]:
+    from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
+
+    # We don't adjust results for sampling if:
+    # - There's no sampling_factor specified i.e. the query isn't sampled
+    # - The query performs a math operation other than 'sum' because statistical math operations
+    # on sampled data yield results in the correct format
+    if (not sampling_factor) or (
+        entity_math is not None and entity_math != "sum" and entity_math in ALL_SUPPORTED_MATH_FUNCTIONS
+    ):
+        return value
+
+    result = round(value * (1 / sampling_factor))
+    return result
+
+
+def get_person_properties_mode(team: Team) -> PersonPropertiesMode:
+    if team.person_on_events_mode == PersonOnEventsMode.DISABLED:
+        return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
+
+    return PersonPropertiesMode.DIRECT_ON_EVENTS

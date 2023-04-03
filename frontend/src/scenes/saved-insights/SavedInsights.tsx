@@ -1,4 +1,3 @@
-import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -18,6 +17,7 @@ import {
     IconGridView,
     IconListView,
     IconPerson,
+    IconPlusMini,
     IconQuestionAnswer,
     IconSelectEvents,
     IconStarFilled,
@@ -26,6 +26,7 @@ import {
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
+    InsightSQLIcon,
     InsightsRetentionIcon,
     InsightsStickinessIcon,
     InsightsTrendsIcon,
@@ -33,14 +34,13 @@ import {
 import { SceneExport } from 'scenes/sceneTypes'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithSideAction, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { summarizeInsightFilters } from 'scenes/insights/utils'
+
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -52,8 +52,12 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { NodeKind } from '~/queries/schema'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-
-const { TabPane } = Tabs
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { isInsightVizNode } from '~/queries/utils'
+import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
+import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -69,38 +73,50 @@ export interface InsightTypeMetadata {
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
     [InsightType.TRENDS]: {
         name: 'Trends',
-        description: 'Visualize and break down how actions or events vary over time',
+        description: 'Visualize and break down how actions or events vary over time.',
         icon: InsightsTrendsIcon,
         inMenu: true,
     },
     [InsightType.FUNNELS]: {
         name: 'Funnel',
-        description: 'Discover how many users complete or drop out of a sequence of actions',
+        description: 'Discover how many users complete or drop out of a sequence of actions.',
         icon: InsightsFunnelsIcon,
         inMenu: true,
     },
     [InsightType.RETENTION]: {
         name: 'Retention',
-        description: 'See how many users return on subsequent days after an intial action',
+        description: 'See how many users return on subsequent days after an intial action.',
         icon: InsightsRetentionIcon,
         inMenu: true,
     },
     [InsightType.PATHS]: {
         name: 'Paths',
-        description: 'Trace the journeys users take within your product and where they drop off',
+        description: 'Trace the journeys users take within your product and where they drop off.',
         icon: InsightsPathsIcon,
         inMenu: true,
     },
     [InsightType.STICKINESS]: {
         name: 'Stickiness',
-        description: 'See what keeps users coming back by viewing the interval between repeated actions',
+        description: 'See what keeps users coming back by viewing the interval between repeated actions.',
         icon: InsightsStickinessIcon,
         inMenu: true,
     },
     [InsightType.LIFECYCLE]: {
         name: 'Lifecycle',
-        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
+        description: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
         icon: InsightsLifecycleIcon,
+        inMenu: true,
+    },
+    [InsightType.SQL]: {
+        name: 'SQL',
+        description: 'Use HogQL to query your data.',
+        icon: InsightSQLIcon,
+        inMenu: true,
+    },
+    [InsightType.JSON]: {
+        name: 'Custom',
+        description: 'Save components powered by our JSON query language.',
+        icon: InsightSQLIcon,
         inMenu: true,
     },
 }
@@ -191,21 +207,45 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: true,
     },
     [NodeKind.TimeToSeeDataSessionsQuery]: {
-        name: 'Internal PostHog perforamance data',
+        name: 'Internal PostHog performance data',
         description: 'View performance data about a session in PostHog itself',
         icon: IconCoffee,
         inMenu: true,
     },
     [NodeKind.TimeToSeeDataQuery]: {
-        name: 'Internal PostHog perforamance data',
-        description: 'View listings of performance data in PostHog itself',
+        name: 'Internal PostHog performance data',
+        description: 'View listings of sessions holding performance data in PostHog itself',
         icon: IconCoffee,
         inMenu: true,
     },
     [NodeKind.RecentPerformancePageViewNode]: {
-        name: 'PostHog perforamance data',
+        name: 'PostHog performance data',
         description: 'PageViews where we recorded performance data about your site',
         icon: IconCoffee,
+        inMenu: true,
+    },
+    [NodeKind.TimeToSeeDataSessionsJSONNode]: {
+        name: 'Internal PostHog performance data',
+        description: 'View performance data about a session in PostHog itself as JSON',
+        icon: IconCoffee,
+        inMenu: true,
+    },
+    [NodeKind.TimeToSeeDataSessionsWaterfallNode]: {
+        name: 'Internal PostHog performance data',
+        description: 'View performance data about a session in PostHog itself in a trace/waterfall view',
+        icon: IconCoffee,
+        inMenu: true,
+    },
+    [NodeKind.HogQLQuery]: {
+        name: 'HogQL',
+        description: 'Direct HogQL query',
+        icon: InsightSQLIcon,
+        inMenu: true,
+    },
+    [NodeKind.DatabaseSchemaQuery]: {
+        name: 'Database Schema',
+        description: 'Introspect the PostHog database schema',
+        icon: InsightSQLIcon,
         inMenu: true,
     },
 }
@@ -225,7 +265,11 @@ export const scene: SceneExport = {
 }
 
 export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
-    const insightMetadata = INSIGHT_TYPES_METADATA[insight?.filters?.insight || InsightType.TRENDS]
+    let insightType = insight?.filters?.insight || InsightType.TRENDS
+    if (!!insight.query && !isInsightVizNode(insight.query)) {
+        insightType = InsightType.JSON
+    }
+    const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
     if (insightMetadata && insightMetadata.icon) {
         return <insightMetadata.icon style={{ display: 'block', fontSize: '2rem' }} />
     }
@@ -233,6 +277,15 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const overrides3000: Partial<LemonButtonWithSideActionProps> = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+        ? {
+              size: 'small',
+              icon: <IconPlusMini />,
+          }
+        : {}
+
     return (
         <LemonButtonWithSideAction
             type="primary"
@@ -242,36 +295,12 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
-                    overlay: Object.entries(INSIGHT_TYPES_METADATA).map(
-                        ([listedInsightType, listedInsightTypeMetadata]) =>
-                            listedInsightTypeMetadata.inMenu && (
-                                <LemonButton
-                                    key={listedInsightType}
-                                    status="stealth"
-                                    icon={
-                                        listedInsightTypeMetadata.icon && (
-                                            <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
-                                        )
-                                    }
-                                    to={urls.insightNew({ insight: listedInsightType as InsightType })}
-                                    data-attr={dataAttr}
-                                    data-attr-insight-type={listedInsightType}
-                                    onClick={() => {
-                                        eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType)
-                                    }}
-                                    fullWidth
-                                >
-                                    <div className="text-default flex flex-col text-sm py-1">
-                                        <strong>{listedInsightTypeMetadata.name}</strong>
-                                        <span className="text-xs">{listedInsightTypeMetadata.description}</span>
-                                    </div>
-                                </LemonButton>
-                            )
-                    ),
+                    overlay: overlayForNewInsightMenu(dataAttr, !!featureFlags[FEATURE_FLAGS.HOGQL]),
                 },
                 'data-attr': 'saved-insights-new-insight-dropdown',
             }}
             data-attr="saved-insights-new-insight-button"
+            {...overrides3000}
         >
             New insight
         </LemonButtonWithSideAction>
@@ -301,6 +330,7 @@ function SavedInsightsGrid(): JSX.Element {
                                 callback: loadInsights,
                             })
                         }
+                        placement={'SavedInsightGrid'}
                     />
                 ))}
                 {insightsLoading && (
@@ -316,6 +346,10 @@ function SavedInsightsGrid(): JSX.Element {
 }
 
 export function SavedInsights(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isUsingDataExploration = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+    const isUsingDashboardQueries = !!featureFlags[FEATURE_FLAGS.HOGQL]
+
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
     const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
@@ -350,12 +384,13 @@ export function SavedInsights(): JSX.Element {
                             <Link to={urls.insightView(insight.short_id)}>
                                 {name || (
                                     <i>
-                                        {summarizeInsightFilters(
-                                            insight.filters,
+                                        {summarizeInsight(insight.query, insight.filters, {
+                                            isUsingDataExploration,
                                             aggregationLabel,
                                             cohortsById,
-                                            mathDefinitions
-                                        )}
+                                            mathDefinitions,
+                                            isUsingDashboardQueries,
+                                        })}
                                     </i>
                                 )}
                             </Link>
@@ -463,16 +498,16 @@ export function SavedInsights(): JSX.Element {
         <div className="saved-insights">
             <PageHeader title="Insights" buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
 
-            <Tabs
+            <LemonTabs
                 activeKey={tab}
-                style={{ borderColor: '#D9D9D9' }}
-                onChange={(t) => setSavedInsightsFilters({ tab: t as SavedInsightsTabs })}
-            >
-                <TabPane tab="All Insights" key={SavedInsightsTabs.All} />
-                <TabPane tab="Your Insights" key={SavedInsightsTabs.Yours} />
-                <TabPane tab="Favorites" key={SavedInsightsTabs.Favorites} />
-                <TabPane tab="History" key={SavedInsightsTabs.History} />
-            </Tabs>
+                onChange={(tab) => setSavedInsightsFilters({ tab })}
+                tabs={[
+                    { key: SavedInsightsTabs.All, label: 'All insights' },
+                    { key: SavedInsightsTabs.Yours, label: 'Your insights' },
+                    { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
+                    { key: SavedInsightsTabs.History, label: 'History' },
+                ]}
+            />
 
             {tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />

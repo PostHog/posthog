@@ -157,7 +157,7 @@ FUNNEL_LAYOUT = "layout"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
-FUNNEL_WINDOW_INTERVAL_TYPES = Literal["DAY", "MINUTE", "HOUR", "WEEK", "MONTH"]
+FUNNEL_WINDOW_INTERVAL_TYPES = Literal["DAY", "SECOND", "MINUTE", "HOUR", "WEEK", "MONTH"]
 # Funnel Correlation Properties
 FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
 FUNNEL_CORRELATION_EXCLUDE_NAMES = "funnel_correlation_exclude_names"
@@ -192,6 +192,8 @@ PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
 AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
 BREAKDOWN_HISTOGRAM_BIN_COUNT = "breakdown_histogram_bin_count"
 BREAKDOWN_NORMALIZE_URL = "breakdown_normalize_url"
+SAMPLING_FACTOR = "sampling_factor"
+
 
 BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group", "session", "hogql"]
 

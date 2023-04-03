@@ -90,6 +90,14 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
+class DatabaseSchemaQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("DatabaseSchemaQuery", const=True)
+    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
+
+
 class DateRange(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -158,6 +166,7 @@ class EventType(BaseModel):
     person: Optional[Person] = None
     properties: Dict[str, Any]
     timestamp: str
+    uuid: Optional[str] = None
 
 
 class MathGroupTypeIndex1(float, Enum):
@@ -176,11 +185,11 @@ class Response(BaseModel):
     results: List[EventType]
 
 
-class Response1(BaseModel):
+class EventsQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    columns: List[str]
+    columns: List
     hasMore: Optional[bool] = None
     results: List[List]
     types: List[str]
@@ -192,6 +201,7 @@ class FilterLogicalOperator(str, Enum):
 
 
 class FunnelConversionWindowTimeUnit(str, Enum):
+    second = "second"
     minute = "minute"
     hour = "hour"
     day = "day"
@@ -240,6 +250,18 @@ class FunnelCorrelationPersonConverted1(str, Enum):
     false = "false"
 
 
+class HogQLQueryResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    clickhouse: Optional[str] = None
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    query: Optional[str] = None
+    results: Optional[List] = None
+    types: Optional[List] = None
+
+
 class InsightType(str, Enum):
     TRENDS = "TRENDS"
     STICKINESS = "STICKINESS"
@@ -247,6 +269,8 @@ class InsightType(str, Enum):
     FUNNELS = "FUNNELS"
     RETENTION = "RETENTION"
     PATHS = "PATHS"
+    JSON = "JSON"
+    SQL = "SQL"
 
 
 class IntervalType(str, Enum):
@@ -261,6 +285,14 @@ class LifecycleToggle(str, Enum):
     resurrecting = "resurrecting"
     returning = "returning"
     dormant = "dormant"
+
+
+class MathGroupTypeIndex2(float, Enum):
+    number_0 = 0
+    number_1 = 1
+    number_2 = 2
+    number_3 = 3
+    number_4 = 4
 
 
 class PathCleaningFilter(BaseModel):
@@ -337,8 +369,8 @@ class RecentPerformancePageViewNode(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    dateRange: DateRange
     kind: str = Field("RecentPerformancePageViewNode", const=True, description="Performance")
-    numberOfDays: Optional[float] = None
     response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
 
 
@@ -399,20 +431,18 @@ class StickinessFilter(BaseModel):
 
     compare: Optional[bool] = None
     display: Optional[ChartDisplayType] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
+    hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     stickiness_days: Optional[float] = None
 
 
-class TimeToSeeDataSessionsQuery(BaseModel):
+class TimeToSeeDataSessionsQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
-    kind: str = Field("TimeToSeeDataSessionsQuery", const=True)
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
-    teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
+    results: List[Dict[str, Any]]
 
 
 class TrendsFilter(BaseModel):
@@ -426,8 +456,9 @@ class TrendsFilter(BaseModel):
     compare: Optional[bool] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[Any] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
+    hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
 
@@ -510,7 +541,7 @@ class FunnelsFilter(BaseModel):
     funnel_viz_type: Optional[FunnelVizType] = None
     funnel_window_interval: Optional[float] = None
     funnel_window_interval_unit: Optional[FunnelConversionWindowTimeUnit] = None
-    hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
+    hidden_legend_breakdowns: Optional[List[str]] = None
     layout: Optional[FunnelLayout] = None
 
 
@@ -536,14 +567,22 @@ class HogQLPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
+class HogQLQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("HogQLQuery", const=True)
+    query: str
+    response: Optional[HogQLQueryResponse] = Field(None, description="Cached query response")
+
+
 class LifecycleFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
-    toggledLifecycles: Optional[List[LifecycleToggle]] = Field(
-        None, description="Lifecycles that have been removed from display"
-    )
+    toggledLifecycles: Optional[List[LifecycleToggle]] = None
 
 
 class PersonPropertyFilter(BaseModel):
@@ -567,6 +606,16 @@ class RetentionFilter(BaseModel):
     returning_entity: Optional[Dict[str, Any]] = None
     target_entity: Optional[Dict[str, Any]] = None
     total_intervals: Optional[float] = None
+
+
+class TimeToSeeDataSessionsQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
+    kind: str = Field("TimeToSeeDataSessionsQuery", const=True)
+    response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(None, description="Cached query response")
+    teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
 
 
 class EventsNode(BaseModel):
@@ -668,9 +717,58 @@ class EventsQuery(BaseModel):
             ]
         ]
     ] = Field(None, description="Properties configurable in the interface")
-    response: Optional[Response1] = Field(None, description="Cached query response")
+    response: Optional[EventsQueryResponse] = Field(None, description="Cached query response")
     select: List[str] = Field(..., description="Return a limited set of data. Required.")
     where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
+
+
+class NewEntityNode(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    custom_name: Optional[str] = None
+    event: Optional[str] = None
+    fixedProperties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    kind: str = Field("NewEntityNode", const=True)
+    math: Optional[Union[BaseMathType, PropertyMathType, CountPerActorMathType, str]] = None
+    math_group_type_index: Optional[MathGroupTypeIndex2] = None
+    math_property: Optional[str] = None
+    name: Optional[str] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(None, description="Properties configurable in the interface")
+    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
 
 
 class PersonsNode(BaseModel):
@@ -820,17 +918,18 @@ class DataTableNode(BaseModel):
     showEventFilter: Optional[bool] = Field(
         None, description="Include an event filter above the table (EventsNode only)"
     )
-    showEventsBufferWarning: Optional[bool] = Field(
-        None, description="Show warning about live events being buffered max 60 sec (default: false)"
-    )
     showExport: Optional[bool] = Field(None, description="Show the export button")
+    showHogQLEditor: Optional[bool] = Field(None, description="Include a HogQL query editor above HogQL tables")
+    showOpenEditorButton: Optional[bool] = Field(
+        None, description="Show a button to open the current query as a new insight. (default: true)"
+    )
     showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(None, description="Show a reload button")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
-    source: Union[EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode] = Field(
-        ..., description="Source of the events"
-    )
+    source: Union[
+        EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode, HogQLQuery, TimeToSeeDataSessionsQuery
+    ] = Field(..., description="Source of the events")
 
 
 class PropertyGroupFilter(BaseModel):
@@ -905,7 +1004,9 @@ class StickinessQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
+        ..., description="Events and actions to include"
+    )
     stickinessFilter: Optional[StickinessFilter] = Field(
         None, description="Properties specific to the stickiness insight"
     )
@@ -944,7 +1045,9 @@ class TrendsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
+        ..., description="Events and actions to include"
+    )
     trendsFilter: Optional[TrendsFilter] = Field(None, description="Properties specific to the trends insight")
 
 
@@ -972,6 +1075,10 @@ class AnyPartialFilterTypeItem(BaseModel):
     entity_math: Optional[str] = None
     entity_type: Optional[EntityType] = None
     events: Optional[List[Dict[str, Any]]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     formula: Optional[Any] = None
     from_dashboard: Optional[Union[bool, float]] = None
@@ -998,7 +1105,9 @@ class AnyPartialFilterTypeItem(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
+    sampling_factor: Optional[float] = None
     show_legend: Optional[bool] = None
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
 
@@ -1023,6 +1132,10 @@ class AnyPartialFilterTypeItem1(BaseModel):
     entity_math: Optional[str] = None
     entity_type: Optional[EntityType] = None
     events: Optional[List[Dict[str, Any]]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
@@ -1048,7 +1161,9 @@ class AnyPartialFilterTypeItem1(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
+    sampling_factor: Optional[float] = None
     show_legend: Optional[bool] = None
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     stickiness_days: Optional[float] = None
 
@@ -1077,6 +1192,10 @@ class AnyPartialFilterTypeItem2(BaseModel):
     entrance_period_start: Optional[str] = None
     events: Optional[List[Dict[str, Any]]] = None
     exclusions: Optional[List[FunnelStepRangeEntityFilter]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     funnel_advanced: Optional[bool] = None
@@ -1116,6 +1235,7 @@ class AnyPartialFilterTypeItem2(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
+    sampling_factor: Optional[float] = None
 
 
 class AnyPartialFilterTypeItem3(BaseModel):
@@ -1139,6 +1259,10 @@ class AnyPartialFilterTypeItem3(BaseModel):
     entity_type: Optional[EntityType] = None
     events: Optional[List[Dict[str, Any]]] = None
     exclude_events: Optional[List[str]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     funnel_filter: Optional[Dict[str, Any]] = None
@@ -1175,6 +1299,7 @@ class AnyPartialFilterTypeItem3(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
+    sampling_factor: Optional[float] = None
     start_point: Optional[str] = None
     step_limit: Optional[float] = None
 
@@ -1197,6 +1322,10 @@ class AnyPartialFilterTypeItem4(BaseModel):
     entity_math: Optional[str] = None
     entity_type: Optional[EntityType] = None
     events: Optional[List[Dict[str, Any]]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     insight: Optional[InsightType] = None
@@ -1225,6 +1354,7 @@ class AnyPartialFilterTypeItem4(BaseModel):
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[Dict[str, Any]] = None
+    sampling_factor: Optional[float] = None
     target_entity: Optional[Dict[str, Any]] = None
     total_intervals: Optional[float] = None
 
@@ -1247,6 +1377,10 @@ class AnyPartialFilterTypeItem5(BaseModel):
     entity_math: Optional[str] = None
     entity_type: Optional[EntityType] = None
     events: Optional[List[Dict[str, Any]]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     insight: Optional[InsightType] = None
@@ -1271,7 +1405,10 @@ class AnyPartialFilterTypeItem5(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
+    sampling_factor: Optional[float] = None
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
+    toggledLifecycles: Optional[List[LifecycleToggle]] = None
 
 
 class AnyPartialFilterTypeItem6(BaseModel):
@@ -1292,6 +1429,10 @@ class AnyPartialFilterTypeItem6(BaseModel):
     entity_math: Optional[str] = None
     entity_type: Optional[EntityType] = None
     events: Optional[List[Dict[str, Any]]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     insight: Optional[InsightType] = None
@@ -1316,6 +1457,7 @@ class AnyPartialFilterTypeItem6(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
+    sampling_factor: Optional[float] = None
 
 
 class FunnelsQuery(BaseModel):
@@ -1352,7 +1494,9 @@ class FunnelsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
+        ..., description="Events and actions to include"
+    )
 
 
 class LegacyQuery(BaseModel):
@@ -1404,7 +1548,9 @@ class LifecycleQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
+        ..., description="Events and actions to include"
+    )
 
 
 class PathsQuery(BaseModel):
@@ -1460,7 +1606,8 @@ class Model(BaseModel):
         LifecycleQuery,
         RecentPerformancePageViewNode,
         TimeToSeeDataSessionsQuery,
-        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode],
+        DatabaseSchemaQuery,
+        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery],
     ]
 
 

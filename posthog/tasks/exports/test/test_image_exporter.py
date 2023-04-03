@@ -20,7 +20,7 @@ TEST_BUCKET = "Test-Exports"
 
 @patch("posthog.tasks.exports.image_exporter.synchronously_update_cache")
 @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
-@patch("builtins.open", new_callable=mock_open, read_data=b"image_data")
+@patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
 @patch("os.remove")
 class TestImageExporter(APIBaseTest):
     exported_asset: ExportedAsset

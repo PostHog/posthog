@@ -8,11 +8,11 @@ export type FeatureFlagsSet = {
     [flag: string]: boolean | string
 }
 const eventsNotified: Record<string, boolean> = {}
-function notifyFlagIfNeeded(flag: string, flagState: string | boolean): void {
+function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefined): void {
     if (!eventsNotified[flag]) {
         posthog.capture('$feature_flag_called', {
             $feature_flag: flag,
-            $feature_flag_response: flagState,
+            $feature_flag_response: flagState === undefined ? false : flagState,
         })
         eventsNotified[flag] = true
     }

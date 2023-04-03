@@ -1,6 +1,7 @@
 from typing import Any, List, Optional
 
 from django.db import models, transaction
+from django.db.models import F, Q
 
 from posthog.models.utils import UUIDT
 
@@ -101,21 +102,56 @@ class PersonDistinctId(models.Model):
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
 
 
-class PersonOverride(models.Model):
+class PersonOverrideMapping(models.Model):
     """A model of persons to be overriden in merge or merge-like events."""
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id")
+            models.UniqueConstraint(fields=["team_id", "uuid"], name="unique_uuid"),
+        ]
+
+    id = models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    team_id = models.BigIntegerField()
+    uuid = models.UUIDField()
+
+
+class PersonOverride(models.Model):
+    """A model of persons to be overriden in merge or merge-like events.
+
+    This model has a set of constraints to ensure correctness:
+    1. Unique constraint on (team_id, old_person_id) pairs.
+    2. Check that old_person_id is different to override_person_id for every row.
+    3. Same person id cannot be used as an old_person_id and an override_person_id (per team)
+       (e.g. if a row exists with old_person_id=123 then we would not allow a row with
+        override_person_id=123 to exist, as that would require a self join to figure
+        out the ultimate override_person_id required for old_person_id=123).
+        To accomplish this we use a series of constraints.
+    """
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id"),
+            models.CheckConstraint(
+                check=~Q(old_person_id__exact=F("override_person_id")),
+                name="old_person_id_different_from_override_person_id",
+            ),
         ]
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
-    # We don't want to delete rows before we had a chance to propagate updates to the events table.
-    # To reduce potential side-effects, these are not ForeingKeys.
-    old_person_id = models.UUIDField(db_index=True)
-    override_person_id = models.UUIDField(db_index=True)
+    old_person_id: models.ForeignKey = models.ForeignKey(
+        "PersonOverrideMapping",
+        db_column="old_person_id",
+        related_name="person_override_old",
+        on_delete=models.CASCADE,
+    )
+    override_person_id: models.ForeignKey = models.ForeignKey(
+        "PersonOverrideMapping",
+        db_column="override_person_id",
+        related_name="person_override_override",
+        on_delete=models.CASCADE,
+    )
 
     oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)

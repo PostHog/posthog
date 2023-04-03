@@ -20,6 +20,7 @@ export function initSentry(config: PluginsServerConfig): void {
             initialScope: {
                 tags: {
                     PLUGIN_SERVER_MODE: config.PLUGIN_SERVER_MODE,
+                    DEPLOYMENT: config.CLOUD_DEPLOYMENT,
                 },
             },
             tracesSampleRate: config.SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE,

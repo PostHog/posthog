@@ -18,6 +18,8 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '../../models/groupsModel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface Props {
     id?: string
@@ -45,7 +47,8 @@ export function Dashboard({ id, dashboard, placement }: Props = {}): JSX.Element
 function DashboardScene(): JSX.Element {
     const {
         placement,
-        dashboard,
+        // dashboard on dashboardLogic isn't the dashboard on dashboardLogic (╯°□°)╯︵ ┻━┻
+        allItems: dashboard,
         canEditDashboard,
         tiles,
         itemsLoading,
@@ -55,7 +58,7 @@ function DashboardScene(): JSX.Element {
     } = useValues(dashboardLogic)
     const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery } =
         useActions(dashboardLogic)
-
+    const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     useEffect(() => {
@@ -110,7 +113,11 @@ function DashboardScene(): JSX.Element {
             ) : (
                 <div>
                     <div className="flex space-x-4 justify-between">
-                        {![DashboardPlacement.Public, DashboardPlacement.Export].includes(placement) && (
+                        {![
+                            DashboardPlacement.Public,
+                            DashboardPlacement.Export,
+                            DashboardPlacement.FeatureFlag,
+                        ].includes(placement) && (
                             <div className="flex space-x-4">
                                 <div className="flex items-center h-8">
                                     <DateFilter
@@ -157,7 +164,9 @@ function DashboardScene(): JSX.Element {
                             </div>
                         )}
                     </div>
-                    {placement !== DashboardPlacement.Export && <LemonDivider className="my-4" />}
+                    {placement !== DashboardPlacement.Export && !featureFlags[FEATURE_FLAGS.POSTHOG_3000] && (
+                        <LemonDivider className="my-4" />
+                    )}
                     <DashboardItems />
                 </div>
             )}

@@ -330,7 +330,7 @@ export const createOrganization = async (pgClient: Pool) => {
         available_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,
-        slug: Math.round(Math.random() * 20000),
+        slug: new UUIDT().toString(),
     })
     return organizationId
 }
@@ -365,4 +365,34 @@ export const createTeam = async (pgClient: Pool, organizationId: string, token?:
         access_control: false,
     })
     return team.id
+}
+
+export const createUser = async (pgClient: Pool, distinctId: string) => {
+    const uuid = new UUIDT().toString()
+    const user = await insertRow(pgClient, 'posthog_user', {
+        uuid: uuid,
+        password: 'gibberish',
+        first_name: 'PluginTest',
+        last_name: 'User',
+        email: `test${uuid}@posthog.com`,
+        distinct_id: distinctId,
+        is_staff: false,
+        is_active: false,
+        date_joined: new Date().toISOString(),
+        events_column_config: { active: 'DEFAULT' },
+    })
+    return user.id
+}
+
+export const createOrganizationMembership = async (pgClient: Pool, organizationId: string, userId: number) => {
+    const membershipId = new UUIDT().toString()
+    const membership = await insertRow(pgClient, 'posthog_organizationmembership', {
+        id: membershipId,
+        organization_id: organizationId,
+        user_id: userId,
+        level: 15,
+        joined_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+    })
+    return membership.id
 }

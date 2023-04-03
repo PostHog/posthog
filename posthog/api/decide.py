@@ -170,6 +170,7 @@ def get_decide(request: HttpRequest):
                 response["featureFlags"] = list(active_flags.keys())
 
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
+            response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
 
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains
@@ -178,6 +179,7 @@ def get_decide(request: HttpRequest):
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
+                    "recorderVersion": "v2" if team.session_recording_version == "v2" else "v1",
                 }
 
             site_apps = []

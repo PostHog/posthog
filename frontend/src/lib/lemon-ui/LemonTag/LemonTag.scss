@@ -9,7 +9,6 @@
     color: var(--default);
     line-height: 1rem;
     white-space: nowrap;
-    cursor: default;
 
     &.highlight {
         background-color: var(--yellow-lightest);
@@ -34,6 +33,10 @@
         color: var(--indigo);
     }
 
+    &.caution {
+        background-color: var(--danger-lighter);
+    }
+
     &.none {
         background: none;
     }
@@ -48,5 +51,9 @@
         margin-left: 0.25rem;
         min-height: 1.5rem;
         padding: 0.125rem 0.125rem;
+    }
+
+    &.clickable {
+        cursor: pointer;
     }
 }

@@ -4,6 +4,7 @@ import {
     getIncompleteConversionWindowStartDate,
     getMeanAndStandardDeviation,
     getClampedStepRangeFilter,
+    getVisibilityKey,
 } from './funnelUtils'
 import { FilterType, FunnelConversionWindowTimeUnit, FunnelStepRangeEntityFilter } from '~/types'
 import { dayjs } from 'lib/dayjs'
@@ -108,8 +109,24 @@ describe('getBreakdownStepValues()', () => {
     })
 })
 
+describe('getVisibilityKey()', () => {
+    it('returns string representation for breakdown', () => {
+        expect(getVisibilityKey(undefined)).toEqual('(empty string)')
+        expect(getVisibilityKey(null)).toEqual('(empty string)')
+        expect(getVisibilityKey('a')).toEqual('a')
+        expect(getVisibilityKey(['a', 'b'])).toEqual('a::b')
+        expect(getVisibilityKey(1)).toEqual('1')
+        expect(getVisibilityKey([1, 2])).toEqual('1::2')
+    })
+})
+
 describe('getIncompleteConversionWindowStartDate()', () => {
     const windows = [
+        {
+            funnel_window_interval: 10,
+            funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Second,
+            expected: '2018-04-04T15:59:50.000Z',
+        },
         {
             funnel_window_interval: 60,
             funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Minute,

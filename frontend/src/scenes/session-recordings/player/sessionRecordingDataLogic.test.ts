@@ -15,10 +15,8 @@ import { combineUrl } from 'kea-router'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { teamLogic } from 'scenes/teamLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { AvailableFeature, SessionRecordingUsageType } from '~/types'
+import { AvailableFeature } from '~/types'
 import { useAvailableFeatures } from '~/mocks/features'
 
 const createSnapshotEndpoint = (id: number): string => `api/projects/${MOCK_TEAM_ID}/session_recordings/${id}/snapshots`
@@ -55,16 +53,12 @@ describe('sessionRecordingDataLogic', () => {
         initKeaTests()
         logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
         logic.mount()
-        await expectLogic(logic).toMount([featureFlagLogic])
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
-            [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: true,
-        })
         jest.spyOn(api, 'get')
     })
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([eventUsageLogic, teamLogic, featureFlagLogic, userLogic])
+            await expectLogic(logic).toMount([eventUsageLogic, teamLogic, userLogic])
         })
         it('has default values', async () => {
             await expectLogic(logic).toMatchValues({
@@ -320,38 +314,12 @@ describe('sessionRecordingDataLogic', () => {
                 initKeaTests()
                 logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
                 logic.mount()
-                await expectLogic(logic).toMount(featureFlagLogic)
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
-                    [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: false,
-                })
                 api.get.mockClear()
             })
 
-            it('if ff is off', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.loadRecordingMeta()
-                })
-                    .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
-                    .toDispatchActionsInAnyOrder([
-                        'loadEvents',
-                        'loadEventsSuccess',
-                        'loadPerformanceEvents',
-                        'loadPerformanceEventsSuccess',
-                    ])
-                    .toMatchValues({
-                        performanceEvents: [],
-                    })
-
-                // data, meta, events... but not performance events
-                expect(api.get).toBeCalledTimes(3)
-            })
-
-            it("if ff is on but user doesn't have the performance feature", async () => {
+            it("user doesn't have the performance feature", async () => {
                 api.get.mockClear()
                 await expectLogic(logic, async () => {
-                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
-                        [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: true,
-                    })
                     logic.actions.loadRecordingMeta()
                 })
                     .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
@@ -373,9 +341,6 @@ describe('sessionRecordingDataLogic', () => {
         it('load performance events', async () => {
             logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
             logic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
-                [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: true,
-            })
 
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta()
@@ -520,7 +485,7 @@ describe('sessionRecordingDataLogic', () => {
                     },
                 })
                 .toFinishAllListeners()
-            expect(api.get).toBeCalledTimes(3) // 2 calls to loadRecordingSnapshots + 1 call to loadRecordingMeta
+            expect(api.get).toBeCalledTimes(4) // 2 calls to loadRecordingSnapshots + 1 call to loadRecordingMeta + 1 call to loadPerformanceEvents
         })
 
         it('server error mid-way through recording', async () => {
@@ -598,18 +563,21 @@ describe('sessionRecordingDataLogic', () => {
                     'loadPerformanceEvents',
                     'loadPerformanceEventsSuccess',
                 ])
-                .toDispatchActions([logic.actionCreators.reportUsage(SessionRecordingUsageType.LOADED)]) // only dispatch once
-                .toNotHaveDispatchedActions([logic.actionCreators.reportUsage(SessionRecordingUsageType.LOADED)])
+                .toDispatchActions([eventUsageLogic.actionTypes.reportRecording]) // only dispatch once
+                .toNotHaveDispatchedActions([
+                    eventUsageLogic.actionTypes.reportRecording,
+                    eventUsageLogic.actionTypes.reportRecording,
+                ])
         })
         it('send `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadEntireRecording()
             })
-                .toDispatchActions([
-                    'loadEntireRecording',
-                    'loadRecordingSnapshotsSuccess',
-                    eventUsageLogic.actionTypes.reportRecording,
-                    eventUsageLogic.actionTypes.reportRecording,
+                .toDispatchActions(['loadEntireRecording', 'loadRecordingSnapshotsSuccess'])
+                .toDispatchActionsInAnyOrder([
+                    eventUsageLogic.actionTypes.reportRecording, // loaded
+                    eventUsageLogic.actionTypes.reportRecording, // viewed
+                    eventUsageLogic.actionTypes.reportRecording, // analyzed
                 ])
                 .toMatchValues({
                     chunkPaginationIndex: 1,

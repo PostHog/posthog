@@ -2,6 +2,7 @@ import { useState } from 'react'
 import MonacoEditor from '@monaco-editor/react'
 import './JSONEditorInput.scss'
 import { JsonType } from '~/types'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 interface EditorProps {
     onChange?: (val: string | undefined) => void
@@ -9,10 +10,12 @@ interface EditorProps {
     defaultNumberOfLines?: number
     value?: JsonType
     readOnly?: boolean
+    placeholder?: string
 }
 
 export function JSONEditorInput({
     onChange,
+    placeholder,
     lineHeight = 20,
     defaultNumberOfLines = 1,
     value = '',
@@ -23,6 +26,7 @@ export function JSONEditorInput({
     const defaultLines = Math.max(defaultNumberOfLines, valString.split(/\r\n|\r|\n/).length) + 1
     const defaultHeight = _lineHeight * defaultLines
     const [height, setHeight] = useState(defaultHeight)
+    const [focused, setFocused] = useState(false)
 
     const updateHeight = (val: string | undefined): void => {
         if (val) {
@@ -34,8 +38,11 @@ export function JSONEditorInput({
         }
     }
 
+    const onFocus = (): void => setFocused(true)
+    const onBlur = (): void => setFocused(false)
+
     return (
-        <div className="JsonEditorInput">
+        <div className="JsonEditorInput" onFocus={onFocus} onBlur={onBlur}>
             <MonacoEditor
                 theme="vs-light"
                 className="border"
@@ -75,7 +82,13 @@ export function JSONEditorInput({
                     updateHeight(val)
                     onChange?.(val)
                 }}
+                loading={<Spinner />}
             />
+            {!focused && !value?.toString() && placeholder && (
+                <div className="placeholder">
+                    <div className="placeholderLabelContainer">{placeholder}</div>
+                </div>
+            )}
         </div>
     )
 }

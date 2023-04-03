@@ -26,6 +26,7 @@ const makeTextTile = (body: string, color: InsightColor | null = null): Dashboar
         layouts: {},
         color,
         last_refresh: null,
+        next_allowed_client_refresh: null,
     }
 }
 
@@ -35,7 +36,7 @@ export const Template: Story = () => {
             <div>
                 <h5>basic text</h5>
                 <TextCard
-                    className={'react-grid-item react-draggable cssTransforms react-resizable'}
+                    className={'react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-60'}
                     dashboardId={1}
                     textTile={makeTextTile('basic text')}
                 />
@@ -43,7 +44,7 @@ export const Template: Story = () => {
             <div>
                 <h5>markdown text</h5>
                 <TextCard
-                    className={'react-grid-item react-draggable cssTransforms react-resizable'}
+                    className={'react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-60'}
                     dashboardId={1}
                     textTile={makeTextTile('# a title \n\n **formatted** _text_')}
                 />
@@ -51,7 +52,7 @@ export const Template: Story = () => {
             <div>
                 <h5>Long text</h5>
                 <TextCard
-                    className={'react-grid-item react-draggable cssTransforms react-resizable'}
+                    className={'react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-60'}
                     style={{ height: '250px', width: '300px' }}
                     dashboardId={1}
                     textTile={makeTextTile(
@@ -62,7 +63,7 @@ export const Template: Story = () => {
             <div>
                 <h5>with resize handles</h5>
                 <TextCard
-                    className={'react-grid-item react-draggable cssTransforms react-resizable'}
+                    className={'react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-60'}
                     dashboardId={1}
                     showResizeHandles={true}
                     canResizeWidth={true}

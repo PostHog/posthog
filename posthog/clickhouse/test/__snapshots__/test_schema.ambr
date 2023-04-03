@@ -1125,7 +1125,9 @@
       -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
       -- for details.
       ENGINE = ReplicatedReplacingMergeTree(
-          '/clickhouse/tables/noshard/posthog_test.person_overrides',
+          -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
+          -- when the tests tear down and recreate the table.
+          '/clickhouse/tables/{uuid}noshard/posthog_test.person_overrides',
           '{replica}-{shard}',
           version
       )
@@ -1333,6 +1335,14 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_3` `$group_3` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
+  
   
       
   , _timestamp DateTime
@@ -1774,7 +1784,9 @@
       -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
       -- for details.
       ENGINE = ReplicatedReplacingMergeTree(
-          '/clickhouse/tables/noshard/posthog_test.person_overrides',
+          -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
+          -- when the tests tear down and recreate the table.
+          '/clickhouse/tables/{uuid}noshard/posthog_test.person_overrides',
           '{replica}-{shard}',
           version
       )
@@ -1899,6 +1911,14 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_3` `$group_3` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
+      , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
+  
   
       
   , _timestamp DateTime

@@ -125,11 +125,13 @@ SELECT
 """
 
 QUERY_APP_METRICS_DELIVERY_RATE = """
-SELECT plugin_config_id, (sum(successes) + sum(successes_on_retry)) / (sum(successes) + sum(successes_on_retry) + sum(failures)) AS rate
-FROM app_metrics
-WHERE team_id = %(team_id)s
-  AND timestamp > %(from_date)s
-GROUP BY plugin_config_id
+SELECT plugin_config_id, if(total > 0, success/total, 1) as rate FROM (
+    SELECT plugin_config_id, sum(successes) + sum(successes_on_retry) AS success, sum(successes) + sum(successes_on_retry) + sum(failures) AS total
+    FROM app_metrics
+    WHERE team_id = %(team_id)s
+        AND timestamp > %(from_date)s
+    GROUP BY plugin_config_id
+)
 """
 
 QUERY_APP_METRICS_TIME_SERIES = """
@@ -141,19 +143,6 @@ FROM (
         sum(successes_on_retry) AS successes_on_retry,
         sum(failures) AS failures
     FROM (
-        SELECT
-            dateTrunc(%(interval)s, toDateTime(%(date_from)s) + {interval_function}(number), %(timezone)s) AS date,
-            0 AS successes,
-            0 AS successes_on_retry,
-            0 AS failures
-        FROM numbers(
-            dateDiff(
-                %(interval)s,
-                dateTrunc(%(interval)s, toDateTime(%(date_from)s), %(timezone)s),
-                dateTrunc(%(interval)s, toDateTime(%(date_to)s) + {interval_function}(1), %(timezone)s)
-            )
-        )
-        UNION ALL
         SELECT
             dateTrunc(%(interval)s, timestamp, %(timezone)s) AS date,
             sum(successes) AS successes,
@@ -170,6 +159,10 @@ FROM (
     )
     GROUP BY date
     ORDER BY date
+    WITH FILL
+        FROM dateTrunc(%(interval)s, toDateTime(%(date_from)s), %(timezone)s)
+        TO dateTrunc(%(interval)s, toDateTime(%(date_to)s) + {interval_function}(1), %(timezone)s)
+        STEP %(with_fill_step)s
 )
 """
 

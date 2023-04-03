@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { EventElements } from 'scenes/events/EventElements'
+import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { Tabs } from 'antd'
 import { EventJSON } from 'scenes/events/EventJSON'
 import { EventType } from '../../types'
@@ -11,6 +11,10 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pluralize } from 'lib/utils'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import ReactJson from 'react-json-view'
+import { CommunicationDetails } from './CommunicationDetails'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const { TabPane } = Tabs
 
@@ -22,6 +26,7 @@ interface EventDetailsProps {
 }
 
 export function EventDetails({ event, tableProps, useReactJsonView }: EventDetailsProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const [showHiddenProps, setShowHiddenProps] = useState(false)
 
     const displayedEventProperties: Properties = {}
@@ -74,9 +79,17 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
                     )}
                 </div>
             </TabPane>
+            {!!featureFlags[FEATURE_FLAGS.ARUBUG] && event.uuid && (
+                <TabPane tab="Communication" key="communication">
+                    <div className="ml-10">
+                        <CommunicationDetails uuid={event.uuid} />
+                    </div>
+                </TabPane>
+            )}
+
             {event.elements && event.elements.length > 0 && (
                 <TabPane tab="Elements" key="elements">
-                    <EventElements event={event} />
+                    <HTMLElementsDisplay elements={event.elements} />
                 </TabPane>
             )}
         </Tabs>
