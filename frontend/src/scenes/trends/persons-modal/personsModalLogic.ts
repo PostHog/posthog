@@ -15,7 +15,6 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export interface PersonModalLogicProps {
     url: string
-    cacheInvalidationKey?: string
 }
 
 export interface ListActorsResponse {
@@ -43,7 +42,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal', 'reportPersonsModalViewed']],
     }),
 
-    loaders(({ values, actions, props }) => ({
+    loaders(({ values, actions }) => ({
         actorsResponse: [
             null as ListActorsResponse | null,
             {
@@ -52,10 +51,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                     if (values.searchTerm) {
                         url += `&search=${values.searchTerm}`
-                    }
-
-                    if (props.cacheInvalidationKey) {
-                        url += `&cache_invalidation_key=${props.cacheInvalidationKey}`
                     }
 
                     const res = await api.get(url)

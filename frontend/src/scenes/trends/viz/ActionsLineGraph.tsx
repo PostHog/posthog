@@ -17,8 +17,9 @@ export function ActionsLineGraph({
     context,
 }: ChartParams): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType, lastRefresh } =
-        useValues(trendsLogic(insightProps))
+    const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(
+        trendsLogic(insightProps)
+    )
     const compare = isTrendsFilter(filters) && !!filters.compare
     const formula = isTrendsFilter(filters) ? filters.formula : undefined
 
@@ -95,7 +96,6 @@ export function ActionsLineGraph({
                                   urls,
                                   urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
                                   title,
-                                  cacheInvalidationKey: lastRefresh,
                               })
                           }
                       }

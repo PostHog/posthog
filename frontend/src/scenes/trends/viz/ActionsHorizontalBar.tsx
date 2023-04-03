@@ -18,7 +18,7 @@ type DataSet = any
 export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
-    const { insightProps, insight, hiddenLegendKeys, lastRefresh } = useValues(insightLogic)
+    const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, labelGroupType } = useValues(logic)
 
@@ -100,7 +100,6 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
                                   urlsIndex: index,
                                   urls,
                                   title: <PropertyKeyInfo value={label || ''} disablePopover />,
-                                  cacheInvalidationKey: lastRefresh,
                               })
                           }
                       }

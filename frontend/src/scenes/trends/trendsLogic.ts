@@ -34,14 +34,7 @@ export const trendsLogic = kea<trendsLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            [
-                'filters as inflightFilters',
-                'insight',
-                'insightLoading',
-                'hiddenLegendKeys',
-                'localFilters',
-                'lastRefresh',
-            ],
+            ['filters as inflightFilters', 'insight', 'insightLoading', 'hiddenLegendKeys', 'localFilters'],
             groupsModel,
             ['aggregationLabel'],
         ],
@@ -107,7 +100,6 @@ export const trendsLogic = kea<trendsLogicType>([
             ({ filters, next }) => (isTrendsInsight(filters?.insight) ? next : null),
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
-        // lastRefresh: [(s) => [s.lastRefresh], (lastRefresh) => lastRefresh],
         numberOfSeries: [
             (selectors) => [selectors.filters],
             (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),

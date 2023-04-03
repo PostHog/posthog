@@ -24,7 +24,7 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { isInsightQueryNode } from '~/queries/utils'
 
 export function FunnelLineGraphDataExploration(props: Omit<ChartParams, 'filters'>): JSX.Element | null {
-    const { insightProps, lastRefresh } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const {
         steps,
         aggregationTargetLabel,
@@ -49,14 +49,13 @@ export function FunnelLineGraphDataExploration(props: Omit<ChartParams, 'filters
             funnelsFilter={funnelsFilter}
             insightData={insightData}
             filters={queryNodeToFilter(querySource)} // for persons modal
-            lastRefresh={lastRefresh}
             {...props}
         />
     )
 }
 
 export function FunnelLineGraph(props: Omit<ChartParams, 'filters'>): JSX.Element | null {
-    const { insightProps, insight, lastRefresh } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const { steps, aggregationTargetLabel, incompletenessOffsetFromEnd, filters } = useValues(funnelLogic(insightProps))
 
     return (
@@ -69,7 +68,6 @@ export function FunnelLineGraph(props: Omit<ChartParams, 'filters'>): JSX.Elemen
             funnelsFilter={filters}
             insightData={insight}
             filters={filters}
-            lastRefresh={lastRefresh}
             {...props}
         />
     )
@@ -84,7 +82,6 @@ type FunnelLineGraphComponentProps = Omit<ChartParams, 'filters'> & {
     funnelsFilter?: FunnelsFilter | null
     insightData?: Partial<InsightModel> | null
     filters: Partial<FunnelsFilterType>
-    lastRefresh: string
 }
 
 function FunnelLineGraphComponent({
@@ -97,7 +94,6 @@ function FunnelLineGraphComponent({
     aggregationGroupTypeIndex,
     insightData,
     filters,
-    lastRefresh,
 }: FunnelLineGraphComponentProps): JSX.Element | null {
     return (
         <LineGraph
@@ -154,7 +150,6 @@ function FunnelLineGraphComponent({
                                   title: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on ${dayjs(
                                       label
                                   ).format('MMMM Do YYYY')}`,
-                                  cacheInvalidationKey: lastRefresh,
                               })
                           }
                       }

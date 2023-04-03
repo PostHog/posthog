@@ -107,7 +107,7 @@ export const funnelLogic = kea<funnelLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters as inflightFilters', 'insight', 'isInDashboardContext', 'hiddenLegendKeys', 'lastRefresh'],
+            ['filters as inflightFilters', 'insight', 'isInDashboardContext', 'hiddenLegendKeys'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
@@ -1089,7 +1089,6 @@ export const funnelLogic = kea<funnelLogicType>({
                     seriesId: step.order,
                     order_type: values.filters.funnel_order_type,
                 }),
-                cacheInvalidationKey: values.lastRefresh,
             })
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
@@ -1108,7 +1107,6 @@ export const funnelLogic = kea<funnelLogicType>({
                     seriesId: step.order,
                     order_type: values.filters.funnel_order_type,
                 }),
-                cacheInvalidationKey: values.lastRefresh,
             })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
@@ -1126,7 +1124,6 @@ export const funnelLogic = kea<funnelLogicType>({
                         breakdown_value,
                         label: breakdown,
                     }),
-                    cacheInvalidationKey: values.lastRefresh,
                 })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(
@@ -1144,7 +1141,6 @@ export const funnelLogic = kea<funnelLogicType>({
                         step: values.steps.length,
                         label: name,
                     }),
-                    cacheInvalidationKey: values.lastRefresh,
                 })
 
                 eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {

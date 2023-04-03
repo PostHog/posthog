@@ -114,7 +114,6 @@ const WorldMapSVG = React.memo(
                 showTooltip,
                 hideTooltip,
                 updateTooltipCoordinates,
-                lastRefresh,
             },
             ref
         ) => {
@@ -167,7 +166,6 @@ const WorldMapSVG = React.memo(
                                                         : ''}
                                                 </>
                                             ),
-                                            cacheInvalidationKey: lastRefresh,
                                         })
                                     }
                                 }
@@ -181,7 +179,7 @@ const WorldMapSVG = React.memo(
 )
 
 export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element {
-    const { insightProps, lastRefresh } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const localLogic = worldMapLogic(insightProps)
     const { countryCodeToSeries, maxAggregatedValue } = useValues(localLogic)
     const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(localLogic)
@@ -197,7 +195,6 @@ export function WorldMap({ showPersonsModal = true }: ChartParams): JSX.Element 
             hideTooltip={hideTooltip}
             updateTooltipCoordinates={updateTooltipCoordinates}
             ref={svgRef}
-            lastRefresh={lastRefresh}
         />
     )
 }
