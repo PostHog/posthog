@@ -48,10 +48,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
         ],
-        allowQueryTab: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB],
-        ],
+        allowQueryTab: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL]],
         activeView: [
             (s) => [s.filters, s.query, s.userSelectedView],
             (filters, query, userSelectedView) => {
@@ -79,8 +76,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.allowQueryTab],
-            (allowQueryTab) => {
+            (s) => [s.allowQueryTab, s.activeView],
+            (allowQueryTab, activeView) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',
@@ -128,18 +125,23 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         dataAttr: 'insight-sql-tab',
                     })
 
-                    tabs.push({
-                        label: (
-                            <>
-                                JSON{' '}
-                                <LemonTag type="warning" className="uppercase ml-2">
-                                    Beta
-                                </LemonTag>
-                            </>
-                        ),
-                        type: InsightType.JSON,
-                        dataAttr: 'insight-json-tab',
-                    })
+                    if (activeView === InsightType.JSON) {
+                        // only display this tab when it is selected by the provided insight query
+                        // don't display it otherwise... humans shouldn't be able to click to select this tab
+                        // it only opens when you click the <OpenEditorButton/>
+                        tabs.push({
+                            label: (
+                                <>
+                                    Custom{' '}
+                                    <LemonTag type="warning" className="uppercase ml-2">
+                                        Beta
+                                    </LemonTag>
+                                </>
+                            ),
+                            type: InsightType.JSON,
+                            dataAttr: 'insight-json-tab',
+                        })
+                    }
                 }
 
                 return tabs

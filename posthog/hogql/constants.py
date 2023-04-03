@@ -1,4 +1,8 @@
 # HogQL -> ClickHouse allowed transformations
+from typing import Optional
+
+from pydantic import BaseModel, Extra
+
 CLICKHOUSE_FUNCTIONS = {
     # arithmetic
     "abs": "abs",
@@ -103,3 +107,11 @@ RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
 # Never return more rows than this in top level HogQL SELECT statements
 DEFAULT_RETURNED_ROWS = 100
 MAX_SELECT_RETURNED_ROWS = 65535
+
+# Settings applied on top of all HogQL queries.
+class HogQLSettings(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    readonly: Optional[int] = 1
+    max_execution_time: Optional[int] = 60

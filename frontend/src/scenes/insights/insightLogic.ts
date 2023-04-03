@@ -189,9 +189,7 @@ export const insightLogic = kea<insightLogicType>([
                 ),
             {
                 loadInsight: async ({ shortId }) => {
-                    const load_query_insight_query_params = !!values.featureFlags[
-                        FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB
-                    ]
+                    const load_query_insight_query_params = !!values.featureFlags[FEATURE_FLAGS.HOGQL]
                         ? '&include_query_insights=true'
                         : ''
                     const response = await api.get(
@@ -800,7 +798,7 @@ export const insightLogic = kea<insightLogicType>([
         isUsingDashboardQueries: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
+                return !!featureFlags[FEATURE_FLAGS.HOGQL]
             },
         ],
         insightRefreshButtonDisabledReason: [
