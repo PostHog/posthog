@@ -60,8 +60,8 @@ class TestPropertyTypes(BaseTest):
         )
         expected = (
             "SELECT toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', '')), "
-            "toDateTimeOrNull(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_1)s), '^\"|\"$', ''), 'UTC'), "
-            "replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_2)s), '^\"|\"$', '') "
+            "toDateTimeOrNull(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_1)s), '^\"|\"$', ''), %(hogql_val_2)s), "
+            "replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_3)s), '^\"|\"$', '') "
             f"FROM person WHERE equals(person.team_id, {self.team.pk}) LIMIT 65535"
         )
         self.assertEqual(printed, expected)

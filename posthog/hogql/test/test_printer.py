@@ -462,15 +462,37 @@ class TestPrinter(BaseTest):
         )
 
     def test_print_timezone(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
-            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events"),
-            f"SELECT now('UTC'), toDateTimeOrNull(toTimezone(events.timestamp, %(hogql_val_0)s), 'UTC'), toDateTimeOrNull(%(hogql_val_1)s, 'UTC') FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
+            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
+            f"SELECT now(%(hogql_val_0)s), toDateTimeOrNull(toTimezone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTimeOrNull(%(hogql_val_3)s, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
+        )
+        self.assertEqual(
+            context.values,
+            {
+                "hogql_val_0": "UTC",
+                "hogql_val_1": "UTC",
+                "hogql_val_2": "UTC",
+                "hogql_val_3": "2020-02-02",
+                "hogql_val_4": "UTC",
+            },
         )
 
     def test_print_timezone_custom(self):
         self.team.timezone = "Europe/Brussels"
         self.team.save()
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
-            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events"),
-            f"SELECT now('Europe/Brussels'), toDateTimeOrNull(toTimezone(events.timestamp, %(hogql_val_0)s), 'Europe/Brussels'), toDateTimeOrNull(%(hogql_val_1)s, 'Europe/Brussels') FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
+            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
+            f"SELECT now(%(hogql_val_0)s), toDateTimeOrNull(toTimezone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTimeOrNull(%(hogql_val_3)s, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
+        )
+        self.assertEqual(
+            context.values,
+            {
+                "hogql_val_0": "Europe/Brussels",
+                "hogql_val_1": "Europe/Brussels",
+                "hogql_val_2": "Europe/Brussels",
+                "hogql_val_3": "2020-02-02",
+                "hogql_val_4": "Europe/Brussels",
+            },
         )

@@ -348,13 +348,20 @@ class _Printer(Visitor):
             # :WATCH_OUT: isinstance(True, int) is True (!), so check for numbers lower down the chain
             return str(node.value)
         elif isinstance(node.value, datetime):
-            datetime_string_in_timezone = node.value.astimezone(pytz.timezone(self._get_timezone())).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-            return f"toDateTime({self._print_string(datetime_string_in_timezone)}, {self._print_string(self._get_timezone())})"
+            if self.dialect == "clickhouse":
+                # timezone handling done inside self._print_string
+                return self._print_string(node.value)
+            else:
+                # print a version of the function call without the timezone for hogql
+                datetime_string_in_timezone = node.value.astimezone(pytz.timezone(self._get_timezone())).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+                return f"toDateTime({self._print_string(datetime_string_in_timezone)})"
+
         elif isinstance(node.value, str) or isinstance(node.value, list):
             if self.dialect == "hogql":
-                return self._print_string(str(node.value))
+                # inline the string in hogql
+                return self._print_string(node.value)
             self.context.values[key] = node.value
             return f"%({key})s"
         elif node.value is None:
@@ -415,12 +422,12 @@ class _Printer(Visitor):
                 if node.name == "now" or node.name == "NOW":
                     if len(args) != 0:
                         raise ValueError(f"Function '{node.name}' expects no arguments.")
-                    args.append(self._print_string(self._get_timezone()))
+                    args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
                 if node.name == "toDateTime":
                     if len(args) != 1:
                         raise ValueError(f"Function '{node.name}' expects only one argument.")
-                    args.append(self._print_string(self._get_timezone()))
+                    args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
                 return f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join(args)})"
             else:
@@ -601,12 +608,8 @@ class _Printer(Visitor):
             return print_clickhouse_identifier(name)
         return print_hogql_identifier(name)
 
-    def _print_string(self, name: str | list | tuple) -> str:
-        if isinstance(name, list):
-            return "[%s]" % ", ".join(str(self._print_string(x)) for x in name)
-        elif isinstance(name, tuple):
-            return "(%s)" % ", ".join(str(self._print_string(x)) for x in name)
-        return print_clickhouse_string(name)
+    def _print_string(self, name: str | list | tuple | datetime) -> str:
+        return print_clickhouse_string(name, timezone=self._get_timezone())
 
     def _get_materialized_column(
         self, table_name: TablesWithMaterializedColumns, property_name: PropertyName, field_name: TableColumn
