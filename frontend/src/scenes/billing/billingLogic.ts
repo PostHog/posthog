@@ -8,7 +8,7 @@ import { urlToAction } from 'kea-router'
 import { forms } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '@posthog/lemon-ui'
-import { convertUsageToAmount, projectUsage } from './billing-utils'
+import { projectUsage } from './billing-utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -111,8 +111,8 @@ export const billingLogic = kea<billingLogicType>([
                     return 0
                 }
                 return billing.products.reduce((acc, product) => {
-                    if (product.projected_usage && product.tiers) {
-                        return acc + convertUsageToAmount(product.projected_usage, product.tiers)
+                    if (product.projected_amount_usd) {
+                        return acc + parseFloat(product.projected_amount_usd)
                     }
                     return acc
                 }, 0)
