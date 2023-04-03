@@ -1,16 +1,18 @@
-from typing import Literal, Tuple, Type
+from typing import Any, Literal, Tuple, Type, cast
 
 from django.db.models import Manager, Prefetch
-from rest_framework import mixins, permissions, serializers, viewsets
+from rest_framework import mixins, permissions, serializers, viewsets, request, status, response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import create_event_definitions_sql
 from posthog.constants import AvailableFeature, EventDefinitionType
+from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventDefinition, TaggedItem
+from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 from posthog.settings import EE_AVAILABLE
 
@@ -59,6 +61,7 @@ class EventDefinitionViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     serializer_class = EventDefinitionSerializer
@@ -154,3 +157,10 @@ class EventDefinitionViewSet(
 
             serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
         return serializer_class
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        # Casting, since an anonymous use CANNOT access this endpoint
+        report_user_action(cast(User, request.user), "event definition deleted", {"name": instance.name})
+        return response.Response(status=status.HTTP_204_NO_CONTENT)

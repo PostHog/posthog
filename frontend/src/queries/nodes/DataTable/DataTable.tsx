@@ -433,7 +433,10 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                     <InsightErrorState />
                                 )
                             ) : (
-                                <InsightEmptyState />
+                                <InsightEmptyState
+                                    heading={context?.emptyStateHeading}
+                                    detail={context?.emptyStateDetail}
+                                />
                             )
                         }
                         expandable={

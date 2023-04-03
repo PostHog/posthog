@@ -40,6 +40,7 @@ export function useFrameRef({
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     includeMeta?: boolean
     noBorder?: boolean
+    embedded?: boolean // hides unimportant meta information and no border
     nextSessionRecording?: Partial<SessionRecordingType>
 }
 
@@ -55,6 +56,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingId,
         sessionRecordingData,
         playerKey,
+        embedded = false,
         includeMeta = true,
         recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
         matching,
@@ -139,7 +141,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             ref={ref}
             className={clsx('SessionRecordingPlayer', {
                 'SessionRecordingPlayer--fullscreen': isFullScreen,
-                'SessionRecordingPlayer--no-border': noBorder,
+                'SessionRecordingPlayer--no-border': noBorder || embedded,
                 'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
             })}
         >

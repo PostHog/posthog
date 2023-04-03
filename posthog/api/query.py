@@ -27,9 +27,14 @@ from posthog.models.event.events_query import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import TeamRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode
 from posthog.utils import relative_date_parse
+
+
+class QueryThrottle(TeamRateThrottle):
+    scope = "query"
+    rate = "120/hour"
 
 
 def parse_as_date_or(date_string: str | None, default: datetime) -> datetime:
@@ -68,7 +73,7 @@ class QuerySchemaParser(JSONParser):
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    throttle_classes = [QueryThrottle]
 
     parser_classes = (QuerySchemaParser,)
 
@@ -181,7 +186,7 @@ def process_query(team: Team, query_json: Dict, is_hogql_enabled: bool) -> Dict:
             date_to=parse_as_date_or(recent_performance_query.dateRange.date_to, now()),
         )
 
-        return results
+        return {"results": results}
     elif query_kind == "TimeToSeeDataSessionsQuery":
         sessions_query_serializer = SessionsQuerySerializer(data=query_json)
         sessions_query_serializer.is_valid(raise_exception=True)
@@ -211,7 +216,7 @@ def _is_hogql_enabled(user: User, organization_id: str, organization_created_at:
 
     # on PostHog Cloud, use the feature flag
     return posthoganalytics.feature_enabled(
-        "hogql-queries",
+        "hogql",
         str(user.distinct_id),
         person_properties={"email": user.email},
         groups={"organization": organization_id},
