@@ -104,20 +104,6 @@ export const billingLogic = kea<billingLogicType>([
             (billing, billingLoading): BillingVersion | undefined =>
                 !billingLoading || billing ? (billing ? 'v2' : 'v1') : undefined,
         ],
-        totalPredictedSpend: [
-            (s) => [s.billing],
-            (billing: BillingV2Type): number => {
-                if (!billing) {
-                    return 0
-                }
-                return billing.products.reduce((acc, product) => {
-                    if (product.projected_amount_usd) {
-                        return acc + parseFloat(product.projected_amount_usd)
-                    }
-                    return acc
-                }, 0)
-            },
-        ],
         billingAlert: [
             (s) => [s.billing, s.preflight],
             (billing, preflight): BillingAlertConfig | undefined => {

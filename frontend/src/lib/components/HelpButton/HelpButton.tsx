@@ -15,7 +15,6 @@ import {
     IconMessages,
     IconFlare,
     IconTrendingUp,
-    IconSlack,
 } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react'
@@ -89,7 +88,7 @@ export function HelpButton({
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { toggleActivationSideBar } = useActions(navigationLogic)
-    const { totalPredictedSpend } = useValues(billingLogic)
+    const { billing } = useValues(billingLogic)
 
     return (
         <>
@@ -122,7 +121,7 @@ export function HelpButton({
                         >
                             Create an issue on GitHub
                         </LemonButton>
-                        {totalPredictedSpend > 1667 && (
+                        {billing?.has_active_subscription && (
                             <LemonButton
                                 icon={<IconMail />}
                                 status="stealth"
@@ -137,19 +136,6 @@ export function HelpButton({
                                 Send us an email
                             </LemonButton>
                         )}
-                        <LemonButton
-                            icon={<IconSlack color="currentColor" />}
-                            status="stealth"
-                            fullWidth
-                            onClick={() => {
-                                reportHelpButtonUsed(HelpType.Slack)
-                                hideHelp()
-                            }}
-                            to={'https://posthog.com/slack'}
-                            targetBlank
-                        >
-                            Join our Slack
-                        </LemonButton>
                         {!contactOnly && (
                             <LemonButton
                                 icon={<IconArticle />}
