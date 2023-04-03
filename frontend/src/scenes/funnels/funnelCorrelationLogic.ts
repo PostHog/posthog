@@ -39,7 +39,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
         // This is a hack to get `FunnelCorrelationResultsType` imported in `funnelCorrelationLogicType.ts`
         __ignore: null as FunnelCorrelationResultsType | null,
     }),
-    loaders({
+    loaders(({ values }) => ({
         correlations: [
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
@@ -68,7 +68,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                 },
             },
         ],
-    }),
+    })),
     reducers({
         shouldReportCorrelationViewed: [
             true as boolean,

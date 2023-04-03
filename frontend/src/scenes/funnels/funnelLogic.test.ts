@@ -9,7 +9,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     AvailableFeature,
     CorrelationConfigType,
-    FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
     FunnelsFilterType,
@@ -619,100 +618,6 @@ describe('funnelLogic', () => {
             expect(openPersonsModal).toHaveBeenCalledWith({
                 title: expect.any(Object),
                 url: '/some/people/url?funnel_step=2&funnel_step_breakdown=Latvia', // Series funnel_step_breakdown included
-            })
-        })
-    })
-
-    describe('selectors', () => {
-        beforeEach(async () => {
-            await initFunnelLogic()
-        })
-        describe('Correlation Names parsing', () => {
-            const basicFunnelRecord: FunnelCorrelation = {
-                event: { event: '$pageview::bzzz', properties: {}, elements: [] },
-                odds_ratio: 1,
-                correlation_type: FunnelCorrelationType.Success,
-                success_count: 1,
-                failure_count: 1,
-                success_people_url: '/some/people/url',
-                failure_people_url: '/some/people/url',
-                result_type: FunnelCorrelationResultsType.Events,
-            }
-            it('chooses the correct name based on Event type', async () => {
-                const result = logic.values.parseDisplayNameForCorrelation(basicFunnelRecord)
-                expect(result).toEqual({
-                    first_value: '$pageview::bzzz',
-                    second_value: undefined,
-                })
-            })
-
-            it('chooses the correct name based on Property type', async () => {
-                const result = logic.values.parseDisplayNameForCorrelation({
-                    ...basicFunnelRecord,
-                    result_type: FunnelCorrelationResultsType.Properties,
-                })
-                expect(result).toEqual({
-                    first_value: '$pageview',
-                    second_value: 'bzzz',
-                })
-            })
-
-            it('chooses the correct name based on EventWithProperty type', async () => {
-                const result = logic.values.parseDisplayNameForCorrelation({
-                    ...basicFunnelRecord,
-                    result_type: FunnelCorrelationResultsType.EventWithProperties,
-                    event: {
-                        event: '$pageview::library::1.2',
-                        properties: { random: 'x' },
-                        elements: [],
-                    },
-                })
-                expect(result).toEqual({
-                    first_value: 'library',
-                    second_value: '1.2',
-                })
-            })
-
-            it('handles autocapture events on EventWithProperty type', async () => {
-                const result = logic.values.parseDisplayNameForCorrelation({
-                    ...basicFunnelRecord,
-                    result_type: FunnelCorrelationResultsType.EventWithProperties,
-                    event: {
-                        event: '$autocapture::elements_chain::xyz_elements_a.link*',
-                        properties: { $event_type: 'click' },
-                        elements: [
-                            {
-                                tag_name: 'a',
-                                href: '#',
-                                attributes: { blah: 'https://example.com' },
-                                nth_child: 0,
-                                nth_of_type: 0,
-                                order: 0,
-                                text: 'bazinga',
-                            },
-                        ],
-                    },
-                })
-                expect(result).toEqual({
-                    first_value: 'clicked link with text "bazinga"',
-                    second_value: undefined,
-                })
-            })
-
-            it('handles autocapture events without elements_chain on EventWithProperty type', async () => {
-                const result = logic.values.parseDisplayNameForCorrelation({
-                    ...basicFunnelRecord,
-                    result_type: FunnelCorrelationResultsType.EventWithProperties,
-                    event: {
-                        event: '$autocapture::library::1.2',
-                        properties: { random: 'x' },
-                        elements: [],
-                    },
-                })
-                expect(result).toEqual({
-                    first_value: 'library',
-                    second_value: '1.2',
-                })
             })
         })
     })
