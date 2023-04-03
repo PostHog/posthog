@@ -59,6 +59,26 @@ export const loggerPlugin: () => KeaPlugin = () => ({
     },
 })
 
+export function addProjectIdToPathUnless(path: string): boolean {
+    return !!(
+        path.match(/^\/p\/\d+/) ||
+        path.match(/^\/me\//) ||
+        path.match(/^\/instance\//) ||
+        path.match(/^\/organization\//)
+    )
+}
+
+export function removeProjectIdIfPresent(path: string): string {
+    if (path.match(/^\/p\/\d+/)) {
+        return '/' + path.split('/').splice(3).join('/')
+    }
+    return path
+}
+
+export function addProjectId(path: string): string {
+    return `/p/${getCurrentTeamId()}/${path.startsWith('/') ? path.slice(1) : path}`
+}
+
 export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
     const plugins = [
         ...(beforePlugins || []),
@@ -73,18 +93,13 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                 segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
             },
             pathFromRoutesToWindow: (path) => {
-                return path.match(/^\/p\/\d+/)
-                    ? path
-                    : `/p/${getCurrentTeamId()}/${path.startsWith('/') ? path.slice(1) : path}`
+                return addProjectIdToPathUnless(path) ? removeProjectIdIfPresent(path) : addProjectId(path)
             },
             transformPathInActions: (path) => {
-                return path.match(/^\/p\/\d+/)
-                    ? path
-                    : `/p/${getCurrentTeamId()}/${path.startsWith('/') ? path.slice(1) : path}`
+                return addProjectIdToPathUnless(path) ? removeProjectIdIfPresent(path) : addProjectId(path)
             },
             pathFromWindowToRoutes: (path) => {
-                const newPath = path.replace(/^\/p\/\d+/, '')
-                return newPath === '' ? '/' : newPath
+                return removeProjectIdIfPresent(path)
             },
         }),
         formsPlugin,
