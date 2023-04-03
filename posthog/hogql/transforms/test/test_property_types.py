@@ -60,7 +60,7 @@ class TestPropertyTypes(BaseTest):
         )
         expected = (
             "SELECT toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', '')), "
-            "parseDateTimeBestEffort(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_1)s), '^\"|\"$', '')), "
+            "toDateTimeOrNull(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_1)s), '^\"|\"$', ''), 'UTC'), "
             "replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_2)s), '^\"|\"$', '') "
             f"FROM person WHERE equals(person.team_id, {self.team.pk}) LIMIT 65535"
         )

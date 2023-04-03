@@ -50,7 +50,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT count(), event FROM events WHERE equals(properties.random_uuid, %(hogql_val_0)s) GROUP BY event LIMIT 100",
+                f"SELECT count(), event FROM events WHERE equals(properties.random_uuid, '{random_uuid}') GROUP BY event LIMIT 100",
             )
             self.assertEqual(response.results, [(2, "random event")])
 
@@ -65,7 +65,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT count, event FROM (SELECT count() AS count, event FROM events WHERE equals(properties.random_uuid, %(hogql_val_0)s) GROUP BY event) GROUP BY count, event LIMIT 100",
+                f"SELECT count, event FROM (SELECT count() AS count, event FROM events WHERE equals(properties.random_uuid, '{random_uuid}') GROUP BY event) GROUP BY count, event LIMIT 100",
             )
             self.assertEqual(response.results, [(2, "random event")])
 
@@ -80,7 +80,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT count, event FROM (SELECT count(*) AS count, event FROM events WHERE equals(properties.random_uuid, %(hogql_val_0)s) GROUP BY event) AS c GROUP BY count, event LIMIT 100",
+                f"SELECT count, event FROM (SELECT count(*) AS count, event FROM events WHERE equals(properties.random_uuid, '{random_uuid}') GROUP BY event) AS c GROUP BY count, event LIMIT 100",
             )
             self.assertEqual(response.results, [(2, "random event")])
 
@@ -95,7 +95,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT DISTINCT properties.sneaky_mail FROM persons WHERE equals(properties.random_uuid, %(hogql_val_0)s) LIMIT 100",
+                f"SELECT DISTINCT properties.sneaky_mail FROM persons WHERE equals(properties.random_uuid, '{random_uuid}') LIMIT 100",
             )
             self.assertEqual(response.results, [("tim@posthog.com",)])
 

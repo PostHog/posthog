@@ -460,3 +460,17 @@ class TestPrinter(BaseTest):
             self._select("SELECT countIf(distinct event, event like '%a%') FROM events"),
             f"SELECT countIf(DISTINCT events.event, like(events.event, %(hogql_val_0)s)) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
         )
+
+    def test_print_timezone(self):
+        self.assertEqual(
+            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events"),
+            f"SELECT now('UTC'), toDateTimeOrNull(events.timestamp, 'UTC'), toDateTimeOrNull(%(hogql_val_0)s, 'UTC') FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
+        )
+
+    def test_print_timezone_custom(self):
+        self.team.timezone = "Europe/Brussels"
+        self.team.save()
+        self.assertEqual(
+            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events"),
+            f"SELECT now('Europe/Brussels'), toDateTimeOrNull(events.timestamp, 'Europe/Brussels'), toDateTimeOrNull(%(hogql_val_0)s, 'Europe/Brussels') FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
+        )

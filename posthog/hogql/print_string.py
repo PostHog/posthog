@@ -1,7 +1,7 @@
 import re
 
-# Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
-backquote_escape_chars_map = {
+# Copied from clickhouse_driver.util.escape, adapted only from single quotes to backquotes.
+escape_chars_map = {
     "\b": "\\b",
     "\f": "\\f",
     "\r": "\\r",
@@ -11,6 +11,10 @@ backquote_escape_chars_map = {
     "\a": "\\a",
     "\v": "\\v",
     "\\": "\\\\",
+}
+string_escape_chars_map = {**escape_chars_map, "'": "\\'"}
+backquote_escape_chars_map = {
+    **escape_chars_map,
     "`": "\\`",
 }
 
@@ -30,3 +34,8 @@ def print_clickhouse_identifier(identifier: str) -> str:
         return identifier
 
     return "`%s`" % "".join(backquote_escape_chars_map.get(c, c) for c in identifier)
+
+
+# Copied from clickhouse_driver.util.escape_param, removed timezone passing
+def print_clickhouse_string(identifier: str | list) -> str:
+    return "'%s'" % "".join(string_escape_chars_map.get(c, c) for c in identifier)

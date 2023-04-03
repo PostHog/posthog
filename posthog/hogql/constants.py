@@ -13,7 +13,7 @@ CLICKHOUSE_FUNCTIONS = {
     "toFloat": "toFloat64OrNull",
     "toDecimal": "toDecimal64OrNull",
     "toDate": "toDateOrNull",
-    "toDateTime": "parseDateTimeBestEffort",
+    "toDateTime": "toDateTimeOrNull",
     "toIntervalSecond": "toIntervalSecond",
     "toIntervalMinute": "toIntervalMinute",
     "toIntervalHour": "toIntervalHour",
