@@ -7,7 +7,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { funnelLogicType } from './funnelLogicType'
 import {
     AnyPropertyFilter,
-    AvailableFeature,
     BinCountValue,
     CorrelationConfigType,
     ElementPropertyFilter,
@@ -59,7 +58,6 @@ import { isFunnelsFilter, keyForInsightLogicProps } from 'scenes/insights/shared
 import { teamLogic } from '../teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { userLogic } from 'scenes/userLogic'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel, Noun } from '~/models/groupsModel'
@@ -112,8 +110,6 @@ export const funnelLogic = kea<funnelLogicType>({
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,
             ['personProperties'],
-            userLogic,
-            ['hasAvailableFeature'],
             groupsModel,
             ['aggregationLabel'],
             groupPropertiesModel,
@@ -917,10 +913,6 @@ export const funnelLogic = kea<funnelLogicType>({
                     .map((property) => property.name)
                     .filter((property) => !excludedPersonProperties.includes(property))
             },
-        ],
-        correlationAnalysisAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
         ],
         allProperties: [
             (s) => [s.inversePropertyNames, s.excludedPropertyNames],

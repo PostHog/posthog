@@ -69,9 +69,6 @@ export function InsightContainer({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    // const {
-    //     // correlationAnalysisAvailable
-    // } = useValues(funnelLogic(insightProps))
     const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
         funnelDataLogic(insightProps)
     )
@@ -243,7 +240,7 @@ export function InsightContainer({
                 </div>
             </Card>
             {renderTable()}
-            {/* {!disableCorrelationTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
+            {/* {!disableCorrelationTable && activeView === InsightType.FUNNELS && (
                 <FunnelCorrelation />
             )} */}
         </>
