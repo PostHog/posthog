@@ -11,7 +11,7 @@ import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { AutomationsTabs } from '~/types'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { AppMetricsGraph } from 'scenes/apps/AppMetricsGraph'
+// import { AppMetricsGraph } from 'scenes/apps/AppMetricsGraph'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
 export function Automations(): JSX.Element {
@@ -155,14 +155,14 @@ export function Automations(): JSX.Element {
                     />
                 </div> */}
             </div>
-            <div className="mb-4">
+            {/* <div className="mb-4">
                 <h2>Automation trends</h2>
                 <AppMetricsGraph
                 // tab={tab}
                 // metrics={appMetricsResponse?.metrics}
                 // metricsLoading={appMetricsResponseLoading}
                 />
-            </div>
+            </div> */}
 
             <LemonTable
                 dataSource={filteredAutomations}

@@ -29,7 +29,7 @@ export const edgesToFlowEdges = (edges: AutomationEdge[]): Edge[] => {
     }))
 }
 
-export const addPlaceholderFlowSteps = (flowSteps: Node[]) => {
+export const addPlaceholderFlowSteps = (flowSteps: Node[]): Node[] => {
     // TODO: add placeholder steps for all branches
     if (!flowSteps.length || flowSteps[flowSteps.length - 1].data.label !== AutomationStepKind.WebhookDestination) {
         return [
@@ -46,7 +46,7 @@ export const addPlaceholderFlowSteps = (flowSteps: Node[]) => {
     return flowSteps
 }
 
-export const addPlaceholderFlowEdges = (flowEdges: Edge[], flowSteps: Node[]) => {
+export const addPlaceholderFlowEdges = (flowEdges: Edge[], flowSteps: Node[]): Edge[] => {
     // TODO: add placeholder steps for all branches
     if (flowSteps.length > 1) {
         return [
