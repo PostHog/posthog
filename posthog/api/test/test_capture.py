@@ -1,6 +1,7 @@
 import base64
 import gzip
 import json
+import pathlib
 import random
 import string
 import zlib
@@ -8,7 +9,7 @@ from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from datetime import timezone as tz
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, cast
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
@@ -26,12 +27,14 @@ from freezegun import freeze_time
 from kafka.errors import KafkaError
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
+from prance import ResolvingParser
 from rest_framework import status
 from token_bucket import Limiter, MemoryStorage
 
 from posthog.api import capture
 from posthog.api.capture import get_distinct_id, is_randomly_partitioned
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
+from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -55,9 +58,13 @@ def mocked_get_ingest_context_from_token(_: Any) -> None:
     raise Exception("test exception")
 
 
+parser = ResolvingParser(url=str(pathlib.Path(__file__).parent / "../../../openapi/capture.yaml"), strict=True)
+openapi_spec = cast(Dict[str, Any], parser.specification)
+
+
 class TestCapture(BaseTest):
     """
-    Tests all data capture endpoints (e.g. `/capture` `/track`).
+    Tests all data capture endpoints (e.g. `/capture` `/batch/`).
     We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
     """
 
@@ -182,6 +189,7 @@ class TestCapture(BaseTest):
         }
         with self.assertNumQueries(1):
             response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         self.assertDictContainsSubset(
             {
@@ -479,8 +487,8 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_multiple_events(self, kafka_produce):
-        self.client.post(
-            "/track/",
+        response = self.client.post(
+            "/batch/",
             data={
                 "data": json.dumps(
                     [
@@ -491,7 +499,10 @@ class TestCapture(BaseTest):
                 "api_key": self.team.api_token,
             },
         )
+
         self.assertEqual(kafka_produce.call_count, 2)
+
+        validate_response(openapi_spec, response)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_emojis_in_text(self, kafka_produce):
@@ -499,8 +510,8 @@ class TestCapture(BaseTest):
         self.team.save()
 
         # Make sure the endpoint works with and without the trailing slash
-        self.client.post(
-            "/track",
+        response = self.client.post(
+            "/batch/",
             data={
                 "data": "eyJldmVudCI6ICIkd2ViX2V2ZW50IiwicHJvcGVydGllcyI6IHsiJG9zIjogIk1hYyBPUyBYIiwiJGJyb3dzZXIiOiAiQ2hyb21lIiwiJHJlZmVycmVyIjogImh0dHBzOi8vYXBwLmhpYmVybHkuY29tL2xvZ2luP25leHQ9LyIsIiRyZWZlcnJpbmdfZG9tYWluIjogImFwcC5oaWJlcmx5LmNvbSIsIiRjdXJyZW50X3VybCI6ICJodHRwczovL2FwcC5oaWJlcmx5LmNvbS8iLCIkYnJvd3Nlcl92ZXJzaW9uIjogNzksIiRzY3JlZW5faGVpZ2h0IjogMjE2MCwiJHNjcmVlbl93aWR0aCI6IDM4NDAsInBoX2xpYiI6ICJ3ZWIiLCIkbGliX3ZlcnNpb24iOiAiMi4zMy4xIiwiJGluc2VydF9pZCI6ICJnNGFoZXFtejVrY3AwZ2QyIiwidGltZSI6IDE1ODA0MTAzNjguMjY1LCJkaXN0aW5jdF9pZCI6IDYzLCIkZGV2aWNlX2lkIjogIjE2ZmQ1MmRkMDQ1NTMyLTA1YmNhOTRkOWI3OWFiLTM5NjM3YzBlLTFhZWFhMC0xNmZkNTJkZDA0NjQxZCIsIiRpbml0aWFsX3JlZmVycmVyIjogIiRkaXJlY3QiLCIkaW5pdGlhbF9yZWZlcnJpbmdfZG9tYWluIjogIiRkaXJlY3QiLCIkdXNlcl9pZCI6IDYzLCIkZXZlbnRfdHlwZSI6ICJjbGljayIsIiRjZV92ZXJzaW9uIjogMSwiJGhvc3QiOiAiYXBwLmhpYmVybHkuY29tIiwiJHBhdGhuYW1lIjogIi8iLCIkZWxlbWVudHMiOiBbCiAgICB7InRhZ19uYW1lIjogImJ1dHRvbiIsIiRlbF90ZXh0IjogIu2gve2yuyBXcml0aW5nIGNvZGUiLCJjbGFzc2VzIjogWwogICAgImJ0biIsCiAgICAiYnRuLXNlY29uZGFyeSIKXSwiYXR0cl9fY2xhc3MiOiAiYnRuIGJ0bi1zZWNvbmRhcnkiLCJhdHRyX19zdHlsZSI6ICJjdXJzb3I6IHBvaW50ZXI7IG1hcmdpbi1yaWdodDogOHB4OyBtYXJnaW4tYm90dG9tOiAxcmVtOyIsIm50aF9jaGlsZCI6IDIsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsImNsYXNzZXMiOiBbCiAgICAiZmVlZGJhY2stc3RlcCIsCiAgICAiZmVlZGJhY2stc3RlcC1zZWxlY3RlZCIKXSwiYXR0cl9fY2xhc3MiOiAiZmVlZGJhY2stc3RlcCBmZWVkYmFjay1zdGVwLXNlbGVjdGVkIiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJnaXZlLWZlZWRiYWNrIgpdLCJhdHRyX19jbGFzcyI6ICJnaXZlLWZlZWRiYWNrIiwiYXR0cl9fc3R5bGUiOiAid2lkdGg6IDkwJTsgbWFyZ2luOiAwcHggYXV0bzsgZm9udC1zaXplOiAxNXB4OyBwb3NpdGlvbjogcmVsYXRpdmU7IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiYXR0cl9fc3R5bGUiOiAib3ZlcmZsb3c6IGhpZGRlbjsiLCJudGhfY2hpbGQiOiAxLCJudGhfb2ZfdHlwZSI6IDF9LAogICAgeyJ0YWdfbmFtZSI6ICJkaXYiLCJjbGFzc2VzIjogWwogICAgIm1vZGFsLWJvZHkiCl0sImF0dHJfX2NsYXNzIjogIm1vZGFsLWJvZHkiLCJhdHRyX19zdHlsZSI6ICJmb250LXNpemU6IDE1cHg7IiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAyfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJtb2RhbC1jb250ZW50IgpdLCJhdHRyX19jbGFzcyI6ICJtb2RhbC1jb250ZW50IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJtb2RhbC1kaWFsb2ciLAogICAgIm1vZGFsLWxnIgpdLCJhdHRyX19jbGFzcyI6ICJtb2RhbC1kaWFsb2cgbW9kYWwtbGciLCJhdHRyX19yb2xlIjogImRvY3VtZW50IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJtb2RhbCIsCiAgICAiZmFkZSIsCiAgICAic2hvdyIKXSwiYXR0cl9fY2xhc3MiOiAibW9kYWwgZmFkZSBzaG93IiwiYXR0cl9fc3R5bGUiOiAiZGlzcGxheTogYmxvY2s7IiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAyfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJrLXBvcnRsZXRfX2JvZHkiLAogICAgIiIKXSwiYXR0cl9fY2xhc3MiOiAiay1wb3J0bGV0X19ib2R5ICIsImF0dHJfX3N0eWxlIjogInBhZGRpbmc6IDBweDsiLCJudGhfY2hpbGQiOiAyLCJudGhfb2ZfdHlwZSI6IDJ9LAogICAgeyJ0YWdfbmFtZSI6ICJkaXYiLCJjbGFzc2VzIjogWwogICAgImstcG9ydGxldCIsCiAgICAiay1wb3J0bGV0LS1oZWlnaHQtZmx1aWQiCl0sImF0dHJfX2NsYXNzIjogImstcG9ydGxldCBrLXBvcnRsZXQtLWhlaWdodC1mbHVpZCIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsImNsYXNzZXMiOiBbCiAgICAiY29sLWxnLTYiCl0sImF0dHJfX2NsYXNzIjogImNvbC1sZy02IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJyb3ciCl0sImF0dHJfX2NsYXNzIjogInJvdyIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsImF0dHJfX3N0eWxlIjogInBhZGRpbmc6IDQwcHggMzBweCAwcHg7IGJhY2tncm91bmQtY29sb3I6IHJnYigyMzksIDIzOSwgMjQ1KTsgbWFyZ2luLXRvcDogLTQwcHg7IG1pbi1oZWlnaHQ6IGNhbGMoMTAwdmggLSA0MHB4KTsiLCJudGhfY2hpbGQiOiAyLCJudGhfb2ZfdHlwZSI6IDJ9LAogICAgeyJ0YWdfbmFtZSI6ICJkaXYiLCJhdHRyX19zdHlsZSI6ICJtYXJnaW4tdG9wOiAwcHg7IiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAyfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJBcHAiCl0sImF0dHJfX2NsYXNzIjogIkFwcCIsImF0dHJfX3N0eWxlIjogImNvbG9yOiByZ2IoNTIsIDYxLCA2Mik7IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiYXR0cl9faWQiOiAicm9vdCIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImJvZHkiLCJudGhfY2hpbGQiOiAyLCJudGhfb2ZfdHlwZSI6IDF9Cl0sInRva2VuIjogInhwOXFUMlZMWTc2SkpnIn19"
             },
@@ -508,13 +519,15 @@ class TestCapture(BaseTest):
         properties = json.loads(kafka_produce.call_args[1]["data"]["data"])["properties"]
         self.assertEqual(properties["$elements"][0]["$el_text"], "💻 Writing code")
 
+        validate_response(openapi_spec, response)
+
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_js_gzip(self, kafka_produce):
         self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
         self.team.save()
 
-        self.client.post(
-            "/track?compression=gzip-js",
+        response = self.client.post(
+            "/batch/?compression=gzip-js",
             data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\xadRKn\xdb0\x10\xbdJ@xi\xd9CY\xd6o[\xf7\xb3\xe8gS4\x8b\xa2\x10(r$\x11\xa6I\x81\xa2\xe4\x18A.\xd1\x0b\xf4 \xbdT\x8f\xd0a\x93&mQt\xd5\x15\xc9\xf7\xde\xbc\x19\xf0\xcd-\xc3\x05m`5;]\x92\xfb\xeb\x9a\x8d\xde\x8d\xe8\x83\xc6\x89\xd5\xb7l\xe5\xe8`\xaf\xb5\x9do\x88[\xb5\xde\x9d'\xf4\x04=\x1b\xbc;a\xc4\xe4\xec=\x956\xb37\x84\x0f!\x8c\xf5vk\x9c\x14fpS\xa8K\x00\xbeUNNQ\x1b\x11\x12\xfd\xceFb\x14a\xb0\x82\x0ck\xf6(~h\xd6,\xe8'\xed,\xab\xcb\x82\xd0IzD\xdb\x0c\xa8\xfb\x81\xbc8\x94\xf0\x84\x9e\xb5\n\x03\x81U\x1aA\xa3[\xf2;c\x1b\xdd\xe8\xf1\xe4\xc4\xf8\xa6\xd8\xec\x92\x16\x83\xd8T\x91\xd5\x96:\x85F+\xe2\xaa\xb44Gq\xe1\xb2\x0cp\x03\xbb\x1f\xf3\x05\x1dg\xe39\x14Y\x9a\xf3|\xb7\xe1\xb0[3\xa5\xa7\xa0\xad|\xa8\xe3E\x9e\xa5P\x89\xa2\xecv\xb2H k1\xcf\xabR\x08\x95\xa7\xfb\x84C\n\xbc\x856\xe1\x9d\xc8\x00\x92Gu\x05y\x0e\xb1\x87\xc2EK\xfc?^\xda\xea\xa0\x85i<vH\xf1\xc4\xc4VJ{\x941\xe2?Xm\xfbF\xb9\x93\xd0\xf1c~Q\xfd\xbd\xf6\xdf5B\x06\xbd`\xd3\xa1\x08\xb3\xa7\xd3\x88\x9e\x16\xe8#\x1b)\xec\xc1\xf5\x89\xf7\x14G2\x1aq!\xdf5\xebfc\x92Q\xf4\xf8\x13\xfat\xbf\x80d\xfa\xed\xcb\xe7\xafW\xd7\x9e\x06\xb5\xfd\x95t*\xeeZpG\x8c\r\xbd}n\xcfo\x97\xd3\xabqx?\xef\xfd\x8b\x97Y\x7f}8LY\x15\x00>\x1c\xf7\x10\x0e\xef\xf0\xa0P\xbdi3vw\xf7\x1d\xccN\xdf\x13\xe7\x02\x00\x00",
             content_type="text/plain",
         )
@@ -524,6 +537,8 @@ class TestCapture(BaseTest):
         data = json.loads(kafka_produce.call_args[1]["data"]["data"])
         self.assertEqual(data["event"], "my-event")
         self.assertEqual(data["properties"]["prop"], "💻 Writing code")
+
+        validate_response(openapi_spec, response)
 
     @patch("gzip.decompress")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -542,7 +557,7 @@ class TestCapture(BaseTest):
         gzip_decompress.side_effect = zlib.error("Error -3 while decompressing data: invalid distance too far back")
 
         response = self.client.post(
-            "/track?compression=gzip-js",
+            "/batch/?compression=gzip-js",
             # NOTE: this is actually valid, but we are mocking the gzip lib to raise
             data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\xadRKn\xdb0\x10\xbdJ@xi\xd9CY\xd6o[\xf7\xb3\xe8gS4\x8b\xa2\x10(r$\x11\xa6I\x81\xa2\xe4\x18A.\xd1\x0b\xf4 \xbdT\x8f\xd0a\x93&mQt\xd5\x15\xc9\xf7\xde\xbc\x19\xf0\xcd-\xc3\x05m`5;]\x92\xfb\xeb\x9a\x8d\xde\x8d\xe8\x83\xc6\x89\xd5\xb7l\xe5\xe8`\xaf\xb5\x9do\x88[\xb5\xde\x9d'\xf4\x04=\x1b\xbc;a\xc4\xe4\xec=\x956\xb37\x84\x0f!\x8c\xf5vk\x9c\x14fpS\xa8K\x00\xbeUNNQ\x1b\x11\x12\xfd\xceFb\x14a\xb0\x82\x0ck\xf6(~h\xd6,\xe8'\xed,\xab\xcb\x82\xd0IzD\xdb\x0c\xa8\xfb\x81\xbc8\x94\xf0\x84\x9e\xb5\n\x03\x81U\x1aA\xa3[\xf2;c\x1b\xdd\xe8\xf1\xe4\xc4\xf8\xa6\xd8\xec\x92\x16\x83\xd8T\x91\xd5\x96:\x85F+\xe2\xaa\xb44Gq\xe1\xb2\x0cp\x03\xbb\x1f\xf3\x05\x1dg\xe39\x14Y\x9a\xf3|\xb7\xe1\xb0[3\xa5\xa7\xa0\xad|\xa8\xe3E\x9e\xa5P\x89\xa2\xecv\xb2H k1\xcf\xabR\x08\x95\xa7\xfb\x84C\n\xbc\x856\xe1\x9d\xc8\x00\x92Gu\x05y\x0e\xb1\x87\xc2EK\xfc?^\xda\xea\xa0\x85i<vH\xf1\xc4\xc4VJ{\x941\xe2?Xm\xfbF\xb9\x93\xd0\xf1c~Q\xfd\xbd\xf6\xdf5B\x06\xbd`\xd3\xa1\x08\xb3\xa7\xd3\x88\x9e\x16\xe8#\x1b)\xec\xc1\xf5\x89\xf7\x14G2\x1aq!\xdf5\xebfc\x92Q\xf4\xf8\x13\xfat\xbf\x80d\xfa\xed\xcb\xe7\xafW\xd7\x9e\x06\xb5\xfd\x95t*\xeeZpG\x8c\r\xbd}n\xcfo\x97\xd3\xabqx?\xef\xfd\x8b\x97Y\x7f}8LY\x15\x00>\x1c\xf7\x10\x0e\xef\xf0\xa0P\xbdi3vw\xf7\x1d\xccN\xdf\x13\xe7\x02\x00\x00",
             content_type="text/plain",
@@ -558,6 +573,8 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(kafka_produce.call_count, 0)
 
+        validate_response(openapi_spec, response)
+
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_js_gzip_with_no_content_type(self, kafka_produce):
         "IE11 sometimes does not send content_type"
@@ -566,7 +583,7 @@ class TestCapture(BaseTest):
         self.team.save()
 
         self.client.post(
-            "/track?compression=gzip-js",
+            "/batch/?compression=gzip-js",
             data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\xadRKn\xdb0\x10\xbdJ@xi\xd9CY\xd6o[\xf7\xb3\xe8gS4\x8b\xa2\x10(r$\x11\xa6I\x81\xa2\xe4\x18A.\xd1\x0b\xf4 \xbdT\x8f\xd0a\x93&mQt\xd5\x15\xc9\xf7\xde\xbc\x19\xf0\xcd-\xc3\x05m`5;]\x92\xfb\xeb\x9a\x8d\xde\x8d\xe8\x83\xc6\x89\xd5\xb7l\xe5\xe8`\xaf\xb5\x9do\x88[\xb5\xde\x9d'\xf4\x04=\x1b\xbc;a\xc4\xe4\xec=\x956\xb37\x84\x0f!\x8c\xf5vk\x9c\x14fpS\xa8K\x00\xbeUNNQ\x1b\x11\x12\xfd\xceFb\x14a\xb0\x82\x0ck\xf6(~h\xd6,\xe8'\xed,\xab\xcb\x82\xd0IzD\xdb\x0c\xa8\xfb\x81\xbc8\x94\xf0\x84\x9e\xb5\n\x03\x81U\x1aA\xa3[\xf2;c\x1b\xdd\xe8\xf1\xe4\xc4\xf8\xa6\xd8\xec\x92\x16\x83\xd8T\x91\xd5\x96:\x85F+\xe2\xaa\xb44Gq\xe1\xb2\x0cp\x03\xbb\x1f\xf3\x05\x1dg\xe39\x14Y\x9a\xf3|\xb7\xe1\xb0[3\xa5\xa7\xa0\xad|\xa8\xe3E\x9e\xa5P\x89\xa2\xecv\xb2H k1\xcf\xabR\x08\x95\xa7\xfb\x84C\n\xbc\x856\xe1\x9d\xc8\x00\x92Gu\x05y\x0e\xb1\x87\xc2EK\xfc?^\xda\xea\xa0\x85i<vH\xf1\xc4\xc4VJ{\x941\xe2?Xm\xfbF\xb9\x93\xd0\xf1c~Q\xfd\xbd\xf6\xdf5B\x06\xbd`\xd3\xa1\x08\xb3\xa7\xd3\x88\x9e\x16\xe8#\x1b)\xec\xc1\xf5\x89\xf7\x14G2\x1aq!\xdf5\xebfc\x92Q\xf4\xf8\x13\xfat\xbf\x80d\xfa\xed\xcb\xe7\xafW\xd7\x9e\x06\xb5\xfd\x95t*\xeeZpG\x8c\r\xbd}n\xcfo\x97\xd3\xabqx?\xef\xfd\x8b\x97Y\x7f}8LY\x15\x00>\x1c\xf7\x10\x0e\xef\xf0\xa0P\xbdi3vw\xf7\x1d\xccN\xdf\x13\xe7\x02\x00\x00",
             content_type="",
         )
@@ -682,6 +699,8 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(kafka_produce.call_count, 0)
 
+        validate_response(openapi_spec, response)
+
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch_with_dumped_json_data(self, kafka_produce):
         """Test batch rejects payloads that contained JSON dumped data.
@@ -714,6 +733,8 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(kafka_produce.call_count, 0)
 
+        validate_response(openapi_spec, response)
+
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch_gzip_header(self, kafka_produce):
         data = {
@@ -721,7 +742,7 @@ class TestCapture(BaseTest):
             "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
         }
 
-        self.client.generic(
+        response = self.client.generic(
             "POST",
             "/batch/",
             data=gzip.compress(json.dumps(data).encode()),
@@ -743,6 +764,8 @@ class TestCapture(BaseTest):
                 "team_id": self.team.pk,
             },
         )
+
+        validate_response(openapi_spec, response)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch_gzip_param(self, kafka_produce):
@@ -780,9 +803,9 @@ class TestCapture(BaseTest):
             "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
         }
 
-        self.client.generic(
+        response = self.client.generic(
             "POST",
-            "/batch",
+            "/batch/",
             data=lzstring.LZString().compressToBase64(json.dumps(data)).encode(),
             content_type="application/json",
             HTTP_CONTENT_ENCODING="lz64",
@@ -803,12 +826,14 @@ class TestCapture(BaseTest):
             },
         )
 
+        validate_response(openapi_spec, response)
+
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_lz64_with_emoji(self, kafka_produce):
         self.team.api_token = "KZZZeIpycLH-tKobLBET2NOg7wgJF2KqDL5yWU_7tZw"
         self.team.save()
         response = self.client.post(
-            "/batch",
+            "/batch/",
             data="NoKABBYN4EQKYDc4DsAuMBcYaD4NwyLswA0MADgE4D2JcZqAlnAM6bQwAkFzWMAsgIYBjMAHkAymAAaRdgCNKAd0Y0WMAMIALSgFs40tgICuZMilQB9IwBsV61KhIYA9I4CMAJgDsAOgAMvry4YABw+oY4AJnBaFHrqnOjc7t5+foEhoXokfKjqyHw6KhFRMcRschSKNGZIZIx0FMgsQQBspYwCJihm6nB0AOa2LC4+AKw+bR1wXfJ04TlDzSGllnQyKvJwa8ur1TR1DSou/j56dMhKtGaz6wBeAJ4GQagALPJ8buo3I8iLevQFWBczVGIxGAGYPABONxeMGQlzEcJ0Rj0ZACczXbg3OCQgBCyFxAlxAE1iQBBADSAC0ANYAVT4NIAKmDRC4eAA5AwAMUYABkAJIAcQMPCouOeZCCAFotAA1cLNeR6SIIOgCOBXcKHDwjSFBNyQnzA95BZ7SnxuAQjFwuABmYKCAg8bh8MqBYLgzRcIzc0pcfDgfD4Pn9uv1huNPhkwxGegMFy1KmxeIJRNJlNpDOZrPZXN5gpFYpIEqlsoVStOyDo9D4ljMJjtNBMZBsdgcziSxwCwVCPkclgofTOAH5kHAAB6oAC8jirNbodYbcCbxjOfTM4QoWj4Z0Onm7aT70hI8TiG5q+0aiQCzV80nUfEYZkYlkENLMGxkcQoNJYdrrJRSkEegkDMJtsiMTU7TfPouDAUBIGwED6nOaUDAnaVXWGdwYBAABdYhUF/FAVGpKkqTgAUSDuAQ+QACWlVAKQoGQ+VxABRJk3A5YQ+g8eQ+gAKW5NwKQARwAET5EY7gAdTpMwPFQKllQAX2ICg7TtJQEjAMFQmeNSCKAA==",
             content_type="application/json",
             HTTP_CONTENT_ENCODING="lz64",
@@ -816,6 +841,8 @@ class TestCapture(BaseTest):
         self.assertEqual(response.status_code, 200)
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["data"]["event"], "🤓")
+
+        validate_response(openapi_spec, response)
 
     def test_batch_incorrect_token(self):
         response = self.client.post(
@@ -835,6 +862,8 @@ class TestCapture(BaseTest):
                 code="invalid_api_key",
             ),
         )
+
+        validate_response(openapi_spec, response)
 
     @override_settings(LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL=True)
     def test_batch_incorrect_token_with_lightweight_capture(self):
@@ -876,6 +905,8 @@ class TestCapture(BaseTest):
             ),
         )
 
+        validate_response(openapi_spec, response)
+
     @patch("statshog.defaults.django.statsd.incr")
     def test_batch_distinct_id_not_set(self, statsd_incr):
         response = self.client.post(
@@ -898,6 +929,8 @@ class TestCapture(BaseTest):
         statsd_incr_first_call = statsd_incr.call_args_list[0]
         self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
         self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "missing_distinct_id"}})
+
+        validate_response(openapi_spec, response)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_engage(self, kafka_produce):
@@ -1053,6 +1086,8 @@ class TestCapture(BaseTest):
                 code="invalid_payload",
             ),
         )
+
+        validate_response(openapi_spec, response)
 
     @patch("statshog.defaults.django.statsd.incr")
     def test_distinct_id_nan(self, statsd_incr):
@@ -1418,19 +1453,21 @@ class TestCapture(BaseTest):
         with simulate_postgres_error():
             # currently we send events to the dead letter queue if Postgres is unavailable
             data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
-            self.client.post(
+            response = self.client.post(
                 "/batch/", data={"api_key": self.team.api_token, "batch": [data]}, content_type="application/json"
             )
             kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
 
             self.assertEqual(kafka_topic_used, "events_dead_letter_queue_test")
 
+            validate_response(openapi_spec, response)
+
             # the new behavior (currently defined by LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS)
             # is to not hit postgres at all in this endpoint, and rather pass the token in the Kafka
             # message so that the plugin server can handle the team_id and IP anonymization
             with self.settings(LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS=[self.team.api_token]):
                 data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
-                self.client.post(
+                response = self.client.post(
                     "/batch/", data={"api_key": self.team.api_token, "batch": [data]}, content_type="application/json"
                 )
                 arguments = self._to_arguments(kafka_produce)
@@ -1452,6 +1489,8 @@ class TestCapture(BaseTest):
                 # refactor best suited for another PR, hence accessing the call_args
                 # directly here
                 self.assertEqual(kafka_produce.call_args[1]["data"]["token"], "token123")
+
+                validate_response(openapi_spec, response)
 
                 log_context = structlog.contextvars.get_contextvars()
                 # Lightweight capture doesn't get ingestion_context/team_id.
