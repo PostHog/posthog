@@ -1,16 +1,14 @@
-import { BreakPointFunction, kea } from 'kea'
+import { kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { autoCaptureEventToDescription, average, percentage, sum } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { funnelLogicType } from './funnelLogicType'
 import {
     AnyPropertyFilter,
     BinCountValue,
     CorrelationConfigType,
     ElementPropertyFilter,
-    EntityTypes,
     FilterType,
     FlattenedFunnelStepByBreakdown,
     FunnelResultType,
@@ -58,7 +56,6 @@ import { isFunnelsFilter, keyForInsightLogicProps } from 'scenes/insights/shared
 import { teamLogic } from '../teamLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
@@ -66,6 +63,7 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { funnelCorrelationUsageLogic } from './funnelCorrelationUsageLogic'
 
 // List of events that should be excluded, if we don't have an explicit list of
 // excluded properties. Copied from
@@ -115,8 +113,8 @@ export const funnelLogic = kea<funnelLogicType>({
             groupPropertiesModel,
             ['groupProperties'],
         ],
-        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility']],
-        logic: [eventUsageLogic, dashboardsModel],
+        actions: [insightLogic(props), ['loadResults', 'toggleVisibility']],
+        logic: [dashboardsModel, funnelCorrelationUsageLogic(props)],
     }),
 
     actions: () => ({
@@ -274,12 +272,6 @@ export const funnelLogic = kea<funnelLogicType>({
                         })
                     ).result?.events
 
-                    eventUsageLogic.actions.reportCorrelationInteraction(
-                        FunnelCorrelationResultsType.EventWithProperties,
-                        'load event with properties',
-                        { name: eventName }
-                    )
-
                     return {
                         [eventName]: results.map((result) => ({
                             ...result,
@@ -358,30 +350,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 },
                 loadEventCorrelationsSuccess: () => {
                     return []
-                },
-            },
-        ],
-        shouldReportCorrelationViewed: [
-            true as boolean,
-            {
-                loadResultsSuccess: () => true,
-                [eventUsageLogic.actionTypes.reportCorrelationViewed]: (current, { propertiesTable }) => {
-                    if (!propertiesTable) {
-                        return false // don't report correlation viewed again, since it was for events earlier
-                    }
-                    return current
-                },
-            },
-        ],
-        shouldReportPropertyCorrelationViewed: [
-            true as boolean,
-            {
-                loadResultsSuccess: () => true,
-                [eventUsageLogic.actionTypes.reportCorrelationViewed]: (current, { propertiesTable }) => {
-                    if (propertiesTable) {
-                        return false
-                    }
-                    return current
                 },
             },
         ],
@@ -831,10 +799,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         ],
-        correlationPropKey: [
-            () => [(_, props) => props],
-            (props): string => `correlation-${keyForInsightLogicProps('insight_funnel')(props)}`,
-        ],
         disableFunnelBreakdownBaseline: [
             () => [(_, props) => props],
             (props: InsightLogicProps): boolean => !!props.cachedInsight?.disable_baseline,
@@ -1084,14 +1048,8 @@ export const funnelLogic = kea<funnelLogicType>({
                         label: breakdown,
                     }),
                 })
-
-                eventUsageLogic.actions.reportCorrelationInteraction(
-                    FunnelCorrelationResultsType.Properties,
-                    'person modal',
-                    values.filters.funnel_correlation_person_entity
-                )
             } else {
-                const { name, properties } = parseEventAndProperty(correlation.event)
+                const { name } = parseEventAndProperty(correlation.event)
 
                 openPersonsModal({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
@@ -1100,13 +1058,6 @@ export const funnelLogic = kea<funnelLogicType>({
                         step: values.steps.length,
                         label: name,
                     }),
-                })
-
-                eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {
-                    id: name,
-                    type: EntityTypes.EVENTS,
-                    properties,
-                    converted: success,
                 })
             }
         },
@@ -1127,89 +1078,15 @@ export const funnelLogic = kea<funnelLogicType>({
         },
         excludeEventPropertyFromProject: async ({ propertyName }) => {
             appendToCorrelationConfig('excluded_event_property_names', values.excludedEventPropertyNames, propertyName)
-
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.EventWithProperties,
-                'exclude event property',
-                {
-                    property_name: propertyName,
-                }
-            )
         },
         excludeEventFromProject: async ({ eventName }) => {
             appendToCorrelationConfig('excluded_event_names', values.excludedEventNames, eventName)
-
-            eventUsageLogic.actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'exclude event', {
-                event_name: eventName,
-            })
         },
         excludePropertyFromProject: ({ propertyName }) => {
             appendToCorrelationConfig('excluded_person_property_names', values.excludedPropertyNames, propertyName)
-
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Events,
-                'exclude person property',
-                {
-                    person_property: propertyName,
-                }
-            )
         },
-        hideSkewWarning: () => {
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Events,
-                'hide skew warning'
-            )
-        },
-        setCorrelationTypes: ({ types }) => {
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Events,
-                'set correlation types',
-                { types }
-            )
-        },
-        setPropertyCorrelationTypes: ({ types }) => {
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Properties,
-                'set property correlation types',
-                { types }
-            )
-        },
-        setPropertyNames: async ({ propertyNames }) => {
+        setPropertyNames: async () => {
             actions.loadPropertyCorrelations({})
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Properties,
-                'set property names',
-                { property_names: propertyNames.length === values.allProperties.length ? '$all' : propertyNames }
-            )
-        },
-        [visibilitySensorLogic({ id: values.correlationPropKey }).actionTypes.setVisible]: async (
-            {
-                visible,
-            }: {
-                visible: boolean
-            },
-            breakpoint: BreakPointFunction
-        ) => {
-            if (visible && values.shouldReportCorrelationViewed) {
-                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0)
-                await breakpoint(10000)
-                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10)
-            }
-        },
-
-        [visibilitySensorLogic({ id: `${values.correlationPropKey}-properties` }).actionTypes.setVisible]: async (
-            {
-                visible,
-            }: {
-                visible: boolean
-            },
-            breakpoint: BreakPointFunction
-        ) => {
-            if (visible && values.shouldReportPropertyCorrelationViewed) {
-                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0, true)
-                await breakpoint(10000)
-                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10, true)
-            }
         },
     }),
 })

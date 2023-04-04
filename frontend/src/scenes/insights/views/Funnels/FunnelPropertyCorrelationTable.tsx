@@ -12,16 +12,15 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 import { IconSelectProperties } from 'lib/lemon-ui/icons'
 import './FunnelCorrelationTable.scss'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
 import { PropertyCorrelationActionsCell } from './CorrelationActionsCell'
+import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
     const {
         steps,
         propertyCorrelationValues,
@@ -31,17 +30,15 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         propertyCorrelationsLoading,
         inversePropertyNames,
         propertyNames,
-        correlationPropKey,
         allProperties,
         filters,
         aggregationTargetLabel,
         loadedPropertyCorrelationsTableOnce,
-    } = useValues(logic)
-
+    } = useValues(funnelLogic(insightProps))
     const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal, loadPropertyCorrelations } =
-        useActions(logic)
-
-    const { reportCorrelationInteraction } = useActions(eventUsageLogic)
+        useActions(funnelLogic(insightProps))
+    const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
+    const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
 
     // Load correlations only if this component is mounted, and then reload if filters change
     useEffect(() => {

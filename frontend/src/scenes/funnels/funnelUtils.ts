@@ -11,11 +11,17 @@ import {
     Breakdown,
     FunnelStepWithConversionMetrics,
     FlattenedFunnelStepByBreakdown,
+    FunnelCorrelation,
+    AnyPropertyFilter,
+    PropertyOperator,
+    ElementPropertyFilter,
+    PropertyFilterType,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
 import { FunnelsQuery } from '~/queries/schema'
 import { FunnelLayout } from 'lib/constants'
+import { elementsToAction } from 'scenes/events/createActionFromEvent'
 
 /** Chosen via heuristics by eyeballing some values
  * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
@@ -513,4 +519,45 @@ export const transformLegacyHiddenLegendKeys = (
         }
     }
     return hiddenLegendKeys
+}
+
+export const parseEventAndProperty = (
+    event: FunnelCorrelation['event']
+): {
+    name: string
+    properties?: AnyPropertyFilter[]
+} => {
+    const components = event.event.split('::')
+    /*
+      The `event` is either an event name, or event::property::property_value
+    */
+    if (components.length === 1) {
+        return { name: components[0] }
+    } else if (components[0] === '$autocapture') {
+        // We use elementsToAction to generate the required property filters
+        const elementData = elementsToAction(event.elements)
+        return {
+            name: components[0],
+            properties: Object.entries(elementData)
+                .filter(([, propertyValue]) => !!propertyValue)
+                .map(([propertyKey, propertyValue]) => ({
+                    key: propertyKey as ElementPropertyFilter['key'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Element,
+                    value: [propertyValue as string],
+                })),
+        }
+    } else {
+        return {
+            name: components[0],
+            properties: [
+                {
+                    key: components[1],
+                    operator: PropertyOperator.Exact,
+                    value: components[2],
+                    type: PropertyFilterType.Event,
+                },
+            ],
+        }
+    }
 }

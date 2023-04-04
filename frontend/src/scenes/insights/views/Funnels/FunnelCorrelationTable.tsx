@@ -12,7 +12,6 @@ import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import './FunnelCorrelationTable.scss'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CorrelationMatrix } from './CorrelationMatrix'
@@ -20,10 +19,10 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
 import { EventCorrelationActionsCell } from './CorrelationActionsCell'
+import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
     const {
         steps,
         correlationValues,
@@ -34,11 +33,10 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         correlationsLoading,
         eventWithPropertyCorrelationsLoading,
         nestedTableExpandedKeys,
-        correlationPropKey,
         filters,
         aggregationTargetLabel,
         loadedEventCorrelationsTableOnce,
-    } = useValues(logic)
+    } = useValues(funnelLogic(insightProps))
     const {
         setCorrelationTypes,
         loadEventWithPropertyCorrelations,
@@ -46,9 +44,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         removeNestedTableExpandedKey,
         openCorrelationPersonsModal,
         loadEventCorrelations,
-    } = useActions(logic)
-
-    const { reportCorrelationInteraction } = useActions(eventUsageLogic)
+    } = useActions(funnelLogic(insightProps))
+    const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
+    const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
 
     // Load correlations only if this component is mounted, and then reload if filters change
     useEffect(() => {
