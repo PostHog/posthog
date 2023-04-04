@@ -1,5 +1,6 @@
 from typing import Any, Callable, Dict, List, Optional
 
+import pytz
 from pydantic import BaseModel, Extra
 
 
@@ -345,7 +346,10 @@ class Database(BaseModel):
 
     def __init__(self, timezone: Optional[str]):
         super().__init__()
-        self._timezone = timezone
+        try:
+            self._timezone = pytz.timezone(timezone).zone if timezone else None
+        except pytz.exceptions.UnknownTimeZoneError:
+            raise ValueError(f"Unknown timezone: '{str(timezone)}'")
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"

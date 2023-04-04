@@ -3,6 +3,7 @@ from datetime import datetime, date
 from typing import Optional, Any, Literal, List, Tuple
 from uuid import UUID
 
+import math
 import pytz
 
 from posthog.models.utils import UUIDT
@@ -19,15 +20,17 @@ escape_chars_map = {
     "\v": "\\v",
     "\\": "\\\\",
 }
-string_escape_chars_map = {**escape_chars_map, "'": "\\'"}
-backquote_escape_chars_map = {
-    **escape_chars_map,
-    "`": "\\`",
-}
+singlequote_escape_chars_map = {**escape_chars_map, "'": "\\'"}
+backquote_escape_chars_map = {**escape_chars_map, "`": "\\`"}
+
+
+# Copied from clickhouse_driver.util.escape_param
+def escape_param_clickhouse(value: str) -> str:
+    return "'%s'" % "".join(singlequote_escape_chars_map.get(c, c) for c in str(value))
 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes. Added a $.
-def print_hogql_identifier(identifier: str) -> str:
+def escape_hogql_identifier(identifier: str) -> str:
     # HogQL allows dollars in the identifier.
     if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier):
         return identifier
@@ -35,17 +38,21 @@ def print_hogql_identifier(identifier: str) -> str:
 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
-def print_clickhouse_identifier(identifier: str) -> str:
+def escape_clickhouse_identifier(identifier: str) -> str:
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
         return identifier
     return "`%s`" % "".join(backquote_escape_chars_map.get(c, c) for c in identifier)
 
 
-def print_hogql_string(name: str | list | tuple | date | datetime | UUID, timezone: Optional[str] = None) -> str:
+def escape_hogql_string(
+    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT, timezone: Optional[str] = None
+) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="hogql").visit(name)
 
 
-def print_clickhouse_string(name: str | list | tuple | date | datetime | UUID, timezone: Optional[str] = None) -> str:
+def escape_clickhouse_string(
+    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT, timezone: Optional[str] = None
+) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="clickhouse").visit(name)
 
 
@@ -54,8 +61,8 @@ class SQLValueEscaper:
         self._timezone = timezone or "UTC"
         self._dialect = dialect
 
+    # Unlike posthog.hogql.visitor.Visitor, this tiny visitor works on primitives.
     def visit(self, node: Any) -> str:
-        # This tiny visitor works on primitives, unlike posthog.hogql.visitor.Visitor
         method_name = f"visit_{node.__class__.__name__.lower()}"
         if hasattr(self, method_name):
             return getattr(self, method_name)(node)
@@ -65,8 +72,22 @@ class SQLValueEscaper:
         return "NULL"
 
     def visit_str(self, value: str):
-        # Copied from clickhouse_driver.util.escape_param
-        return "'%s'" % "".join(string_escape_chars_map.get(c, c) for c in str(value))
+        return escape_param_clickhouse(value)
+
+    def visit_bool(self, value: bool):
+        return "true" if value is True else "false"
+
+    def visit_int(self, value: int):
+        return str(value)
+
+    def visit_float(self, value: float):
+        if math.isnan(value):
+            return "NaN"
+        if math.isinf(value):
+            if value == float("-inf"):
+                return "-Inf"
+            return "Inf"
+        return str(value)
 
     def visit_uuid(self, value: UUID):
         if self._dialect == "hogql":

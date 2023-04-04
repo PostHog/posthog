@@ -653,8 +653,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: visitFloatingLiteral")
 
     def visitNumberLiteral(self, ctx: HogQLParser.NumberLiteralContext):
-        text = ctx.getText()
-        if "." in text:
+        text = ctx.getText().lower()
+        if "." in text or "e" in text or text == "-inf" or text == "inf" or text == "nan":
             return ast.Constant(value=float(text))
         return ast.Constant(value=int(text))
 
