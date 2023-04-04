@@ -651,8 +651,19 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
     assert rows[0][1] == not_overriden_id
 
 
+@pytest.fixture(scope="session")
+def django_db_setup_fixture():
+    """Re-use pytest_django's django_db_setup."""
+    from pytest_django.fixtures import django_db_setup
+
+    yield django_db_setup
+
+
+DATABASE_URL = f"postgres://{settings.PG_USER}:{settings.PG_USER}@{settings.PG_HOST}:{settings.PG_PORT}/test_{settings.PG_DATABASE}"
+
+
 @pytest.fixture
-def organization_uuid():
+def organization_uuid(django_db_setup_fixture):
     """Create an Organization and return its UUID.
 
     We cannot use the Django ORM safely in an async context, so we INSERT INTO directly
@@ -661,11 +672,11 @@ def organization_uuid():
     """
     organization_uuid = uuid4()
 
-    with psycopg2.connect(settings.DATABASE_URL) as connection:
+    with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO posthog.public.posthog_organization (
+                INSERT INTO posthog_organization (
                     id,
                     name,
                     created_at,
@@ -699,9 +710,9 @@ def organization_uuid():
 
     yield organization_uuid
 
-    with psycopg2.connect(settings.DATABASE_URL) as connection:
+    with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM posthog.public.posthog_organization WHERE id = %s", [organization_uuid])
+            cursor.execute("DELETE FROM posthog_organization WHERE id = %s", [organization_uuid])
 
 
 @pytest.fixture
@@ -712,11 +723,11 @@ def team_id(organization_uuid):
     on the database. This means we need to clean up after ourselves, which we do after
     yielding.
     """
-    with psycopg2.connect(settings.DATABASE_URL) as connection:
+    with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO posthog.public.posthog_team (
+                INSERT INTO posthog_team (
                     api_token,
                     name,
                     opt_out_capture,
@@ -774,9 +785,9 @@ def team_id(organization_uuid):
 
     yield team_id
 
-    with psycopg2.connect(settings.DATABASE_URL) as connection:
+    with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM posthog.public.posthog_team WHERE id = %s", [team_id])
+            cursor.execute("DELETE FROM posthog_team WHERE id = %s", [team_id])
 
 
 @pytest.fixture
@@ -791,13 +802,13 @@ def person_overrides(team_id):
     override_person_id = uuid4()
     person_override = PersonOverrideTuple(old_person_id, override_person_id)
 
-    with psycopg2.connect(settings.DATABASE_URL) as connection:
+    with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
             person_ids = []
             for person_uuid in (override_person_id, old_person_id):
                 cursor.execute(
                     """
-                    INSERT INTO posthog.public.posthog_personoverridemapping(
+                    INSERT INTO posthog_personoverridemapping(
                         team_id,
                         uuid
                     )
@@ -814,7 +825,7 @@ def person_overrides(team_id):
 
             cursor.execute(
                 """
-                INSERT INTO posthog.public.posthog_personoverride(
+                INSERT INTO posthog_personoverride(
                     team_id,
                     old_person_id,
                     override_person_id,
@@ -838,14 +849,14 @@ def person_overrides(team_id):
 
     yield person_override
 
-    with psycopg2.connect(settings.DATABASE_URL) as connection:
+    with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
-                "DELETE FROM posthog.public.posthog_personoverride WHERE team_id = %s AND old_person_id = %s",
+                "DELETE FROM posthog_personoverride WHERE team_id = %s AND old_person_id = %s",
                 [team_id, person_ids[1]],
             )
             cursor.execute(
-                "DELETE FROM posthog.public.posthog_personoverridemapping WHERE team_id = %s AND (uuid = %s OR uuid = %s)",
+                "DELETE FROM posthog_personoverridemapping WHERE team_id = %s AND (uuid = %s OR uuid = %s)",
                 [team_id, old_person_id, override_person_id],
             )
 
@@ -858,7 +869,7 @@ async def test_delete_squashed_person_overrides_from_postgres(activity_environme
     For the purposes of this unit test, we take the person overrides as given. A
     comprehensive test will cover the entire worflow end-to-end.
     """
-    with psycopg2.connect(settings.DATABASE_URL) as connection:
+    with psycopg2.connect(DATABASE_URL) as connection:
         # These are sanity checks to ensure the fixtures are working properly.
         # If any assertions fail here, its likely a test setup issue.
         with connection.cursor() as cursor:
@@ -885,7 +896,7 @@ async def test_delete_squashed_person_overrides_from_postgres(activity_environme
 
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
-    with psycopg2.connect(settings.DATABASE_URL) as connection:
+    with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT team_id, uuid FROM posthog_personoverridemapping")
             mappings = cursor.fetchall()
@@ -907,7 +918,7 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
     For the purposes of this unit test, we take the person overrides as given. A
     comprehensive test will cover the entire worflow end-to-end.
     """
-    with psycopg2.connect(settings.DATABASE_URL) as connection:
+    with psycopg2.connect(DATABASE_URL) as connection:
         # These are sanity checks to ensure the fixtures are working properly.
         # If any assertions fail here, its likely a test setup issue.
         with connection.cursor() as cursor:
@@ -919,7 +930,7 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
             overrides = cursor.fetchall()
             assert len(overrides) == 1
 
-    with psycopg2.connect(settings.DATABASE_URL) as connection:
+    with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
             # Let's insert a newer mapping that arrives while we are running the squash job.
             # Since only one mapping can exist per old_person_id, we'll bump the version number.
@@ -955,7 +966,7 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
 
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
-    with psycopg2.connect(settings.DATABASE_URL) as connection:
+    with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
             mappings = cursor.fetchall()
