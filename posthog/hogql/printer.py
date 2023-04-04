@@ -414,7 +414,7 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
-                if node.name == "now" or node.name == "NOW" or node.name == "toDateTime":
+                if node.name == "now" or node.name == "now64" or node.name == "NOW" or node.name == "toDateTime":
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
                 return f"{clickhouse_name}({', '.join(args)})"
             else:
