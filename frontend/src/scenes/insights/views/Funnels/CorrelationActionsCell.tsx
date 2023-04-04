@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { Row } from 'antd'
 import { useActions, useValues } from 'kea'
-import { EllipsisOutlined } from '@ant-design/icons'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelCorrelation, FunnelCorrelationResultsType } from '~/types'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
+
+import { FunnelCorrelation, FunnelCorrelationResultsType } from '~/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { IconEllipsis } from 'lib/lemon-ui/icons'
 
 export const EventCorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
@@ -72,19 +73,17 @@ type CorrelationActionsCellComponentProps = {
 const CorrelationActionsCellComponent = ({ buttons }: CorrelationActionsCellComponentProps): JSX.Element => {
     const [popoverOpen, setPopoverOpen] = useState(false)
     return (
-        <Row style={{ justifyContent: 'flex-end' }}>
-            <Popover
-                visible={popoverOpen}
-                actionable
-                onClickOutside={() => setPopoverOpen(false)}
-                overlay={buttons.map((props, index) => (
-                    <LemonButton key={index} status="stealth" fullWidth {...props} />
-                ))}
-            >
-                <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
-                    <EllipsisOutlined className="insight-dropdown-actions" />
-                </LemonButton>
-            </Popover>
-        </Row>
+        <Popover
+            visible={popoverOpen}
+            actionable
+            onClickOutside={() => setPopoverOpen(false)}
+            overlay={buttons.map((props, index) => (
+                <LemonButton key={index} status="stealth" fullWidth {...props} />
+            ))}
+        >
+            <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
+                <IconEllipsis />
+            </LemonButton>
+        </Popover>
     )
 }
