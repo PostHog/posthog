@@ -58,7 +58,7 @@ class TestPrintString(BaseTest):
         self.assertEqual(print_clickhouse_string(["list", "things", []]), "['list', 'things', []]")
         self.assertEqual(print_clickhouse_string(("tuple", "things", ())), "('tuple', 'things', ())")
         uuid = UUIDT()
-        self.assertEqual(print_clickhouse_string(uuid), f"'{str(uuid)}'")
+        self.assertEqual(print_clickhouse_string(uuid), f"toUUIDOrNull('{str(uuid)}')")
         date = datetime.fromisoformat("2020-02-02 02:02:02")
         self.assertEqual(print_clickhouse_string(date), "toDateTime('2020-02-02 02:02:02', 'UTC')")
         self.assertEqual(
@@ -82,7 +82,7 @@ class TestPrintString(BaseTest):
         self.assertEqual(print_hogql_string(["list", "things", []]), "['list', 'things', []]")
         self.assertEqual(print_hogql_string(("tuple", "things", ())), "('tuple', 'things', ())")
         uuid = UUIDT()
-        self.assertEqual(print_hogql_string(uuid), f"'{str(uuid)}'")
+        self.assertEqual(print_hogql_string(uuid), f"toUUID('{str(uuid)}')")
         date = datetime.fromisoformat("2020-02-02 02:02:02")
         self.assertEqual(print_hogql_string(date), "toDateTime('2020-02-02 02:02:02')")
         self.assertEqual(print_hogql_string(date, timezone="Europe/Brussels"), "toDateTime('2020-02-02 03:02:02')")

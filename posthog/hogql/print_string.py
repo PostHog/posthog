@@ -69,10 +69,14 @@ class SQLValueEscaper:
         return "'%s'" % "".join(string_escape_chars_map.get(c, c) for c in str(value))
 
     def visit_uuid(self, value: UUID):
-        return self.visit(str(value))
+        if self._dialect == "hogql":
+            return f"toUUID({self.visit(str(value))})"
+        return f"toUUIDOrNull({self.visit(str(value))})"
 
     def visit_uuidt(self, value: UUIDT):
-        return self.visit(str(value))
+        if self._dialect == "hogql":
+            return f"toUUID({self.visit(str(value))})"
+        return f"toUUIDOrNull({self.visit(str(value))})"
 
     def visit_datetime(self, value: datetime):
         datetime_string = value.astimezone(pytz.timezone(self._timezone)).strftime("%Y-%m-%d %H:%M:%S")
