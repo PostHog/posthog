@@ -7,7 +7,10 @@ import { FunnelCorrelationTable } from './FunnelCorrelationTable'
 import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { FunnelCorrelationSkewWarning } from './FunnelCorrelationSkewWarning'
+import {
+    FunnelCorrelationSkewWarning,
+    FunnelCorrelationSkewWarningDataExploration,
+} from './FunnelCorrelationSkewWarning'
 import { FunnelCorrelationFeedbackForm } from './FunnelCorrelationFeedbackForm'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
@@ -24,7 +27,11 @@ export const FunnelCorrelation = (): JSX.Element | null => {
             <h2 className="my-4">Correlation analysis</h2>
             <PayGateMini feature={AvailableFeature.CORRELATION_ANALYSIS}>
                 <div className="funnel-correlation">
-                    {!isUsingDataExploration && <FunnelCorrelationSkewWarning />}
+                    {isUsingDataExploration ? (
+                        <FunnelCorrelationSkewWarningDataExploration />
+                    ) : (
+                        <FunnelCorrelationSkewWarning />
+                    )}
                     {!isUsingDataExploration && <FunnelCorrelationTable />}
                     {!isUsingDataExploration && <FunnelCorrelationFeedbackForm />}
                     {!isUsingDataExploration && <FunnelPropertyCorrelationTable />}

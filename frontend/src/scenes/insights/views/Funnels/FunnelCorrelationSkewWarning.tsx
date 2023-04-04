@@ -6,12 +6,33 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
 import { IconFeedbackWarning } from 'lib/lemon-ui/icons'
 import { CloseOutlined } from '@ant-design/icons'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+
+export const FunnelCorrelationSkewWarningDataExploration = (): JSX.Element | null => {
+    const { insightProps } = useValues(insightLogic)
+    const { isSkewed } = useValues(funnelDataLogic(insightProps))
+    const { hideSkewWarning } = useActions(funnelDataLogic(insightProps))
+
+    return <FunnelCorrelationSkewWarningComponent isSkewed={isSkewed} hideSkewWarning={hideSkewWarning} />
+}
 
 export const FunnelCorrelationSkewWarning = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
     const { isSkewed } = useValues(funnelLogic(insightProps))
     const { hideSkewWarning } = useActions(funnelLogic(insightProps))
 
+    return <FunnelCorrelationSkewWarningComponent isSkewed={isSkewed} hideSkewWarning={hideSkewWarning} />
+}
+
+type FunnelCorrelationSkewWarningComponentProps = {
+    isSkewed: boolean
+    hideSkewWarning: () => void
+}
+
+const FunnelCorrelationSkewWarningComponent = ({
+    isSkewed,
+    hideSkewWarning,
+}: FunnelCorrelationSkewWarningComponentProps): JSX.Element | null => {
     if (!isSkewed) {
         return null
     }
