@@ -12,9 +12,8 @@ import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 
 export const EventCorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
-    const { isEventPropertyExcluded } = useValues(funnelLogic(insightProps))
     const { excludeEventPropertyFromProject, setFunnelCorrelationDetails } = useActions(funnelLogic(insightProps))
-    const { isEventExcluded } = useValues(funnelCorrelationLogic(insightProps))
+    const { isEventExcluded, isEventPropertyExcluded } = useValues(funnelCorrelationLogic(insightProps))
     const { excludeEventFromProject } = useActions(funnelCorrelationLogic(insightProps))
     const components = record.event.event.split('::')
 

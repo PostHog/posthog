@@ -109,6 +109,17 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                 loadEventCorrelations: () => true,
             },
         ],
+        eventWithPropertyCorrelations: {
+            loadEventWithPropertyCorrelationsSuccess: (state, { eventWithPropertyCorrelations }) => {
+                return {
+                    ...state,
+                    ...eventWithPropertyCorrelations,
+                }
+            },
+            loadEventCorrelationsSuccess: () => {
+                return {}
+            },
+        },
     }),
     selectors({
         apiParams: [
@@ -221,6 +232,9 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
     listeners(({ values }) => ({
         excludeEventFromProject: async ({ eventName }) => {
             appendToCorrelationConfig('excluded_event_names', values.excludedEventNames, eventName)
+        },
+        excludeEventPropertyFromProject: async ({ propertyName }) => {
+            appendToCorrelationConfig('excluded_event_property_names', values.excludedEventPropertyNames, propertyName)
         },
     })),
 ])

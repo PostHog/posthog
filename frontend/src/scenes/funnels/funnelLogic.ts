@@ -260,17 +260,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 hideSkewWarning: () => true,
             },
         ],
-        eventWithPropertyCorrelations: {
-            loadEventWithPropertyCorrelationsSuccess: (state, { eventWithPropertyCorrelations }) => {
-                return {
-                    ...state,
-                    ...eventWithPropertyCorrelations,
-                }
-            },
-            loadEventCorrelationsSuccess: () => {
-                return {}
-            },
-        },
         propertyNames: [
             [] as string[],
             {
@@ -890,9 +879,6 @@ export const funnelLogic = kea<funnelLogicType>({
         },
         toggleAdvancedMode: () => {
             actions.setFilters({ funnel_advanced: !values.filters.funnel_advanced })
-        },
-        excludeEventPropertyFromProject: async ({ propertyName }) => {
-            appendToCorrelationConfig('excluded_event_property_names', values.excludedEventPropertyNames, propertyName)
         },
         excludePropertyFromProject: ({ propertyName }) => {
             appendToCorrelationConfig('excluded_person_property_names', values.excludedPropertyNames, propertyName)

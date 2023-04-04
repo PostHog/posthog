@@ -89,22 +89,22 @@ export function FunnelCorrelationTableComponent({
     aggregationTargetLabel,
 }: FunnelCorrelationTableComponentProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { nestedTableExpandedKeys, eventWithPropertyCorrelationsLoading } = useValues(funnelLogic(insightProps))
+    const { nestedTableExpandedKeys } = useValues(funnelLogic(insightProps))
+    const { addNestedTableExpandedKey, removeNestedTableExpandedKey, openCorrelationPersonsModal } = useActions(
+        funnelLogic(insightProps)
+    )
     const {
-        loadEventWithPropertyCorrelations,
-        addNestedTableExpandedKey,
-        removeNestedTableExpandedKey,
-        openCorrelationPersonsModal,
-    } = useActions(funnelLogic(insightProps))
-    const {
-        correlationValues,
         correlationTypes,
         correlationsLoading,
+        correlationValues,
         loadedEventCorrelationsTableOnce,
         eventHasPropertyCorrelations,
+        eventWithPropertyCorrelationsLoading,
         eventWithPropertyCorrelationsValues,
     } = useValues(funnelCorrelationLogic(insightProps))
-    const { setCorrelationTypes, loadEventCorrelations } = useActions(funnelCorrelationLogic(insightProps))
+    const { setCorrelationTypes, loadEventCorrelations, loadEventWithPropertyCorrelations } = useActions(
+        funnelCorrelationLogic(insightProps)
+    )
     const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
     const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
 
