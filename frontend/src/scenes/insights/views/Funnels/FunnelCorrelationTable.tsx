@@ -21,6 +21,7 @@ import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyS
 import { EventCorrelationActionsCell } from './CorrelationActionsCell'
 import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
 
+import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const {
@@ -29,7 +30,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         correlationTypes,
         eventHasPropertyCorrelations,
         eventWithPropertyCorrelationsValues,
-        parseDisplayNameForCorrelation,
         correlationsLoading,
         eventWithPropertyCorrelationsLoading,
         nestedTableExpandedKeys,

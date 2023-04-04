@@ -18,6 +18,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
 import { PropertyCorrelationActionsCell } from './CorrelationActionsCell'
 import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
+import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -26,7 +27,6 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         propertyCorrelationValues,
         propertyCorrelationTypes,
         excludedPropertyNames,
-        parseDisplayNameForCorrelation,
         propertyCorrelationsLoading,
         inversePropertyNames,
         propertyNames,

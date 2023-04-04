@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { autoCaptureEventToDescription, average, percentage, sum } from 'lib/utils'
+import { average, percentage, sum } from 'lib/utils'
 import type { funnelLogicType } from './funnelLogicType'
 import {
     AnyPropertyFilter,
@@ -762,39 +762,6 @@ export const funnelLogic = kea<funnelLogicType>({
             (eventWithPropertyCorrelationsValues): ((eventName: string) => boolean) => {
                 return (eventName) => {
                     return !!eventWithPropertyCorrelationsValues[eventName]
-                }
-            },
-        ],
-        parseDisplayNameForCorrelation: [
-            () => [],
-            (): ((record: FunnelCorrelation) => {
-                first_value: string
-                second_value?: string
-            }) => {
-                return (record) => {
-                    let first_value = undefined
-                    let second_value = undefined
-                    const values = record.event.event.split('::')
-
-                    if (record.result_type === FunnelCorrelationResultsType.Events) {
-                        first_value = record.event.event
-                        return { first_value, second_value }
-                    } else if (record.result_type === FunnelCorrelationResultsType.Properties) {
-                        first_value = values[0]
-                        second_value = values[1]
-                        return { first_value, second_value }
-                    } else if (values[0] === '$autocapture' && values[1] === 'elements_chain') {
-                        // special case for autocapture elements_chain
-                        first_value = autoCaptureEventToDescription({
-                            ...record.event,
-                            event: '$autocapture',
-                        }) as string
-                        return { first_value, second_value }
-                    } else {
-                        // FunnelCorrelationResultsType.EventWithProperties
-                        // Events here come in the form of event::property::value
-                        return { first_value: values[1], second_value: values[2] }
-                    }
                 }
             },
         ],
