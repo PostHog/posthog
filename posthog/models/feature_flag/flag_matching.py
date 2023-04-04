@@ -391,7 +391,7 @@ class FeatureFlagMatcher:
         return current_match, current_index
 
 
-def hash_key_overrides(team_id: int, distinct_ids: List[str]) -> Dict[str, str]:
+def get_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str]) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
 
     # Priority to the first distinctID's values, to keep this function deterministic
@@ -513,7 +513,7 @@ def get_all_feature_flags(
             target_distinct_ids = [distinct_id]
             if hash_key_override is not None:
                 target_distinct_ids.append(hash_key_override)
-            person_overrides = hash_key_overrides(team_id, target_distinct_ids)
+            person_overrides = get_feature_flag_hash_key_overrides(team_id, target_distinct_ids)
 
     except Exception:
         # database is down, we can't handle experience continuity flags at all.

@@ -15,7 +15,7 @@ from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatchReason,
     FlagsMatcherCache,
     get_all_feature_flags,
-    hash_key_overrides,
+    get_feature_flag_hash_key_overrides,
     set_feature_flag_hash_key_overrides,
 )
 from posthog.models.group import Group
@@ -1846,7 +1846,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
                 cursor, team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
             )
 
-        hash_keys = hash_key_overrides(self.team.pk, ["example_id"])
+        hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["example_id"])
 
         self.assertEqual(hash_keys, {"beta-feature": "other_id", "multivariate-flag": "other_id"})
 
@@ -1868,7 +1868,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
                 cursor, team_id=self.team.pk, distinct_ids=["2"], hash_key_override="aother_id2"
             )
 
-        hash_keys = hash_key_overrides(self.team.pk, ["1", "2"])
+        hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["1", "2"])
 
         self.assertEqual(hash_keys, {"beta-feature": "other_id1", "multivariate-flag": "other_id1"})
 
