@@ -110,14 +110,14 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
             },
         ],
         eventWithPropertyCorrelations: {
+            loadEventCorrelationsSuccess: () => {
+                return {}
+            },
             loadEventWithPropertyCorrelationsSuccess: (state, { eventWithPropertyCorrelations }) => {
                 return {
                     ...state,
                     ...eventWithPropertyCorrelations,
                 }
-            },
-            loadEventCorrelationsSuccess: () => {
-                return {}
             },
         },
     }),
@@ -145,6 +145,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
             },
         ],
 
+        // event correlation
         correlationValues: [
             (s) => [s.correlations, s.correlationTypes, s.excludedEventNames],
             (correlations, correlationTypes, excludedEventNames): FunnelCorrelation[] => {
@@ -177,16 +178,17 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
             (excludedEventNames) => (eventName: string) =>
                 excludedEventNames.find((name) => name === eventName) !== undefined,
         ],
+
+        // event property correlation
+        excludedEventPropertyNames: [
+            (s) => [s.currentTeam],
+            (currentTeam): string[] => currentTeam?.correlation_config?.excluded_event_property_names || [],
+        ],
         isEventPropertyExcluded: [
             (s) => [s.excludedEventPropertyNames],
             (excludedEventPropertyNames) => (propertyName: string) =>
                 excludedEventPropertyNames.find((name) => name === propertyName) !== undefined,
         ],
-        excludedEventPropertyNames: [
-            (s) => [s.currentTeam],
-            (currentTeam): string[] => currentTeam?.correlation_config?.excluded_event_property_names || [],
-        ],
-
         eventWithPropertyCorrelationsValues: [
             (s) => [s.eventWithPropertyCorrelations, s.correlationTypes, s.excludedEventPropertyNames],
             (
