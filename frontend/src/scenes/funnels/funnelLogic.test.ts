@@ -1,6 +1,5 @@
 import { DEFAULT_EXCLUDED_PERSON_PROPERTIES, funnelLogic } from './funnelLogic'
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
-import posthog from 'posthog-js'
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -1051,84 +1050,6 @@ describe('funnelLogic', () => {
                     allProperties: ['name'],
                     propertyNames: ['name'],
                 })
-        })
-    })
-
-    describe('Correlation Feedback flow', () => {
-        beforeEach(async () => {
-            await initFunnelLogic()
-        })
-        it('opens detailed feedback on selecting a valid rating', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setCorrelationFeedbackRating(1)
-            })
-                .toMatchValues(logic, {
-                    correlationFeedbackRating: 1,
-                })
-                .toDispatchActions(logic, [
-                    (action) =>
-                        action.type === logic.actionTypes.setCorrelationDetailedFeedbackVisible &&
-                        action.payload.visible === true,
-                ])
-                .toMatchValues(logic, {
-                    correlationDetailedFeedbackVisible: true,
-                })
-        })
-
-        it('doesnt opens detailed feedback on selecting an invalid rating', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setCorrelationFeedbackRating(0)
-            })
-                .toMatchValues(logic, {
-                    correlationFeedbackRating: 0,
-                })
-                .toDispatchActions(logic, [
-                    (action) =>
-                        action.type === logic.actionTypes.setCorrelationDetailedFeedbackVisible &&
-                        action.payload.visible === false,
-                ])
-                .toMatchValues(logic, {
-                    correlationDetailedFeedbackVisible: false,
-                })
-        })
-
-        it('Captures emoji feedback properly', async () => {
-            jest.spyOn(posthog, 'capture')
-            await expectLogic(logic, () => {
-                logic.actions.setCorrelationFeedbackRating(1)
-            })
-                .toMatchValues(logic, {
-                    // reset after sending feedback
-                    correlationFeedbackRating: 1,
-                })
-                .toDispatchActions(eventUsageLogic, ['reportCorrelationAnalysisFeedback'])
-
-            expect(posthog.capture).toBeCalledWith('correlation analysis feedback', { rating: 1 })
-        })
-
-        it('goes away on sending feedback, capturing it properly', async () => {
-            jest.spyOn(posthog, 'capture')
-            await expectLogic(logic, () => {
-                logic.actions.setCorrelationFeedbackRating(2)
-                logic.actions.setCorrelationDetailedFeedback('tests')
-                logic.actions.sendCorrelationAnalysisFeedback()
-            })
-                .toMatchValues(logic, {
-                    // reset after sending feedback
-                    correlationFeedbackRating: 0,
-                    correlationDetailedFeedback: '',
-                    correlationFeedbackHidden: true,
-                })
-                .toDispatchActions(eventUsageLogic, ['reportCorrelationAnalysisDetailedFeedback'])
-                .toFinishListeners()
-
-            await expectLogic(eventUsageLogic).toFinishListeners()
-
-            expect(posthog.capture).toBeCalledWith('correlation analysis feedback', { rating: 2 })
-            expect(posthog.capture).toBeCalledWith('correlation analysis detailed feedback', {
-                rating: 2,
-                comments: 'tests',
-            })
         })
     })
 

@@ -12,7 +12,7 @@ export const funnelCorrelationFeedbackLogic = kea<funnelCorrelationFeedbackLogic
     key(keyForInsightLogicProps('insight_funnel')),
     path((key) => ['scenes', 'funnels', 'funnelCorrelationFeedbackLogic', key]),
 
-    connect((props) => ({
+    connect((props: InsightLogicProps) => ({
         actions: [funnelLogic(props), ['loadEventCorrelations', 'loadPropertyCorrelations']],
     })),
 
