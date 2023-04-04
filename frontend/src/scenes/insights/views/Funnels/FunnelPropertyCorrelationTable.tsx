@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Col, ConfigProvider, Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
-import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
@@ -14,11 +14,10 @@ import { IconSelectProperties } from 'lib/lemon-ui/icons'
 import './FunnelCorrelationTable.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
+import { PropertyCorrelationActionsCell } from './CorrelationActionsCell'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -283,7 +282,9 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         <Column
                             title=""
                             key="actions"
-                            render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                            render={(_, record: FunnelCorrelation) => (
+                                <PropertyCorrelationActionsCell record={record} />
+                            )}
                             align="center"
                             width={30}
                         />
@@ -292,44 +293,4 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
             </div>
         </VisibilitySensor>
     ) : null
-}
-
-const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
-    const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { excludePropertyFromProject, setFunnelCorrelationDetails } = useActions(logic)
-    const { isPropertyExcludedFromProject } = useValues(logic)
-    const propertyName = (record.event.event || '').split('::')[0]
-
-    const [popoverOpen, setPopoverOpen] = useState(false)
-
-    return (
-        <Row style={{ justifyContent: 'flex-end' }}>
-            <Popover
-                visible={popoverOpen}
-                actionable
-                onClickOutside={() => setPopoverOpen(false)}
-                overlay={
-                    <>
-                        <LemonButton onClick={() => setFunnelCorrelationDetails(record)} fullWidth status="stealth">
-                            View correlation details
-                        </LemonButton>
-                        <LemonButton
-                            disabled={isPropertyExcludedFromProject(propertyName)}
-                            onClick={() => excludePropertyFromProject(propertyName)}
-                            fullWidth
-                            title="Remove this property from any correlation analysis report in this project."
-                            status="stealth"
-                        >
-                            Exclude property from project
-                        </LemonButton>
-                    </>
-                }
-            >
-                <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
-                    <EllipsisOutlined className="insight-dropdown-actions" />
-                </LemonButton>
-            </Popover>
-        </Row>
-    )
 }

@@ -19,7 +19,7 @@ import { CorrelationMatrix } from './CorrelationMatrix'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
-import { CorrelationActionsCell } from './CorrelationActionsCell'
+import { EventCorrelationActionsCell } from './CorrelationActionsCell'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -190,7 +190,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     <Column
                         title=""
                         key="actions"
-                        render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                        render={(_, record: FunnelCorrelation) => <EventCorrelationActionsCell record={record} />}
                         align="center"
                         width={30}
                     />
@@ -346,7 +346,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         <Column
                             title=""
                             key="actions"
-                            render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                            render={(_, record: FunnelCorrelation) => <EventCorrelationActionsCell record={record} />}
                             width={30}
                         />
                     </Table>
