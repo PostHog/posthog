@@ -117,7 +117,7 @@ class _Printer(Visitor):
                 if isinstance(value, int) or isinstance(value, float):
                     settings.append(f"{key}={value}")
                 else:
-                    settings.append(f"{key}={self._print_string(value)}")
+                    settings.append(f"{key}={self._print_escaped_string(value)}")
             if len(settings) > 0:
                 response += f" SETTINGS {', '.join(settings)}"
 
@@ -343,29 +343,15 @@ class _Printer(Visitor):
             raise ValueError(f"Unknown CompareOperationType: {type(node.op).__name__}")
 
     def visit_constant(self, node: ast.Constant):
-        if isinstance(node.value, bool) and node.value is True:
-            return "true"
-        elif isinstance(node.value, bool) and node.value is False:
-            return "false"
-        elif isinstance(node.value, int) or isinstance(node.value, float):
-            # :WATCH_OUT: isinstance(True, int) is True (!), so check for numbers lower down the chain
-            return str(node.value)
-        elif isinstance(node.value, datetime):
-            # timezone handling done inside self._print_string
-            return self._print_string(node.value)
-        elif isinstance(node.value, str) or isinstance(node.value, list):
+        if self.dialect == "clickhouse" and (
+            isinstance(node.value, str) or isinstance(node.value, list) or isinstance(node.value, tuple)
+        ):
             # inline the string in hogql, but use %(hogql_val_0)s in clichkouse
-            if self.dialect == "hogql":
-                return self._print_string(node.value)
             key = f"hogql_val_{len(self.context.values)}"
             self.context.values[key] = node.value
             return f"%({key})s"
-        elif node.value is None:
-            return "null"
         else:
-            raise ValueError(
-                f"Unknown AST Constant node type '{type(node.value).__name__}' for value '{str(node.value)}'"
-            )
+            return self._print_escaped_string(node.value)
 
     def visit_field(self, node: ast.Field):
         original_field = ".".join([self._print_identifier(identifier) for identifier in node.chain])
@@ -604,7 +590,7 @@ class _Printer(Visitor):
             return print_clickhouse_identifier(name)
         return print_hogql_identifier(name)
 
-    def _print_string(self, name: str | list | tuple | datetime) -> str:
+    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime) -> str:
         if self.dialect == "clickhouse":
             return print_clickhouse_string(name, timezone=self._get_timezone())
         return print_hogql_string(name, timezone=self._get_timezone())

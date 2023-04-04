@@ -14,6 +14,8 @@ class TestPrintString(BaseTest):
     def test_sanitize_hogql_identifier(self):
         self.assertEqual(print_hogql_identifier("a"), "a")
         self.assertEqual(print_hogql_identifier("$browser"), "$browser")
+        self.assertEqual(print_hogql_identifier("0asd"), "`0asd`")
+        self.assertEqual(print_hogql_identifier("123"), "`123`")
         self.assertEqual(print_hogql_identifier("event"), "event")
         self.assertEqual(print_hogql_identifier("a b c"), "`a b c`")
         self.assertEqual(print_hogql_identifier("a.b.c"), "`a.b.c`")
@@ -30,6 +32,8 @@ class TestPrintString(BaseTest):
     def test_sanitize_clickhouse_identifier(self):
         self.assertEqual(print_clickhouse_identifier("a"), "a")
         self.assertEqual(print_clickhouse_identifier("$browser"), "`$browser`")
+        self.assertEqual(print_clickhouse_identifier("0asd"), "`0asd`")
+        self.assertEqual(print_clickhouse_identifier("123"), "`123`")
         self.assertEqual(print_clickhouse_identifier("event"), "event")
         self.assertEqual(print_clickhouse_identifier("a b c"), "`a b c`")
         self.assertEqual(print_clickhouse_identifier("a.b.c"), "`a.b.c`")
@@ -66,6 +70,16 @@ class TestPrintString(BaseTest):
             "toDateTime('2020-02-02 03:02:02', 'Europe/Brussels')",
         )
         self.assertEqual(print_clickhouse_string(date.date()), "toDate('2020-02-02')")
+        self.assertEqual(print_clickhouse_string(1), "1")
+        self.assertEqual(print_clickhouse_string(-1), "-1")
+        self.assertEqual(print_clickhouse_string(float("inf")), "Inf")
+        self.assertEqual(print_clickhouse_string(float("nan")), "NaN")
+        self.assertEqual(print_clickhouse_string(float("-inf")), "-Inf")
+        self.assertEqual(print_clickhouse_string(float("123")), "123.0")
+        self.assertEqual(print_clickhouse_string(float("123.123")), "123.123")
+        self.assertEqual(print_clickhouse_string(float("-123.123")), "-123.123")
+        self.assertEqual(print_clickhouse_string(float("0.000000000000000001")), "1e-18")
+        self.assertEqual(print_clickhouse_string(float("234732482374928374923")), "2.3473248237492837e+20")
 
     def test_sanitize_hogql_string(self):
         self.assertEqual(print_hogql_string("a"), "'a'")
@@ -87,3 +101,13 @@ class TestPrintString(BaseTest):
         self.assertEqual(print_hogql_string(date), "toDateTime('2020-02-02 02:02:02')")
         self.assertEqual(print_hogql_string(date, timezone="Europe/Brussels"), "toDateTime('2020-02-02 03:02:02')")
         self.assertEqual(print_hogql_string(date.date()), "toDate('2020-02-02')")
+        self.assertEqual(print_hogql_string(1), "1")
+        self.assertEqual(print_hogql_string(-1), "-1")
+        self.assertEqual(print_hogql_string(float("inf")), "Inf")
+        self.assertEqual(print_hogql_string(float("nan")), "NaN")
+        self.assertEqual(print_hogql_string(float("-inf")), "-Inf")
+        self.assertEqual(print_hogql_string(float("123")), "123.0")
+        self.assertEqual(print_hogql_string(float("123.123")), "123.123")
+        self.assertEqual(print_hogql_string(float("-123.123")), "-123.123")
+        self.assertEqual(print_hogql_string(float("0.000000000000000001")), "1e-18")
+        self.assertEqual(print_hogql_string(float("234732482374928374923")), "2.3473248237492837e+20")
