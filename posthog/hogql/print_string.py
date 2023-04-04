@@ -79,7 +79,7 @@ class SQLValueEscaper:
         return f"toUUIDOrNull({self.visit(str(value))})"
 
     def visit_fakedatetime(self, value: datetime):
-        self.visit_datetime(value)
+        return self.visit_datetime(value)
 
     def visit_datetime(self, value: datetime):
         datetime_string = value.astimezone(pytz.timezone(self._timezone)).strftime("%Y-%m-%d %H:%M:%S")
