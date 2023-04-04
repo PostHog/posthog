@@ -286,6 +286,7 @@ HOGQL_AGGREGATIONS = {
     "argMin": 2,
     # TODO: more aggregate functions?
 }
+ADD_TIMEZONE_TO_FUNCTIONS = ("now", "now64", "NOW", "toDateTime")
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
 

@@ -6,7 +6,13 @@ from typing import List, Literal, Optional, Union, cast
 
 from ee.clickhouse.materialized_columns.columns import TablesWithMaterializedColumns, get_materialized_columns
 from posthog.hogql import ast
-from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS, HogQLSettings
+from posthog.hogql.constants import (
+    CLICKHOUSE_FUNCTIONS,
+    HOGQL_AGGREGATIONS,
+    MAX_SELECT_RETURNED_ROWS,
+    HogQLSettings,
+    ADD_TIMEZONE_TO_FUNCTIONS,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database import Table, create_hogql_database
 from posthog.hogql.escape_sql import (
@@ -414,7 +420,7 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
-                if node.name == "now" or node.name == "now64" or node.name == "NOW" or node.name == "toDateTime":
+                if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
                 return f"{clickhouse_name}({', '.join(args)})"
             else:
