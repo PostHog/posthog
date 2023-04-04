@@ -170,12 +170,7 @@ export const funnelLogic = kea<funnelLogicType>({
         // Correlation related actions
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
-        setCorrelationDetailedFeedback: (comment: string) => ({ comment }),
-        setCorrelationFeedbackRating: (rating: number) => ({ rating }),
-        setCorrelationDetailedFeedbackVisible: (visible: boolean) => ({ visible }),
-        sendCorrelationAnalysisFeedback: true,
         hideSkewWarning: true,
-        hideCorrelationAnalysisFeedback: true,
         setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
 
         setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
@@ -330,34 +325,6 @@ export const funnelLogic = kea<funnelLogicType>({
             false,
             {
                 hideSkewWarning: () => true,
-            },
-        ],
-        correlationFeedbackHidden: [
-            true,
-            {
-                // don't load the feedback form until after some results were loaded
-                loadEventCorrelations: () => false,
-                loadPropertyCorrelations: () => false,
-                sendCorrelationAnalysisFeedback: () => true,
-                hideCorrelationAnalysisFeedback: () => true,
-            },
-        ],
-        correlationDetailedFeedbackVisible: [
-            false,
-            {
-                setCorrelationDetailedFeedbackVisible: (_, { visible }) => visible,
-            },
-        ],
-        correlationFeedbackRating: [
-            0,
-            {
-                setCorrelationFeedbackRating: (_, { rating }) => rating,
-            },
-        ],
-        correlationDetailedFeedback: [
-            '',
-            {
-                setCorrelationDetailedFeedback: (_, { comment }) => comment,
             },
         ],
         eventWithPropertyCorrelations: {
@@ -1214,23 +1181,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 'set property names',
                 { property_names: propertyNames.length === values.allProperties.length ? '$all' : propertyNames }
             )
-        },
-        sendCorrelationAnalysisFeedback: () => {
-            eventUsageLogic.actions.reportCorrelationAnalysisDetailedFeedback(
-                values.correlationFeedbackRating,
-                values.correlationDetailedFeedback
-            )
-            actions.setCorrelationFeedbackRating(0)
-            actions.setCorrelationDetailedFeedback('')
-            lemonToast.success('Thanks for your feedback! Your comments help us improve')
-        },
-        setCorrelationFeedbackRating: ({ rating }) => {
-            const feedbackBoxVisible = rating > 0
-            actions.setCorrelationDetailedFeedbackVisible(feedbackBoxVisible)
-            if (feedbackBoxVisible) {
-                // Don't send event when resetting reducer
-                eventUsageLogic.actions.reportCorrelationAnalysisFeedback(rating)
-            }
         },
         [visibilitySensorLogic({ id: values.correlationPropKey }).actionTypes.setVisible]: async (
             {
