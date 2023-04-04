@@ -33,7 +33,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                         <FunnelCorrelationSkewWarning />
                     )}
                     {!isUsingDataExploration && <FunnelCorrelationTable />}
-                    {!isUsingDataExploration && <FunnelCorrelationFeedbackForm />}
+                    <FunnelCorrelationFeedbackForm />
                     {!isUsingDataExploration && <FunnelPropertyCorrelationTable />}
                 </div>
             </PayGateMini>
