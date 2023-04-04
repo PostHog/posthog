@@ -211,6 +211,10 @@ jobs:
 
             - name: Run migrations up to master
               run: |
+                  # We need to ensure we have requirements for the master branch
+                  # now also, so we can run migrations up to master.
+                  python -m pip install -r requirements-dev.txt
+                  python -m pip install -r requirements.txt
                   python manage.py migrate
 
             - uses: actions/checkout@v3
