@@ -39,6 +39,10 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
     actions({
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         excludeEventFromProject: (eventName: string) => ({ eventName }),
+
+        excludeEventPropertyFromProject: (eventName: string, propertyName: string) => ({ eventName, propertyName }),
+        addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
+        removeNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
     }),
     defaults({
         // This is a hack to get `FunnelCorrelationResultsType` imported in `funnelCorrelationLogicType.ts`
@@ -107,6 +111,20 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
             false,
             {
                 loadEventCorrelations: () => true,
+            },
+        ],
+        nestedTableExpandedKeys: [
+            [] as string[],
+            {
+                removeNestedTableExpandedKey: (state, { expandKey }) => {
+                    return state.filter((key) => key !== expandKey)
+                },
+                addNestedTableExpandedKey: (state, { expandKey }) => {
+                    return [...state, expandKey]
+                },
+                loadEventCorrelationsSuccess: () => {
+                    return []
+                },
             },
         ],
         eventWithPropertyCorrelations: {

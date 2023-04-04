@@ -151,10 +151,6 @@ export const funnelLogic = kea<funnelLogicType>({
             series,
             converted,
         }),
-        openCorrelationPersonsModal: (correlation: FunnelCorrelation, success: boolean) => ({
-            correlation,
-            success,
-        }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         changeStepRange: (funnel_from_step?: number, funnel_to_step?: number) => ({
             funnel_from_step,
@@ -163,18 +159,6 @@ export const funnelLogic = kea<funnelLogicType>({
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
         toggleAdvancedMode: true,
-
-        // Correlation related actions
-        setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
-        hideSkewWarning: true,
-        setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
-
-        setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
-        excludePropertyFromProject: (propertyName: string) => ({ propertyName }),
-        excludeEventPropertyFromProject: (eventName: string, propertyName: string) => ({ eventName, propertyName }),
-
-        addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
-        removeNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
 
         showTooltip: (
             origin: [number, number, number],
@@ -186,6 +170,17 @@ export const funnelLogic = kea<funnelLogicType>({
             series,
         }),
         hideTooltip: true,
+
+        // Correlation related actions
+        hideSkewWarning: true,
+        setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
+        setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
+        excludePropertyFromProject: (propertyName: string) => ({ propertyName }),
+        openCorrelationPersonsModal: (correlation: FunnelCorrelation, success: boolean) => ({
+            correlation,
+            success,
+        }),
     }),
     defaults: {
         // This is a hack to get `FunnelCorrelationResultsType` imported in `funnelLogicType.ts`
@@ -266,20 +261,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 setPropertyNames: (_, { propertyNames }) => propertyNames,
                 excludePropertyFromProject: (selectedProperties, { propertyName }) => {
                     return selectedProperties.filter((p) => p !== propertyName)
-                },
-            },
-        ],
-        nestedTableExpandedKeys: [
-            [] as string[],
-            {
-                removeNestedTableExpandedKey: (state, { expandKey }) => {
-                    return state.filter((key) => key !== expandKey)
-                },
-                addNestedTableExpandedKey: (state, { expandKey }) => {
-                    return [...state, expandKey]
-                },
-                loadEventCorrelationsSuccess: () => {
-                    return []
                 },
             },
         ],
