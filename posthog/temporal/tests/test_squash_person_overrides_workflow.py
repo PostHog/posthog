@@ -652,24 +652,6 @@ async def test_delete_squashed_person_overrides_from_clickhouse(activity_environ
 
 
 @pytest.fixture
-def setup_postgres(request):
-    """Attempt to setup Postgres database for testing.
-
-    The django_db_setup fixture provided by pytest-django is shadowed by our own, that only
-    sets up ClickHouse, not Postgres.
-    """
-    from django.test.utils import setup_databases, teardown_databases  # type:ignore
-
-    # setup_databases definetely exists, unsure why mypy is saying it doesn't
-
-    db_cfg = setup_databases(verbosity=request.config.option.verbose, interactive=False)
-
-    yield
-
-    teardown_databases(db_cfg, verbosity=request.config.option.verbose)
-
-
-@pytest.fixture
 def organization_uuid():
     """Create an Organization and return its UUID.
 
@@ -683,7 +665,7 @@ def organization_uuid():
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO posthog_organization (
+                INSERT INTO posthog.public.posthog_organization (
                     id,
                     name,
                     created_at,
@@ -719,7 +701,7 @@ def organization_uuid():
 
     with psycopg2.connect(settings.DATABASE_URL) as connection:
         with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM posthog_organization WHERE id = %s", [organization_uuid])
+            cursor.execute("DELETE FROM posthog.public.posthog_organization WHERE id = %s", [organization_uuid])
 
 
 @pytest.fixture
@@ -734,7 +716,7 @@ def team_id(organization_uuid):
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO posthog_team (
+                INSERT INTO posthog.public.posthog_team (
                     api_token,
                     name,
                     opt_out_capture,
@@ -794,7 +776,7 @@ def team_id(organization_uuid):
 
     with psycopg2.connect(settings.DATABASE_URL) as connection:
         with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM posthog_team WHERE id = %s", [team_id])
+            cursor.execute("DELETE FROM posthog.public.posthog_team WHERE id = %s", [team_id])
 
 
 @pytest.fixture
@@ -815,7 +797,7 @@ def person_overrides(team_id):
             for person_uuid in (override_person_id, old_person_id):
                 cursor.execute(
                     """
-                    INSERT INTO posthog_personoverridemapping(
+                    INSERT INTO posthog.public.posthog_personoverridemapping(
                         team_id,
                         uuid
                     )
@@ -832,7 +814,7 @@ def person_overrides(team_id):
 
             cursor.execute(
                 """
-                INSERT INTO posthog_personoverride(
+                INSERT INTO posthog.public.posthog_personoverride(
                     team_id,
                     old_person_id,
                     override_person_id,
@@ -859,11 +841,11 @@ def person_overrides(team_id):
     with psycopg2.connect(settings.DATABASE_URL) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
-                "DELETE FROM posthog_personoverride WHERE team_id = %s AND old_person_id = %s",
+                "DELETE FROM posthog.public.posthog_personoverride WHERE team_id = %s AND old_person_id = %s",
                 [team_id, person_ids[1]],
             )
             cursor.execute(
-                "DELETE FROM posthog_personoverridemapping WHERE team_id = %s AND (uuid = %s OR uuid = %s)",
+                "DELETE FROM posthog.public.posthog_personoverridemapping WHERE team_id = %s AND (uuid = %s OR uuid = %s)",
                 [team_id, old_person_id, override_person_id],
             )
 
