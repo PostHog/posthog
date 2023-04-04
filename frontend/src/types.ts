@@ -1064,6 +1064,7 @@ export interface BillingProductV2Type {
     description: string
     price_description: string | null
     image_url: string | null
+    docs_url: string | null
     free_allocation: number
     subscribed: boolean
     tiers: BillingV2TierType[] | null
@@ -1078,7 +1079,7 @@ export interface BillingProductV2Type {
     has_exceeded_limit: boolean
     unit: string
     unit_amount_usd: string | null
-    plans: string[]
+    plans: BillingV2PlanType[]
     feature_groups: {
         // deprecated, remove after removing the billing plans table
         group: string
@@ -1093,6 +1094,7 @@ export interface BillingProductV2AddonType {
     description: string
     price_description: string | null
     image_url: string | null
+    docs_url: string | null
     type: string
     tiers: BillingV2TierType[] | null
     tiered: boolean
@@ -1103,7 +1105,7 @@ export interface BillingProductV2AddonType {
     current_usage: number
     projected_usage: number | null
     projected_amount_usd: string | null
-    plans: string[]
+    plans: BillingV2PlanType[]
 }
 export interface BillingV2Type {
     customer_id: string
@@ -1137,6 +1139,8 @@ export interface BillingV2PlanType {
     description: string
     is_free?: boolean
     products: BillingProductV2Type[]
+    plan_key?: string
+    current_plan?: any
 }
 
 export interface PlanInterface {
