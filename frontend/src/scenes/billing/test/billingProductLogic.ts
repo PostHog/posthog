@@ -46,7 +46,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         customLimitUsd: [
             (s, p) => [s.billing, p.product],
             (billing, product) => {
-                return billing?.custom_limits_usd?.[product.type]
+                return billing?.custom_limits_usd?.[product.type] || billing?.custom_limits_usd?.[product.usage_key]
             },
         ],
         showBillingLimitInput: [
