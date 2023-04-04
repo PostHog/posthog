@@ -134,6 +134,29 @@ class TestPrinter(BaseTest):
             "properties.'no strings'", "mismatched input ''no strings'' expecting DECIMAL_LITERAL", "hogql"
         )
 
+    def test_hogql_properties_json(self):
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+
+        materialize("events", "withmat")
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(
+            self._expr("properties.withmat.json.yet", context),
+            "replaceRegexpAll(JSONExtractRaw(events.mat_withmat, %(hogql_val_0)s, %(hogql_val_1)s), '^\"|\"$', '')",
+        )
+        self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
+
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(
+            self._expr("properties.nomat.json.yet", context),
+            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), '^\"|\"$', '')",
+        )
+        self.assertEqual(context.values, {"hogql_val_0": "nomat", "hogql_val_1": "json", "hogql_val_2": "yet"})
+
     def test_materialized_fields_and_properties(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
@@ -180,7 +203,6 @@ class TestPrinter(BaseTest):
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
-        self._assert_expr_error("properties.no.json.yet", "JSON property traversal is not yet supported")
 
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")

@@ -223,14 +223,14 @@ class FieldRef(Ref):
         if database_field is None:
             raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
-            return PropertyRef(name=name, parent=self)
+            return PropertyRef(chain=[name], parent=self)
         raise ValueError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
 
 
 class PropertyRef(Ref):
-    name: str
+    chain: List[str]
     parent: FieldRef
 
     # The property has been moved into a field we query from a joined subquery
@@ -238,10 +238,10 @@ class PropertyRef(Ref):
     joined_subquery_field_name: Optional[str]
 
     def get_child(self, name: str) -> "Ref":
-        raise NotImplementedError("JSON property traversal is not yet supported")
+        return PropertyRef(chain=self.chain + [name], parent=self.parent)
 
     def has_child(self, name: str) -> bool:
-        return False
+        return True
 
 
 class Alias(Expr):
