@@ -66,11 +66,8 @@ class PropertyFinder(TraversingVisitor):
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
-        ref = node.ref
-        if isinstance(ref, ast.FieldRef):
-            child = ref.resolve_database_field()
-            if isinstance(child, DateTimeDatabaseField):
-                self.found_timestamps = True
+        if isinstance(node.ref, ast.FieldRef) and isinstance(node.ref.resolve_database_field(), DateTimeDatabaseField):
+            self.found_timestamps = True
 
 
 class PropertySwapper(CloningVisitor):
