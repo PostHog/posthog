@@ -30,7 +30,7 @@ def escape_param_clickhouse(value: str) -> str:
 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes. Added a $.
-def print_hogql_identifier(identifier: str) -> str:
+def escape_hogql_identifier(identifier: str) -> str:
     # HogQL allows dollars in the identifier.
     if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier):
         return identifier
@@ -38,20 +38,20 @@ def print_hogql_identifier(identifier: str) -> str:
 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
-def print_clickhouse_identifier(identifier: str) -> str:
+def escape_clickhouse_identifier(identifier: str) -> str:
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
         return identifier
     return "`%s`" % "".join(backquote_escape_chars_map.get(c, c) for c in identifier)
 
 
-def print_hogql_string(
-    name: float | int | str | list | tuple | date | datetime | UUID, timezone: Optional[str] = None
+def escape_hogql_string(
+    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT, timezone: Optional[str] = None
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="hogql").visit(name)
 
 
-def print_clickhouse_string(
-    name: float | int | str | list | tuple | date | datetime | UUID, timezone: Optional[str] = None
+def escape_clickhouse_string(
+    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT, timezone: Optional[str] = None
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="clickhouse").visit(name)
 

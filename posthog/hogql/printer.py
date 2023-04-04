@@ -9,11 +9,11 @@ from posthog.hogql import ast
 from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS, HogQLSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database import Table, create_hogql_database
-from posthog.hogql.print_string import (
-    print_clickhouse_identifier,
-    print_hogql_identifier,
-    print_clickhouse_string,
-    print_hogql_string,
+from posthog.hogql.escape_sql import (
+    escape_clickhouse_identifier,
+    escape_clickhouse_string,
+    escape_hogql_identifier,
+    escape_hogql_string,
 )
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_refs
 from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
@@ -587,13 +587,13 @@ class _Printer(Visitor):
 
     def _print_identifier(self, name: str) -> str:
         if self.dialect == "clickhouse":
-            return print_clickhouse_identifier(name)
-        return print_hogql_identifier(name)
+            return escape_clickhouse_identifier(name)
+        return escape_hogql_identifier(name)
 
     def _print_escaped_string(self, name: float | int | str | list | tuple | datetime) -> str:
         if self.dialect == "clickhouse":
-            return print_clickhouse_string(name, timezone=self._get_timezone())
-        return print_hogql_string(name, timezone=self._get_timezone())
+            return escape_clickhouse_string(name, timezone=self._get_timezone())
+        return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _get_materialized_column(
         self, table_name: TablesWithMaterializedColumns, property_name: PropertyName, field_name: TableColumn
