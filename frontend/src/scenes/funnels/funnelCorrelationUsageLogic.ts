@@ -2,13 +2,15 @@ import { BreakPointFunction, connect, kea, key, listeners, path, props, reducers
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { EntityTypes, FunnelCorrelationResultsType, InsightLogicProps } from '~/types'
+import { EntityTypes, FunnelCorrelationResultsType, FunnelsFilterType, InsightLogicProps } from '~/types'
 import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 
 import type { funnelCorrelationUsageLogicType } from './funnelCorrelationUsageLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { parseEventAndProperty } from './funnelUtils'
+import { funnelLogic } from './funnelLogic'
+import { funnelDataLogic } from './funnelDataLogic'
 
 export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>([
     props({} as InsightLogicProps),
@@ -18,9 +20,25 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
     connect((props: InsightLogicProps) => ({
         logic: [eventUsageLogic],
 
+        values: [insightLogic(props), ['filters', 'isInDashboardContext'], funnelLogic(props), ['allProperties']],
+
         actions: [
             insightLogic(props),
             ['loadResultsSuccess'],
+            funnelLogic(props),
+            [
+                'hideSkewWarning as legacyHideSkewWarning',
+                'setCorrelationTypes',
+                'excludeEventFromProject',
+                'setPropertyCorrelationTypes',
+                'excludePropertyFromProject',
+                'setPropertyNames',
+                'loadEventWithPropertyCorrelations',
+                'excludeEventPropertyFromProject',
+                'openCorrelationPersonsModal',
+            ],
+            funnelDataLogic(props),
+            ['hideSkewWarning'],
             insightDataLogic(props),
             ['loadDataSuccess'],
             eventUsageLogic,
@@ -34,12 +52,10 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
             {
                 loadResultsSuccess: () => true,
                 loadDataSuccess: () => true,
-                // [eventUsageLogic.actionTypes.reportCorrelationViewed]: (current, { propertiesTable }) => {
-                //     if (!propertiesTable) {
-                //         return false
-                //     }
-                //     return current
-                // },
+                reportCorrelationViewed: (current, { propertiesTable }) => {
+                    const correlationViewed = !propertiesTable
+                    return correlationViewed ? false : current
+                },
             },
         ],
         shouldReportPropertyCorrelationViewed: [
@@ -47,12 +63,10 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
             {
                 loadResultsSuccess: () => true,
                 loadDataSuccess: () => true,
-                // [eventUsageLogic.actionTypes.reportCorrelationViewed]: (current, { propertiesTable }) => {
-                //     if (propertiesTable) {
-                //         return false
-                //     }
-                //     return current
-                // },
+                reportCorrelationViewed: (current, { propertiesTable }) => {
+                    const propertyCorrelationViewed = !!propertiesTable
+                    return propertyCorrelationViewed ? false : current
+                },
             },
         ],
     }),
@@ -64,28 +78,24 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
         ],
     }),
 
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
         // skew warning
+        legacyHideSkewWarning: () => {
+            actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'hide skew warning')
+        },
         hideSkewWarning: () => {
-            eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.Events,
-                'hide skew warning'
-            )
+            actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'hide skew warning')
         },
 
         // event correlation
         [visibilitySensorLogic({ id: values.correlationPropKey }).actionTypes.setVisible]: async (
-            {
-                visible,
-            }: {
-                visible: boolean
-            },
+            { visible }: { visible: boolean },
             breakpoint: BreakPointFunction
         ) => {
             if (visible && values.shouldReportCorrelationViewed) {
-                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0)
+                actions.reportCorrelationViewed(values.filters, 0)
                 await breakpoint(10000)
-                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10)
+                actions.reportCorrelationViewed(values.filters, 10)
             }
         },
         setCorrelationTypes: ({ types }) => {
@@ -103,17 +113,13 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
 
         // property correlation
         [visibilitySensorLogic({ id: `${values.correlationPropKey}-properties` }).actionTypes.setVisible]: async (
-            {
-                visible,
-            }: {
-                visible: boolean
-            },
+            { visible }: { visible: boolean },
             breakpoint: BreakPointFunction
         ) => {
             if (visible && values.shouldReportPropertyCorrelationViewed) {
-                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0, true)
+                actions.reportCorrelationViewed(values.filters, 0, true)
                 await breakpoint(10000)
-                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10, true)
+                actions.reportCorrelationViewed(values.filters, 10, true)
             }
         },
         setPropertyCorrelationTypes: ({ types }) => {
@@ -134,13 +140,11 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
         },
 
         // event property correlation
-        excludeEventPropertyFromProject: async ({ propertyName }) => {
+        setPropertyNames: async ({ propertyNames }) => {
             eventUsageLogic.actions.reportCorrelationInteraction(
-                FunnelCorrelationResultsType.EventWithProperties,
-                'exclude event property',
-                {
-                    property_name: propertyName,
-                }
+                FunnelCorrelationResultsType.Properties,
+                'set property names',
+                { property_names: propertyNames.length === values.allProperties.length ? '$all' : propertyNames }
             )
         },
         loadEventWithPropertyCorrelations: async (eventName: string) => {
@@ -150,14 +154,15 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
                 { name: eventName }
             )
         },
-
-        // setPropertyNames: async ({ propertyNames }) => {
-        //     eventUsageLogic.actions.reportCorrelationInteraction(
-        //         FunnelCorrelationResultsType.Properties,
-        //         'set property names',
-        //         { property_names: propertyNames.length === values.allProperties.length ? '$all' : propertyNames }
-        //     )
-        // },
+        excludeEventPropertyFromProject: async ({ propertyName }) => {
+            eventUsageLogic.actions.reportCorrelationInteraction(
+                FunnelCorrelationResultsType.EventWithProperties,
+                'exclude event property',
+                {
+                    property_name: propertyName,
+                }
+            )
+        },
 
         // person modal
         openCorrelationPersonsModal: ({ correlation, success }) => {
@@ -169,7 +174,7 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
                 eventUsageLogic.actions.reportCorrelationInteraction(
                     FunnelCorrelationResultsType.Properties,
                     'person modal',
-                    values.filters.funnel_correlation_person_entity
+                    (values.filters as FunnelsFilterType)?.funnel_correlation_person_entity
                 )
             } else {
                 const { name, properties } = parseEventAndProperty(correlation.event)

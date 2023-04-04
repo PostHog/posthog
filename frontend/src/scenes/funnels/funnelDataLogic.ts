@@ -39,7 +39,6 @@ import {
 } from './funnelUtils'
 import { BIN_COUNT_AUTO } from 'lib/constants'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { funnelCorrelationUsageLogic } from './funnelCorrelationUsageLogic'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
@@ -65,7 +64,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ['aggregationLabel'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
-        logic: [funnelCorrelationUsageLogic(props)],
     })),
 
     actions({

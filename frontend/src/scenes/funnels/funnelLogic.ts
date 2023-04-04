@@ -63,7 +63,6 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
-import { funnelCorrelationUsageLogic } from './funnelCorrelationUsageLogic'
 
 // List of events that should be excluded, if we don't have an explicit list of
 // excluded properties. Copied from
@@ -113,8 +112,8 @@ export const funnelLogic = kea<funnelLogicType>({
             groupPropertiesModel,
             ['groupProperties'],
         ],
-        actions: [insightLogic(props), ['loadResults', 'toggleVisibility']],
-        logic: [dashboardsModel, funnelCorrelationUsageLogic(props)],
+        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility']],
+        logic: [dashboardsModel],
     }),
 
     actions: () => ({
