@@ -11,11 +11,12 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { parseEventAndProperty } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { funnelDataLogic } from './funnelDataLogic'
+import { funnelCorrelationLogic } from './funnelCorrelationLogic'
 
 export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('insight_funnel')),
-    path((key) => ['scenes', 'funnels', 'funnelCorrelationFeedbackLogic', key]),
+    path((key) => ['scenes', 'funnels', 'funnelCorrelationUsageLogic', key]),
 
     connect((props: InsightLogicProps) => ({
         logic: [eventUsageLogic],
@@ -28,15 +29,14 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
             funnelLogic(props),
             [
                 'hideSkewWarning as legacyHideSkewWarning',
-                'setCorrelationTypes',
-                'excludeEventFromProject',
                 'setPropertyCorrelationTypes',
                 'excludePropertyFromProject',
                 'setPropertyNames',
-                'loadEventWithPropertyCorrelations',
                 'excludeEventPropertyFromProject',
                 'openCorrelationPersonsModal',
             ],
+            funnelCorrelationLogic(props),
+            ['setCorrelationTypes', 'excludeEventFromProject', 'loadEventWithPropertyCorrelations'],
             funnelDataLogic(props),
             ['hideSkewWarning'],
             insightDataLogic(props),

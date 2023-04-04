@@ -24,18 +24,18 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('insight_funnel')),
     path((key) => ['scenes', 'funnels', 'funnelCorrelationLogic', key]),
-    connect({
+    connect((props: InsightLogicProps) => ({
         values: [
-            insightLogic,
+            insightLogic(props),
             ['isUsingDataExploration'],
-            funnelLogic,
+            funnelLogic(props),
             ['filters'],
-            funnelDataLogic,
+            funnelDataLogic(props),
             ['querySource'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
         ],
-    }),
+    })),
     actions({
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         excludeEventFromProject: (eventName: string) => ({ eventName }),
@@ -69,6 +69,28 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                     } catch (error) {
                         lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })
                         return { events: [] }
+                    }
+                },
+            },
+        ],
+        eventWithPropertyCorrelations: [
+            {} as Record<string, FunnelCorrelation[]>,
+            {
+                loadEventWithPropertyCorrelations: async (eventName: string) => {
+                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                        await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
+                            ...values.apiParams,
+                            funnel_correlation_type: 'event_with_properties',
+                            funnel_correlation_event_names: [eventName],
+                            funnel_correlation_event_exclude_property_names: values.excludedEventPropertyNames,
+                        })
+                    ).result?.events
+
+                    return {
+                        [eventName]: results.map((result) => ({
+                            ...result,
+                            result_type: FunnelCorrelationResultsType.EventWithProperties,
+                        })),
                     }
                 },
             },
@@ -143,6 +165,57 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
             (s) => [s.excludedEventNames],
             (excludedEventNames) => (eventName: string) =>
                 excludedEventNames.find((name) => name === eventName) !== undefined,
+        ],
+        isEventPropertyExcluded: [
+            (s) => [s.excludedEventPropertyNames],
+            (excludedEventPropertyNames) => (propertyName: string) =>
+                excludedEventPropertyNames.find((name) => name === propertyName) !== undefined,
+        ],
+        excludedEventPropertyNames: [
+            (s) => [s.currentTeam],
+            (currentTeam): string[] => currentTeam?.correlation_config?.excluded_event_property_names || [],
+        ],
+
+        eventWithPropertyCorrelationsValues: [
+            (s) => [s.eventWithPropertyCorrelations, s.correlationTypes, s.excludedEventPropertyNames],
+            (
+                eventWithPropertyCorrelations,
+                correlationTypes,
+                excludedEventPropertyNames
+            ): Record<string, FunnelCorrelation[]> => {
+                const eventWithPropertyCorrelationsValues: Record<string, FunnelCorrelation[]> = {}
+                for (const key in eventWithPropertyCorrelations) {
+                    if (eventWithPropertyCorrelations.hasOwnProperty(key)) {
+                        eventWithPropertyCorrelationsValues[key] = eventWithPropertyCorrelations[key]
+                            ?.filter(
+                                (correlation) =>
+                                    correlationTypes.includes(correlation.correlation_type) &&
+                                    !excludedEventPropertyNames.includes(correlation.event.event.split('::')[1])
+                            )
+                            .map((value) => {
+                                return {
+                                    ...value,
+                                    odds_ratio:
+                                        value.correlation_type === FunnelCorrelationType.Success
+                                            ? value.odds_ratio
+                                            : 1 / value.odds_ratio,
+                                }
+                            })
+                            .sort((first, second) => {
+                                return second.odds_ratio - first.odds_ratio
+                            })
+                    }
+                }
+                return eventWithPropertyCorrelationsValues
+            },
+        ],
+        eventHasPropertyCorrelations: [
+            (s) => [s.eventWithPropertyCorrelationsValues],
+            (eventWithPropertyCorrelationsValues): ((eventName: string) => boolean) => {
+                return (eventName) => {
+                    return !!eventWithPropertyCorrelationsValues[eventName]
+                }
+            },
         ],
     }),
     listeners(({ values }) => ({
