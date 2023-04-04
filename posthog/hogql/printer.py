@@ -412,20 +412,25 @@ class _Printer(Visitor):
             return f"{node.name}({translated_args})"
 
         elif node.name in CLICKHOUSE_FUNCTIONS:
+            clickhouse_name, min_args, max_args = CLICKHOUSE_FUNCTIONS[node.name]
             args = [self.visit(arg) for arg in node.args]
 
+            if min_args is not None and len(args) < min_args:
+                if min_args == max_args:
+                    raise ValueError(f"Function '{node.name}' expects {min_args} arguments. Passed {len(args)}.")
+                raise ValueError(f"Function '{node.name}' expects at least {min_args} arguments. Passed {len(args)}.")
+
+            if max_args is not None and len(args) > max_args:
+                if min_args == max_args:
+                    raise ValueError(f"Function '{node.name}' expects {max_args} arguments. Passed {len(args)}.")
+                raise ValueError(
+                    f"Function '{node.name}' expects at most least {max_args} arguments. Passed {len(args)}."
+                )
+
             if self.dialect == "clickhouse":
-                if node.name == "now" or node.name == "NOW":
-                    if len(args) != 0:
-                        raise ValueError(f"Function '{node.name}' expects no arguments.")
+                if node.name == "now" or node.name == "NOW" or node.name == "toDateTime":
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
-
-                if node.name == "toDateTime":
-                    if len(args) != 1:
-                        raise ValueError(f"Function '{node.name}' expects only one argument.")
-                    args.append(self.visit(ast.Constant(value=self._get_timezone())))
-
-                return f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join(args)})"
+                return f"{clickhouse_name}({', '.join(args)})"
             else:
                 return f"{node.name}({', '.join(args)})"
         else:
