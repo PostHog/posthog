@@ -600,6 +600,59 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "first-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # different hash, overridden by distinct_id, same variant assigned
 
+    def test_feature_flags_v3_consistent_flags_with_numeric_distinct_ids(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        Person.objects.create(team=self.team, distinct_ids=[1], properties={"email": "tim@posthog.com"})
+        Person.objects.create(team=self.team, distinct_ids=[12345, "xyz"], properties={"email": "tim@posthog.com"})
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+
+        # caching flag definitions mean fewer queries
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=2)
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+
+        with self.assertNumQueries(9):
+            response = self._post_decide(
+                api_version=2,
+                data={"token": self.team.api_token, "distinct_id": 12345, "$anon_distinct_id": "example_id"},
+            )
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+
+        with self.assertNumQueries(9):
+            response = self._post_decide(
+                api_version=2,
+                data={"token": self.team.api_token, "distinct_id": "xyz", "$anon_distinct_id": 12345},
+            )
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+
+        with self.assertNumQueries(9):
+            response = self._post_decide(
+                api_version=2,
+                data={"token": self.team.api_token, "distinct_id": 5, "$anon_distinct_id": 12345},
+            )
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+
     def test_feature_flags_v2_consistent_flags_with_ingestion_delays(self):
         self.team.app_urls = ["https://example.com"]
         self.team.save()

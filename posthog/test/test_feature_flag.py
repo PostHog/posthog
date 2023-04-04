@@ -1997,7 +1997,8 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase):
                 for index in range(5)
             }
             for future in concurrent.futures.as_completed(future_to_index):
-                flags, reasons, payloads, _ = future.result()
+                flags, reasons, payloads, errors = future.result()
+                assert errors is False
                 assert flags == {
                     "beta-feature": True,
                     "multivariate-flag": "first-variant",
@@ -2005,6 +2006,80 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase):
                 }
 
                 # the failure mode is when this raises an `IntegrityError` because the hash key override was racy
+
+    def test_hash_key_overrides_with_race_conditions_on_person_creation_and_deletion(self):
+        org = Organization.objects.create(name="test")
+        user = User.objects.create_and_join(org, "a@b.com", "kkk")
+        team = Team.objects.create(organization=org)
+
+        FeatureFlag.objects.create(
+            team=team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+
+        person1 = Person.objects.create(
+            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+        person2 = Person.objects.create(
+            team=team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+
+        def delete_and_add(person, person2, distinct_id):
+            FeatureFlagHashKeyOverride.objects.filter(person=person).delete()
+            Person.objects.filter(id=person.id).delete()
+            person2.add_distinct_id(distinct_id)
+            return True, "deleted and added", {}, False
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_index = {
+                executor.submit(get_all_feature_flags, team.pk, "other_id", {}, hash_key_override="example_id"): index
+                for index in range(5)
+            }
+
+            future_to_index = {
+                executor.submit(delete_and_add, person1, person2, "example_id"): 10,
+                **future_to_index,
+            }
+            for future in concurrent.futures.as_completed(future_to_index):
+                flags, reasons, payloads, errors = future.result()
+                if flags is not True:  # type: ignore
+                    assert errors is False
+                    assert flags == {
+                        "beta-feature": True,
+                        "multivariate-flag": "first-variant",
+                        "default-flag": True,
+                    }
+
+                # the failure mode is when this raises an `IntegrityError` because the hash key override was racy
+                # or if the insert fails because person was deleted
 
 
 class TestFeatureFlagMatcherConsistency(BaseTest):
