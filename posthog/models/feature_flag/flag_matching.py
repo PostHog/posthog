@@ -482,6 +482,7 @@ def get_all_feature_flags(
     # we want to store it in the database, and then use it in the read-path to get flags with experience continuity enabled.
     if hash_key_override is not None:
         try:
+            hash_key_override = str(hash_key_override)
             # make the entire hash key override logic a single transaction
             # with a small timeout
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as timeout_cursor:
@@ -512,7 +513,7 @@ def get_all_feature_flags(
         with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
             target_distinct_ids = [distinct_id]
             if hash_key_override is not None:
-                target_distinct_ids.append(hash_key_override)
+                target_distinct_ids.append(str(hash_key_override))
             person_overrides = get_feature_flag_hash_key_overrides(team_id, target_distinct_ids)
 
     except Exception:
@@ -561,8 +562,10 @@ def set_feature_flag_hash_key_overrides(
         INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
             SELECT %(team_id)s, person_id, key, %(hash_key_override)s
             FROM flags_to_override, target_person_ids
+            WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = %(team_id)s)
             ON CONFLICT DO NOTHING
     """
+    # The EXISTS clause is to make sure we don't try to add overrides for deleted persons, as this results in erroring out.
 
     # :TRICKY: regarding the ON CONFLICT DO NOTHING clause:
     # This can happen if the same person is being processed by multiple workers
