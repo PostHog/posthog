@@ -496,3 +496,12 @@ class TestPrinter(BaseTest):
                 "hogql_val_4": "Europe/Brussels",
             },
         )
+
+    def test_print_timezone_gibberish(self):
+        self.team.timezone = "Europe/PostHogLandia"
+        self.team.save()
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        with self.assertRaises(ValueError) as error_context:
+            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context)
+        self.assertEqual(str(error_context.exception), "Unknown timezone: 'Europe/PostHogLandia'")
