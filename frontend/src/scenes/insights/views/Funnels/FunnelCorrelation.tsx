@@ -1,18 +1,21 @@
 import { useMountedLogic, useValues } from 'kea'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import './FunnelCorrelation.scss'
-import { AvailableFeature } from '~/types'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { FunnelCorrelationTable } from './FunnelCorrelationTable'
-import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
+
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import {
     FunnelCorrelationSkewWarning,
     FunnelCorrelationSkewWarningDataExploration,
 } from './FunnelCorrelationSkewWarning'
+import { FunnelCorrelationTable, FunnelCorrelationTableDataExploration } from './FunnelCorrelationTable'
 import { FunnelCorrelationFeedbackForm } from './FunnelCorrelationFeedbackForm'
-import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
+import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable'
+import { AvailableFeature } from '~/types'
+
+import './FunnelCorrelation.scss'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps, isUsingDataExploration } = useValues(insightLogic)
@@ -34,7 +37,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                     ) : (
                         <FunnelCorrelationSkewWarning />
                     )}
-                    {!isUsingDataExploration && <FunnelCorrelationTable />}
+                    {isUsingDataExploration ? <FunnelCorrelationTableDataExploration /> : <FunnelCorrelationTable />}
                     <FunnelCorrelationFeedbackForm />
                     {!isUsingDataExploration && <FunnelPropertyCorrelationTable />}
                 </div>

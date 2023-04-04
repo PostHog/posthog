@@ -5,7 +5,12 @@ import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
+import {
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelCorrelationType,
+    FunnelStepWithNestedBreakdown,
+} from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
@@ -21,32 +26,39 @@ import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyS
 import { EventCorrelationActionsCell } from './CorrelationActionsCell'
 import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
 
+import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { Noun } from '~/models/groupsModel'
 import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
+
+export function FunnelCorrelationTableDataExploration(): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { steps, querySource, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { loadedEventCorrelationsTableOnce } = useValues(funnelCorrelationLogic(insightProps))
+    const { loadEventCorrelations } = useActions(funnelCorrelationLogic(insightProps))
+
+    // Load correlations only if this component is mounted, and then reload if query changes
+    useEffect(() => {
+        // We only automatically refresh results when the query changes after the user has manually asked for the first results to be loaded
+        if (loadedEventCorrelationsTableOnce) {
+            loadEventCorrelations({})
+        }
+    }, [querySource])
+
+    return (
+        <FunnelCorrelationTableComponent
+            steps={steps}
+            aggregation_group_type_index={querySource?.aggregation_group_type_index}
+            aggregationTargetLabel={aggregationTargetLabel}
+        />
+    )
+}
+
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const {
-        steps,
-        correlationValues,
-        correlationTypes,
-        eventHasPropertyCorrelations,
-        eventWithPropertyCorrelationsValues,
-        correlationsLoading,
-        eventWithPropertyCorrelationsLoading,
-        nestedTableExpandedKeys,
-        filters,
-        aggregationTargetLabel,
-        loadedEventCorrelationsTableOnce,
-    } = useValues(funnelLogic(insightProps))
-    const {
-        setCorrelationTypes,
-        loadEventWithPropertyCorrelations,
-        addNestedTableExpandedKey,
-        removeNestedTableExpandedKey,
-        openCorrelationPersonsModal,
-        loadEventCorrelations,
-    } = useActions(funnelLogic(insightProps))
-    const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
-    const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
+    const { steps, filters, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { loadedEventCorrelationsTableOnce } = useValues(funnelCorrelationLogic(insightProps))
+    const { loadEventCorrelations } = useActions(funnelCorrelationLogic(insightProps))
 
     // Load correlations only if this component is mounted, and then reload if filters change
     useEffect(() => {
@@ -55,6 +67,46 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             loadEventCorrelations({})
         }
     }, [filters])
+
+    return (
+        <FunnelCorrelationTableComponent
+            steps={steps}
+            aggregation_group_type_index={filters?.aggregation_group_type_index}
+            aggregationTargetLabel={aggregationTargetLabel}
+        />
+    )
+}
+
+type FunnelCorrelationTableComponentProps = {
+    steps: FunnelStepWithNestedBreakdown[]
+    aggregation_group_type_index?: number | undefined
+    aggregationTargetLabel: Noun
+}
+
+export function FunnelCorrelationTableComponent({
+    steps,
+    aggregation_group_type_index,
+    aggregationTargetLabel,
+}: FunnelCorrelationTableComponentProps): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const {
+        nestedTableExpandedKeys,
+        eventHasPropertyCorrelations,
+        eventWithPropertyCorrelationsValues,
+        eventWithPropertyCorrelationsLoading,
+    } = useValues(funnelLogic(insightProps))
+    const {
+        loadEventWithPropertyCorrelations,
+        addNestedTableExpandedKey,
+        removeNestedTableExpandedKey,
+        openCorrelationPersonsModal,
+    } = useActions(funnelLogic(insightProps))
+    const { correlationValues, correlationTypes, correlationsLoading, loadedEventCorrelationsTableOnce } = useValues(
+        funnelCorrelationLogic(insightProps)
+    )
+    const { setCorrelationTypes, loadEventCorrelations } = useActions(funnelCorrelationLogic(insightProps))
+    const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
+    const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (correlationTypes) {
@@ -94,7 +146,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 </h4>
                 <div>
                     {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                    {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
+                    {aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
                     <mark>
                         <b>
                             {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
@@ -256,7 +308,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         expandable={{
                             expandedRowRender: (record) => renderNestedTable(record.event.event),
                             expandedRowKeys: nestedTableExpandedKeys,
-                            rowExpandable: () => filters.aggregation_group_type_index === undefined,
+                            rowExpandable: () => aggregation_group_type_index === undefined,
                             expandIcon: ({ expanded, onExpand, record, expandable }) => {
                                 if (!expandable) {
                                     return null
@@ -307,7 +359,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                     Completed
                                     <Tooltip
                                         title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                            filters.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                            aggregation_group_type_index != undefined ? 'that' : 'who'
                                         } performed the event and completed the entire funnel.`}
                                     >
                                         <InfoCircleOutlined className="column-info" />
@@ -327,8 +379,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                         title={
                                             <>
                                                 {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                                                {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
-                                                performed the event and did <b>not complete</b> the entire funnel.
+                                                {aggregation_group_type_index != undefined ? 'that' : 'who'} performed
+                                                the event and did <b>not complete</b> the entire funnel.
                                             </>
                                         }
                                     >

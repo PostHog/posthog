@@ -17,12 +17,14 @@ import {
     ElementPropertyFilter,
     PropertyFilterType,
     FunnelCorrelationResultsType,
+    CorrelationConfigType,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
 import { FunnelsQuery } from '~/queries/schema'
 import { FunnelLayout } from 'lib/constants'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
+import { teamLogic } from 'scenes/teamLogic'
 
 /** Chosen via heuristics by eyeballing some values
  * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
@@ -589,4 +591,37 @@ export const parseDisplayNameForCorrelation = (
         // Events here come in the form of event::property::value
         return { first_value: values[1], second_value: values[2] }
     }
+}
+
+export const appendToCorrelationConfig = (
+    configKey: keyof CorrelationConfigType,
+    currentValue: string[],
+    configValue: string
+): void => {
+    // Helper to handle updating correlationConfig within the Team model. Only
+    // handles further appending to current values.
+
+    // When we exclude a property, we want to update the config stored
+    // on the current Team/Project.
+    const oldCurrentTeam = teamLogic.values.currentTeam
+
+    // If we haven't actually retrieved the current team, we can't
+    // update the config.
+    if (oldCurrentTeam === null || !currentValue) {
+        console.warn('Attempt to update correlation config without first retrieving existing config')
+        return
+    }
+
+    const oldCorrelationConfig = oldCurrentTeam.correlation_config
+
+    const configList = [...Array.from(new Set(currentValue.concat([configValue])))]
+
+    const correlationConfig = {
+        ...oldCorrelationConfig,
+        [configKey]: configList,
+    }
+
+    teamLogic.actions.updateCurrentTeam({
+        correlation_config: correlationConfig,
+    })
 }
