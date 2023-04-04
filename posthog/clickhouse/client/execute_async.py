@@ -159,7 +159,7 @@ def enqueue_execute_with_progress(
         if task_str:
             # if the status exists in redis we need to tell celery to kill the job
             task_str = task_str.decode("utf-8")
-            query_task = QueryStatus(**json.load(task_str))
+            query_task = QueryStatus(**json.loads(task_str))
             # Instruct celery to revoke task and terminate if running
             revoke(query_task.task_id, terminate=True)
             # Then we need to make redis forget about this job entirely
