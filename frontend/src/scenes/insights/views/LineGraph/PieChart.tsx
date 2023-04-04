@@ -193,7 +193,7 @@ export function PieChart({
 
                                 ReactDOM.render(
                                     <InsightTooltip
-                                        date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
+                                        date={undefined} // pie chart values aren't timeseries
                                         timezone={timezone}
                                         seriesData={seriesData}
                                         hideColorCol={!!tooltipConfig?.hideColorCol}

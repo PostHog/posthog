@@ -7,7 +7,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
-import { StickinessFilter, TrendsFilter } from '~/queries/schema'
+import { QueryContext, StickinessFilter, TrendsFilter } from '~/queries/schema'
 import { ChartDisplayType, FunnelVizType, ExporterFormat, InsightType, ItemMode } from '~/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -52,12 +52,14 @@ export function InsightContainer({
     // disableCorrelationTable,
     disableLastComputation,
     insightMode,
+    context,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
     disableCorrelationTable?: boolean
     disableLastComputation?: boolean
     insightMode?: ItemMode
+    context?: QueryContext
 }): JSX.Element {
     const {
         insightProps,
@@ -109,7 +111,7 @@ export function InsightContainer({
                 return <FunnelInvalidExclusionState />
             }
             if (!hasFunnelResults && !insightDataLoading) {
-                return <InsightEmptyState />
+                return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
             }
         }
 

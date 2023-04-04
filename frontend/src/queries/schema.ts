@@ -499,6 +499,8 @@ export interface QueryContext {
     showQueryEditor?: boolean
     /* Adds help and examples to the query editor component */
     showQueryHelp?: boolean
+    emptyStateHeading?: string
+    emptyStateDetail?: string
 }
 
 interface QueryContextColumn {

@@ -15,7 +15,7 @@ from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatchReason,
     FlagsMatcherCache,
     get_all_feature_flags,
-    hash_key_overrides,
+    get_feature_flag_hash_key_overrides,
     set_feature_flag_hash_key_overrides,
 )
 from posthog.models.group import Group
@@ -1826,11 +1826,10 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides(self):
 
-        all_feature_flags = list(FeatureFlag.objects.filter(team_id=self.team.pk))
-
-        set_feature_flag_hash_key_overrides(
-            all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
-        )
+        with connection.cursor() as cursor:
+            set_feature_flag_hash_key_overrides(
+                cursor, team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
+            )
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -1842,15 +1841,36 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_retrieving_hash_key_overrides(self):
 
-        all_feature_flags = list(FeatureFlag.objects.filter(team_id=self.team.pk))
+        with connection.cursor() as cursor:
+            set_feature_flag_hash_key_overrides(
+                cursor, team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
+            )
 
-        set_feature_flag_hash_key_overrides(
-            all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
-        )
-
-        hash_keys = hash_key_overrides(self.team.pk, self.person.id)
+        hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["example_id"])
 
         self.assertEqual(hash_keys, {"beta-feature": "other_id", "multivariate-flag": "other_id"})
+
+    def test_hash_key_overrides_for_multiple_ids_when_people_are_not_merged(self):
+
+        Person.objects.create(
+            team=self.team, distinct_ids=["1"], properties={"email": "beuk@posthog.com", "team": "posthog"}
+        )
+
+        Person.objects.create(
+            team=self.team, distinct_ids=["2"], properties={"email": "beuk2@posthog.com", "team": "posthog"}
+        )
+
+        with connection.cursor() as cursor:
+            set_feature_flag_hash_key_overrides(
+                cursor, team_id=self.team.pk, distinct_ids=["1"], hash_key_override="other_id1"
+            )
+            set_feature_flag_hash_key_overrides(
+                cursor, team_id=self.team.pk, distinct_ids=["2"], hash_key_override="aother_id2"
+            )
+
+        hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["1", "2"])
+
+        self.assertEqual(hash_keys, {"beta-feature": "other_id1", "multivariate-flag": "other_id1"})
 
     def test_setting_overrides_doesnt_balk_with_existing_overrides(self):
 
@@ -1868,9 +1888,10 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         )
 
         # and now we come to get new overrides
-        set_feature_flag_hash_key_overrides(
-            all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
-        )
+        with connection.cursor() as cursor:
+            set_feature_flag_hash_key_overrides(
+                cursor, team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
+            )
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -1879,6 +1900,20 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             res = cursor.fetchall()
             self.assertEqual(len(res), 3)
             self.assertEqual({var[0] for var in res}, {hash_key})
+
+    def test_setting_overrides_when_persons_dont_exist(self):
+
+        with connection.cursor() as cursor:
+            set_feature_flag_hash_key_overrides(
+                cursor, team_id=self.team.pk, distinct_ids=["1", "2", "3", "4"], hash_key_override="other_id"
+            )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
+            )
+            res = cursor.fetchall()
+            self.assertEqual(len(res), 0)
 
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'
