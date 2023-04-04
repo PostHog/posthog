@@ -4,6 +4,7 @@ import re
 import time
 from datetime import datetime
 from typing import Any, Dict, Iterator, List, Optional, Tuple
+from email.utils import parsedate_to_datetime
 
 import structlog
 from dateutil import parser
@@ -127,6 +128,33 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
 
 
 def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
+    """
+    Returns the approximation for the time that the events was sent, as viewed
+    by the client. This is used to calculate the time that the event was created
+    on the client, but in the servers time. i.e. we want to be able to calculate
+    the clock skew and update the `timestamp` field accordingly.
+
+    The calculation of the `timestamp` as viewed from the server is not
+    calculated here, rather we defer this to the `plugin-server`.
+
+    If possible we use the HTTP Date Header to get the time that the request was
+    sent. If this is not possible we fall back on other methods. Note that the
+    Date header is not in ISO8601 format, but rather in
+    https://www.rfc-editor.org/rfc/rfc5322.html#section-3.3 and is of the form:
+
+        Date: <day-name>, <day> <month> <year> <hour>:<minute>:<second> GMT
+
+    """
+    date_header = request.META.get("HTTP_DATE", None)
+
+    if date_header:
+        try:
+            sent_at = parsedate_to_datetime(date_header)
+            return sent_at, None
+        except ValueError as exc:
+            logger.warning("Failed to parse HTTP Date header", exc=exc)
+            pass
+
     try:
         if request.GET.get("_"):  # posthog-js
             sent_at = request.GET["_"]
@@ -451,11 +479,9 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
         Whether the given partition key should be used.
     """
     if settings.PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED:
-
         has_capacity = LIMITER.consume(candidate_partition_key)
 
         if has_capacity is False:
-
             if not LOG_RATE_LIMITER.consume(candidate_partition_key):
                 # Return early if we have logged this key already.
                 return True

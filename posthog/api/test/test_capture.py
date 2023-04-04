@@ -930,6 +930,77 @@ class TestCapture(BaseTest):
         self.assertLess(abs(timediff), 1)
         self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
 
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_date_header_as_sent_at(self, kafka_produce):
+        """
+        HTTP already has [a
+        header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Date)
+        that is used to determine the client side reported date. We should use
+        that if it's available, over any supplied `sent_at` or `_` parameters
+        which are potentially stale due to differences between payload
+        serialization and request times.
+
+        We include the fallback to `sent_at` and `_` to ensure we prefer the
+        HTTP Date header.
+        """
+        now = timezone.now()
+        tomorrow = now + timedelta(days=1, hours=2)
+        tomorrow_date_header = now + timedelta(days=1, hours=2, minutes=10)
+        tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=20)
+        tomorrow_underscore = now + timedelta(days=1, hours=2, minutes=30)
+
+        # Convert tomorrow_date_header to use a timezone 5 hours ahead of UTC
+        # to ensure that the timezone is included in the header.
+        tomorrow_date_header = tomorrow_date_header.astimezone(tz(timedelta(hours=5)))
+
+        self.client.post(
+            "/track?_=%s" % int(tomorrow_underscore.timestamp()),
+            data={
+                "data": self._dict_to_b64(
+                    {"event": "$pageview", "timestamp": tomorrow.isoformat(), "properties": {"distinct_id": "eeee"}}
+                ),
+                "api_key": self.team.api_token,  # main difference in this test
+                "sent_at": tomorrow_sent_at.isoformat(),
+            },
+            HTTP_DATE=tomorrow_date_header.strftime("%a, %d %b %Y %H:%M:%S %z"),
+        )
+
+        arguments = self._to_arguments(kafka_produce)
+        sent_at = datetime.fromisoformat(arguments["sent_at"])
+        # right time sent as sent_at to process_event
+        timediff = sent_at.timestamp() - tomorrow_date_header.timestamp()
+        self.assertLess(abs(timediff), 1)
+        self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_handles_invalid_date_in_date_header_and_falls_back_to_sent_at(self, kafka_produce):
+        """
+        If the HTTP Date header is invalid, we should fall back to the
+        `sent_at` or `_` parameters.
+        """
+        now = timezone.now()
+        tomorrow = now + timedelta(days=1, hours=2)
+        tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=10)
+
+        self.client.post(
+            "/track",
+            data={
+                "data": self._dict_to_b64(
+                    {"event": "$pageview", "timestamp": tomorrow.isoformat(), "properties": {"distinct_id": "eeee"}}
+                ),
+                "api_key": self.team.api_token,  # main difference in this test
+                "sent_at": tomorrow_sent_at.isoformat(),
+            },
+            HTTP_DATE="invalid",
+        )
+
+        arguments = self._to_arguments(kafka_produce)
+        sent_at = datetime.fromisoformat(arguments["sent_at"])
+        # right time sent as sent_at to process_event
+        timediff = sent_at.timestamp() - tomorrow_sent_at.timestamp()
+        self.assertLess(abs(timediff), 1)
+        self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
+
     def test_incorrect_json(self):
         response = self.client.post(
             "/capture/", '{"event": "incorrect json with trailing comma",}', content_type="application/json"
