@@ -100,7 +100,7 @@ export function PersonsModal({
                             className="mb-2"
                             value={selectedUrlIndex}
                             onChange={(v) => {
-                                if (v !== null && (v ?? 0) >= 0) {
+                                if (v !== null && v >= 0) {
                                     setSelectedUrlIndex(v)
                                 }
                             }}
