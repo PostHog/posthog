@@ -656,11 +656,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="test", team=self.team, distinct_id="someone_else")
         data = {"events": json.dumps([{"id": "test", "type": "events"}]), "entity_type": "events", "entity_id": "test"}
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/persons/trends/",
+        trend_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/",
             data=data,
             content_type="application/json",
         ).json()
+        response = self.client.get("/" + trend_response["result"][0]["persons_urls"][-1]["url"]).json()
         self.assertEqual(response["results"][0]["count"], 1)
         self.assertEqual(response["is_cached"], False)
 
@@ -668,11 +669,25 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_person(team=self.team, distinct_ids=["person_2"], properties={"$os": "Chrome"}, immediate=True)
         _create_event(event="test", team=self.team, distinct_id="person_2")
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/persons/trends/",
-            data={**data, "invalidate_cache_key": "last_refresh_date"},
+        # Check cached response hasn't changed
+        response = self.client.get("/" + trend_response["result"][0]["persons_urls"][-1]["url"]).json()
+        self.assertEqual(response["results"][0]["count"], 1)
+        self.assertEqual(response["is_cached"], True)
+
+        new_trend_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/",
+            data={**data, "refresh": True},
             content_type="application/json",
         ).json()
+
+        self.assertEqual(new_trend_response["is_cached"], False)
+        self.assertNotEqual(
+            new_trend_response["result"][0]["persons_urls"][-1]["url"],
+            trend_response["result"][0]["persons_urls"][-1]["url"],
+        )
+
+        # Cached response should have been updated
+        response = self.client.get("/" + new_trend_response["result"][0]["persons_urls"][-1]["url"]).json()
         self.assertEqual(response["results"][0]["count"], 2)
         self.assertEqual(response["is_cached"], False)
 
