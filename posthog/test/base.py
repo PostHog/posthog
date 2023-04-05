@@ -369,6 +369,9 @@ class QueryMatchingTest:
             query,
         )
 
+        # replace Savepoint numbers
+        query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
+
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run
