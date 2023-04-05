@@ -74,6 +74,7 @@ TOKEN_SHAPE_INVALID_COUNTER = Counter(
 
 
 LIKELY_ANONYMOUS_IDS = {
+    "0",
     "anon",
     "anon_id",
     "anonymous",
@@ -84,7 +85,10 @@ LIKELY_ANONYMOUS_IDS = {
     "false",
     "guest",
     "id",
+    "nan",
+    "none",
     "not_authenticated",
+    "null",
     "true",
     "undefined",
 }
