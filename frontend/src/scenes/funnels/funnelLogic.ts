@@ -173,14 +173,14 @@ export const funnelLogic = kea<funnelLogicType>({
 
         // Correlation related actions
         hideSkewWarning: true,
-        setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
-        setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
-        setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
-        excludePropertyFromProject: (propertyName: string) => ({ propertyName }),
         openCorrelationPersonsModal: (correlation: FunnelCorrelation, success: boolean) => ({
             correlation,
             success,
         }),
+        setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
+        setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
+        excludePropertyFromProject: (propertyName: string) => ({ propertyName }),
     }),
     defaults: {
         // This is a hack to get `FunnelCorrelationResultsType` imported in `funnelLogicType.ts`
