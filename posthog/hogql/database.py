@@ -1,6 +1,5 @@
 from typing import Any, Callable, Dict, List, Optional
-
-import pytz
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Extra
 
 
@@ -347,8 +346,8 @@ class Database(BaseModel):
     def __init__(self, timezone: Optional[str]):
         super().__init__()
         try:
-            self._timezone = pytz.timezone(timezone).zone if timezone else None
-        except pytz.exceptions.UnknownTimeZoneError:
+            self._timezone = str(ZoneInfo(timezone)) if timezone else None
+        except ZoneInfoNotFoundError:
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
 
     def get_timezone(self) -> str:

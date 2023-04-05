@@ -345,7 +345,7 @@ class _Printer(Visitor):
         if self.dialect == "clickhouse" and (
             isinstance(node.value, str) or isinstance(node.value, list) or isinstance(node.value, tuple)
         ):
-            # inline the string in hogql, but use %(hogql_val_0)s in clichkouse
+            # inline the string in hogql, but use %(hogql_val_0)s in clickhouse
             key = f"hogql_val_{len(self.context.values)}"
             self.context.values[key] = node.value
             return f"%({key})s"
