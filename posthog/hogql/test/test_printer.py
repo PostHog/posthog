@@ -145,7 +145,7 @@ class TestPrinter(BaseTest):
     def test_hogql_properties_json_materialized(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
-        except:
+        except ModuleNotFoundError:
             # EE not available? Assume we're good
             self.assertEqual(1 + 2, 3)
             return
@@ -161,7 +161,7 @@ class TestPrinter(BaseTest):
     def test_materialized_fields_and_properties(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
-        except:
+        except ModuleNotFoundError:
             # EE not available? Assume we're good
             self.assertEqual(1 + 2, 3)
             return
