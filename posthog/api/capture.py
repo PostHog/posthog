@@ -442,7 +442,7 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
 
     candidate_partition_key = f"{token}:{distinct_id}"
 
-    if distinct_id.lower() not in LIKELY_ANONYMOUS_IDS or is_randomly_partitioned(candidate_partition_key) is False:
+    if distinct_id.lower() not in LIKELY_ANONYMOUS_IDS and is_randomly_partitioned(candidate_partition_key) is False:
         kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
