@@ -445,7 +445,7 @@
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT 116,
+  SELECT 111,
          person_id,
          key,
          'random'
@@ -526,7 +526,7 @@
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT 116,
+  SELECT 111,
          person_id,
          key,
          'random'
