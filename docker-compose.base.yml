@@ -32,6 +32,8 @@ services:
     zookeeper:
         image: zookeeper:3.7.0
         restart: on-failure
+        environment:
+            ZOO_AUTOPURGE_PURGEINTERVAL: 12
 
     kafka:
         image: bitnami/kafka:2.8.1-debian-10-r99
