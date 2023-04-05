@@ -193,8 +193,8 @@ class TestPrinter(BaseTest):
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")
         self._assert_expr_error("())", "line 1, column 1: no viable alternative at input '()'")
-        self._assert_expr_error("['properties']['value']", "Unsupported node: ColumnExprArray")
-        self._assert_expr_error("['properties']['value']['bla']", "Unsupported node: ColumnExprArray")
+        self._assert_expr_error("properties['value']", "Unsupported node: ColumnExprArray")
+        self._assert_expr_error("properties['value']['bla']", "Unsupported node: ColumnExprArray")
         self._assert_expr_error(
             "select query from events", "line 1, column 13: mismatched input 'from' expecting <EOF>"
         )
