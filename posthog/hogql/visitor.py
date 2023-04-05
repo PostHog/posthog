@@ -49,6 +49,14 @@ class TraversingVisitor(Visitor):
     def visit_order_expr(self, node: ast.OrderExpr):
         self.visit(node.expr)
 
+    def visit_tuple(self, node: ast.Tuple):
+        for expr in node.exprs:
+            self.visit(expr)
+
+    def visit_array(self, node: ast.Array):
+        for expr in node.exprs:
+            self.visit(expr)
+
     def visit_constant(self, node: ast.Constant):
         self.visit(node.ref)
 
@@ -200,6 +208,12 @@ class CloningVisitor(Visitor):
             expr=self.visit(node.expr),
             order=node.order,
         )
+
+    def visit_tuple(self, node: ast.Array):
+        return ast.Tuple(ref=None if self.clear_refs else node.ref, exprs=[self.visit(expr) for expr in node.exprs])
+
+    def visit_array(self, node: ast.Array):
+        return ast.Array(ref=None if self.clear_refs else node.ref, exprs=[self.visit(expr) for expr in node.exprs])
 
     def visit_constant(self, node: ast.Constant):
         return ast.Constant(ref=None if self.clear_refs else node.ref, value=node.value)

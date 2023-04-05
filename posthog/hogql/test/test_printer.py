@@ -45,6 +45,14 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("1.0 % 2.66"), "modulo(1.0, 2.66)")
         self.assertEqual(self._expr("'string'"), "%(hogql_val_0)s")
 
+    def test_arrays(self):
+        self.assertEqual(self._expr("[]"), "[]")
+        self.assertEqual(self._expr("[1,2]"), "[1, 2]")
+
+    def test_tuples(self):
+        self.assertEqual(self._expr("(1,2)"), "tuple(1, 2)")
+        self.assertEqual(self._expr("(1,2,[])"), "tuple(1, 2, [])")
+
     def test_equals_null(self):
         self.assertEqual(self._expr("1 == null"), "isNull(1)")
         self.assertEqual(self._expr("1 != null"), "isNotNull(1)")

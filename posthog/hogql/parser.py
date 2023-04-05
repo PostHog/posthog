@@ -381,7 +381,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
     def visitColumnExprArray(self, ctx: HogQLParser.ColumnExprArrayContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprArray")
+        return ast.Array(exprs=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [])
 
     def visitColumnExprSubstring(self, ctx: HogQLParser.ColumnExprSubstringContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprSubstring")
@@ -485,7 +485,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnExprTrim")
 
     def visitColumnExprTuple(self, ctx: HogQLParser.ColumnExprTupleContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprTuple")
+        return ast.Tuple(exprs=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [])
 
     def visitColumnExprArrayAccess(self, ctx: HogQLParser.ColumnExprArrayAccessContext):
         object = self.visit(ctx.columnExpr(0))
