@@ -18,9 +18,8 @@ describe('Insights (with data exploration on)', () => {
         cy.intercept('https://app.posthog.com/decide/*', (req) =>
             req.reply(
                 decideResponse({
-                    'data-exploration-query-tab': true,
+                    hogql: true,
                     'data-exploration-insights': true,
-                    'data-exploration-live-events': true,
                 })
             )
         )

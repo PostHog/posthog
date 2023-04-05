@@ -444,12 +444,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                             info={
                                                 <>
                                                     Set a billing limit to control your recurring costs.{' '}
-                                                    <b>
-                                                        Your critical data will still be ingested and available in the
-                                                        product
-                                                    </b>
-                                                    . Some features may stop working if your usage greatly exceeds your
-                                                    billing cap.
+                                                    <b>Data will be dropped after exceeding this limit</b>.
                                                 </>
                                             }
                                         >
