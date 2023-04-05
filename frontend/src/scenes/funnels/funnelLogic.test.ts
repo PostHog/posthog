@@ -18,7 +18,6 @@ import {
 } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
@@ -694,68 +693,6 @@ describe('funnelLogic', () => {
                 })
         })
 
-        // TODO: loading of property correlations is now dependent on the table being shown in react
-        it.skip('are updated when results are loaded, when steps visualisation set', async () => {
-            await initFunnelLogic(props)
-            const filters = {
-                insight: InsightType.FUNNELS,
-                funnel_viz_type: FunnelVizType.Steps,
-            }
-            await router.actions.push(urls.insightNew(filters))
-
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toMatchValues({
-                    steps: [
-                        { action_id: '$pageview', count: 19, name: '$pageview', order: 0, type: 'events' },
-                        { action_id: '$pageview', count: 7, name: '$pageview', order: 1, type: 'events' },
-                        { action_id: '$pageview', count: 4, name: '$pageview', order: 2, type: 'events' },
-                    ],
-                    propertyCorrelations: {
-                        events: [
-                            {
-                                event: { event: 'some property' },
-                                success_count: 1,
-                                failure_count: 1,
-                                odds_ratio: 1,
-                                correlation_type: 'success',
-                                result_type: FunnelCorrelationResultsType.Properties,
-                            },
-                            {
-                                event: { event: 'another property' },
-                                success_count: 1,
-                                failure_count: 1,
-                                odds_ratio: 1,
-                                correlation_type: 'failure',
-                                result_type: FunnelCorrelationResultsType.Properties,
-                            },
-                        ],
-                    },
-                })
-        })
-        it('are not updated when results are loaded, when steps visualisation set, with one funnel step', async () => {
-            await initFunnelLogic(props)
-
-            await expectLogic(logic, () => {
-                logic.actions.loadResultsSuccess({
-                    filters: {
-                        insight: InsightType.FUNNELS,
-                        funnel_viz_type: FunnelVizType.Steps,
-                    } as FunnelsFilterType,
-                    result: [{ action_id: 'some event', order: 0 }],
-                })
-            })
-                .toFinishListeners()
-                .toMatchValues({
-                    steps: [{ action_id: 'some event', order: 0 }],
-                    propertyCorrelations: {
-                        events: [],
-                    },
-                    correlations: {
-                        events: [],
-                    },
-                })
-        })
         it('are not triggered when results are loaded, when trends visualisation set', async () => {
             await initFunnelLogic(props)
             await expectLogic(logic, () => {
@@ -863,105 +800,13 @@ describe('funnelLogic', () => {
                     },
                 })
         })
-
-        // TODO: loading of correlations is now dependent on the table being shown in react
-        it.skip('loads event exclude list from Project settings', async () => {
-            correlationConfig = { excluded_event_names: ['some event'] }
-            await initFunnelLogic(props)
-
-            await expectLogic(teamLogic).toMatchValues({
-                currentTeam: partial({
-                    correlation_config: { excluded_event_names: ['some event'] },
-                }),
-            })
-
-            const filters = {
-                insight: InsightType.FUNNELS,
-                funnel_viz_type: FunnelVizType.Steps,
-            }
-            await router.actions.push(urls.insightNew(filters))
-
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toMatchValues({
-                    correlationValues: [
-                        {
-                            event: { event: 'another event' },
-                            success_count: 1,
-                            failure_count: 1,
-                            odds_ratio: 1,
-                            correlation_type: 'failure',
-                            result_type: FunnelCorrelationResultsType.Events,
-                        },
-                    ],
-                })
-        })
-
-        it('loads event property exclude list from Project settings', async () => {
-            correlationConfig = { excluded_event_property_names: ['name'] }
-            await initFunnelLogic(props)
-
-            await expectLogic(teamLogic).toMatchValues({
-                currentTeam: partial({
-                    correlation_config: { excluded_event_property_names: ['name'] },
-                }),
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.loadEventWithPropertyCorrelations('some event')
-            })
-                .toDispatchActions(logic, ['loadEventWithPropertyCorrelationsSuccess'])
-                .toFinishListeners()
-                .toMatchValues({
-                    eventWithPropertyCorrelations: {
-                        'some event': [
-                            {
-                                event: { event: 'some event::Another name::Alice' },
-                                success_count: 1,
-                                failure_count: 0,
-                                odds_ratio: 29,
-                                correlation_type: 'success',
-                                result_type: FunnelCorrelationResultsType.EventWithProperties,
-                            },
-                        ],
-                    },
-                })
-        })
-
-        // TODO: fix this test
-        it.skip('Selecting all group properties selects correct properties', async () => {
-            await initFunnelLogic(props)
-
-            groupPropertiesModel.mount()
-            groupPropertiesModel.actions.loadAllGroupProperties()
-            await expectLogic(groupPropertiesModel).toDispatchActions(['loadAllGroupPropertiesSuccess'])
-
-            const filters = {
-                insight: InsightType.FUNNELS,
-                funnel_viz_type: FunnelVizType.Steps,
-            }
-            await router.actions.push(urls.insightNew(filters))
-
-            await expectLogic(logic, () => logic.actions.setFilters({ aggregation_group_type_index: 0 }))
-                .toFinishAllListeners()
-                .toMatchValues({
-                    allProperties: ['industry', 'name'],
-                    propertyNames: ['industry', 'name'],
-                })
-
-            await expectLogic(logic, () => logic.actions.setFilters({ aggregation_group_type_index: 1 }))
-                .toFinishAllListeners()
-                .toMatchValues({
-                    allProperties: ['name'],
-                    propertyNames: ['name'],
-                })
-        })
     })
 
     describe('funnel simple vs. advanced mode', () => {
         beforeEach(async () => {
             await initFunnelLogic()
         })
+
         it("toggleAdvancedMode() doesn't trigger a load result", async () => {
             await expectLogic(logic, () => {
                 logic.actions.toggleAdvancedMode()
