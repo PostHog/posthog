@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from math import ceil
 from time import sleep
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, cast
 from rest_framework import request
 
 import pytz
@@ -60,15 +60,14 @@ def should_refresh_insight(
         refresh_frequency = INCREASED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
     refresh_insight_now = False
-    if caching_state is None or caching_state.last_refresh is None:
-        # Always refresh if there are no cached results
-        refresh_insight_now = True
-    elif (refresh_requested_by_client(request) or is_shared) and (
-        caching_state.last_refresh + refresh_frequency <= now
-    ):
-        # Also refresh if the user has requested a refresh and enough time has passed since last refresh
-        # Note: We treat loading a shared dashboard/insight as a refresh request
-        refresh_insight_now = True
+    # Only refresh if the user has requested a refresh or if we're on a shared dashboard/insight
+    # (those have no explicit way of reloading)
+    if refresh_requested_by_client(request) or is_shared:
+        are_there_cached_results = caching_state is not None and caching_state.last_refresh is not None
+        is_data_cached_but_stale = are_there_cached_results and (
+            cast(InsightCachingState, caching_state).last_refresh + refresh_frequency <= now
+        )
+        refresh_insight_now = (not are_there_cached_results) or is_data_cached_but_stale
 
     # Check if the refresh is might already be running for this cache key - if so, let's wait until that's done
     if refresh_insight_now and caching_state is not None and caching_state.last_refresh_queued_at is not None:

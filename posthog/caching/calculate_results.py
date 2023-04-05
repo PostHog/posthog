@@ -30,7 +30,7 @@ from posthog.queries.trends.trends import Trends
 from posthog.types import FilterType
 
 # ClickHouse query timeout in seconds
-# From https://github.com/PostHog/posthog-cloud-infra/blob/4ddf9b/ansible/config/clickhouse-users.xml#L11
+# From https://github.com/PostHog/posthog-cloud-infra/blob/master/ansible/config/clickhouse-users.xml#L11
 # Keep in sync with the above!
 CLICKHOUSE_MAX_EXECUTION_TIME = 180
 
