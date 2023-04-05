@@ -57,7 +57,8 @@ export function DatabaseTables(): JSX.Element {
                 expandable={{
                     expandedRowRender: function renderExpand(row) {
                         return (
-                            <div className="ml-12">
+                            <div className="px-4 py-3">
+
                                 <DatabaseTable table={row.name} />
                             </div>
                         )
