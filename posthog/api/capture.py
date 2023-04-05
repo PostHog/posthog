@@ -472,7 +472,7 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
     if settings.PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED:
         has_capacity = LIMITER.consume(candidate_partition_key)
 
-        if has_capacity is False or candidate_partition_key in LIKELY_ANONYMOUS_IDS:
+        if has_capacity is False or candidate_partition_key.rsplit(":")[1] in LIKELY_ANONYMOUS_IDS:
             if not LOG_RATE_LIMITER.consume(candidate_partition_key):
                 # Return early if we have logged this key already.
                 return True
