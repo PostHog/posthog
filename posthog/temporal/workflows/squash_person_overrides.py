@@ -1,4 +1,5 @@
 import json
+import os
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -371,7 +372,12 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs):
     """
     activity.logger.info("Deleting squashed persons from Postgres")
 
-    with psycopg2.connect(settings.DATABASE_URL) as connection:
+    db_name_prefix = "test_" if os.getenv("TEST", os.getenv("DEBUG", False)) is not False else ""
+    DATABASE_URL = os.getenv(
+        "DATABASE_URL",
+        f"postgres://{settings.PG_USER}:{settings.PG_PASSWORD}@{settings.PG_HOST}:{settings.PG_PORT}/{db_name_prefix}{settings.PG_DATABASE}",
+    )
+    with psycopg2.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
             for person_override_to_delete in inputs.iter_person_overides_to_delete():
                 activity.logger.debug("%s", person_override_to_delete)
