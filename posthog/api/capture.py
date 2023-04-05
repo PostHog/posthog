@@ -72,7 +72,12 @@ TOKEN_SHAPE_INVALID_COUNTER = Counter(
     labelnames=["reason"],
 )
 
-
+# This is a heuristic of ids we have seen used as anonymous. As they frequently
+# have significantly more traffic than non-anonymous distinct_ids, and likely
+# don't refer to the same underlying person we prefer to partition them randomly
+# to distribute the load.
+# This list mimics the array used in the plugin-server, and should be kept in-sync. See:
+# https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L22-L33
 LIKELY_ANONYMOUS_IDS = {
     "0",
     "anon",
