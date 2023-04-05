@@ -499,7 +499,7 @@
   '
   SELECT pg_sleep(1);
   
-  SAVEPOINT "s140171961994304_x1038"
+  SAVEPOINT "s140703192525888_x1038"
   '
 ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.5
