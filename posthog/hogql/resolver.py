@@ -22,6 +22,7 @@ class Resolver(TraversingVisitor):
     def __init__(self, database: Database, scope: Optional[ast.SelectQueryRef] = None):
         # Each SELECT query creates a new scope. Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryRef] = [scope] if scope else []
+        self.last_lambda: Optional[ast.Lambda] = None
         self.database = database
 
     def visit_select_union_query(self, node):
@@ -148,6 +149,12 @@ class Resolver(TraversingVisitor):
             if arg.ref is not None:
                 arg_refs.append(arg.ref)
         node.ref = ast.CallRef(name=node.name, args=arg_refs)
+
+    def visit_lambda(self, node: ast.Lambda):
+        last_lambda = self.last_lambda
+        self.last_lambda = node
+        self.visit(node)
+        self.last_lambda = last_lambda
 
     def visit_field(self, node):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""

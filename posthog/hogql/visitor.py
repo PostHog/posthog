@@ -53,6 +53,9 @@ class TraversingVisitor(Visitor):
         for expr in node.exprs:
             self.visit(expr)
 
+    def visit_lambda(self, node: ast.Lambda):
+        self.visit(node.expr)
+
     def visit_array(self, node: ast.Array):
         for expr in node.exprs:
             self.visit(expr)
@@ -211,6 +214,11 @@ class CloningVisitor(Visitor):
 
     def visit_tuple(self, node: ast.Array):
         return ast.Tuple(ref=None if self.clear_refs else node.ref, exprs=[self.visit(expr) for expr in node.exprs])
+
+    def visit_lambda(self, node: ast.Lambda):
+        return ast.Lambda(
+            ref=None if self.clear_refs else node.ref, args=[arg for arg in node.args], expr=self.visit(node.expr)
+        )
 
     def visit_array(self, node: ast.Array):
         return ast.Array(ref=None if self.clear_refs else node.ref, exprs=[self.visit(expr) for expr in node.exprs])

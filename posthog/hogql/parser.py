@@ -577,7 +577,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
     def visitColumnLambdaExpr(self, ctx: HogQLParser.ColumnLambdaExprContext):
-        raise NotImplementedError(f"Unsupported node: ColumnLambdaExpr")
+        return ast.Lambda(
+            args=[self.visit(identifier) for identifier in ctx.identifier()], expr=self.visit(ctx.columnExpr())
+        )
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):
         macros: Dict[str, ast.Macro] = {}

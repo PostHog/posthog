@@ -317,6 +317,11 @@ class Tuple(Expr):
     exprs: List[Expr]
 
 
+class Lambda(Expr):
+    args: List[str]
+    expr: Expr
+
+
 class Constant(Expr):
     value: Any
 
