@@ -2,14 +2,14 @@ import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
+import { funnelCorrelationDetailsLogic } from 'scenes/funnels/funnelCorrelationDetailsLogic'
+import { funnelPropertyCorrelationLogic } from 'scenes/funnels/funnelPropertyCorrelationLogic'
 
 import { FunnelCorrelation, FunnelCorrelationResultsType } from '~/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
-import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
-import { funnelCorrelationDetailsLogic } from 'scenes/funnels/funnelCorrelationDetailsLogic'
 
 export const EventCorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
@@ -49,8 +49,8 @@ export const EventCorrelationActionsCell = ({ record }: { record: FunnelCorrelat
 
 export const PropertyCorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
-    const { excludePropertyFromProject } = useActions(funnelLogic(insightProps))
-    const { isPropertyExcludedFromProject } = useValues(funnelLogic(insightProps))
+    const { isPropertyExcludedFromProject } = useValues(funnelPropertyCorrelationLogic(insightProps))
+    const { excludePropertyFromProject } = useActions(funnelPropertyCorrelationLogic(insightProps))
     const { setFunnelCorrelationDetails } = useActions(funnelCorrelationDetailsLogic(insightProps))
     const propertyName = (record.event.event || '').split('::')[0]
 

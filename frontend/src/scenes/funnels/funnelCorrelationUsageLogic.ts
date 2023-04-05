@@ -12,6 +12,7 @@ import { parseEventAndProperty } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelCorrelationLogic } from './funnelCorrelationLogic'
+import { funnelPropertyCorrelationLogic } from './funnelPropertyCorrelationLogic'
 
 export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>([
     props({} as InsightLogicProps),
@@ -26,14 +27,12 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
         actions: [
             insightLogic(props),
             ['loadResultsSuccess'],
+            insightDataLogic(props),
+            ['loadDataSuccess'],
             funnelLogic(props),
-            [
-                'hideSkewWarning as legacyHideSkewWarning',
-                'setPropertyCorrelationTypes',
-                'excludePropertyFromProject',
-                'setPropertyNames',
-                'openCorrelationPersonsModal',
-            ],
+            ['hideSkewWarning as legacyHideSkewWarning', 'openCorrelationPersonsModal'],
+            funnelDataLogic(props),
+            ['hideSkewWarning'],
             funnelCorrelationLogic(props),
             [
                 'setCorrelationTypes',
@@ -41,10 +40,8 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
                 'loadEventWithPropertyCorrelations',
                 'excludeEventPropertyFromProject',
             ],
-            funnelDataLogic(props),
-            ['hideSkewWarning'],
-            insightDataLogic(props),
-            ['loadDataSuccess'],
+            funnelPropertyCorrelationLogic(props),
+            ['setPropertyCorrelationTypes', 'excludePropertyFromProject', 'setPropertyNames'],
             eventUsageLogic,
             ['reportCorrelationViewed', 'reportCorrelationInteraction'],
         ],

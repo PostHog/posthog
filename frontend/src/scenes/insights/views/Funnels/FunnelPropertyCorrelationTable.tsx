@@ -19,11 +19,13 @@ import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyS
 import { PropertyCorrelationActionsCell } from './CorrelationActionsCell'
 import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
 import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
+import { funnelPropertyCorrelationLogic } from 'scenes/funnels/funnelPropertyCorrelationLogic'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
+    const { steps, filters, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { openCorrelationPersonsModal } = useActions(funnelLogic(insightProps))
     const {
-        steps,
         propertyCorrelationValues,
         propertyCorrelationTypes,
         excludedPropertyNames,
@@ -31,12 +33,11 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         inversePropertyNames,
         propertyNames,
         allProperties,
-        filters,
-        aggregationTargetLabel,
         loadedPropertyCorrelationsTableOnce,
-    } = useValues(funnelLogic(insightProps))
-    const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal, loadPropertyCorrelations } =
-        useActions(funnelLogic(insightProps))
+    } = useValues(funnelPropertyCorrelationLogic(insightProps))
+    const { setPropertyCorrelationTypes, setPropertyNames, loadPropertyCorrelations } = useActions(
+        funnelPropertyCorrelationLogic(insightProps)
+    )
     const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
     const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
 
