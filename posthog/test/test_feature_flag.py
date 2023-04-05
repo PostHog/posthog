@@ -2064,7 +2064,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
             team=team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
         )
 
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(insert_fail):
+        with snapshot_postgres_queries_context(self, capture_all_queries=True), connection.execute_wrapper(insert_fail):
             flags, reasons, payloads, errors = get_all_feature_flags(
                 team.pk, "other_id", {}, hash_key_override="example_id"
             )
@@ -2138,7 +2138,9 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
             team=team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
         )
 
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(InsertFailOnce()):
+        with snapshot_postgres_queries_context(self, capture_all_queries=True), connection.execute_wrapper(
+            InsertFailOnce()
+        ):
             flags, reasons, payloads, errors = get_all_feature_flags(
                 team.pk, "other_id", {}, hash_key_override="example_id"
             )
