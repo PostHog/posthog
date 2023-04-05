@@ -16,17 +16,34 @@ def validate_response(openapi_spec: Dict[str, Any], response: Any, path_override
     # provided, the path in the response will be overridden with the provided
     # value. This is useful for validating responses from e.g. the /batch
     # endpoint, which is not defined in the OpenAPI spec.
-    paths = openapi_spec["paths"]
-    path = path_override or response.request["PATH_INFO"]
-    path_spec = paths.get(path)
+    path_spec, response_method_spec = get_request_spec(openapi_spec, response, path_override)
+    validate_response_body(response, path_spec, response_method_spec)
 
-    assert path_spec, f"""
-        Response {path} not defined in OpenAPI spec:
-        {yaml.dump(paths, indent=2)}
+    # If we get a response that is not 400, get the payload that was used to
+    # make the request, and reset the read state so that we can read it again.
+    if response.status_code < 400 or response.status_code >= 500:
+        validate_request_body(response, response_method_spec)
+
+        # If this is anything other than an OPTIONS we also want to validate
+        # that the parameters used were correct as per the spec. There might be
+        # a place for checking OPTIONS as well, but to handle the CORS preflight
+        # I'm excluding it for now.
+        if response.request["REQUEST_METHOD"].lower() != "options":
+            validate_query_parameters(response, response_method_spec)
+
+            # Verify that all headers were sent as per the spec and that they
+            # are valid according to the spec. Note that Django transforms all
+            # headers to be prefixed with HTTP_ and uppercased, so we need to
+            # remove that prefix and lowercase the header name. We also need to
+            # lowercase the header name in the spec. It also converts dashes to
+            # underscores, so we need to do that as well.
+            validate_request_headers(response, response_method_spec)
+
+
+def validate_response_body(response, path_spec, response_method_spec):
     """
-
-    response_method_spec = path_spec.get(response.request["REQUEST_METHOD"].lower())
-
+    Validates that the response body is defined in the OpenAPI spec.
+    """
     assert response_method_spec, f"""
         Response {response.request["REQUEST_METHOD"].lower()} not defined in OpenAPI spec:
         {yaml.dump(path_spec, indent=2)}
@@ -49,102 +66,125 @@ def validate_response(openapi_spec: Dict[str, Any], response: Any, path_override
 
     validate(response.json(), response_spec)
 
-    # If we get a response that is not 400, get the payload that was used to
-    # make the request, and reset the read state so that we can read it again.
-    if response.status_code < 400 or response.status_code >= 500:
-        request_fake_payload: FakePayload = response.request.get("wsgi.input", FakePayload(b""))
-        request_body_content_type = response.request.get("CONTENT_TYPE", "*/*").split(";")[0]
-        request_body_content_encoding = response.request.get("HTTP_CONTENT_ENCODING", None)
 
-        request_body_value = cast(bytes, request_fake_payload._FakePayload__content.getvalue())  # type: ignore
-        if request_body_content_encoding == "gzip":
-            request_body = gzip.decompress(request_body_value)
-        elif request_body_content_encoding == "lz64":
-            request_body_string = lzstring.LZString().decompressFromBase64(request_body_value.decode())
-            assert request_body_string
-            request_body = request_body_string
-        else:
-            request_body = request_body_value
+def get_request_spec(openapi_spec, response, path_override):
+    """
+    Returns the OpenAPI spec for the request that was made to generate the given
+    response.
+    """
+    paths = openapi_spec["paths"]
+    path = path_override or response.request["PATH_INFO"]
+    path_spec = paths.get(path)
 
-        if response.request["REQUEST_METHOD"] in ["POST", "PUT", "PATCH", "DELETE"]:
-            # If not a GET or OPTIONS request, validate the request body.
-            request_body_spec = response_method_spec["requestBody"]["content"].get(request_body_content_type)
+    assert path_spec, f"""
+        Response {path} not defined in OpenAPI spec:
+        {yaml.dump(paths, indent=2)}
+    """
 
-            assert request_body_spec, f"""
+    response_method_spec = path_spec.get(response.request["REQUEST_METHOD"].lower())
+    return path_spec, response_method_spec
+
+
+def validate_request_headers(response, response_method_spec):
+    """
+    Validates that all headers sent in the request are defined in the OpenAPI
+    spec. Also validates that the values of the headers are valid according to
+    the spec.
+    """
+    header_parameter_specs = {
+        parameter["name"].replace("-", "_").lower(): parameter
+        for parameter in response_method_spec.get("parameters", [])
+        if parameter["in"] == "header"
+    }
+
+    sent_headers = (
+        (key.replace("HTTP_", "").lower(), value) for key, value in response.request.items() if key.startswith("HTTP_")
+    )
+
+    for name, value in sent_headers:
+        spec = header_parameter_specs.get(name)
+        assert spec, f"Header {name} was sent but is not defined in OpenAPI spec"
+        schema = spec["schema"]
+        validate(value, schema)
+
+
+def validate_query_parameters(response, response_method_spec):
+    """
+    Validates that all query parameters sent in the request are defined in the
+    OpenAPI spec. Also validates that the values of the query parameters are
+    valid according to the spec.
+    """
+    query_parameter_specs = {
+        parameter["name"]: parameter
+        for parameter in response_method_spec.get("parameters", [])
+        if parameter["in"] == "query"
+    }
+
+    sent_query_parameters = parse_qs(response.request["QUERY_STRING"])
+    for name, values in sent_query_parameters.items():
+        spec = query_parameter_specs.get(name)
+        assert spec, f"Parameter {name} was sent in query string but is not defined in OpenAPI spec"
+        schema = spec["schema"]
+        for value in values:
+            try:
+                parsed_value = json.loads(value)
+            except json.JSONDecodeError:
+                parsed_value = value
+
+            validate(parsed_value, schema)
+
+            # Verify that all required params were sent
+    required_parameters = {key for key, spec in query_parameter_specs.items() if spec.get("required")}
+    for required_parameter in required_parameters:
+        assert (
+            required_parameter in sent_query_parameters.keys()
+        ), f"Required parameter {required_parameter} was not sent in query string"
+
+
+def validate_request_body(response, response_method_spec):
+    """
+    Validates that the request body sent in the request is defined in the
+    OpenAPI spec. Also validates that the values of the request body are valid
+    according to the spec.
+    """
+    request_fake_payload: FakePayload = response.request.get("wsgi.input", FakePayload(b""))
+    request_body_content_type = response.request.get("CONTENT_TYPE", "*/*").split(";")[0]
+    request_body_content_encoding = response.request.get("HTTP_CONTENT_ENCODING", None)
+
+    request_body_value = cast(bytes, request_fake_payload._FakePayload__content.getvalue())  # type: ignore
+    if request_body_content_encoding == "gzip":
+        request_body = gzip.decompress(request_body_value)
+    elif request_body_content_encoding == "lz64":
+        request_body_string = lzstring.LZString().decompressFromBase64(request_body_value.decode())
+        assert request_body_string
+        request_body = request_body_string
+    else:
+        request_body = request_body_value
+
+    if response.request["REQUEST_METHOD"] in ["POST", "PUT", "PATCH", "DELETE"]:
+        # If not a GET or OPTIONS request, validate the request body.
+        request_body_spec = response_method_spec["requestBody"]["content"].get(request_body_content_type)
+
+        assert request_body_spec, f"""
                 Request body for {request_body_content_type} not defined in OpenAPI spec:
                 {yaml.dump(response_method_spec["requestBody"]["content"], indent=2)}
             """
 
-            if request_body_content_type == "multipart/form-data":
-                request_body_schema = request_body_spec["schema"]
-                request_body_parser = MultiPartParser(response.request, BytesIO(request_body), [])
-                query_dict, _ = request_body_parser.parse()
+        if request_body_content_type == "multipart/form-data":
+            request_body_schema = request_body_spec["schema"]
+            request_body_parser = MultiPartParser(response.request, BytesIO(request_body), [])
+            query_dict, _ = request_body_parser.parse()
 
-                validate(query_dict, request_body_schema)
-            elif request_body_content_type == "application/json":
-                request_body_schema = request_body_spec["schema"]
+            validate(query_dict, request_body_schema)
+        elif request_body_content_type == "application/json":
+            request_body_schema = request_body_spec["schema"]
 
-                validate(json.loads(request_body), request_body_schema)
-            elif request_body_content_type == "*/*":
-                # No validation for */*
-                pass
-            elif request_body_content_type == "text/plain":
-                # No validation for text/plain
-                pass
-            else:
-                raise Exception(f"Unknown content type: {request_body_content_type}")
-
-        # If this is anything other than an OPTIONS we also want to validate
-        # that the parameters used were correct as per the spec. There might be
-        # a place for checking OPTIONS as well, but to handle the CORS preflight
-        # I'm excluding it for now.
-        if response.request["REQUEST_METHOD"].lower() != "options":
-            query_parameter_specs = {
-                parameter["name"]: parameter
-                for parameter in response_method_spec.get("parameters", [])
-                if parameter["in"] == "query"
-            }
-
-            sent_query_parameters = parse_qs(response.request["QUERY_STRING"])
-            for name, values in sent_query_parameters.items():
-                spec = query_parameter_specs.get(name)
-                assert spec, f"Parameter {name} was sent in query string but is not defined in OpenAPI spec"
-                schema = spec["schema"]
-                for value in values:
-                    try:
-                        parsed_value = json.loads(value)
-                    except json.JSONDecodeError:
-                        parsed_value = value
-
-                    validate(parsed_value, schema)
-
-            # Verify that all required params were sent
-            required_parameters = {key for key, spec in query_parameter_specs.items() if spec.get("required")}
-            for required_parameter in required_parameters:
-                assert (
-                    required_parameter in sent_query_parameters.keys()
-                ), f"Required parameter {required_parameter} was not sent in query string"
-
-            # Verify that all headers were sent as per the spec and that they
-            # are valid according to the spec. Note that Django transforms all
-            # headers to be prefixed with HTTP_ and uppercased, so we need to
-            # remove that prefix and lowercase the header name. We also need to
-            # lowercase the header name in the spec. It also converts dashes to
-            # underscores, so we need to do that as well.
-            header_parameter_specs = {
-                parameter["name"].replace("-", "_").lower(): parameter
-                for parameter in response_method_spec.get("parameters", [])
-                if parameter["in"] == "header"
-            }
-
-            sent_headers = (
-                (key.replace("HTTP_", "").lower(), value)
-                for key, value in response.request.items()
-                if key.startswith("HTTP_")
-            )
-
-            for name, value in sent_headers:
-                spec = header_parameter_specs.get(name)
-                assert spec, f"Header {name} was sent but is not defined in OpenAPI spec"
-                schema = spec["schema"]
-                validate(value, schema)
+            validate(json.loads(request_body), request_body_schema)
+        elif request_body_content_type == "*/*":
+            # No validation for */*
+            pass
+        elif request_body_content_type == "text/plain":
+            # No validation for text/plain
+            pass
+        else:
+            raise Exception(f"Unknown content type: {request_body_content_type}")
