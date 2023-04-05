@@ -152,14 +152,18 @@ class PersonOverrideToDelete(NamedTuple):
         return self.oldest_event_at.strftime("%Y%m") in partition_ids
 
 
-class SerializablePersonOverrideToDelete(PersonOverrideToDelete):
+class SerializablePersonOverrideToDelete(NamedTuple):
     """A JSON serializable version of PersonOverrideToDelete.
 
     Only datetime types from PersonOverrideToDelete are not serializable by temporal's JSON
     encoder.
     """
 
+    team_id: int
+    old_person_id: UUID
+    override_person_id: UUID
     latest_created_at: str
+    latest_version: int
     oldest_event_at: str
 
 
