@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta
 from math import ceil
+from time import sleep
 from typing import Optional, Tuple, Union
 from rest_framework import request
 
 import pytz
 
-from posthog.caching.calculate_results import calculate_cache_key
+from posthog.caching.calculate_results import CLICKHOUSE_MAX_EXECUTION_TIME, calculate_cache_key
 from posthog.caching.insight_caching_state import InsightCachingState
 from posthog.models import DashboardTile, Insight
 from posthog.models.filters.utils import get_filter
@@ -24,10 +25,14 @@ REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=3)
 INCREASED_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=30)
 
 
-# returns should_refresh, refresh_frequency
 def should_refresh_insight(
     insight: Insight, dashboard_tile: Optional[DashboardTile], *, request: request.Request, is_shared=False
 ) -> Tuple[bool, timedelta]:
+    """Return whether the insight should be refreshed now, and what's the minimum wait time between refreshes.
+
+    If a refresh already is being processed somewhere else, this function will wait for that to finish (or time out).
+    """
+    now = datetime.now(tz=pytz.timezone("UTC"))
     filter = get_filter(
         data=insight.dashboard_filters(dashboard_tile.dashboard if dashboard_tile is not None else None),
         team=insight.team,
@@ -35,7 +40,12 @@ def should_refresh_insight(
 
     target: Union[Insight, DashboardTile] = insight if dashboard_tile is None else dashboard_tile
     cache_key = calculate_cache_key(target)
-    caching_state = InsightCachingState.objects.filter(team_id=insight.team.pk, cache_key=cache_key, insight=insight)
+    # Most recently queued caching state
+    caching_state = (
+        InsightCachingState.objects.filter(team_id=insight.team.pk, cache_key=cache_key, insight=insight)
+        .order_by("-last_refresh_queued_at")
+        .first()
+    )
 
     delta_days: Optional[int] = None
     if filter.date_from and filter.date_to:
@@ -50,14 +60,37 @@ def should_refresh_insight(
         refresh_frequency = INCREASED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
     refresh_insight_now = False
-    if len(caching_state) == 0 or caching_state[0].last_refresh is None:
+    if caching_state is None or caching_state.last_refresh is None:
         # Always refresh if there are no cached results
         refresh_insight_now = True
     elif (refresh_requested_by_client(request) or is_shared) and (
-        caching_state[0].last_refresh + refresh_frequency <= datetime.now(tz=pytz.timezone("UTC"))
+        caching_state.last_refresh + refresh_frequency <= now
     ):
         # Also refresh if the user has requested a refresh and enough time has passed since last refresh
         # Note: We treat loading a shared dashboard/insight as a refresh request
         refresh_insight_now = True
+
+    # Check if the refresh is might already be running for this cache key - if so, let's wait until that's done
+    if refresh_insight_now and caching_state is not None and caching_state.last_refresh_queued_at is not None:
+        while (
+            # Refresh must have been queued recently enough that the query might still be running
+            caching_state.last_refresh_queued_at > now - timedelta(seconds=CLICKHOUSE_MAX_EXECUTION_TIME)
+            # Also, refreshing must have either never finished or last finished before it was queued now
+            and (
+                caching_state.last_refresh is None or caching_state.last_refresh < caching_state.last_refresh_queued_at
+            )
+        ):
+            # This looks a bit ugly because it blocks the thread, but it's BETTER than running the already-running query
+            # from this thread concurrently. Either way we have to wait for results, this way just hammers the DB less
+            sleep(3)
+            caching_state.refresh_from_db()
+            if (
+                caching_state.last_refresh is not None
+                and caching_state.last_refresh >= caching_state.last_refresh_queued_at
+            ):
+                refresh_insight_now = False
+                break  # Refreshed successfully!
+        # Otherwise we're sure the refresh isn't running at the moment - either it's not been queued or it's timed out
+        # (barring the occasional race condition related to fetching state from PG, but that much uncertainty is okay)
 
     return refresh_insight_now, refresh_frequency
