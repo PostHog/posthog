@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from datetime import timezone as tz
 from typing import Any, Dict, List, Union, cast
 from unittest import mock
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import ANY, MagicMock, call, patch
 from urllib.parse import quote
 
 import lzstring
@@ -126,15 +126,21 @@ class TestCapture(BaseTest):
         with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[override_key]):
             assert is_randomly_partitioned(override_key) is True
 
-    def test_is_randomly_parititoned_with_likely_anonymous_ids(self):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_randomly_partitions_with_likely_anonymous_ids(self, kafka_produce):
         """Test is_randomly_partitioned in the prescence of likely anonymous ids."""
         for distinct_id in LIKELY_ANONYMOUS_IDS:
-            override_key = f"{self.team.pk}:{distinct_id}"
+            data = {
+                "event": "$autocapture",
+                "properties": {
+                    "distinct_id": distinct_id,
+                    "token": self.team.api_token,
+                },
+            }
+            with self.assertNumQueries(0):  # Capture does not hit PG anymore
+                self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
 
-            assert is_randomly_partitioned(override_key) is True
-
-            with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[override_key]):
-                assert is_randomly_partitioned(override_key) is True
+            kafka_produce.assert_called_with(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=ANY, key=None)
 
     def test_cached_is_randomly_partitioned(self):
         """Assert the behavior of is_randomly_partitioned under certain cache settings.
