@@ -31,7 +31,9 @@ from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
-from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
+from posthog.session_recordings.session_recording_helpers import (
+    preprocess_session_recording_events_for_clickhouse,
+)
 from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
@@ -69,6 +71,22 @@ TOKEN_SHAPE_INVALID_COUNTER = Counter(
     "Events dropped due to an invalid token shape, per reason.",
     labelnames=["reason"],
 )
+
+
+LIKELY_ANONYMOUS_IDS = {
+    "anon_id",
+    "anon",
+    "anonymous",
+    "guest",
+    "distinctid",
+    "distinct_id",
+    "id",
+    "not_authenticated",
+    "email",
+    "undefined",
+    "true",
+    "false",
+}
 
 
 def build_kafka_event_data(
@@ -451,11 +469,9 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
         Whether the given partition key should be used.
     """
     if settings.PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED:
-
         has_capacity = LIMITER.consume(candidate_partition_key)
 
-        if has_capacity is False:
-
+        if has_capacity is False or candidate_partition_key in LIKELY_ANONYMOUS_IDS:
             if not LOG_RATE_LIMITER.consume(candidate_partition_key):
                 # Return early if we have logged this key already.
                 return True

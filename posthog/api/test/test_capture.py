@@ -27,11 +27,18 @@ from rest_framework import status
 from token_bucket import Limiter, MemoryStorage
 
 from posthog.api import capture
-from posthog.api.capture import get_distinct_id, is_randomly_partitioned
+from posthog.api.capture import (
+    LIKELY_ANONYMOUS_IDS,
+    get_distinct_id,
+    is_randomly_partitioned,
+)
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
-from posthog.settings import DATA_UPLOAD_MAX_MEMORY_SIZE, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+from posthog.settings import (
+    DATA_UPLOAD_MAX_MEMORY_SIZE,
+    KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+)
 from posthog.test.base import BaseTest
 
 
@@ -118,6 +125,16 @@ class TestCapture(BaseTest):
 
         with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[override_key]):
             assert is_randomly_partitioned(override_key) is True
+
+    def test_is_randomly_parititoned_with_likely_anonymous_ids(self):
+        """Test is_randomly_partitioned in the prescence of likely anonymous ids."""
+        for distinct_id in LIKELY_ANONYMOUS_IDS:
+            override_key = f"{self.team.pk}:{distinct_id}"
+
+            assert is_randomly_partitioned(override_key) is True
+
+            with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[override_key]):
+                assert is_randomly_partitioned(override_key) is True
 
     def test_cached_is_randomly_partitioned(self):
         """Assert the behavior of is_randomly_partitioned under certain cache settings.
