@@ -2012,6 +2012,9 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
             if "statement_timeout" in sql:
                 return execute(sql, *args, **kwargs)
             if "insert" in sql.lower():
+                # run the sql so it shows up in snapshots
+                execute(sql, *args, **kwargs)
+
                 raise IntegrityError(
                     """
                     insert or update on table "posthog_featureflaghashkeyoverride" violates foreign key constraint "posthog_featureflagh_person_id_7e517f7c_fk_posthog_p"
@@ -2086,6 +2089,9 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                     return execute(sql, *args, **kwargs)
                 if "insert" in sql.lower() and not self.has_failed:
                     self.has_failed = True
+                    # run the sql so it shows up in snapshots
+                    execute(sql, *args, **kwargs)
+                    # then raise an error
                     raise IntegrityError(
                         """
                         insert or update on table "posthog_featureflaghashkeyoverride" violates foreign key constraint "posthog_featureflagh_person_id_7e517f7c_fk_posthog_p"
