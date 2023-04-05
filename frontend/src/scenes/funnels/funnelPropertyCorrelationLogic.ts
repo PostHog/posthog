@@ -41,7 +41,7 @@ export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
 export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('insight_funnel')),
-    path((key) => ['scenes', 'funnels', 'funnelCorrelationLogic', key]),
+    path((key) => ['scenes', 'funnels', 'funnelPropertyCorrelationLogic', key]),
     connect((props: InsightLogicProps) => ({
         values: [
             funnelCorrelationLogic(props),
