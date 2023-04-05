@@ -9,7 +9,6 @@ import {
     AvailableFeature,
     CorrelationConfigType,
     FunnelCorrelationResultsType,
-    FunnelCorrelationType,
     FunnelsFilterType,
     FunnelVizType,
     InsightLogicProps,
@@ -617,37 +616,6 @@ describe('funnelLogic', () => {
                 title: expect.any(Object),
                 url: '/some/people/url?funnel_step=2&funnel_step_breakdown=Latvia', // Series funnel_step_breakdown included
             })
-        })
-    })
-
-    describe('funnel correlation matrix', () => {
-        beforeEach(async () => {
-            await initFunnelLogic()
-        })
-        it('Selecting a record returns appropriate values', async () => {
-            await expectLogic(logic, () =>
-                logic.actions.setFunnelCorrelationDetails({
-                    event: { event: 'some event', elements: [], properties: {} },
-                    success_people_url: '',
-                    failure_people_url: '',
-                    success_count: 2,
-                    failure_count: 4,
-                    odds_ratio: 3,
-                    correlation_type: FunnelCorrelationType.Success,
-                    result_type: FunnelCorrelationResultsType.Events,
-                })
-            ).toMatchValues({
-                correlationMatrixAndScore: {
-                    correlationScore: expect.anything(),
-                    correlationScoreStrength: 'weak',
-                    truePositive: 2,
-                    falsePositive: 2,
-                    trueNegative: 11,
-                    falseNegative: 4,
-                },
-            })
-
-            expect(logic.values.correlationMatrixAndScore.correlationScore).toBeCloseTo(0.204)
         })
     })
 

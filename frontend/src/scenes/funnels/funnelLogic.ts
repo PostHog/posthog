@@ -178,7 +178,6 @@ export const funnelLogic = kea<funnelLogicType>({
             success,
         }),
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
-        setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
         setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
         excludePropertyFromProject: (propertyName: string) => ({ propertyName }),
     }),
@@ -262,12 +261,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 excludePropertyFromProject: (selectedProperties, { propertyName }) => {
                     return selectedProperties.filter((p) => p !== propertyName)
                 },
-            },
-        ],
-        funnelCorrelationDetails: [
-            null as null | FunnelCorrelation,
-            {
-                setFunnelCorrelationDetails: (_, { payload }) => payload,
             },
         ],
         isTooltipShown: [
@@ -639,63 +632,6 @@ export const funnelLogic = kea<funnelLogicType>({
         aggregationTargetLabel: [
             (s) => [s.filters, s.aggregationLabel],
             (filters, aggregationLabel): Noun => aggregationLabel(filters.aggregation_group_type_index),
-        ],
-        correlationMatrixAndScore: [
-            (s) => [s.funnelCorrelationDetails, s.steps],
-            (
-                funnelCorrelationDetails,
-                steps
-            ): {
-                truePositive: number
-                falsePositive: number
-                trueNegative: number
-                falseNegative: number
-                correlationScore: number
-                correlationScoreStrength: 'weak' | 'moderate' | 'strong' | null
-            } => {
-                if (!funnelCorrelationDetails) {
-                    return {
-                        truePositive: 0,
-                        falsePositive: 0,
-                        trueNegative: 0,
-                        falseNegative: 0,
-                        correlationScore: 0,
-                        correlationScoreStrength: null,
-                    }
-                }
-
-                const successTotal = steps[steps.length - 1].count
-                const failureTotal = steps[0].count - successTotal
-                const success = funnelCorrelationDetails.success_count
-                const failure = funnelCorrelationDetails.failure_count
-
-                const truePositive = success // has property, converted
-                const falseNegative = failure // has property, but dropped off
-                const trueNegative = failureTotal - failure // doesn't have property, dropped off
-                const falsePositive = successTotal - success // doesn't have property, converted
-
-                // Phi coefficient: https://en.wikipedia.org/wiki/Phi_coefficient
-                const correlationScore =
-                    (truePositive * trueNegative - falsePositive * falseNegative) /
-                    Math.sqrt(
-                        (truePositive + falsePositive) *
-                            (truePositive + falseNegative) *
-                            (trueNegative + falsePositive) *
-                            (trueNegative + falseNegative)
-                    )
-
-                const correlationScoreStrength =
-                    Math.abs(correlationScore) > 0.5 ? 'strong' : Math.abs(correlationScore) > 0.3 ? 'moderate' : 'weak'
-
-                return {
-                    correlationScore,
-                    truePositive,
-                    falsePositive,
-                    trueNegative,
-                    falseNegative,
-                    correlationScoreStrength,
-                }
-            },
         ],
         advancedOptionsUsedCount: [
             (s) => [s.filters, s.stepReference],
