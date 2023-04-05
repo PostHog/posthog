@@ -107,7 +107,8 @@ def validate_response(openapi_spec: Dict[str, Any], response: Any, path_override
 
             sent_query_parameters = parse_qs(response.request["QUERY_STRING"])
             for name, values in sent_query_parameters.items():
-                spec = query_parameter_specs[name]
+                spec = query_parameter_specs.get(name)
+                assert spec, f"Parameter {name} was sent in query string but is not defined in OpenAPI spec"
                 schema = spec["schema"]
                 for value in values:
                     try:
@@ -123,3 +124,27 @@ def validate_response(openapi_spec: Dict[str, Any], response: Any, path_override
                 assert (
                     required_parameter in sent_query_parameters.keys()
                 ), f"Required parameter {required_parameter} was not sent in query string"
+
+            # Verify that all headers were sent as per the spec and that they
+            # are valid according to the spec. Note that Django transforms all
+            # headers to be prefixed with HTTP_ and uppercased, so we need to
+            # remove that prefix and lowercase the header name. We also need to
+            # lowercase the header name in the spec.
+            header_parameter_specs = {
+                parameter["name"].lower(): parameter
+                for parameter in response_method_spec.get("parameters", [])
+                if parameter["in"] == "header"
+            }
+
+            sent_headers = {
+                key.replace("HTTP_", "").lower(): value
+                for key, value in response.request.items()
+                if key.startswith("HTTP_")
+            }
+
+            for name, values in sent_headers.items():
+                spec = header_parameter_specs.get(name)
+                assert spec, f"Header {name} was sent but is not defined in OpenAPI spec"
+                schema = spec["schema"]
+                for value in values:
+                    validate(value, schema)

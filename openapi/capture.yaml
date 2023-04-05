@@ -46,23 +46,9 @@ paths:
                 PostHog.
 
             parameters:
-                - in: query
-                  name: ip
-                  schema:
-                      type: string
-                      format: ipv4
-                      description: |
-                          The IP address of the user. This is used to geolocate the user.
-                - in: query
-                  name: compression
-                  description: |
-                      The compression method used to compress the request body.
-                  schema:
-                      type: string
-                      enum:
-                          - gzip-js
-                          - gzip
-                          - lz64
+                - $ref: '#/components/parameters/ipParameter'
+                - $ref: '#/components/parameters/compressionParameter'
+                - $ref: '#/components/parameters/dateHeader'
 
             responses:
                 '200':
@@ -134,23 +120,9 @@ paths:
                 be set to the current time.
 
             parameters:
-                - in: query
-                  name: ip
-                  schema:
-                      type: string
-                      format: ipv4
-                      description: |
-                          The IP address of the user. This is used to geolocate the user.
-                - in: query
-                  name: compression
-                  description: |
-                      The compression method used to compress the request body.
-                  schema:
-                      type: string
-                      enum:
-                          - gzip-js
-                          - gzip
-                          - lz64
+                - $ref: '#/components/parameters/ipParameter'
+                - $ref: '#/components/parameters/compressionParameter'
+                - $ref: '#/components/parameters/dateHeader'
 
             responses:
                 '200':
@@ -332,3 +304,54 @@ components:
                 detail:
                     type: string
                     example: 'Invalid API key'
+
+    parameters:
+        ipParameter:
+            in: query
+            name: ip
+            schema:
+                type: string
+                format: ipv4
+                description: |
+                    The IP address of the user. This is used to geolocate the user.
+        compressionParameter:
+            in: query
+            name: compression
+            description: |
+                The compression method used to compress the request body.
+            schema:
+                type: string
+                enum:
+                    - gzip-js
+                    - gzip
+                    - lz64
+        dateHeader:
+            in: header
+            name: Date
+            schema:
+                type: string
+                format: date-time
+            required: false
+            description: |
+                The date and time of the event. This is used to calculate
+                clock skew between the client and the server. It is
+                in the format as specified in
+                [RFC5322](https://www.rfc-editor.org/rfc/rfc5322.html#section-3.3)
+                which looks like:
+
+                ```
+                Date: <day-name>, <day> <month> <year> <hour>:<minute>:<second> GMT
+                ```
+
+                For example:
+
+                ```
+                Date: Mon, 27 Jul 2009 12:28:53 GMT
+                ```
+
+                If you don't set this header, we'll use the `sent_at` in the JSON
+                payload, and finally the current time.
+
+                All browser HTTP clients will automatically set this
+                header for you, so you don't need to worry about it.
+                For other clients, you may need to set it manually.
