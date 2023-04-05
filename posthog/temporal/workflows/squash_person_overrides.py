@@ -12,6 +12,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.temporal.workflows.base import CommandableWorkflow
 
 EPOCH = datetime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
 
@@ -481,7 +482,7 @@ class SquashPersonOverridesInputs:
 
 
 @workflow.defn(name="squash-person-overrides")
-class SquashPersonOverridesWorkflow:
+class SquashPersonOverridesWorkflow(CommandableWorkflow):
     """Workflow to squash outstanding person overrides into events.
 
     Squashing refers to the process of updating the person_id associated with an event
@@ -545,6 +546,18 @@ class SquashPersonOverridesWorkflow:
     Any overrides that arrived during the job will be left there for the next job run to clean
     up. These will be a no-op for the next job run as the override will already have been applied.
     """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> SquashPersonOverridesInputs:
+        """Parse inputs from the management command CLI.
+
+        We assume only one JSON serialized input and go from there.
+        """
+        if not inputs:
+            return SquashPersonOverridesInputs()
+
+        loaded = json.loads(inputs[0])
+        return SquashPersonOverridesInputs(**loaded)
 
     @workflow.run
     async def run(self, inputs: SquashPersonOverridesInputs):

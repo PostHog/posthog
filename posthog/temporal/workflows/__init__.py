@@ -1,8 +1,10 @@
 from posthog.temporal.workflows.noop import *
+from typing import Callable, Sequence
+
 from posthog.temporal.workflows.squash_person_overrides import *
 
 WORKFLOWS = [NoOpWorkflow, SquashPersonOverridesWorkflow]
-ACTIVITIES = [
+ACTIVITIES: Sequence[Callable] = [
     noop_activity,
     prepare_join_table,
     select_persons_to_delete,
