@@ -248,7 +248,7 @@
   '
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.1
-  'SAVEPOINT "s4334388608_x4"'
+  'SAVEPOINT "s4301620608_x4"'
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.10
   '
@@ -276,30 +276,102 @@
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.2
   '
-  
-  SET LOCAL statement_timeout = 2
+  WITH target_person_ids AS
+    (SELECT person_id
+     FROM posthog_persondistinctid
+     WHERE team_id = 2
+       AND distinct_id IN ('other_id',
+                           'example_id') ),
+       existing_overrides AS
+    (SELECT team_id,
+            person_id,
+            feature_flag_key,
+            hash_key
+     FROM posthog_featureflaghashkeyoverride
+     WHERE team_id = 2
+       AND person_id IN
+         (SELECT person_id
+          FROM target_person_ids) ),
+       flags_to_override AS
+    (SELECT key
+     FROM posthog_featureflag
+     WHERE team_id = 2
+       AND ensure_experience_continuity = TRUE
+       AND active = TRUE
+       AND deleted = FALSE
+       AND key NOT IN
+         (SELECT feature_flag_key
+          FROM existing_overrides) )
+  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+  SELECT 3,
+         person_id,
+         key,
+         'example_id'
+  FROM flags_to_override,
+       target_person_ids
+  WHERE EXISTS
+      (SELECT 1
+       FROM posthog_person
+       WHERE id = person_id
+         AND team_id = 2) ON CONFLICT DO NOTHING
   '
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.3
-  'ROLLBACK TO SAVEPOINT "s4334388608_x4"'
+  'ROLLBACK TO SAVEPOINT "s4301620608_x4"'
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.4
-  'RELEASE SAVEPOINT "s4334388608_x4"'
+  'RELEASE SAVEPOINT "s4301620608_x4"'
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.5
-  'SAVEPOINT "s4334388608_x5"'
+  'SAVEPOINT "s4301620608_x5"'
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.6
   '
-  
-  SET LOCAL statement_timeout = 2
+  WITH target_person_ids AS
+    (SELECT person_id
+     FROM posthog_persondistinctid
+     WHERE team_id = 2
+       AND distinct_id IN ('other_id',
+                           'example_id') ),
+       existing_overrides AS
+    (SELECT team_id,
+            person_id,
+            feature_flag_key,
+            hash_key
+     FROM posthog_featureflaghashkeyoverride
+     WHERE team_id = 2
+       AND person_id IN
+         (SELECT person_id
+          FROM target_person_ids) ),
+       flags_to_override AS
+    (SELECT key
+     FROM posthog_featureflag
+     WHERE team_id = 2
+       AND ensure_experience_continuity = TRUE
+       AND active = TRUE
+       AND deleted = FALSE
+       AND key NOT IN
+         (SELECT feature_flag_key
+          FROM existing_overrides) )
+  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+  SELECT 3,
+         person_id,
+         key,
+         'example_id'
+  FROM flags_to_override,
+       target_person_ids
+  WHERE EXISTS
+      (SELECT 1
+       FROM posthog_person
+       WHERE id = person_id
+         AND team_id = 2) ON CONFLICT DO NOTHING
   '
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.7
-  'ROLLBACK TO SAVEPOINT "s4334388608_x5"'
+  'ROLLBACK TO SAVEPOINT "s4301620608_x5"'
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.8
-  'RELEASE SAVEPOINT "s4334388608_x5"'
+  'RELEASE SAVEPOINT "s4301620608_x5"'
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.9
   '
@@ -314,7 +386,7 @@
   '
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.1
-  'SAVEPOINT "s4334388608_x7"'
+  'SAVEPOINT "s4301620608_x7"'
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.10
   '
@@ -332,18 +404,54 @@
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.2
   '
-  
-  SET LOCAL statement_timeout = 2
+  WITH target_person_ids AS
+    (SELECT person_id
+     FROM posthog_persondistinctid
+     WHERE team_id = 2
+       AND distinct_id IN ('other_id',
+                           'example_id') ),
+       existing_overrides AS
+    (SELECT team_id,
+            person_id,
+            feature_flag_key,
+            hash_key
+     FROM posthog_featureflaghashkeyoverride
+     WHERE team_id = 2
+       AND person_id IN
+         (SELECT person_id
+          FROM target_person_ids) ),
+       flags_to_override AS
+    (SELECT key
+     FROM posthog_featureflag
+     WHERE team_id = 2
+       AND ensure_experience_continuity = TRUE
+       AND active = TRUE
+       AND deleted = FALSE
+       AND key NOT IN
+         (SELECT feature_flag_key
+          FROM existing_overrides) )
+  INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+  SELECT 4,
+         person_id,
+         key,
+         'example_id'
+  FROM flags_to_override,
+       target_person_ids
+  WHERE EXISTS
+      (SELECT 1
+       FROM posthog_person
+       WHERE id = person_id
+         AND team_id = 2) ON CONFLICT DO NOTHING
   '
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.3
-  'ROLLBACK TO SAVEPOINT "s4334388608_x7"'
+  'ROLLBACK TO SAVEPOINT "s4301620608_x7"'
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.4
-  'RELEASE SAVEPOINT "s4334388608_x7"'
+  'RELEASE SAVEPOINT "s4301620608_x7"'
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.5
-  'SAVEPOINT "s4334388608_x8"'
+  'SAVEPOINT "s4301620608_x8"'
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.6
   '
@@ -374,7 +482,7 @@
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT 134,
+  SELECT 4,
          person_id,
          key,
          'example_id'
@@ -388,7 +496,7 @@
   '
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.7
-  'RELEASE SAVEPOINT "s4334388608_x8"'
+  'RELEASE SAVEPOINT "s4301620608_x8"'
 ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.8
   '
