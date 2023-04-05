@@ -445,7 +445,7 @@
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT 2,
+  SELECT 112,
          person_id,
          key,
          'random'
@@ -499,7 +499,7 @@
   '
   SELECT pg_sleep(1);
   
-  SAVEPOINT "s4309353856_x3"
+  SAVEPOINT "s140148981939264_x1038"
   '
 ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.5
