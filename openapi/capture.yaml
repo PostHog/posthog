@@ -49,6 +49,7 @@ paths:
                 - $ref: '#/components/parameters/ipParameter'
                 - $ref: '#/components/parameters/compressionParameter'
                 - $ref: '#/components/parameters/dateHeader'
+                - $ref: '#/components/parameters/contentEncodingHeader'
 
             responses:
                 '200':
@@ -123,6 +124,7 @@ paths:
                 - $ref: '#/components/parameters/ipParameter'
                 - $ref: '#/components/parameters/compressionParameter'
                 - $ref: '#/components/parameters/dateHeader'
+                - $ref: '#/components/parameters/contentEncodingHeader'
 
             responses:
                 '200':
@@ -355,3 +357,14 @@ components:
                 All browser HTTP clients will automatically set this
                 header for you, so you don't need to worry about it.
                 For other clients, you may need to set it manually.
+        contentEncodingHeader:
+            in: header
+            name: Content-Encoding
+            schema:
+                type: string
+                enum:
+                    - gzip
+                    - lz64
+            required: false
+            description: |
+                The compression method used to compress the request body.

@@ -129,22 +129,22 @@ def validate_response(openapi_spec: Dict[str, Any], response: Any, path_override
             # are valid according to the spec. Note that Django transforms all
             # headers to be prefixed with HTTP_ and uppercased, so we need to
             # remove that prefix and lowercase the header name. We also need to
-            # lowercase the header name in the spec.
+            # lowercase the header name in the spec. It also converts dashes to
+            # underscores, so we need to do that as well.
             header_parameter_specs = {
-                parameter["name"].lower(): parameter
+                parameter["name"].replace("-", "_").lower(): parameter
                 for parameter in response_method_spec.get("parameters", [])
                 if parameter["in"] == "header"
             }
 
-            sent_headers = {
-                key.replace("HTTP_", "").lower(): value
+            sent_headers = (
+                (key.replace("HTTP_", "").lower(), value)
                 for key, value in response.request.items()
                 if key.startswith("HTTP_")
-            }
+            )
 
-            for name, values in sent_headers.items():
+            for name, value in sent_headers:
                 spec = header_parameter_specs.get(name)
                 assert spec, f"Header {name} was sent but is not defined in OpenAPI spec"
                 schema = spec["schema"]
-                for value in values:
-                    validate(value, schema)
+                validate(value, schema)
