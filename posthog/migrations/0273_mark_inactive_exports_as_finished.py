@@ -73,4 +73,4 @@ class Migration(migrations.Migration):
         ("posthog", "0272_alter_organization_plugins_access_level"),
     ]
 
-    operations = [migrations.RunPython(mark_inactive_exports_as_finished, reverse)]
+    operations = [migrations.RunPython(mark_inactive_exports_as_finished, reverse, elidable=True)]
