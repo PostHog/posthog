@@ -6,7 +6,7 @@ import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { IconChevronRight, IconCheckmark, IconExpandMore, IconPlus, IconArticle } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
 import { convertUsageToAmount, summarizeUsage } from '../billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from '../billingLogic'
@@ -14,10 +14,35 @@ import { BillingLimitInput } from './BillingLimitInput'
 import { billingProductLogic } from './billingProductLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ProductPricingModal } from './ProductPricingModal'
+
+const getCurrentAndUpgradePlans = (
+    product: BillingProductV2Type | BillingProductV2AddonType
+): { currentPlan: BillingV2PlanType; upgradePlan: BillingV2PlanType } => {
+    const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
+    const currentPlan = product.plans?.[currentPlanIndex]
+    const upgradePlan = product.plans?.[currentPlanIndex + 1]
+    return { currentPlan, upgradePlan }
+}
+
+export const getTierDescription = (
+    tier: BillingV2TierType,
+    i: number,
+    product: BillingProductV2Type,
+    interval: string
+): string => {
+    return i === 0
+        ? `First ${summarizeUsage(tier.up_to)} ${product.unit}s / ${interval}`
+        : tier.up_to
+        ? `${summarizeUsage(product.tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tier.up_to)}`
+        : `> ${summarizeUsage(product.tiers?.[i - 1].up_to || null)}`
+}
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const { billing } = useValues(billingLogic)
     const { deactivateProduct } = useActions(billingLogic)
+    const { isPricingModalOpen } = useValues(billingProductLogic({ product: addon }))
+    const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: addon }))
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -27,10 +52,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     if (billing?.has_active_subscription) {
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
     }
-
-    // This assumes that the first plan is the free plan, and there is only one other plan that is paid
-    // If there are more than two plans for single product in the future we need to make this smarter
-    const upgradeToPlanKey = addon.plans?.filter((plan) => !plan.current_plan)[0]?.plan_key
 
     return (
         <div className="bg-side rounded p-6 flex flex-col">
@@ -76,18 +97,41 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             />
                         </>
                     ) : (
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            size="small"
-                            to={`/api/billing-v2/activation?products=${addon.type}:${upgradeToPlanKey}`}
-                            disableClientSideRouting
-                        >
-                            Add
-                        </LemonButton>
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                disableClientSideRouting
+                                onClick={() => {
+                                    toggleIsPricingModalOpen()
+                                }}
+                            >
+                                View pricing
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlus />}
+                                size="small"
+                                to={`/api/billing-v2/activation?products=${addon.type}:${
+                                    getCurrentAndUpgradePlans(addon).upgradePlan.plan_key
+                                }`}
+                                disableClientSideRouting
+                            >
+                                Add
+                            </LemonButton>
+                        </>
                     )}
                 </div>
             </div>
+            <ProductPricingModal
+                modalOpen={isPricingModalOpen}
+                onClose={toggleIsPricingModalOpen}
+                product={addon}
+                planKey={
+                    addon.subscribed
+                        ? getCurrentAndUpgradePlans(addon).currentPlan?.plan_key
+                        : getCurrentAndUpgradePlans(addon).upgradePlan?.plan_key
+                }
+            />
         </div>
     )
 }
@@ -95,31 +139,23 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { billing } = useValues(billingLogic)
     const { deactivateProduct } = useActions(billingLogic)
-    const { customLimitUsd, showTierBreakdown, billingGaugeItems } = useValues(billingProductLogic({ product }))
-    const { setIsEditingBillingLimit, setShowTierBreakdown } = useActions(billingProductLogic({ product }))
+    const { customLimitUsd, showTierBreakdown, billingGaugeItems, isPricingModalOpen } = useValues(
+        billingProductLogic({ product })
+    )
+    const { setIsEditingBillingLimit, setShowTierBreakdown, toggleIsPricingModalOpen } = useActions(
+        billingProductLogic({ product })
+    )
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
-    const productType = { plural: `${product.unit}s`, singular: product.unit }
     // This assumes that the first plan is the free plan, and there is only one other plan that is paid
     // If there are more than two plans for single product in the future we need to make this smarter
     const upgradeToPlanKey = product.plans?.filter((plan) => !plan.current_plan)[0]?.plan_key
+    const currentPlanKey = product.plans?.find((plan) => plan.current_plan)?.plan_key
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         700: 'medium',
     })
-
-    const tierDisplayOptions: LemonSelectOptions<string> = [
-        { label: `Per ${productType.singular}`, value: 'individual' },
-    ]
-
-    const getTierDescription = (tier: BillingV2TierType, i: number): string => {
-        return i === 0
-            ? `First ${summarizeUsage(tier.up_to)} ${productType.plural} / ${billing?.billing_period?.interval}`
-            : tier.up_to
-            ? `${summarizeUsage(product.tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tier.up_to)}`
-            : `> ${summarizeUsage(product.tiers?.[i - 1].up_to || null)}`
-    }
 
     const addonPriceColumns = product.addons
         // only get addons that are subscribed or were subscribed and have a projected amount
@@ -137,8 +173,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         { title: 'Total', dataIndex: 'total' },
         { title: 'Projected Total', dataIndex: 'projectedTotal' },
     ]
-
-    console.log(tableColumns)
 
     // TODO: SUPPORT NON-TIERED PRODUCT TYPES
     // still use the table, but the data will be different
@@ -165,7 +199,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 product.addons.reduce((acc, addon) => acc + (addon.tiers?.[i].projected_amount_usd || 0), 0)
 
             const tierData = {
-                volume: getTierDescription(tier, i),
+                volume: getTierDescription(tier, i, product, billing?.billing_period?.interval || ''),
                 basePrice: tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free',
                 usage: summarizeUsage(tier.current_usage),
                 total: `$${totalForTier || '0.00'}`,
@@ -186,10 +220,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             // TODO: Make sure this projected total includes addons
             projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
         })
-
-    if (billing?.has_active_subscription) {
-        tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
-    }
 
     return (
         <div
@@ -225,17 +255,28 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </Tooltip>
                             )}
                             {!product.subscribed ? (
-                                <LemonButton
-                                    to={`/api/billing-v2/activation?products=${product.type}:${upgradeToPlanKey}`}
-                                    type="primary"
-                                    icon={<IconPlus />}
-                                    disableClientSideRouting
-                                    onClick={() => {
-                                        reportBillingUpgradeClicked(product.type)
-                                    }}
-                                >
-                                    Upgrade
-                                </LemonButton>
+                                <>
+                                    <LemonButton
+                                        type="secondary"
+                                        disableClientSideRouting
+                                        onClick={() => {
+                                            toggleIsPricingModalOpen()
+                                        }}
+                                    >
+                                        View pricing
+                                    </LemonButton>
+                                    <LemonButton
+                                        to={`/api/billing-v2/activation?products=${product.type}:${upgradeToPlanKey}`}
+                                        type="primary"
+                                        icon={<IconPlus />}
+                                        disableClientSideRouting
+                                        onClick={() => {
+                                            reportBillingUpgradeClicked(product.type)
+                                        }}
+                                    >
+                                        Upgrade
+                                    </LemonButton>
+                                </>
                             ) : (
                                 <More
                                     overlay={
@@ -245,7 +286,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 fullWidth
                                                 onClick={() => deactivateProduct(product.type)}
                                             >
-                                                Downgrade
+                                                Unsubscribe
                                             </LemonButton>
                                             {billing?.billing_period?.interval == 'month' && (
                                                 <LemonButton
@@ -373,6 +414,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 </div>
                 <BillingLimitInput product={product} />
             </div>
+            <ProductPricingModal
+                modalOpen={isPricingModalOpen}
+                onClose={toggleIsPricingModalOpen}
+                product={product}
+                planKey={product.subscribed ? currentPlanKey : upgradeToPlanKey}
+            />
         </div>
     )
 }

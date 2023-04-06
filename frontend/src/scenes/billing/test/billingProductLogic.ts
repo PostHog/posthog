@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { BillingProductV2Type } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 import { billingLogic } from '../billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { convertUsageToAmount, convertAmountToUsage } from '../billing-utils'
@@ -14,13 +14,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
         actions: [billingLogic, ['loadBillingSuccess', 'updateBillingLimitsSuccess']],
     }),
     props({
-        product: {} as BillingProductV2Type,
+        product: {} as BillingProductV2Type | BillingProductV2AddonType,
     }),
     actions({
         setIsEditingBillingLimit: (isEditingBillingLimit: boolean) => ({ isEditingBillingLimit }),
         setBillingLimitInput: (billingLimitInput: number | undefined) => ({ billingLimitInput }),
         billingLoaded: true,
         setShowTierBreakdown: (showTierBreakdown: boolean) => ({ showTierBreakdown }),
+        toggleIsPricingModalOpen: true,
     }),
     reducers({
         isEditingBillingLimit: [
@@ -39,6 +40,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             DEFAULT_BILLING_LIMIT as number | undefined,
             {
                 setBillingLimitInput: (_, { billingLimitInput }) => billingLimitInput,
+            },
+        ],
+        isPricingModalOpen: [
+            false as boolean,
+            {
+                toggleIsPricingModalOpen: (state) => !state,
             },
         ],
     }),

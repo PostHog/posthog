@@ -1141,6 +1141,7 @@ export interface BillingV2PlanType {
     products: BillingProductV2Type[]
     plan_key?: string
     current_plan?: any
+    tiers?: BillingV2TierType[]
 }
 
 export interface PlanInterface {

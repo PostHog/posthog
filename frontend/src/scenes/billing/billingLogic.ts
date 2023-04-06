@@ -76,7 +76,7 @@ export const billingLogic = kea<billingLogicType>([
 
                 deactivateProduct: async (key: string) => {
                     const response = await api.get('api/billing-v2/deactivate?products=' + key)
-                    lemonToast.success('Product downgraded')
+                    lemonToast.success('Product unsubscribed')
                     return parseBillingResponse(response)
                 },
             },
