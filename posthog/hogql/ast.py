@@ -309,6 +309,11 @@ class OrderExpr(Expr):
     order: Literal["ASC", "DESC"] = "ASC"
 
 
+class ArrayAccess(Expr):
+    left: Expr
+    right: Expr
+
+
 class Array(Expr):
     exprs: List[Expr]
 
