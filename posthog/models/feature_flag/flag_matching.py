@@ -561,7 +561,7 @@ def set_feature_flag_hash_key_overrides(
             with transaction.atomic():
                 query = """
                     WITH target_person_ids AS (
-                        SELECT person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
                     ),
                     existing_overrides AS (
                         SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
@@ -572,7 +572,7 @@ def set_feature_flag_hash_key_overrides(
                         AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
                     )
                     INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-                        SELECT %(team_id)s, person_id, key, %(hash_key_override)s
+                        SELECT team_id, person_id, key, %(hash_key_override)s
                         FROM flags_to_override, target_person_ids
                         WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = %(team_id)s)
                         ON CONFLICT DO NOTHING

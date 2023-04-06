@@ -277,7 +277,8 @@
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.2
   '
   WITH target_person_ids AS
-    (SELECT person_id
+    (SELECT team_id,
+            person_id
      FROM posthog_persondistinctid
      WHERE team_id = 2
        AND distinct_id IN ('other_id',
@@ -303,7 +304,7 @@
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT 3,
+  SELECT team_id,
          person_id,
          key,
          'example_id'
@@ -328,7 +329,8 @@
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging.6
   '
   WITH target_person_ids AS
-    (SELECT person_id
+    (SELECT team_id,
+            person_id
      FROM posthog_persondistinctid
      WHERE team_id = 2
        AND distinct_id IN ('other_id',
@@ -354,7 +356,7 @@
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT 3,
+  SELECT team_id,
          person_id,
          key,
          'example_id'
@@ -405,7 +407,8 @@
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.2
   '
   WITH target_person_ids AS
-    (SELECT person_id
+    (SELECT team_id,
+            person_id
      FROM posthog_persondistinctid
      WHERE team_id = 2
        AND distinct_id IN ('other_id',
@@ -431,7 +434,7 @@
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT 4,
+  SELECT team_id,
          person_id,
          key,
          'example_id'
@@ -456,7 +459,8 @@
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_race_conditions_on_person_merging.6
   '
   WITH target_person_ids AS
-    (SELECT person_id
+    (SELECT team_id,
+            person_id
      FROM posthog_persondistinctid
      WHERE team_id = 2
        AND distinct_id IN ('other_id',
@@ -482,7 +486,7 @@
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT 4,
+  SELECT team_id,
          person_id,
          key,
          'example_id'

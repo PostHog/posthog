@@ -419,7 +419,8 @@
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db
   '
   WITH target_person_ids AS
-    (SELECT person_id
+    (SELECT team_id,
+            person_id
      FROM posthog_persondistinctid
      WHERE team_id = 2
        AND distinct_id IN ('example_id',
@@ -445,7 +446,7 @@
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-  SELECT 112,
+  SELECT team_id,
          person_id,
          key,
          'random'
@@ -499,7 +500,7 @@
   '
   SELECT pg_sleep(1);
   
-  SAVEPOINT "s140703192525888_x1038"
+  SAVEPOINT _snapshot_
   '
 ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.5
