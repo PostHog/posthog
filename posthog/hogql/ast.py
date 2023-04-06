@@ -310,8 +310,8 @@ class OrderExpr(Expr):
 
 
 class ArrayAccess(Expr):
-    left: Expr
-    right: Expr
+    array: Expr
+    property: Expr
 
 
 class Array(Expr):
