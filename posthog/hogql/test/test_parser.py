@@ -47,6 +47,40 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_arrays(self):
+        self.assertEqual(parse_expr("[]"), ast.Array(exprs=[]))
+        self.assertEqual(parse_expr("[1]"), ast.Array(exprs=[ast.Constant(value=1)]))
+        self.assertEqual(
+            parse_expr("[1, avg()]"), ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
+        )
+        self.assertEqual(parse_expr("properties['value']"), ast.Field(chain=["properties", "value"]))
+        self.assertEqual(
+            parse_expr("properties[(select 'value')]"),
+            ast.ArrayAccess(
+                array=ast.Field(chain=["properties"]), property=ast.SelectQuery(select=[ast.Constant(value="value")])
+            ),
+        )
+        self.assertEqual(
+            parse_expr("[1,2,3][1]"),
+            ast.ArrayAccess(
+                array=ast.Array(
+                    exprs=[
+                        ast.Constant(value=1),
+                        ast.Constant(value=2),
+                        ast.Constant(value=3),
+                    ]
+                ),
+                property=ast.Constant(value=1),
+            ),
+        )
+
+    def test_tuples(self):
+        self.assertEqual(
+            parse_expr("(1, avg())"), ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
+        )
+        # needs at least two values to be a tuple
+        self.assertEqual(parse_expr("(1)"), ast.Constant(value=1))
+
     def test_strings(self):
         self.assertEqual(parse_expr("'null'"), ast.Constant(value="null"))
         self.assertEqual(parse_expr("'n''ull'"), ast.Constant(value="n'ull"))
