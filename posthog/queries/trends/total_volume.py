@@ -39,7 +39,7 @@ from posthog.queries.trends.util import (
     process_math,
 )
 from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch
-from posthog.utils import PersonOnEventsMode, encode_get_request_params
+from posthog.utils import PersonOnEventsMode, encode_get_request_params, generate_short_id
 
 
 class TrendsTotalVolume:
@@ -234,6 +234,7 @@ class TrendsTotalVolume:
         self, filter: Filter, entity: Entity, team: Team, point_datetimes: List[datetime]
     ) -> List[Dict[str, Any]]:
         persons_url = []
+        cache_invalidation_key = generate_short_id()
         for point_datetime in point_datetimes:
             filter_params = filter.to_params()
             extra_params = {
@@ -249,7 +250,7 @@ class TrendsTotalVolume:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team.pk}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
+                    "url": f"api/projects/{team.pk}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
                 }
             )
         return persons_url

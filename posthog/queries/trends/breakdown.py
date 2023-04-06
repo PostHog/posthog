@@ -63,7 +63,7 @@ from posthog.queries.trends.util import (
     process_math,
 )
 from posthog.queries.util import PersonPropertiesMode
-from posthog.utils import PersonOnEventsMode, encode_get_request_params
+from posthog.utils import PersonOnEventsMode, encode_get_request_params, generate_short_id
 
 
 class TrendsBreakdown:
@@ -569,6 +569,7 @@ class TrendsBreakdown:
         self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime], breakdown_value: Union[str, int]
     ) -> List[Dict[str, Any]]:
         persons_url = []
+        cache_invalidation_key = generate_short_id()
         for date in dates:
             date_in_utc = datetime(
                 date.year,
@@ -593,7 +594,7 @@ class TrendsBreakdown:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
+                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
                 }
             )
         return persons_url
