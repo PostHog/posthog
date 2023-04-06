@@ -17,5 +17,5 @@ class Migration(migrations.Migration):
         pass
 
     operations = [
-        migrations.RunPython(reset_team_timezone_to_UTC, reverse),
+        migrations.RunPython(reset_team_timezone_to_UTC, reverse, elidable=True),
     ]

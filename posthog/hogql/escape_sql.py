@@ -2,9 +2,9 @@ import re
 from datetime import datetime, date
 from typing import Optional, Any, Literal, List, Tuple
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import math
-import pytz
 
 from posthog.models.utils import UUIDT
 
@@ -103,7 +103,7 @@ class SQLValueEscaper:
         return self.visit_datetime(value)
 
     def visit_datetime(self, value: datetime):
-        datetime_string = value.astimezone(pytz.timezone(self._timezone)).strftime("%Y-%m-%d %H:%M:%S")
+        datetime_string = value.astimezone(ZoneInfo(self._timezone)).strftime("%Y-%m-%d %H:%M:%S")
         if self._dialect == "hogql":
             return f"toDateTime({self.visit(datetime_string)})"  # no timezone for hogql
         return f"toDateTime({self.visit(datetime_string)}, {self.visit(self._timezone)})"
