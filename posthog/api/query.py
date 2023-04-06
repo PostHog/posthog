@@ -105,7 +105,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         try:
             return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
         except HogQLException as e:
-            raise ValidationError(f"HogQL Exception: {str(e)}")
+            raise ValidationError(f"HogQL Error: {str(e)}")
 
     def post(self, request, *args, **kwargs):
         request_json = request.data
@@ -120,7 +120,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         try:
             return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
         except HogQLException as e:
-            raise ValidationError(f"HogQL Exception: {str(e)}")
+            raise ValidationError(f"HogQL Error: {str(e)}")
 
     def _tag_client_query_id(self, query_id: str | None):
         if query_id is not None:
