@@ -311,7 +311,7 @@ class _Printer(Visitor):
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        return f"{self.visit(node.left)}[{self.visit(node.right)}]"
+        return f"{self.visit(node.array)}[{self.visit(node.property)}]"
 
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
