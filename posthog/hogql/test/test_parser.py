@@ -81,6 +81,50 @@ class TestParser(BaseTest):
         # needs at least two values to be a tuple
         self.assertEqual(parse_expr("(1)"), ast.Constant(value=1))
 
+    def test_lambdas(self):
+        self.assertEqual(
+            parse_expr("arrayMap(x -> x * 2)"),
+            ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
+                        args=["x"],
+                        expr=ast.BinaryOperation(
+                            op=ast.BinaryOperationType.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        ),
+                    )
+                ],
+            ),
+        )
+        self.assertEqual(
+            parse_expr("arrayMap((x) -> x * 2)"),
+            ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
+                        args=["x"],
+                        expr=ast.BinaryOperation(
+                            op=ast.BinaryOperationType.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        ),
+                    )
+                ],
+            ),
+        )
+        self.assertEqual(
+            parse_expr("arrayMap((x, y) -> x * y)"),
+            ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
+                        args=["x", "y"],
+                        expr=ast.BinaryOperation(
+                            op=ast.BinaryOperationType.Mult, left=ast.Field(chain=["x"]), right=ast.Field(chain=["y"])
+                        ),
+                    )
+                ],
+            ),
+        )
+
     def test_strings(self):
         self.assertEqual(parse_expr("'null'"), ast.Constant(value="null"))
         self.assertEqual(parse_expr("'n''ull'"), ast.Constant(value="n'ull"))
