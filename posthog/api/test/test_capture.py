@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from datetime import timezone as tz
 from typing import Any, Dict, List, Union, cast
 from unittest import mock
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import ANY, MagicMock, call, patch
 from urllib.parse import quote
 
 import lzstring
@@ -27,11 +27,18 @@ from rest_framework import status
 from token_bucket import Limiter, MemoryStorage
 
 from posthog.api import capture
-from posthog.api.capture import get_distinct_id, is_randomly_partitioned
+from posthog.api.capture import (
+    LIKELY_ANONYMOUS_IDS,
+    get_distinct_id,
+    is_randomly_partitioned,
+)
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
-from posthog.settings import DATA_UPLOAD_MAX_MEMORY_SIZE, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+from posthog.settings import (
+    DATA_UPLOAD_MAX_MEMORY_SIZE,
+    KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+)
 from posthog.test.base import BaseTest
 
 
@@ -118,6 +125,22 @@ class TestCapture(BaseTest):
 
         with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[override_key]):
             assert is_randomly_partitioned(override_key) is True
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_randomly_partitions_with_likely_anonymous_ids(self, kafka_produce):
+        """Test is_randomly_partitioned in the prescence of likely anonymous ids."""
+        for distinct_id in LIKELY_ANONYMOUS_IDS:
+            data = {
+                "event": "$autocapture",
+                "properties": {
+                    "distinct_id": distinct_id,
+                    "token": self.team.api_token,
+                },
+            }
+            with self.assertNumQueries(0):  # Capture does not hit PG anymore
+                self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+
+            kafka_produce.assert_called_with(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=ANY, key=None)
 
     def test_cached_is_randomly_partitioned(self):
         """Assert the behavior of is_randomly_partitioned under certain cache settings.
