@@ -99,7 +99,11 @@ export function PersonsModal({
                             fullWidth
                             className="mb-2"
                             value={selectedUrlIndex}
-                            onChange={(v) => v && setSelectedUrlIndex(v)}
+                            onChange={(v) => {
+                                if (v !== null && v >= 0) {
+                                    setSelectedUrlIndex(v)
+                                }
+                            }}
                             options={(urls || []).map((url, index) => ({
                                 value: index,
                                 label: url.label,

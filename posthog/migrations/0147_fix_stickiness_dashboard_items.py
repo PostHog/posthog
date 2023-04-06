@@ -17,5 +17,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(update_stickiness, migrations.RunPython.noop),
+        migrations.RunPython(update_stickiness, migrations.RunPython.noop, elidable=True),
     ]

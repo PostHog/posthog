@@ -59,7 +59,7 @@ class PluginAdmin(admin.ModelAdmin):
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "organization_link", "organization_id")
-    search_fields = ("id", "name", "organization__id", "organization__name")
+    search_fields = ("id", "name", "organization__id", "organization__name", "api_token")
     readonly_fields = ["primary_dashboard", "test_account_filters"]
     exclude = [
         "event_names",
@@ -207,7 +207,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "usage_posthog",
         "usage",
     ]
-    search_fields = ("name", "members__email")
+    search_fields = ("name", "members__email", "team__api_token")
     list_display = (
         "name",
         "created_at",

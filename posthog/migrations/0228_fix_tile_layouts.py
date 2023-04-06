@@ -52,5 +52,5 @@ class Migration(migrations.Migration):
         # no-op, it's already wrong... it can't get wronger
 
     operations = [
-        migrations.RunPython(migrate_dashboard_insight_relations, reverse),
+        migrations.RunPython(migrate_dashboard_insight_relations, reverse, elidable=True),
     ]

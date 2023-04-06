@@ -15,4 +15,4 @@ class Migration(migrations.Migration):
         ("posthog", "0213_deprecated_old_tags"),
     ]
 
-    operations = [migrations.RunPython(forwards, reverse)]
+    operations = [migrations.RunPython(forwards, reverse, elidable=True)]

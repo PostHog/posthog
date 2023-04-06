@@ -28,5 +28,5 @@ class Migration(migrations.Migration):
             name="completed_snippet_onboarding",
             field=models.BooleanField(default=False),
         ),
-        migrations.RunPython(set_history_default, reverse_code=backwards),
+        migrations.RunPython(set_history_default, reverse_code=backwards, elidable=True),
     ]
