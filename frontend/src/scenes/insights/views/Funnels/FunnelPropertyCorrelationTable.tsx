@@ -207,7 +207,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 <ConfigProvider
                     renderEmpty={() => (
                         <FunnelCorrelationTableEmptyState
-                            infoMessage="Highlight properties that are likely to have affected the conversion
+                            infoMessage="Highlight properties which are likely to have affected the conversion
                         rate within the funnel."
                             showLoadResultsButton={!loadedPropertyCorrelationsTableOnce}
                             loadResults={() => loadPropertyCorrelations({})}
