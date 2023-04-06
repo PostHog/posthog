@@ -58,7 +58,6 @@ export function DatabaseTables(): JSX.Element {
                     expandedRowRender: function renderExpand(row) {
                         return (
                             <div className="px-4 py-3">
-
                                 <DatabaseTable table={row.name} />
                             </div>
                         )
