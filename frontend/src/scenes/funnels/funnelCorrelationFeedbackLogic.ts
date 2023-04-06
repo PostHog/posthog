@@ -4,8 +4,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import type { funnelCorrelationFeedbackLogicType } from './funnelCorrelationFeedbackLogicType'
-import { funnelLogic } from './funnelLogic'
 import { InsightLogicProps } from '~/types'
+import { funnelCorrelationLogic } from './funnelCorrelationLogic'
+import { funnelPropertyCorrelationLogic } from './funnelPropertyCorrelationLogic'
 
 export const funnelCorrelationFeedbackLogic = kea<funnelCorrelationFeedbackLogicType>([
     props({} as InsightLogicProps),
@@ -13,7 +14,12 @@ export const funnelCorrelationFeedbackLogic = kea<funnelCorrelationFeedbackLogic
     path((key) => ['scenes', 'funnels', 'funnelCorrelationFeedbackLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        actions: [funnelLogic(props), ['loadEventCorrelations', 'loadPropertyCorrelations']],
+        actions: [
+            funnelCorrelationLogic(props),
+            ['loadEventCorrelations'],
+            funnelPropertyCorrelationLogic(props),
+            ['loadPropertyCorrelations'],
+        ],
     })),
 
     actions({

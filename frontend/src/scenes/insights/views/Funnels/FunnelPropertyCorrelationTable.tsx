@@ -4,7 +4,12 @@ import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
+import {
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelCorrelationType,
+    FunnelStepWithNestedBreakdown,
+} from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
@@ -18,27 +23,47 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
 import { PropertyCorrelationActionsCell } from './CorrelationActionsCell'
 import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
+import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
+import { funnelPropertyCorrelationLogic } from 'scenes/funnels/funnelPropertyCorrelationLogic'
+import { Noun } from '~/models/groupsModel'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+
+export function FunnelPropertyCorrelationTableDataExploration(): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { steps, querySource, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { loadedPropertyCorrelationsTableOnce, propertyNames, allProperties } = useValues(
+        funnelPropertyCorrelationLogic(insightProps)
+    )
+    const { loadPropertyCorrelations, setPropertyNames } = useActions(funnelPropertyCorrelationLogic(insightProps))
+
+    // Load correlations only if this component is mounted, and then reload if the query change
+    useEffect(() => {
+        // We only automatically refresh results when the query changes after the user has manually asked for the first results to be loaded
+        if (loadedPropertyCorrelationsTableOnce) {
+            if (propertyNames.length === 0) {
+                setPropertyNames(allProperties)
+            }
+
+            loadPropertyCorrelations({})
+        }
+    }, [querySource])
+
+    return (
+        <FunnelPropertyCorrelationTableComponent
+            steps={steps}
+            aggregation_group_type_index={querySource?.aggregation_group_type_index}
+            aggregationTargetLabel={aggregationTargetLabel}
+        />
+    )
+}
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const {
-        steps,
-        propertyCorrelationValues,
-        propertyCorrelationTypes,
-        excludedPropertyNames,
-        parseDisplayNameForCorrelation,
-        propertyCorrelationsLoading,
-        inversePropertyNames,
-        propertyNames,
-        allProperties,
-        filters,
-        aggregationTargetLabel,
-        loadedPropertyCorrelationsTableOnce,
-    } = useValues(funnelLogic(insightProps))
-    const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal, loadPropertyCorrelations } =
-        useActions(funnelLogic(insightProps))
-    const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
-    const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
+    const { steps, filters, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { loadedPropertyCorrelationsTableOnce, propertyNames, allProperties } = useValues(
+        funnelPropertyCorrelationLogic(insightProps)
+    )
+    const { loadPropertyCorrelations, setPropertyNames } = useActions(funnelPropertyCorrelationLogic(insightProps))
 
     // Load correlations only if this component is mounted, and then reload if filters change
     useEffect(() => {
@@ -51,6 +76,44 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
             loadPropertyCorrelations({})
         }
     }, [filters])
+
+    return (
+        <FunnelPropertyCorrelationTableComponent
+            steps={steps}
+            aggregation_group_type_index={filters?.aggregation_group_type_index}
+            aggregationTargetLabel={aggregationTargetLabel}
+        />
+    )
+}
+
+type FunnelPropertyCorrelationTableComponentProps = {
+    steps: FunnelStepWithNestedBreakdown[]
+    aggregation_group_type_index?: number | undefined
+    aggregationTargetLabel: Noun
+}
+
+export function FunnelPropertyCorrelationTableComponent({
+    steps,
+    aggregation_group_type_index,
+    aggregationTargetLabel,
+}: FunnelPropertyCorrelationTableComponentProps): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { openCorrelationPersonsModal } = useActions(funnelLogic(insightProps))
+    const {
+        propertyCorrelationValues,
+        propertyCorrelationTypes,
+        excludedPropertyNames,
+        propertyCorrelationsLoading,
+        inversePropertyNames,
+        propertyNames,
+        allProperties,
+        loadedPropertyCorrelationsTableOnce,
+    } = useValues(funnelPropertyCorrelationLogic(insightProps))
+    const { setPropertyCorrelationTypes, setPropertyNames, loadPropertyCorrelations } = useActions(
+        funnelPropertyCorrelationLogic(insightProps)
+    )
+    const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
+    const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
@@ -119,7 +182,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 </h4>
                 <div>
                     {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                    {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
+                    {aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
                     <mark>
                         <b>
                             {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
@@ -242,7 +305,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                     Completed
                                     <Tooltip
                                         title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                            filters.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                            aggregation_group_type_index != undefined ? 'that' : 'who'
                                         } have this property and completed the entire funnel.`}
                                     >
                                         <InfoCircleOutlined className="column-info" />
@@ -262,8 +325,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                         title={
                                             <>
                                                 {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                                                {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
-                                                have this property and did <b>not complete</b> the entire funnel.
+                                                {aggregation_group_type_index != undefined ? 'that' : 'who'} have this
+                                                property and did <b>not complete</b> the entire funnel.
                                             </>
                                         }
                                     >

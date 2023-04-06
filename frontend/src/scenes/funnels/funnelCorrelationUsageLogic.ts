@@ -11,36 +11,42 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { parseEventAndProperty } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { funnelDataLogic } from './funnelDataLogic'
+import { funnelCorrelationLogic } from './funnelCorrelationLogic'
+import { funnelPropertyCorrelationLogic } from './funnelPropertyCorrelationLogic'
 
 export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('insight_funnel')),
-    path((key) => ['scenes', 'funnels', 'funnelCorrelationFeedbackLogic', key]),
+    path((key) => ['scenes', 'funnels', 'funnelCorrelationUsageLogic', key]),
 
     connect((props: InsightLogicProps) => ({
         logic: [eventUsageLogic],
 
-        values: [insightLogic(props), ['filters', 'isInDashboardContext'], funnelLogic(props), ['allProperties']],
+        values: [
+            insightLogic(props),
+            ['filters', 'isInDashboardContext'],
+            funnelPropertyCorrelationLogic(props),
+            ['allProperties'],
+        ],
 
         actions: [
             insightLogic(props),
             ['loadResultsSuccess'],
-            funnelLogic(props),
-            [
-                'hideSkewWarning as legacyHideSkewWarning',
-                'setCorrelationTypes',
-                'excludeEventFromProject',
-                'setPropertyCorrelationTypes',
-                'excludePropertyFromProject',
-                'setPropertyNames',
-                'loadEventWithPropertyCorrelations',
-                'excludeEventPropertyFromProject',
-                'openCorrelationPersonsModal',
-            ],
-            funnelDataLogic(props),
-            ['hideSkewWarning'],
             insightDataLogic(props),
             ['loadDataSuccess'],
+            funnelLogic(props),
+            ['hideSkewWarning as legacyHideSkewWarning', 'openCorrelationPersonsModal'],
+            funnelDataLogic(props),
+            ['hideSkewWarning'],
+            funnelCorrelationLogic(props),
+            [
+                'setCorrelationTypes',
+                'excludeEventFromProject',
+                'loadEventWithPropertyCorrelations',
+                'excludeEventPropertyFromProject',
+            ],
+            funnelPropertyCorrelationLogic(props),
+            ['setPropertyCorrelationTypes', 'excludePropertyFromProject', 'setPropertyNames'],
             eventUsageLogic,
             ['reportCorrelationViewed', 'reportCorrelationInteraction'],
         ],
