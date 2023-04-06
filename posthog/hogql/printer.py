@@ -1,15 +1,20 @@
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Literal, Optional, Union, cast
 
-from clickhouse_driver.util.escape import escape_param
 
 from ee.clickhouse.materialized_columns.columns import TablesWithMaterializedColumns, get_materialized_columns
 from posthog.hogql import ast
 from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS, HogQLSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database import Table, create_hogql_database
-from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
+from posthog.hogql.escape_sql import (
+    escape_clickhouse_identifier,
+    escape_clickhouse_string,
+    escape_hogql_identifier,
+    escape_hogql_string,
+)
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_refs
 from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
 from posthog.hogql.transforms.macros import expand_macros
@@ -112,7 +117,7 @@ class _Printer(Visitor):
                 if isinstance(value, int) or isinstance(value, float):
                     settings.append(f"{key}={value}")
                 else:
-                    settings.append(f"{key}={escape_param(value)}")
+                    settings.append(f"{key}={self._print_escaped_string(value)}")
             if len(settings) > 0:
                 response += f" SETTINGS {', '.join(settings)}"
 
@@ -338,23 +343,15 @@ class _Printer(Visitor):
             raise ValueError(f"Unknown CompareOperationType: {type(node.op).__name__}")
 
     def visit_constant(self, node: ast.Constant):
-        key = f"hogql_val_{len(self.context.values)}"
-        if isinstance(node.value, bool) and node.value is True:
-            return "true"
-        elif isinstance(node.value, bool) and node.value is False:
-            return "false"
-        elif isinstance(node.value, int) or isinstance(node.value, float):
-            # :WATCH_OUT: isinstance(True, int) is True (!), so check for numbers lower down the chain
-            return str(node.value)
-        elif isinstance(node.value, str) or isinstance(node.value, list):
+        if self.dialect == "clickhouse" and (
+            isinstance(node.value, str) or isinstance(node.value, list) or isinstance(node.value, tuple)
+        ):
+            # inline the string in hogql, but use %(hogql_val_0)s in clickhouse
+            key = f"hogql_val_{len(self.context.values)}"
             self.context.values[key] = node.value
             return f"%({key})s"
-        elif node.value is None:
-            return "null"
         else:
-            raise ValueError(
-                f"Unknown AST Constant node type '{type(node.value).__name__}' for value '{str(node.value)}'"
-            )
+            return self._print_escaped_string(node.value)
 
     def visit_field(self, node: ast.Field):
         original_field = ".".join([self._print_identifier(identifier) for identifier in node.chain])
@@ -401,7 +398,22 @@ class _Printer(Visitor):
             return f"{node.name}({translated_args})"
 
         elif node.name in CLICKHOUSE_FUNCTIONS:
-            return f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join([self.visit(arg) for arg in node.args])})"
+            args = [self.visit(arg) for arg in node.args]
+
+            if self.dialect == "clickhouse":
+                if node.name == "now" or node.name == "NOW":
+                    if len(args) != 0:
+                        raise ValueError(f"Function '{node.name}' expects no arguments.")
+                    args.append(self.visit(ast.Constant(value=self._get_timezone())))
+
+                if node.name == "toDateTime":
+                    if len(args) != 1:
+                        raise ValueError(f"Function '{node.name}' expects only one argument.")
+                    args.append(self.visit(ast.Constant(value=self._get_timezone())))
+
+                return f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join(args)})"
+            else:
+                return f"{node.name}({', '.join(args)})"
         else:
             raise ValueError(f"Unsupported function call '{node.name}(...)'")
 
@@ -575,14 +587,22 @@ class _Printer(Visitor):
 
     def _print_identifier(self, name: str) -> str:
         if self.dialect == "clickhouse":
-            return print_clickhouse_identifier(name)
-        return print_hogql_identifier(name)
+            return escape_clickhouse_identifier(name)
+        return escape_hogql_identifier(name)
+
+    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime) -> str:
+        if self.dialect == "clickhouse":
+            return escape_clickhouse_string(name, timezone=self._get_timezone())
+        return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _get_materialized_column(
         self, table_name: TablesWithMaterializedColumns, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
         materialized_columns = get_materialized_columns(table_name)
         return materialized_columns.get((property_name, field_name), None)
+
+    def _get_timezone(self):
+        return self.context.database.get_timezone() if self.context.database else "UTC"
 
 
 def trim_quotes_expr(expr: str) -> str:
