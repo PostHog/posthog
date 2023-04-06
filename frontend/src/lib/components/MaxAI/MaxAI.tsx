@@ -1,9 +1,11 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useState } from 'react'
 import { ChatHog } from '../hedgehogs'
+import './maxAI.scss'
+import { ChatWindow } from './ChatWindow'
 
 export default function MaxAI(): JSX.Element {
-    const [isChatActive, setIsChatActive] = useState<boolean>(false)
+    const [isChatActive, setIsChatActive] = useState<boolean>(true)
     const handleClick = (): void => {
         if (typeof window !== 'undefined') {
             setIsChatActive(true)
@@ -11,20 +13,18 @@ export default function MaxAI(): JSX.Element {
     }
     return (
         <>
-            <div className="fixed bottom-0 right-0 text-left group z-[9999999999]">
-                <div
-                    className={`p-4 group-hover:block ${
-                        isChatActive ? 'block h-screen w-screen md:h-[620px] md:w-[420px]' : 'hidden'
-                    }`}
-                >
+            <div className="MaxAI fixed bottom-0 right-0 text-left group z-[9999999999]">
+                {/* need to make the below take up the full screen on smaller screens */}
+                <div className={`MaxAI--window p-4 ${isChatActive ? 'block h-180 w-140' : 'hidden'}`}>
                     {isChatActive ? (
-                        // <ChatWindow setIsChatActive={setIsChatActive} />
-                        <p>chat window</p>
+                        <ChatWindow setIsChatActive={setIsChatActive} />
                     ) : (
-                        <div className="max-w-[250px] p-4 bg-white rounded-md shadow-lg">
-                            <h3 className="m-0 text-lg">Questions about PostHog?</h3>
-                            <p className="m-0 text-sm mb-2">Our friendly AI hedgehog Max is here to help!</p>
-                            <LemonButton onClick={handleClick}>Ask a question</LemonButton>
+                        <div className="max-w-80 p-4 bg-white rounded-md shadow-lg">
+                            <h3 className="text-lg">Questions about PostHog?</h3>
+                            <p className="m-0 text-sm mb-4">Our friendly AI hedgehog Max is here to help!</p>
+                            <LemonButton type="primary" onClick={handleClick}>
+                                Ask a question
+                            </LemonButton>
                         </div>
                     )}
                     <svg
@@ -39,8 +39,8 @@ export default function MaxAI(): JSX.Element {
                         <path d="M18 0H0L18 12V0Z" fill="white" />
                     </svg>
                 </div>
-                <div className={`text-right md:block mr-2 h-20`}>
-                    <ChatHog className="h-full w-full" />
+                <div className={`md:block mr-2 h-20 flex justify-end`}>
+                    <ChatHog className="h-full" />
                 </div>
             </div>
         </>

@@ -1,0 +1,45 @@
+.MaxAI {
+    &:hover {
+        .MaxAI--window {
+            display: block;
+        }
+    }
+}
+
+.typing-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 30px;
+}
+
+.dot {
+    width: 4px;
+    height: 4px;
+    margin-right: 2px;
+    border-radius: 50%;
+    background-color: gray;
+    animation-name: wave;
+    animation-duration: 1s;
+    animation-iteration-count: infinite;
+}
+
+.dot:nth-child(2) {
+    animation-delay: 0.1s;
+}
+
+.dot:nth-child(3) {
+    animation-delay: 0.2s;
+}
+
+@keyframes wave {
+    0%,
+    60%,
+    100% {
+        transform: initial;
+    }
+
+    30% {
+        transform: translateY(-3px);
+    }
+}
