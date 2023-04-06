@@ -490,14 +490,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprArrayAccess(self, ctx: HogQLParser.ColumnExprArrayAccessContext):
         object = self.visit(ctx.columnExpr(0))
         property = self.visit(ctx.columnExpr(1))
-        if not isinstance(property, ast.Constant):
-            raise NotImplementedError(f"Array access must be performed with a constant.")
-        if isinstance(object, ast.Field):
+        if isinstance(object, ast.Field) and isinstance(property, ast.Constant):
             return ast.Field(chain=object.chain + [property.value])
-
-        raise NotImplementedError(
-            f"Unsupported combination for ColumnExprArrayAccess: {object.__class__.__name__}[{property.__class__.__name__}]"
-        )
+        else:
+            return ast.ArrayAccess(left=object, right=property)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprBetween")

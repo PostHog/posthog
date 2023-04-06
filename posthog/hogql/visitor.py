@@ -56,6 +56,10 @@ class TraversingVisitor(Visitor):
     def visit_lambda(self, node: ast.Lambda):
         self.visit(node.expr)
 
+    def visit_array_access(self, node: ast.ArrayAccess):
+        self.visit(node.left)
+        self.visit(node.right)
+
     def visit_array(self, node: ast.Array):
         for expr in node.exprs:
             self.visit(expr)
@@ -170,7 +174,7 @@ class CloningVisitor(Visitor):
     def visit_macro(self, node: ast.Macro):
         return ast.Macro(
             name=node.name,
-            expr=clone_expr(node.expr),
+            expr=clone_expr(node.expr, clear_refs=True),
         )
 
     def visit_alias(self, node: ast.Alias):
@@ -218,6 +222,11 @@ class CloningVisitor(Visitor):
     def visit_lambda(self, node: ast.Lambda):
         return ast.Lambda(
             ref=None if self.clear_refs else node.ref, args=[arg for arg in node.args], expr=self.visit(node.expr)
+        )
+
+    def visit_array_access(self, node: ast.ArrayAccess):
+        return ast.ArrayAccess(
+            ref=None if self.clear_refs else node.ref, left=self.visit(node.left), right=self.visit(node.right)
         )
 
     def visit_array(self, node: ast.Array):

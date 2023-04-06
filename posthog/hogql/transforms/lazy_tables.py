@@ -10,9 +10,6 @@ from posthog.hogql.visitor import TraversingVisitor
 
 
 def resolve_lazy_tables(node: ast.Expr, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
-    if stack:
-        # TODO: remove this kludge for old props
-        LazyTableResolver(stack=stack, context=context).visit(stack[-1])
     LazyTableResolver(stack=stack, context=context).visit(node)
 
 
@@ -115,8 +112,8 @@ class LazyTableResolver(TraversingVisitor):
                         chain.append(table_ref.resolve_database_table().hogql_table())
                     chain.append(field.name)
                     if property is not None:
-                        chain.append(property.name)
-                        property.joined_subquery_field_name = f"{field.name}___{property.name}"
+                        chain.extend(property.chain)
+                        property.joined_subquery_field_name = f"{field.name}___{'___'.join(property.chain)}"
                         new_join.fields_accessed[property.joined_subquery_field_name] = ast.Field(chain=chain)
                     else:
                         new_join.fields_accessed[field.name] = ast.Field(chain=chain)

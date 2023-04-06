@@ -46,5 +46,5 @@ class Migration(migrations.Migration):
             name="event_properties",
             field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
         ),
-        migrations.RunPython(migrate_event_names_and_properties, noop),
+        migrations.RunPython(migrate_event_names_and_properties, noop, elidable=True),
     ]
