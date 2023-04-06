@@ -197,7 +197,7 @@ class TestPrinter(BaseTest):
     def test_logic(self):
         self.assertEqual(
             self._expr("event or timestamp"),
-            "or(events.event, events.timestamp)",
+            "or(events.event, toTimezone(events.timestamp, %(hogql_val_0)s))",
         )
         self.assertEqual(
             self._expr("properties.bla and properties.bla2"),
@@ -205,11 +205,11 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._expr("event or timestamp or true or count()"),
-            "or(events.event, events.timestamp, true, count())",
+            "or(events.event, toTimezone(events.timestamp, %(hogql_val_0)s), true, count())",
         )
         self.assertEqual(
             self._expr("event or not timestamp"),
-            "or(events.event, not(events.timestamp))",
+            "or(events.event, not(toTimezone(events.timestamp, %(hogql_val_0)s)))",
         )
 
     def test_comparisons(self):
@@ -309,7 +309,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._select("select event from events order by event desc, timestamp"),
-            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC, events.timestamp ASC LIMIT 65535",
+            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC, toTimezone(events.timestamp, %(hogql_val_0)s) ASC LIMIT 65535",
         )
 
     def test_select_limit(self):
@@ -354,23 +354,23 @@ class TestPrinter(BaseTest):
     def test_select_group_by(self):
         self.assertEqual(
             self._select("select event from events group by event, timestamp"),
-            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, events.timestamp LIMIT 65535",
+            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimezone(events.timestamp, %(hogql_val_0)s) LIMIT 65535",
         )
 
     def test_select_distinct(self):
         self.assertEqual(
             self._select("select distinct event from events group by event, timestamp"),
-            f"SELECT DISTINCT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, events.timestamp LIMIT 65535",
+            f"SELECT DISTINCT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimezone(events.timestamp, %(hogql_val_0)s) LIMIT 65535",
         )
 
     def test_select_subquery(self):
         self.assertEqual(
             self._select("SELECT event from (select distinct event from events group by event, timestamp)"),
-            f"SELECT event FROM (SELECT DISTINCT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, events.timestamp) LIMIT 65535",
+            f"SELECT event FROM (SELECT DISTINCT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimezone(events.timestamp, %(hogql_val_0)s)) LIMIT 65535",
         )
         self.assertEqual(
             self._select("SELECT event from (select distinct event from events group by event, timestamp) e"),
-            f"SELECT e.event FROM (SELECT DISTINCT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, events.timestamp) AS e LIMIT 65535",
+            f"SELECT e.event FROM (SELECT DISTINCT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimezone(events.timestamp, %(hogql_val_0)s)) AS e LIMIT 65535",
         )
 
     def test_select_union_all(self):
@@ -462,3 +462,48 @@ class TestPrinter(BaseTest):
             self._select("SELECT countIf(distinct event, event like '%a%') FROM events"),
             f"SELECT countIf(DISTINCT events.event, like(events.event, %(hogql_val_0)s)) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
         )
+
+    def test_print_timezone(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        self.assertEqual(
+            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
+            f"SELECT now(%(hogql_val_0)s), toDateTimeOrNull(toTimezone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTimeOrNull(%(hogql_val_3)s, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
+        )
+        self.assertEqual(
+            context.values,
+            {
+                "hogql_val_0": "UTC",
+                "hogql_val_1": "UTC",
+                "hogql_val_2": "UTC",
+                "hogql_val_3": "2020-02-02",
+                "hogql_val_4": "UTC",
+            },
+        )
+
+    def test_print_timezone_custom(self):
+        self.team.timezone = "Europe/Brussels"
+        self.team.save()
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        self.assertEqual(
+            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
+            f"SELECT now(%(hogql_val_0)s), toDateTimeOrNull(toTimezone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTimeOrNull(%(hogql_val_3)s, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
+        )
+        self.assertEqual(
+            context.values,
+            {
+                "hogql_val_0": "Europe/Brussels",
+                "hogql_val_1": "Europe/Brussels",
+                "hogql_val_2": "Europe/Brussels",
+                "hogql_val_3": "2020-02-02",
+                "hogql_val_4": "Europe/Brussels",
+            },
+        )
+
+    def test_print_timezone_gibberish(self):
+        self.team.timezone = "Europe/PostHogLandia"
+        self.team.save()
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        with self.assertRaises(ValueError) as error_context:
+            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context)
+        self.assertEqual(str(error_context.exception), "Unknown timezone: 'Europe/PostHogLandia'")

@@ -24,5 +24,5 @@ class Migration(migrations.Migration):
             name="is_demo",
             field=models.BooleanField(default=False),
         ),
-        migrations.RunPython(forward, reverse),
+        migrations.RunPython(forward, reverse, elidable=True),
     ]

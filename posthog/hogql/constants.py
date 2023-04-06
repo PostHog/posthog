@@ -13,7 +13,10 @@ CLICKHOUSE_FUNCTIONS = {
     "toFloat": "toFloat64OrNull",
     "toDecimal": "toDecimal64OrNull",
     "toDate": "toDateOrNull",
-    "toDateTime": "parseDateTimeBestEffortOrNull",
+    "toDateTime": "toDateTimeOrNull",
+    "toUUID": "toUUIDOrNull",
+    "toString": "toString",
+    # intervals
     "toIntervalSecond": "toIntervalSecond",
     "toIntervalMinute": "toIntervalMinute",
     "toIntervalHour": "toIntervalHour",
@@ -22,7 +25,6 @@ CLICKHOUSE_FUNCTIONS = {
     "toIntervalMonth": "toIntervalMonth",
     "toIntervalQuarter": "toIntervalQuarter",
     "toIntervalYear": "toIntervalYear",
-    "toString": "toString",
     # date functions
     "now": "now",
     "NOW": "now",
