@@ -37,7 +37,7 @@ export function FunnelCorrelationTableDataExploration(): JSX.Element | null {
     const { loadedEventCorrelationsTableOnce } = useValues(funnelCorrelationLogic(insightProps))
     const { loadEventCorrelations } = useActions(funnelCorrelationLogic(insightProps))
 
-    // Load correlations only if this component is mounted, and then reload if query changes
+    // Load correlations only if this component is mounted, and then reload if the query changes
     useEffect(() => {
         // We only automatically refresh results when the query changes after the user has manually asked for the first results to be loaded
         if (loadedEventCorrelationsTableOnce) {

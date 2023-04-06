@@ -12,18 +12,21 @@ import {
 } from './FunnelCorrelationSkewWarning'
 import { FunnelCorrelationTable, FunnelCorrelationTableDataExploration } from './FunnelCorrelationTable'
 import { FunnelCorrelationFeedbackForm } from './FunnelCorrelationFeedbackForm'
-import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable'
+import {
+    FunnelPropertyCorrelationTable,
+    FunnelPropertyCorrelationTableDataExploration,
+} from './FunnelPropertyCorrelationTable'
 import { AvailableFeature } from '~/types'
 
 import './FunnelCorrelation.scss'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
-    const { insightProps, isUsingDataExploration } = useValues(insightLogic)
+    const { insightProps, isUsingDataExploration: dx } = useValues(insightLogic)
     const { steps: legacySteps } = useValues(funnelLogic(insightProps))
     const { steps } = useValues(funnelDataLogic(insightProps))
     useMountedLogic(funnelCorrelationUsageLogic(insightProps))
 
-    if (isUsingDataExploration ? steps.length <= 1 : legacySteps.length <= 1) {
+    if (dx ? steps.length <= 1 : legacySteps.length <= 1) {
         return null
     }
 
@@ -32,14 +35,10 @@ export const FunnelCorrelation = (): JSX.Element | null => {
             <h2 className="my-4">Correlation analysis</h2>
             <PayGateMini feature={AvailableFeature.CORRELATION_ANALYSIS}>
                 <div className="funnel-correlation">
-                    {isUsingDataExploration ? (
-                        <FunnelCorrelationSkewWarningDataExploration />
-                    ) : (
-                        <FunnelCorrelationSkewWarning />
-                    )}
-                    {isUsingDataExploration ? <FunnelCorrelationTableDataExploration /> : <FunnelCorrelationTable />}
+                    {dx ? <FunnelCorrelationSkewWarningDataExploration /> : <FunnelCorrelationSkewWarning />}
+                    {dx ? <FunnelCorrelationTableDataExploration /> : <FunnelCorrelationTable />}
                     <FunnelCorrelationFeedbackForm />
-                    {!isUsingDataExploration && <FunnelPropertyCorrelationTable />}
+                    {dx ? <FunnelPropertyCorrelationTableDataExploration /> : <FunnelPropertyCorrelationTable />}
                 </div>
             </PayGateMini>
         </>
