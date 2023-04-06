@@ -32,6 +32,21 @@ class TestParser(BaseTest):
     def test_null(self):
         self.assertEqual(parse_expr("null"), ast.Constant(value=None))
 
+    def test_conditional(self):
+        self.assertEqual(
+            parse_expr("1 > 2 ? 1 : 2"),
+            ast.Call(
+                name="if",
+                args=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationType.Gt, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                    ),
+                    ast.Constant(value=1),
+                    ast.Constant(value=2),
+                ],
+            ),
+        )
+
     def test_strings(self):
         self.assertEqual(parse_expr("'null'"), ast.Constant(value="null"))
         self.assertEqual(parse_expr("'n''ull'"), ast.Constant(value="n'ull"))

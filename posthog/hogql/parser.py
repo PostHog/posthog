@@ -345,7 +345,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.columnExpr())
 
     def visitColumnExprTernaryOp(self, ctx: HogQLParser.ColumnExprTernaryOpContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprTernaryOp")
+        return ast.Call(
+            name="if",
+            args=[self.visit(ctx.columnExpr(0)), self.visit(ctx.columnExpr(1)), self.visit(ctx.columnExpr(2))],
+        )
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):
         if ctx.alias():
