@@ -140,6 +140,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
         },
     }),
     selectors({
+        // apiParams for data exploration and legacy mode
         apiParams: [
             (s) => [s.isUsingDataExploration, s.dataExplorationApiParams, s.legacyApiParams],
             (isUsingDataExploration, dataExplorationApiParams, legacyApiParams) => {
@@ -160,6 +161,15 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
             (filters) => {
                 const cleanedParams: Partial<FunnelsFilterType> = cleanFilters(filters)
                 return cleanedParams
+            },
+        ],
+        // aggregationGroupTypeIndex for data exploration and legacy mode
+        aggregationGroupTypeIndex: [
+            (s) => [s.isUsingDataExploration, s.querySource, s.filters],
+            (isUsingDataExploration, querySource, filters) => {
+                return isUsingDataExploration
+                    ? querySource?.aggregation_group_type_index
+                    : filters?.aggregation_group_type_index
             },
         ],
 

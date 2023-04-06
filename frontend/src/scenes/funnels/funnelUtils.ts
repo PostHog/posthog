@@ -524,6 +524,23 @@ export const transformLegacyHiddenLegendKeys = (
     return hiddenLegendKeys
 }
 
+export const parseBreakdownValue = (
+    item: string
+): {
+    breakdown: string
+    breakdown_value: string
+} => {
+    const components = item.split('::')
+    if (components.length === 1) {
+        return { breakdown: components[0], breakdown_value: '' }
+    } else {
+        return {
+            breakdown: components[0],
+            breakdown_value: components[1],
+        }
+    }
+}
+
 export const parseEventAndProperty = (
     event: FunnelCorrelation['event']
 ): {

@@ -1,21 +1,16 @@
 import { kea } from 'kea'
 import equal from 'fast-deep-equal'
-import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { average, percentage, sum } from 'lib/utils'
 import type { funnelLogicType } from './funnelLogicType'
 import {
-    AnyPropertyFilter,
     BinCountValue,
-    CorrelationConfigType,
-    ElementPropertyFilter,
     FilterType,
     FlattenedFunnelStepByBreakdown,
     FunnelResultType,
     FunnelConversionWindowTimeUnit,
     FunnelCorrelation,
     FunnelCorrelationResultsType,
-    FunnelCorrelationType,
     FunnelsFilterType,
     FunnelStep,
     FunnelStepRangeEntityFilter,
@@ -28,8 +23,6 @@ import {
     HistogramGraphDatum,
     InsightLogicProps,
     InsightType,
-    PropertyFilterType,
-    PropertyOperator,
     StepOrderValue,
     TrendResult,
 } from '~/types'
@@ -49,44 +42,17 @@ import {
     stepsWithConversionMetrics,
     flattenedStepsByBreakdown,
     generateBaselineConversionUrl,
+    parseBreakdownValue,
+    parseEventAndProperty,
 } from './funnelUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { isFunnelsFilter, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { teamLogic } from '../teamLogic'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
-import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
-
-// List of events that should be excluded, if we don't have an explicit list of
-// excluded properties. Copied from
-// https://github.com/PostHog/posthog/issues/6474#issuecomment-952044722
-export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
-    '$initial_geoip_postal_code',
-    '$initial_geoip_latitude',
-    '$initial_geoip_longitude',
-    '$geoip_latitude',
-    '$geoip_longitude',
-    '$geoip_postal_code',
-    '$geoip_continent_code',
-    '$geoip_continent_name',
-    '$initial_geoip_continent_code',
-    '$initial_geoip_continent_name',
-    '$geoip_time_zone',
-    '$geoip_country_code',
-    '$geoip_subdivision_1_code',
-    '$initial_geoip_subdivision_1_code',
-    '$geoip_subdivision_2_code',
-    '$initial_geoip_subdivision_2_code',
-    '$geoip_subdivision_name',
-    '$initial_geoip_subdivision_name',
-]
 
 export type OpenPersonsModelProps = {
     step: FunnelStep
@@ -103,14 +69,8 @@ export const funnelLogic = kea<funnelLogicType>({
         values: [
             insightLogic(props),
             ['filters as inflightFilters', 'insight', 'isInDashboardContext', 'hiddenLegendKeys'],
-            teamLogic,
-            ['currentTeamId', 'currentTeam'],
-            personPropertiesModel,
-            ['personProperties'],
             groupsModel,
             ['aggregationLabel'],
-            groupPropertiesModel,
-            ['groupProperties'],
         ],
         actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility']],
         logic: [dashboardsModel],
@@ -177,54 +137,7 @@ export const funnelLogic = kea<funnelLogicType>({
             correlation,
             success,
         }),
-        setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
-        setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
-        setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
-        excludePropertyFromProject: (propertyName: string) => ({ propertyName }),
     }),
-    defaults: {
-        // This is a hack to get `FunnelCorrelationResultsType` imported in `funnelLogicType.ts`
-        __ignore: null as FunnelCorrelationResultsType | null,
-    },
-    loaders: ({ values }) => ({
-        propertyCorrelations: [
-            { events: [] } as Record<'events', FunnelCorrelation[]>,
-            {
-                loadPropertyCorrelations: async (_, breakpoint) => {
-                    const targetProperties =
-                        values.propertyNames.length >= values.allProperties.length ? ['$all'] : values.propertyNames
-
-                    if (targetProperties.length === 0) {
-                        return { events: [] }
-                    }
-
-                    await breakpoint(100)
-
-                    try {
-                        const results: Omit<FunnelCorrelation, 'result_type'>[] = (
-                            await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
-                                ...values.apiParams,
-                                funnel_correlation_type: 'properties',
-                                funnel_correlation_names: targetProperties,
-                                funnel_correlation_exclude_names: values.excludedPropertyNames,
-                            })
-                        ).result?.events
-
-                        return {
-                            events: results.map((result) => ({
-                                ...result,
-                                result_type: FunnelCorrelationResultsType.Properties,
-                            })),
-                        }
-                    } catch (error) {
-                        lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })
-                        return { events: [] }
-                    }
-                },
-            },
-        ],
-    }),
-
     reducers: ({ props }) => ({
         people: {
             clearFunnel: () => [],
@@ -243,31 +156,10 @@ export const funnelLogic = kea<funnelLogicType>({
                 [insightLogic(props).actionTypes.abortQuery]: (_: any, { exception }: any) => exception ?? null,
             },
         ],
-        propertyCorrelationTypes: [
-            [FunnelCorrelationType.Success, FunnelCorrelationType.Failure] as FunnelCorrelationType[],
-            {
-                setPropertyCorrelationTypes: (_, { types }) => types,
-            },
-        ],
         skewWarningHidden: [
             false,
             {
                 hideSkewWarning: () => true,
-            },
-        ],
-        propertyNames: [
-            [] as string[],
-            {
-                setPropertyNames: (_, { propertyNames }) => propertyNames,
-                excludePropertyFromProject: (selectedProperties, { propertyName }) => {
-                    return selectedProperties.filter((p) => p !== propertyName)
-                },
-            },
-        ],
-        funnelCorrelationDetails: [
-            null as null | FunnelCorrelation,
-            {
-                setFunnelCorrelationDetails: (_, { payload }) => payload,
             },
         ],
         isTooltipShown: [
@@ -287,12 +179,6 @@ export const funnelLogic = kea<funnelLogicType>({
             null as [number, number, number] | null, // x, y, width
             {
                 showTooltip: (_, { origin }) => origin,
-            },
-        ],
-        loadedPropertyCorrelationsTableOnce: [
-            false,
-            {
-                loadPropertyCorrelations: () => true,
             },
         ],
     }),
@@ -580,122 +466,13 @@ export const funnelLogic = kea<funnelLogicType>({
                 return !(e?.status === 400 && e?.type === 'validation_error')
             },
         ],
-        propertyCorrelationValues: [
-            () => [selectors.propertyCorrelations, selectors.propertyCorrelationTypes, selectors.excludedPropertyNames],
-            (propertyCorrelations, propertyCorrelationTypes, excludedPropertyNames): FunnelCorrelation[] => {
-                return propertyCorrelations.events
-                    .filter(
-                        (correlation) =>
-                            propertyCorrelationTypes.includes(correlation.correlation_type) &&
-                            !excludedPropertyNames.includes(correlation.event.event.split('::')[0])
-                    )
-                    .map((value) => {
-                        return {
-                            ...value,
-                            odds_ratio:
-                                value.correlation_type === FunnelCorrelationType.Success
-                                    ? value.odds_ratio
-                                    : 1 / value.odds_ratio,
-                        }
-                    })
-                    .sort((first, second) => {
-                        return second.odds_ratio - first.odds_ratio
-                    })
-            },
-        ],
         disableFunnelBreakdownBaseline: [
             () => [(_, props) => props],
             (props: InsightLogicProps): boolean => !!props.cachedInsight?.disable_baseline,
         ],
-
-        isPropertyExcludedFromProject: [
-            () => [selectors.excludedPropertyNames],
-            (excludedPropertyNames) => (propertyName: string) =>
-                excludedPropertyNames.find((name) => name === propertyName) !== undefined,
-        ],
-        excludedPropertyNames: [
-            () => [selectors.currentTeam],
-            (currentTeam): string[] =>
-                currentTeam?.correlation_config?.excluded_person_property_names || DEFAULT_EXCLUDED_PERSON_PROPERTIES,
-        ],
-        inversePropertyNames: [
-            (s) => [s.filters, s.personProperties, s.groupProperties],
-            (filters, personProperties, groupProperties) => (excludedPersonProperties: string[]) => {
-                const targetProperties =
-                    filters.aggregation_group_type_index !== undefined
-                        ? groupProperties(filters.aggregation_group_type_index)
-                        : personProperties
-                return targetProperties
-                    .map((property) => property.name)
-                    .filter((property) => !excludedPersonProperties.includes(property))
-            },
-        ],
-        allProperties: [
-            (s) => [s.inversePropertyNames, s.excludedPropertyNames],
-            (inversePropertyNames, excludedPropertyNames): string[] => {
-                return inversePropertyNames(excludedPropertyNames || [])
-            },
-        ],
         aggregationTargetLabel: [
             (s) => [s.filters, s.aggregationLabel],
             (filters, aggregationLabel): Noun => aggregationLabel(filters.aggregation_group_type_index),
-        ],
-        correlationMatrixAndScore: [
-            (s) => [s.funnelCorrelationDetails, s.steps],
-            (
-                funnelCorrelationDetails,
-                steps
-            ): {
-                truePositive: number
-                falsePositive: number
-                trueNegative: number
-                falseNegative: number
-                correlationScore: number
-                correlationScoreStrength: 'weak' | 'moderate' | 'strong' | null
-            } => {
-                if (!funnelCorrelationDetails) {
-                    return {
-                        truePositive: 0,
-                        falsePositive: 0,
-                        trueNegative: 0,
-                        falseNegative: 0,
-                        correlationScore: 0,
-                        correlationScoreStrength: null,
-                    }
-                }
-
-                const successTotal = steps[steps.length - 1].count
-                const failureTotal = steps[0].count - successTotal
-                const success = funnelCorrelationDetails.success_count
-                const failure = funnelCorrelationDetails.failure_count
-
-                const truePositive = success // has property, converted
-                const falseNegative = failure // has property, but dropped off
-                const trueNegative = failureTotal - failure // doesn't have property, dropped off
-                const falsePositive = successTotal - success // doesn't have property, converted
-
-                // Phi coefficient: https://en.wikipedia.org/wiki/Phi_coefficient
-                const correlationScore =
-                    (truePositive * trueNegative - falsePositive * falseNegative) /
-                    Math.sqrt(
-                        (truePositive + falsePositive) *
-                            (truePositive + falseNegative) *
-                            (trueNegative + falsePositive) *
-                            (trueNegative + falseNegative)
-                    )
-
-                const correlationScoreStrength =
-                    Math.abs(correlationScore) > 0.5 ? 'strong' : Math.abs(correlationScore) > 0.3 ? 'moderate' : 'weak'
-
-                return {
-                    correlationScore,
-                    truePositive,
-                    falsePositive,
-                    trueNegative,
-                    falseNegative,
-                    correlationScoreStrength,
-                }
-            },
         ],
         advancedOptionsUsedCount: [
             (s) => [s.filters, s.stepReference],
@@ -861,102 +638,5 @@ export const funnelLogic = kea<funnelLogicType>({
         toggleAdvancedMode: () => {
             actions.setFilters({ funnel_advanced: !values.filters.funnel_advanced })
         },
-        excludePropertyFromProject: ({ propertyName }) => {
-            appendToCorrelationConfig('excluded_person_property_names', values.excludedPropertyNames, propertyName)
-        },
-        setPropertyNames: async () => {
-            actions.loadPropertyCorrelations({})
-        },
     }),
 })
-
-const appendToCorrelationConfig = (
-    configKey: keyof CorrelationConfigType,
-    currentValue: string[],
-    configValue: string
-): void => {
-    // Helper to handle updating correlationConfig within the Team model. Only
-    // handles further appending to current values.
-
-    // When we exclude a property, we want to update the config stored
-    // on the current Team/Project.
-    const oldCurrentTeam = teamLogic.values.currentTeam
-
-    // If we haven't actually retrieved the current team, we can't
-    // update the config.
-    if (oldCurrentTeam === null || !currentValue) {
-        console.warn('Attempt to update correlation config without first retrieving existing config')
-        return
-    }
-
-    const oldCorrelationConfig = oldCurrentTeam.correlation_config
-
-    const configList = [...Array.from(new Set(currentValue.concat([configValue])))]
-
-    const correlationConfig = {
-        ...oldCorrelationConfig,
-        [configKey]: configList,
-    }
-
-    teamLogic.actions.updateCurrentTeam({
-        correlation_config: correlationConfig,
-    })
-}
-
-const parseBreakdownValue = (
-    item: string
-): {
-    breakdown: string
-    breakdown_value: string
-} => {
-    const components = item.split('::')
-    if (components.length === 1) {
-        return { breakdown: components[0], breakdown_value: '' }
-    } else {
-        return {
-            breakdown: components[0],
-            breakdown_value: components[1],
-        }
-    }
-}
-
-const parseEventAndProperty = (
-    event: FunnelCorrelation['event']
-): {
-    name: string
-    properties?: AnyPropertyFilter[]
-} => {
-    const components = event.event.split('::')
-    /*
-      The `event` is either an event name, or event::property::property_value
-    */
-    if (components.length === 1) {
-        return { name: components[0] }
-    } else if (components[0] === '$autocapture') {
-        // We use elementsToAction to generate the required property filters
-        const elementData = elementsToAction(event.elements)
-        return {
-            name: components[0],
-            properties: Object.entries(elementData)
-                .filter(([, propertyValue]) => !!propertyValue)
-                .map(([propertyKey, propertyValue]) => ({
-                    key: propertyKey as ElementPropertyFilter['key'],
-                    operator: PropertyOperator.Exact,
-                    type: PropertyFilterType.Element,
-                    value: [propertyValue as string],
-                })),
-        }
-    } else {
-        return {
-            name: components[0],
-            properties: [
-                {
-                    key: components[1],
-                    operator: PropertyOperator.Exact,
-                    value: components[2],
-                    type: PropertyFilterType.Event,
-                },
-            ],
-        }
-    }
-}
