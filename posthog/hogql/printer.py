@@ -319,7 +319,7 @@ class _Printer(Visitor):
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]
         if len(identifiers) == 0:
-            return f"() -> {self.visit(node.expr)}"
+            raise ValueError("Lambdas require at least one argument")
         elif len(identifiers) == 1:
             return f"{identifiers[0]} -> {self.visit(node.expr)}"
         return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"
