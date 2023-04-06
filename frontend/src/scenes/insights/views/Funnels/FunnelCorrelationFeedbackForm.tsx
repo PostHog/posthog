@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { funnelCorrelationFeedbackLogic } from 'scenes/funnels/funnelCorrelationFeedbackLogic'
 
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 import { IconClose } from 'lib/lemon-ui/icons'
@@ -11,14 +11,14 @@ import { CommentOutlined } from '@ant-design/icons'
 export const FunnelCorrelationFeedbackForm = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
     const { correlationFeedbackHidden, correlationDetailedFeedbackVisible, correlationFeedbackRating } = useValues(
-        funnelLogic(insightProps)
+        funnelCorrelationFeedbackLogic(insightProps)
     )
     const {
         sendCorrelationAnalysisFeedback,
         hideCorrelationAnalysisFeedback,
         setCorrelationFeedbackRating,
         setCorrelationDetailedFeedback,
-    } = useActions(funnelLogic(insightProps))
+    } = useActions(funnelCorrelationFeedbackLogic(insightProps))
 
     const detailedFeedbackRef = useRef<HTMLTextAreaElement>(null)
 
