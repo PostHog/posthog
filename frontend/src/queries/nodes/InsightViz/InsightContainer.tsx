@@ -30,12 +30,12 @@ import {
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { InsightLegendButtonDataExploration } from 'lib/components/InsightLegend/InsightLegendButton'
-// import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 // import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
 import { FunnelStepsTableDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -49,7 +49,7 @@ const VIEW_MAP = {
 export function InsightContainer({
     disableHeader,
     disableTable,
-    // disableCorrelationTable,
+    disableCorrelationTable,
     disableLastComputation,
     insightMode,
     context,
@@ -69,9 +69,6 @@ export function InsightContainer({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    // const {
-    //     // correlationAnalysisAvailable
-    // } = useValues(funnelLogic(insightProps))
     const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
         funnelDataLogic(insightProps)
     )
@@ -243,9 +240,7 @@ export function InsightContainer({
                 </div>
             </Card>
             {renderTable()}
-            {/* {!disableCorrelationTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
-                <FunnelCorrelation />
-            )} */}
+            {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }
