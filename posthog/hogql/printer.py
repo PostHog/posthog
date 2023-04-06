@@ -65,7 +65,6 @@ def prepare_ast_for_printing(
     resolve_refs(node, context.database, ref)
     expand_asterisks(node)
     if dialect == "clickhouse":
-        # This makes printed "hogql" nicer.
         node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
 
@@ -306,6 +305,9 @@ class _Printer(Visitor):
 
     def visit_tuple(self, node: ast.Tuple):
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+    def visit_array_access(self, node: ast.ArrayAccess):
+        return f"{self.visit(node.left)}[{self.visit(node.right)}]"
 
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
