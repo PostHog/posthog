@@ -345,7 +345,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.columnExpr())
 
     def visitColumnExprTernaryOp(self, ctx: HogQLParser.ColumnExprTernaryOpContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprTernaryOp")
+        return ast.Call(
+            name="if",
+            args=[self.visit(ctx.columnExpr(0)), self.visit(ctx.columnExpr(1)), self.visit(ctx.columnExpr(2))],
+        )
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):
         if ctx.alias():
@@ -653,8 +656,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: visitFloatingLiteral")
 
     def visitNumberLiteral(self, ctx: HogQLParser.NumberLiteralContext):
-        text = ctx.getText()
-        if "." in text:
+        text = ctx.getText().lower()
+        if "." in text or "e" in text or text == "-inf" or text == "inf" or text == "nan":
             return ast.Constant(value=float(text))
         return ast.Constant(value=int(text))
 

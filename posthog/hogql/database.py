@@ -1,5 +1,5 @@
 from typing import Any, Callable, Dict, List, Optional
-
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Extra
 
 
@@ -332,7 +332,7 @@ class Groups(Table):
 
 class Database(BaseModel):
     class Config:
-        extra = Extra.forbid
+        extra = Extra.allow
 
     # Users can query from the tables below
     events: EventsTable = EventsTable()
@@ -342,6 +342,16 @@ class Database(BaseModel):
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
     groups: Groups = Groups()
+
+    def __init__(self, timezone: Optional[str]):
+        super().__init__()
+        try:
+            self._timezone = str(ZoneInfo(timezone)) if timezone else None
+        except ZoneInfoNotFoundError:
+            raise ValueError(f"Unknown timezone: '{str(timezone)}'")
+
+    def get_timezone(self) -> str:
+        return self._timezone or "UTC"
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
@@ -355,8 +365,8 @@ class Database(BaseModel):
 def create_hogql_database(team_id: Optional[int]) -> Database:
     from posthog.models import Team
 
-    database = Database()
     team = Team.objects.get(pk=team_id)
+    database = Database(timezone=team.timezone)
     if team.person_on_events_querying_enabled:
         database.events.person = FieldTraverser(chain=["poe"])
         database.events.person_id = StringDatabaseField(name="person_id")
