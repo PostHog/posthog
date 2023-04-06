@@ -622,6 +622,9 @@ class _Printer(Visitor):
     def _get_timezone(self):
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
+    def _get_timezone(self):
+        return self.context.database.get_timezone() if self.context.database else "UTC"
+
 
 def trim_quotes_expr(expr: str) -> str:
     return f"replaceRegexpAll({expr}, '^\"|\"$', '')"

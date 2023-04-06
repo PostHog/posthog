@@ -58,5 +58,5 @@ class Migration(migrations.Migration):
             ],
             options={"abstract": False, "verbose_name": "domain"},
         ),
-        migrations.RunPython(migrate_domain_whitelist, migrations.RunPython.noop),
+        migrations.RunPython(migrate_domain_whitelist, migrations.RunPython.noop, elidable=True),
     ]
