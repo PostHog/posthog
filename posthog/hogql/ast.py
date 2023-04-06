@@ -320,6 +320,19 @@ class OrderExpr(Expr):
     order: Literal["ASC", "DESC"] = "ASC"
 
 
+class ArrayAccess(Expr):
+    array: Expr
+    property: Expr
+
+
+class Array(Expr):
+    exprs: List[Expr]
+
+
+class Tuple(Expr):
+    exprs: List[Expr]
+
+
 class Constant(Expr):
     value: Any
 

@@ -382,7 +382,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
     def visitColumnExprArray(self, ctx: HogQLParser.ColumnExprArrayContext):
-        raise NotImplementedException(f"Unsupported node: ColumnExprArray")
+        return ast.Array(exprs=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [])
 
     def visitColumnExprSubstring(self, ctx: HogQLParser.ColumnExprSubstringContext):
         raise NotImplementedException(f"Unsupported node: ColumnExprSubstring")
@@ -486,19 +486,15 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedException(f"Unsupported node: ColumnExprTrim")
 
     def visitColumnExprTuple(self, ctx: HogQLParser.ColumnExprTupleContext):
-        raise NotImplementedException(f"Unsupported node: ColumnExprTuple")
+        return ast.Tuple(exprs=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [])
 
     def visitColumnExprArrayAccess(self, ctx: HogQLParser.ColumnExprArrayAccessContext):
         object = self.visit(ctx.columnExpr(0))
         property = self.visit(ctx.columnExpr(1))
-        if not isinstance(property, ast.Constant):
-            raise NotImplementedException(f"Array access must be performed with a constant.")
-        if isinstance(object, ast.Field):
+        if isinstance(object, ast.Field) and isinstance(property, ast.Constant):
             return ast.Field(chain=object.chain + [property.value])
-
-        raise NotImplementedException(
-            f"Unsupported combination for ColumnExprArrayAccess: {object.__class__.__name__}[{property.__class__.__name__}]"
-        )
+        else:
+            return ast.ArrayAccess(array=object, property=property)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         raise NotImplementedException(f"Unsupported node: ColumnExprBetween")

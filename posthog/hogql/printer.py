@@ -66,7 +66,6 @@ def prepare_ast_for_printing(
     resolve_refs(node, context.database, ref)
     expand_asterisks(node)
     if dialect == "clickhouse":
-        # This makes printed "hogql" nicer.
         node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
 
@@ -301,13 +300,22 @@ class _Printer(Visitor):
             raise HogQLException(f"Unknown BinaryOperationType {node.op}")
 
     def visit_and(self, node: ast.And):
-        return f"and({', '.join([self.visit(operand) for operand in node.exprs])})"
+        return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_or(self, node: ast.Or):
-        return f"or({', '.join([self.visit(operand) for operand in node.exprs])})"
+        return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_not(self, node: ast.Not):
         return f"not({self.visit(node.expr)})"
+
+    def visit_tuple(self, node: ast.Tuple):
+        return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+    def visit_array_access(self, node: ast.ArrayAccess):
+        return f"{self.visit(node.array)}[{self.visit(node.property)}]"
+
+    def visit_array(self, node: ast.Array):
+        return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
 
     def visit_order_expr(self, node: ast.OrderExpr):
         return f"{self.visit(node.expr)} {node.order}"

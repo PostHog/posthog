@@ -46,6 +46,22 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("1.0 % 2.66"), "modulo(1.0, 2.66)")
         self.assertEqual(self._expr("'string'"), "%(hogql_val_0)s")
 
+    def test_arrays(self):
+        self.assertEqual(self._expr("[]"), "[]")
+        self.assertEqual(self._expr("[1,2]"), "[1, 2]")
+
+    def test_array_access(self):
+        self.assertEqual(self._expr("[1,2,3][1]"), "[1, 2, 3][1]")
+        self.assertEqual(
+            self._expr("events.properties[1]"),
+            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', '')",
+        )
+        self.assertEqual(self._expr("events.event[1 + 2]"), "events.event[plus(1, 2)]")
+
+    def test_tuples(self):
+        self.assertEqual(self._expr("(1,2)"), "tuple(1, 2)")
+        self.assertEqual(self._expr("(1,2,[])"), "tuple(1, 2, [])")
+
     def test_equals_null(self):
         self.assertEqual(self._expr("1 == null"), "isNull(1)")
         self.assertEqual(self._expr("1 != null"), "isNotNull(1)")
@@ -58,6 +74,10 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("properties['bla']"),
             "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', '')",
+        )
+        self.assertEqual(
+            self._expr("properties['bla']['bla']"),
+            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s), '^\"|\"$', '')",
         )
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(
@@ -209,8 +229,6 @@ class TestPrinter(BaseTest):
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")
         self._assert_expr_error("())", "line 1, column 1: no viable alternative at input '()'")
-        self._assert_expr_error("['properties']['value']", "Unsupported node: ColumnExprArray")
-        self._assert_expr_error("['properties']['value']['bla']", "Unsupported node: ColumnExprArray")
         self._assert_expr_error(
             "select query from events", "line 1, column 13: mismatched input 'from' expecting <EOF>"
         )
