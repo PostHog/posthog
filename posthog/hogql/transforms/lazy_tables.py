@@ -133,7 +133,7 @@ class LazyTableResolver(TraversingVisitor):
                         chain.append(field.name)
                         if property is not None:
                             chain.extend(property.chain)
-                            property.joined_subquery_field_name = f"{field.name}___{property.name}"
+                            property.joined_subquery_field_name = f"{field.name}___{'___'.join(property.chain)}"
                             new_join.fields_accessed[property.joined_subquery_field_name] = ast.Field(chain=chain)
                         else:
                             new_join.fields_accessed[field.name] = ast.Field(chain=chain)
@@ -150,7 +150,7 @@ class LazyTableResolver(TraversingVisitor):
                         chain.append(field.name)
                         if property is not None:
                             chain.extend(property.chain)
-                            property.joined_subquery_field_name = f"{field.name}___{property.name}"
+                            property.joined_subquery_field_name = f"{field.name}___{'___'.join(property.chain)}"
                             new_table.fields_accessed[property.joined_subquery_field_name] = ast.Field(chain=chain)
                         else:
                             new_table.fields_accessed[field.name] = ast.Field(chain=chain)
