@@ -174,7 +174,7 @@ class CloningVisitor(Visitor):
     def visit_macro(self, node: ast.Macro):
         return ast.Macro(
             name=node.name,
-            expr=clone_expr(node.expr, clear_refs=True),
+            expr=clone_expr(node.expr),
         )
 
     def visit_alias(self, node: ast.Alias):
