@@ -650,7 +650,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "SELECT arrayMap(x -> x * 2, [1, 2, 3]), 1",
                 team=self.team,
             )
-            # Following SQL tradition, ClickHouse array indexes start at 1, not 0.
             self.assertEqual(response.results, [([2, 4, 6], 1)])
             self.assertEqual(
                 response.clickhouse,
