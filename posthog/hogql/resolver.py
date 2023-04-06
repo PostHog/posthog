@@ -22,7 +22,6 @@ class Resolver(TraversingVisitor):
     def __init__(self, database: Database, scope: Optional[ast.SelectQueryRef] = None):
         # Each SELECT query creates a new scope. Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryRef] = [scope] if scope else []
-        self.last_lambda: Optional[ast.Lambda] = None
         self.database = database
 
     def visit_select_union_query(self, node):
@@ -156,10 +155,22 @@ class Resolver(TraversingVisitor):
         node.ref = ast.CallRef(name=node.name, args=arg_refs)
 
     def visit_lambda(self, node: ast.Lambda):
-        last_lambda = self.last_lambda
-        self.last_lambda = node
+        """Visit each SELECT query or subquery."""
+        if node.ref is not None:
+            return
+
+        # This ref keeps track of all joined tables and other field aliases that are in scope.
+        node.ref = ast.SelectQueryRef()
+        # Each Lambda is a new scope in field name resolution.
+        self.scopes.append(node.ref)
+
+        for arg in node.args:
+            node.ref.aliases[arg] = ast.FieldAliasRef(name=arg, ref=ast.LambdaArgumentRef(name=arg))
+
         self.visit(node)
-        self.last_lambda = last_lambda
+        self.scopes.pop()
+
+        return node.ref
 
     def visit_field(self, node):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""

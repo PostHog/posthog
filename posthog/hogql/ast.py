@@ -254,6 +254,10 @@ class PropertyRef(Ref):
         return True
 
 
+class LambdaArgumentRef(Ref):
+    name: str
+
+
 class Alias(Expr):
     alias: str
     expr: Expr

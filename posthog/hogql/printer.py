@@ -465,6 +465,9 @@ class _Printer(Visitor):
     def visit_table_alias_ref(self, ref: ast.TableAliasRef):
         return self._print_identifier(ref.name)
 
+    def visit_lambda_argument_ref(self, ref: ast.LambdaArgumentRef):
+        return self._print_identifier(ref.name)
+
     def visit_field_ref(self, ref: ast.FieldRef):
         try:
             last_select = self._last_select()
