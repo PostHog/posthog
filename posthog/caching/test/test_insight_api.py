@@ -105,7 +105,7 @@ class TestInsightAPI(ClickhouseTestMixin, BaseTest):
         self.assertEqual(should_refresh_now, True)
         self.assertEqual(refresh_frequency, BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL)
 
-    def test_insights_without_refresh_requested_but_being_shared_should_return_true_for_should_refresh_now(self):
+    def test_shared_insights_without_refresh_requested_should_return_true_for_should_refresh_now(self):
         insight, _, _ = _create_insight(self.team, {"events": [{"id": "$autocapture"}], "interval": "month"}, {})
         InsightCachingState.objects.filter(team=self.team, insight_id=insight.pk).update(
             last_refresh=datetime.now(tz=pytz.timezone("UTC")) - timedelta(days=1)
@@ -118,3 +118,31 @@ class TestInsightAPI(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(should_refresh_now, True)
         self.assertEqual(refresh_frequency, timedelta(minutes=30))  # This interval is increased
+
+    def test_shared_insights_without_refresh_requested_should_return_false_for_should_refresh_now_if_refreshing(self):
+        insight, _, _ = _create_insight(self.team, {"events": [{"id": "$autocapture"}], "interval": "month"}, {})
+        InsightCachingState.objects.filter(team=self.team, insight_id=insight.pk).update(
+            last_refresh=datetime.now(tz=pytz.timezone("UTC")) - timedelta(days=1),
+            # This insight is being calculated _somewhere_, since it was last refreshed
+            # earlier than the recent refresh has been queued
+            last_refresh_queued_at=datetime.now(tz=pytz.timezone("UTC")) - timedelta(seconds=1),
+        )
+        request = HttpRequest()
+
+        should_refresh_now, _ = should_refresh_insight(insight, None, request=Request(request), is_shared=True)
+
+        self.assertEqual(should_refresh_now, False)
+
+    def test_shared_insights_without_refresh_requested_should_return_true_for_should_refresh_now_if_failed(self):
+        insight, _, _ = _create_insight(self.team, {"events": [{"id": "$autocapture"}], "interval": "month"}, {})
+        InsightCachingState.objects.filter(team=self.team, insight_id=insight.pk).update(
+            last_refresh=datetime.now(tz=pytz.timezone("UTC")) - timedelta(days=1),
+            # last_refresh is earlier than last_refresh_queued_at BUT last_refresh_queued_at is more than
+            # CLICKHOUSE_MAX_EXECUTION_TIME seconds ago. This means the query CANNOT be running at this time.
+            last_refresh_queued_at=datetime.now(tz=pytz.timezone("UTC")) - timedelta(seconds=500),
+        )
+        request = HttpRequest()
+
+        should_refresh_now, _ = should_refresh_insight(insight, None, request=Request(request), is_shared=True)
+
+        self.assertEqual(should_refresh_now, True)
