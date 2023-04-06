@@ -1,8 +1,11 @@
 import logging
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import Any
 
 from temporalio import activity, workflow
+
+from posthog.temporal.workflows.base import CommandableWorkflow
 
 
 @dataclass
@@ -18,8 +21,19 @@ async def noop_activity(input: NoopActivityArgs) -> str:
     return output
 
 
-@workflow.defn
-class NoOpWorkflow:
+@workflow.defn(name="no-op")
+class NoOpWorkflow(CommandableWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> Any:
+        """Parse inputs from the management command CLI.
+
+        We expect only one input, so we just return it and assume it's correct.
+        """
+        if not inputs:
+            # Preserving defaults from when this was the only workflow.
+            inputs = [datetime.now().isoformat()]
+        return inputs[0]
+
     @workflow.run
     async def run(self, time: str) -> str:
         workflow.logger.info(f"Running workflow with parameter {time}")

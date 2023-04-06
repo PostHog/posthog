@@ -450,7 +450,12 @@
          key,
          'random'
   FROM flags_to_override,
-       target_person_ids ON CONFLICT DO NOTHING
+       target_person_ids
+  WHERE EXISTS
+      (SELECT 1
+       FROM posthog_person
+       WHERE id = person_id
+         AND team_id = 2) ON CONFLICT DO NOTHING
   '
 ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.1
@@ -526,7 +531,12 @@
          key,
          'random'
   FROM flags_to_override,
-       target_person_ids ON CONFLICT DO NOTHING
+       target_person_ids
+  WHERE EXISTS
+      (SELECT 1
+       FROM posthog_person
+       WHERE id = person_id
+         AND team_id = 2) ON CONFLICT DO NOTHING
   '
 ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db.5
