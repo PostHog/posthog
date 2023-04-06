@@ -18,13 +18,18 @@ import {
 } from 'lib/lemon-ui/icons'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import clsx from 'clsx'
+import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
+import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
+import { funnelCorrelationDetailsLogic } from 'scenes/funnels/funnelCorrelationDetailsLogic'
 
 export function CorrelationMatrix(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { correlationsLoading, funnelCorrelationDetails, parseDisplayNameForCorrelation, correlationMatrixAndScore } =
-        useValues(logic)
-    const { setFunnelCorrelationDetails, openCorrelationPersonsModal } = useActions(logic)
+    const { openCorrelationPersonsModal } = useActions(funnelLogic(insightProps))
+    const { correlationsLoading } = useValues(funnelCorrelationLogic(insightProps))
+    const { funnelCorrelationDetails, correlationMatrixAndScore } = useValues(
+        funnelCorrelationDetailsLogic(insightProps)
+    )
+    const { setFunnelCorrelationDetails } = useActions(funnelCorrelationDetailsLogic(insightProps))
 
     const actor = funnelCorrelationDetails?.result_type === FunnelCorrelationResultsType.Events ? 'event' : 'property'
     const action =
