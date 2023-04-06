@@ -33,6 +33,12 @@ import Router from 'koa-router'
 import bodyParser from 'koa-bodyparser'
 import logger from 'koa-pino-logger'
 import pg from 'pg'
+import jwt from 'koa-jwt'
+import { NodeSDK } from '@opentelemetry/sdk-node'
+
+import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-base'
+import { PgInstrumentation } from '@opentelemetry/instrumentation-pg'
+import { PinoInstrumentation } from '@opentelemetry/instrumentation-pino'
 
 import { listDestinationTypesHandler } from './destination-types/handlers'
 import {
@@ -42,14 +48,25 @@ import {
     updateDestinationHandler,
 } from './destinations/handlers'
 
-const getApp = (config: NodeJS.ProcessEnv): Koa => {
+const getApp = async (config: NodeJS.ProcessEnv): Promise<Koa> => {
     const app = new Koa()
     const router = new Router()
 
     assert(config.DATABASE_URL, 'DATABASE_URL environment variable must be set')
+    assert(config.SECRET_KEY, 'SECRET_KEY environment variable must be set')
 
-    const database = new pg.Client(config.CDP_DATABASE_URL)
-    database.connect()
+    const database = new pg.Client({
+        connectionString: config.DATABASE_URL,
+        statement_timeout: 1000,
+        connectionTimeoutMillis: 1000,
+    })
+    await database.connect()
+
+    const opentelemetry = new NodeSDK({
+        traceExporter: new ConsoleSpanExporter(),
+        instrumentations: [new PgInstrumentation(), new PinoInstrumentation()],
+    })
+    opentelemetry.start()
 
     router.get('/api/projects/:projectId/destination-types', listDestinationTypesHandler)
     router.post('/api/projects/:projectId/destinations', createDestinationHandler(database))
@@ -57,6 +74,7 @@ const getApp = (config: NodeJS.ProcessEnv): Koa => {
     router.put('/api/projects/:projectId/destinations/:destinationId', updateDestinationHandler(database))
     router.delete('/api/projects/:projectId/destinations/:destinationId', deleteDestinationHandler(database))
 
+    app.use(jwt({ secret: config.SECRET_KEY, key: 'jwtData' }))
     app.use(logger())
     app.use(bodyParser())
     app.use(router.routes())
@@ -67,8 +85,10 @@ const getApp = (config: NodeJS.ProcessEnv): Koa => {
 
 const config = {
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cdp',
+    SECRET_KEY: '<randomly generated secret key>',
     ...process.env,
 }
 
-const app = getApp(config)
-app.listen(3000)
+getApp(config).then((app) => {
+    app.listen(3000)
+})

@@ -1,4 +1,7 @@
-/*
+/**
+ * @file Handlers for destination resources
+ * @module destinations/handlers
+ * @see module:destinations
  *
  * This file is responsible for handling the destination API. It provides
  * handlers for creating, updating, and deleting destinations, as well as
@@ -8,16 +11,14 @@
  * is to ensure that we can keep a history of destinations that have been used
  * in the past.
  *
- * TODO: refactor out business logic to not depend on Koa or serialization.
- *
  */
 
 import { randomUUID } from 'crypto'
 import Koa from 'koa'
 import pg from 'pg'
-import { listDestinationTypes } from '../destination-types/handlers'
 import Ajv, { JSONSchemaType } from 'ajv'
 import { SQL } from '../sql-template-string'
+import { listDestinationTypes } from '../destination-types/handlers'
 
 type DestinationData = {
     name: string // Name displayed to the user
@@ -69,7 +70,9 @@ export const createDestinationHandler =
 
         // Validate the config against the destination type schema
         const config = destination.config
-        const destinationType = (await listDestinationTypes()).find((type) => type.type === destination.type)
+        const destinationType = (await listDestinationTypes()).find(
+            (destinationType) => destinationType.type === destination.type
+        )
         // If the destination type doesn't exist, return a 400
         if (!destinationType) {
             ctx.status = 400
@@ -104,8 +107,8 @@ export const createDestinationHandler =
                     ${destination.description}, 
                     ${destination.type}, 
                     ${destination.config},
-                    1
-                ) RETURNING *;
+                    ${ctx.state.jwtData.userId}
+                ) RETURNING *
             `
         )
 
@@ -170,7 +173,9 @@ export const updateDestinationHandler =
 
         // Validate the config against the destination type schema
         const config = destination.config
-        const destinationType = (await listDestinationTypes()).find((type) => type.type === destination.type)
+        const destinationType = (await listDestinationTypes()).find(
+            (destinationType) => destinationType.type === destination.type
+        )
         // If the destination type doesn't exist, return a 400
         if (!destinationType) {
             ctx.status = 400
