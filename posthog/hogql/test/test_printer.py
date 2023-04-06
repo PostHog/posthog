@@ -62,6 +62,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("(1,2,[])"), "tuple(1, 2, [])")
 
     def test_lambdas(self):
+        self.assertEqual(self._expr("arrayMap(() -> 2*2, [1,2,3])"), "arrayMap(() -> multiply(2, 2), [1, 2, 3])")
         self.assertEqual(self._expr("arrayMap(x -> x*2, [1,2,3])"), "arrayMap(x -> multiply(x, 2), [1, 2, 3])")
         self.assertEqual(
             self._expr("arrayMap((x, y) -> x*y, [1,2,3])"), "arrayMap((x, y) -> multiply(x, y), [1, 2, 3])"
