@@ -1,9 +1,11 @@
 import hashlib
 from dataclasses import dataclass
 from enum import Enum
+import time
+import structlog
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from django.db import DatabaseError
+from django.db import DatabaseError, IntegrityError, transaction
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.backends.utils import CursorWrapper
 from django.db.models.fields import BooleanField
@@ -26,6 +28,8 @@ from .feature_flag import (
     get_feature_flags_for_team_in_cache,
     set_feature_flags_for_team_in_cache,
 )
+
+logger = structlog.get_logger(__name__)
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
@@ -547,31 +551,50 @@ def set_feature_flag_hash_key_overrides(
     # As a product decision, the first override wins, i.e consistency matters for the first walkthrough.
     # Thus, we don't need to do upserts here.
 
-    query = """
-        WITH target_person_ids AS (
-            SELECT person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
-        ),
-        existing_overrides AS (
-            SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
-            WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
-        ),
-        flags_to_override AS (
-            SELECT key FROM posthog_featureflag WHERE team_id = %(team_id)s AND ensure_experience_continuity = TRUE AND active = TRUE AND deleted = FALSE
-            AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
-        )
-        INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-            SELECT %(team_id)s, person_id, key, %(hash_key_override)s
-            FROM flags_to_override, target_person_ids
-            WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = %(team_id)s)
-            ON CONFLICT DO NOTHING
-    """
-    # The EXISTS clause is to make sure we don't try to add overrides for deleted persons, as this results in erroring out.
+    # We have retries for race conditions with person merging and deletion, if a person is deleted, retry, because
+    # the distinct IDs might have moved to the new person, without the appropriate overrides.
+    max_retries = 2
+    retry_delay = 0.1  # seconds
 
-    # :TRICKY: regarding the ON CONFLICT DO NOTHING clause:
-    # This can happen if the same person is being processed by multiple workers
-    # / we got multiple requests for the same person at the same time. In this case, we can safely ignore the error
-    # because they're all trying to add the same overrides.
-    # We don't want to return an error response for `/decide` just because of this.
-    # There can be cases where it's a different override (like a person on two different browser sending the same request at the same time),
-    # but we don't care about that case because first override wins.
-    cursor.execute(query, {"team_id": team_id, "distinct_ids": tuple(distinct_ids), "hash_key_override": hash_key_override})  # type: ignore
+    for _ in range(max_retries):
+        try:
+            with transaction.atomic():
+                query = """
+                    WITH target_person_ids AS (
+                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+                    ),
+                    existing_overrides AS (
+                        SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
+                        WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
+                    ),
+                    flags_to_override AS (
+                        SELECT key FROM posthog_featureflag WHERE team_id = %(team_id)s AND ensure_experience_continuity = TRUE AND active = TRUE AND deleted = FALSE
+                        AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+                    )
+                    INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+                        SELECT team_id, person_id, key, %(hash_key_override)s
+                        FROM flags_to_override, target_person_ids
+                        WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = %(team_id)s)
+                        ON CONFLICT DO NOTHING
+                """
+                # The EXISTS clause is to make sure we don't try to add overrides for deleted persons, as this results in erroring out.
+
+                # :TRICKY: regarding the ON CONFLICT DO NOTHING clause:
+                # This can happen if the same person is being processed by multiple workers
+                # / we got multiple requests for the same person at the same time. In this case, we can safely ignore the error
+                # because they're all trying to add the same overrides.
+                # We don't want to return an error response for `/decide` just because of this.
+                # There can be cases where it's a different override (like a person on two different browser sending the same request at the same time),
+                # but we don't care about that case because first override wins.
+                cursor.execute(query, {"team_id": team_id, "distinct_ids": tuple(distinct_ids), "hash_key_override": hash_key_override})  # type: ignore
+
+            break
+
+        except IntegrityError as e:
+            if "violates foreign key constraint" in str(e):
+                # This can happen if a person is deleted while we're trying to add overrides for it.
+                # This is the only case when we retry.
+                logger.info("Retrying set_feature_flag_hash_key_overrides due to person deletion", exc_info=True)
+                time.sleep(retry_delay)
+            else:
+                raise e
