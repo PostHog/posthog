@@ -31,6 +31,7 @@ import assert from 'assert'
 import Koa from 'koa'
 import Router from 'koa-router'
 import bodyParser from 'koa-bodyparser'
+import logger from 'koa-pino-logger'
 import pg from 'pg'
 
 import { listDestinationTypesHandler } from './destination-types/handlers'
@@ -56,6 +57,7 @@ const getApp = (config: NodeJS.ProcessEnv): Koa => {
     router.put('/api/projects/:projectId/destinations/:destinationId', updateDestinationHandler(database))
     router.delete('/api/projects/:projectId/destinations/:destinationId', deleteDestinationHandler(database))
 
+    app.use(logger())
     app.use(bodyParser())
     app.use(router.routes())
     app.use(router.allowedMethods())
@@ -64,7 +66,7 @@ const getApp = (config: NodeJS.ProcessEnv): Koa => {
 }
 
 const config = {
-    CDP_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cdp',
+    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cdp',
     ...process.env,
 }
 

@@ -14,7 +14,7 @@ type DestinationType = {
     configSchema: Record<string, unknown> // A JSONSchema describing the configuration
 }
 
-export const destinationTypes: { [type: string]: DestinationType } = {
+const destinationTypes: { [type: string]: DestinationType } = {
     webhook: {
         type: 'webhook',
         name: 'Webhook',
@@ -32,6 +32,11 @@ export const destinationTypes: { [type: string]: DestinationType } = {
     },
 }
 
+export const listDestinationTypes = async (): Promise<DestinationType[]> => {
+    return Object.values(destinationTypes)
+}
+
 export const listDestinationTypesHandler = async (ctx: Koa.Context): Promise<void> => {
-    ctx.body = Object.values(destinationTypes)
+    ctx.status = 200
+    ctx.body = await listDestinationTypes()
 }

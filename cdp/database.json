@@ -1,3 +1,0 @@
-{
-    "dev": "postgres://posthog:posthog@localhost:5432/cdp"
-}

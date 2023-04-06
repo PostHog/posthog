@@ -15,7 +15,7 @@ for an example way to implement this.
 
 */
 
-import { describe, test } from '@jest/globals'
+import { describe, test, expect } from '@jest/globals'
 
 describe('DestinationType API', () => {
     describe('GET destination types', () => {
