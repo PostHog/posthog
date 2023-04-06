@@ -56,13 +56,13 @@ class PropertyFinder(TraversingVisitor):
         self.found_timestamps = False
 
     def visit_property_ref(self, node: ast.PropertyRef):
-        if node.parent.name == "properties":
+        if node.parent.name == "properties" and len(node.chain) == 1:
             if isinstance(node.parent.table, ast.BaseTableRef):
                 table = node.parent.table.resolve_database_table().hogql_table()
                 if table == "persons" or table == "raw_persons":
-                    self.person_properties.add(node.name)
+                    self.person_properties.add(node.chain[0])
                 if table == "events":
-                    self.event_properties.add(node.name)
+                    self.event_properties.add(node.chain[0])
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
@@ -83,15 +83,15 @@ class PropertySwapper(CloningVisitor):
                 return ast.Call(name="toTimezone", args=[node, ast.Constant(value=self.timezone)])
 
         ref = node.ref
-        if isinstance(ref, ast.PropertyRef) and ref.parent.name == "properties":
+        if isinstance(ref, ast.PropertyRef) and ref.parent.name == "properties" and len(ref.chain) == 1:
             if isinstance(ref.parent.table, ast.BaseTableRef):
                 table = ref.parent.table.resolve_database_table().hogql_table()
                 if table == "persons" or table == "raw_persons":
-                    if ref.name in self.person_properties:
-                        return self._add_type_to_string_field(node, self.person_properties[ref.name])
+                    if ref.chain[0] in self.person_properties:
+                        return self._add_type_to_string_field(node, self.person_properties[ref.chain[0]])
                 if table == "events":
-                    if ref.name in self.event_properties:
-                        return self._add_type_to_string_field(node, self.event_properties[ref.name])
+                    if ref.chain[0] in self.event_properties:
+                        return self._add_type_to_string_field(node, self.event_properties[ref.chain[0]])
 
         return node
 
