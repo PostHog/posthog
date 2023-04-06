@@ -443,7 +443,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.http) {
-            httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer)
+            httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer, piscina)
         }
 
         return serverInstance ?? { stop: closeJobs }
