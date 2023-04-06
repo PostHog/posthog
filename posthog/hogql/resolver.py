@@ -92,7 +92,12 @@ class Resolver(TraversingVisitor):
                 raise ResolverException(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
             if self.database.has_table(table_name):
-                node.table.ref = ast.TableRef(table=self.database.get_table(table_name))
+                database_table = self.database.get_table(table_name)
+                if isinstance(database_table, ast.LazyTable):
+                    node.table.ref = ast.LazyTableRef(table=database_table)
+                else:
+                    node.table.ref = ast.TableRef(table=database_table)
+
                 if table_alias == table_name:
                     node.ref = node.table.ref
                 else:

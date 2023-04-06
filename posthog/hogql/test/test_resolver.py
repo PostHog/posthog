@@ -252,8 +252,8 @@ class TestResolver(BaseTest):
                     chain=["person", "id"],
                     ref=ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableRef(
-                            table=pdi_table_ref, field="person", lazy_table=self.database.person_distinct_ids.person
+                        table=ast.LazyJoinRef(
+                            table=pdi_table_ref, field="person", lazy_join=self.database.person_distinct_ids.person
                         ),
                     ),
                 ),
@@ -269,9 +269,9 @@ class TestResolver(BaseTest):
                     "distinct_id": ast.FieldRef(name="distinct_id", table=pdi_table_ref),
                     "id": ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableRef(
+                        table=ast.LazyJoinRef(
                             table=pdi_table_ref,
-                            lazy_table=self.database.person_distinct_ids.person,
+                            lazy_join=self.database.person_distinct_ids.person,
                             field="person",
                         ),
                     ),
@@ -299,9 +299,7 @@ class TestResolver(BaseTest):
                     chain=["pdi", "person_id"],
                     ref=ast.FieldRef(
                         name="person_id",
-                        table=ast.LazyTableRef(
-                            table=events_table_ref, field="pdi", lazy_table=self.database.events.pdi
-                        ),
+                        table=ast.LazyJoinRef(table=events_table_ref, field="pdi", lazy_join=self.database.events.pdi),
                     ),
                 ),
             ],
@@ -316,9 +314,9 @@ class TestResolver(BaseTest):
                     "event": ast.FieldRef(name="event", table=events_table_ref),
                     "person_id": ast.FieldRef(
                         name="person_id",
-                        table=ast.LazyTableRef(
+                        table=ast.LazyJoinRef(
                             table=events_table_ref,
-                            lazy_table=self.database.events.pdi,
+                            lazy_join=self.database.events.pdi,
                             field="pdi",
                         ),
                     ),
@@ -347,8 +345,8 @@ class TestResolver(BaseTest):
                     chain=["e", "pdi", "person_id"],
                     ref=ast.FieldRef(
                         name="person_id",
-                        table=ast.LazyTableRef(
-                            table=events_table_alias_ref, field="pdi", lazy_table=self.database.events.pdi
+                        table=ast.LazyJoinRef(
+                            table=events_table_alias_ref, field="pdi", lazy_join=self.database.events.pdi
                         ),
                     ),
                 ),
@@ -365,9 +363,9 @@ class TestResolver(BaseTest):
                     "event": ast.FieldRef(name="event", table=events_table_alias_ref),
                     "person_id": ast.FieldRef(
                         name="person_id",
-                        table=ast.LazyTableRef(
+                        table=ast.LazyJoinRef(
                             table=events_table_alias_ref,
-                            lazy_table=self.database.events.pdi,
+                            lazy_join=self.database.events.pdi,
                             field="pdi",
                         ),
                     ),
@@ -395,12 +393,12 @@ class TestResolver(BaseTest):
                     chain=["pdi", "person", "id"],
                     ref=ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableRef(
-                            table=ast.LazyTableRef(
-                                table=events_table_ref, field="pdi", lazy_table=self.database.events.pdi
+                        table=ast.LazyJoinRef(
+                            table=ast.LazyJoinRef(
+                                table=events_table_ref, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_table=self.database.events.pdi.table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,
                         ),
                     ),
                 ),
@@ -416,12 +414,12 @@ class TestResolver(BaseTest):
                     "event": ast.FieldRef(name="event", table=events_table_ref),
                     "id": ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableRef(
-                            table=ast.LazyTableRef(
-                                table=events_table_ref, field="pdi", lazy_table=self.database.events.pdi
+                        table=ast.LazyJoinRef(
+                            table=ast.LazyJoinRef(
+                                table=events_table_ref, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_table=self.database.events.pdi.table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,
                         ),
                     ),
                 },
@@ -449,12 +447,12 @@ class TestResolver(BaseTest):
                     chain=["e", "pdi", "person", "id"],
                     ref=ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableRef(
-                            table=ast.LazyTableRef(
-                                table=events_table_alias_ref, field="pdi", lazy_table=self.database.events.pdi
+                        table=ast.LazyJoinRef(
+                            table=ast.LazyJoinRef(
+                                table=events_table_alias_ref, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_table=self.database.events.pdi.table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,
                         ),
                     ),
                 ),
@@ -471,12 +469,12 @@ class TestResolver(BaseTest):
                     "event": ast.FieldRef(name="event", table=events_table_alias_ref),
                     "id": ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableRef(
-                            table=ast.LazyTableRef(
-                                table=events_table_alias_ref, field="pdi", lazy_table=self.database.events.pdi
+                        table=ast.LazyJoinRef(
+                            table=ast.LazyJoinRef(
+                                table=events_table_alias_ref, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_table=self.database.events.pdi.table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,
                         ),
                     ),
                 },

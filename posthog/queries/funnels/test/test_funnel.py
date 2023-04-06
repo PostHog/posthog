@@ -176,7 +176,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
         @snapshot_clickhouse_queries
         def test_funnel_events_with_person_on_events_v2(self):
-
             # KLUDGE: We need to do this to ensure create_person_id_override_by_distinct_id
             # works correctly. Worth considering other approaches as we generally like to
             # avoid truncating tables in tests for speed.

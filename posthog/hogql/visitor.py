@@ -133,10 +133,13 @@ class TraversingVisitor(Visitor):
     def visit_table_ref(self, node: ast.TableRef):
         pass
 
-    def visit_field_traverser_ref(self, node: ast.LazyTableRef):
+    def visit_lazy_table_ref(self, node: ast.TableRef):
+        pass
+
+    def visit_field_traverser_ref(self, node: ast.LazyJoinRef):
         self.visit(node.table)
 
-    def visit_lazy_table_ref(self, node: ast.LazyTableRef):
+    def visit_lazy_join_ref(self, node: ast.LazyJoinRef):
         self.visit(node.table)
 
     def visit_virtual_table_ref(self, node: ast.VirtualTableRef):
