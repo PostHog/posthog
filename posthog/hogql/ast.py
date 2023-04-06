@@ -8,10 +8,11 @@ from pydantic import Field as PydanticField
 from posthog.hogql.database import (
     DatabaseField,
     FieldTraverser,
-    LazyTable,
+    LazyJoin,
     StringJSONDatabaseField,
     Table,
     VirtualTable,
+    LazyTable,
 )
 
 # NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
@@ -76,8 +77,10 @@ class BaseTableRef(Ref):
             return AsteriskRef(table=self)
         if self.has_child(name):
             field = self.resolve_database_table().get_field(name)
+            if isinstance(field, LazyJoin):
+                return LazyJoinRef(table=self, field=name, lazy_join=field)
             if isinstance(field, LazyTable):
-                return LazyTableRef(table=self, field=name, lazy_table=field)
+                return LazyTableRef(table=field)
             if isinstance(field, FieldTraverser):
                 return FieldTraverserRef(table=self, chain=field.chain)
             if isinstance(field, VirtualTable):
@@ -101,13 +104,20 @@ class TableAliasRef(BaseTableRef):
         return self.table_ref.table
 
 
-class LazyTableRef(BaseTableRef):
+class LazyJoinRef(BaseTableRef):
     table: BaseTableRef
     field: str
-    lazy_table: LazyTable
+    lazy_join: LazyJoin
 
     def resolve_database_table(self) -> Table:
-        return self.lazy_table.table
+        return self.lazy_join.join_table
+
+
+class LazyTableRef(BaseTableRef):
+    table: LazyTable
+
+    def resolve_database_table(self) -> Table:
+        return self.table
 
 
 class VirtualTableRef(BaseTableRef):
@@ -328,6 +338,8 @@ class Call(Expr):
 
 
 class JoinExpr(Expr):
+    ref: Optional[BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef]
+
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
     alias: Optional[str] = None
