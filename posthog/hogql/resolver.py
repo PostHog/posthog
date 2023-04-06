@@ -159,15 +159,15 @@ class Resolver(TraversingVisitor):
         if node.ref is not None:
             return
 
-        # This ref keeps track of all joined tables and other field aliases that are in scope.
-        node.ref = ast.SelectQueryRef()
         # Each Lambda is a new scope in field name resolution.
+        # This ref keeps track of all lambda arguments that are in scope.
+        node.ref = ast.SelectQueryRef()
         self.scopes.append(node.ref)
 
         for arg in node.args:
             node.ref.aliases[arg] = ast.FieldAliasRef(name=arg, ref=ast.LambdaArgumentRef(name=arg))
 
-        self.visit(node)
+        self.visit(node.expr)
         self.scopes.pop()
 
         return node.ref

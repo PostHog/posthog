@@ -110,6 +110,9 @@ class TraversingVisitor(Visitor):
         for expr in node.select_queries:
             self.visit(expr)
 
+    def visit_lambda_argument_ref(self, node: ast.LambdaArgumentRef):
+        pass
+
     def visit_field_alias_ref(self, node: ast.FieldAliasRef):
         self.visit(node.ref)
 
