@@ -493,7 +493,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if isinstance(object, ast.Field) and isinstance(property, ast.Constant):
             return ast.Field(chain=object.chain + [property.value])
         else:
-            return ast.ArrayAccess(left=object, right=property)
+            return ast.ArrayAccess(array=object, property=property)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprBetween")

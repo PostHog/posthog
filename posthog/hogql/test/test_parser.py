@@ -57,20 +57,20 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("properties[(select 'value')]"),
             ast.ArrayAccess(
-                left=ast.Field(chain=["properties"]), right=ast.SelectQuery(select=[ast.Constant(value="value")])
+                array=ast.Field(chain=["properties"]), property=ast.SelectQuery(select=[ast.Constant(value="value")])
             ),
         )
         self.assertEqual(
             parse_expr("[1,2,3][1]"),
             ast.ArrayAccess(
-                left=ast.Array(
+                array=ast.Array(
                     exprs=[
                         ast.Constant(value=1),
                         ast.Constant(value=2),
                         ast.Constant(value=3),
                     ]
                 ),
-                right=ast.Constant(value=1),
+                property=ast.Constant(value=1),
             ),
         )
 
