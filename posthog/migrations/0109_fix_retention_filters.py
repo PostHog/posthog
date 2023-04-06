@@ -23,5 +23,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(fix_retention_dashboard_items, backwards),
+        migrations.RunPython(fix_retention_dashboard_items, backwards, elidable=True),
     ]

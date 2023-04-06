@@ -321,10 +321,14 @@ export async function startPluginsServer(
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? makePiscina(serverConfig)
-            onEventHandlerConsumer = await startOnEventHandlerConsumer({
+            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startOnEventHandlerConsumer({
                 hub: hub,
                 piscina: piscina,
             })
+
+            onEventHandlerConsumer = onEventQueue
+
+            healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
         }
 
         // If we have

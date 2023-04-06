@@ -21,6 +21,8 @@ import professorHog from 'public/hedgehog/professor-hog.png'
 import supportHeroHog from 'public/hedgehog/support-hero-hog.png'
 import xRayHog2 from 'public/hedgehog/x-ray-hogs-02.png'
 import laptopHog3 from 'public/hedgehog/laptop-hog-03.png'
+import laptopHog4 from 'public/hedgehog/laptop-hog-04.png'
+import laptopHogEU from 'public/hedgehog/laptop-hog-eu.png'
 import detectiveHog from 'public/hedgehog/detective-hog.png'
 import mailHog from 'public/hedgehog/mail-hog.png'
 
@@ -58,6 +60,12 @@ export const LaptopHog2 = (props: HedgehogProps): JSX.Element => {
 }
 export const LaptopHog3 = (props: HedgehogProps): JSX.Element => {
     return <RectangularHedgehog src={laptopHog3} {...props} />
+}
+export const LaptopHog4 = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={laptopHog4} {...props} />
+}
+export const LaptopHogEU = (props: HedgehogProps): JSX.Element => {
+    return <RectangularHedgehog src={laptopHogEU} {...props} />
 }
 export const ExplorerHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={explorerHog} {...props} />

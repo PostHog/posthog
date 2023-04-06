@@ -54,7 +54,7 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                         type={'primary'}
                         data-attr="update-dashboard-template-button"
                         onClick={() => {
-                            updateDashboardTemplate(id)
+                            updateDashboardTemplate({ id })
                         }}
                         disabledReason={
                             validationErrors.length

@@ -16,6 +16,43 @@ export const savedInsights = {
     },
 }
 
+function interceptInsightLoad(insightType: string): string {
+    cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as('loadNewTrendsInsight')
+    cy.intercept('POST', /api\/projects\/\d+\/insights\/funnel\/?/).as('loadNewFunnelInsight')
+    cy.intercept('GET', /api\/projects\/\d+\/insights\/retention\/\?.*/).as('loadNewRetentionInsight')
+    cy.intercept('POST', /api\/projects\/\d+\/insights\/path\/?/).as('loadNewPathsInsight')
+    cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
+
+    let networkInterceptAlias: string = ''
+    switch (insightType) {
+        case 'TRENDS':
+        case 'STICKINESS':
+        case 'LIFECYCLE':
+            networkInterceptAlias = 'loadNewTrendsInsight'
+            break
+        case 'FUNNELS':
+            networkInterceptAlias = 'loadNewFunnelInsight'
+            break
+        case 'RETENTION':
+            networkInterceptAlias = 'loadNewRetentionInsight'
+            break
+        case 'PATH':
+        case 'PATHS':
+            networkInterceptAlias = 'loadNewPathsInsight'
+            break
+        case 'SQL':
+        case 'JSON':
+            networkInterceptAlias = 'loadNewQueryInsight'
+            break
+    }
+
+    if (networkInterceptAlias === '') {
+        throw new Error('Unknown insight type: ' + insightType)
+    }
+
+    return networkInterceptAlias
+}
+
 export const insight = {
     applyFilter: (): void => {
         cy.get('[data-attr=insight-filters-add-filter-group]').click()
@@ -37,8 +74,33 @@ export const insight = {
         // wait for save to complete and URL to change and include short id
         cy.url().should('not.include', '/new')
     },
-    create: (insightName: string): void => {
-        cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
+    clickTab: (tabName: string): void => {
+        const networkInterceptAlias = interceptInsightLoad(tabName)
+
+        cy.get(`[data-attr="insight-${(tabName === 'PATHS' ? 'PATH' : tabName).toLowerCase()}-tab"]`).click()
+        cy.wait(`@${networkInterceptAlias}`)
+    },
+    newInsight: (insightType: string = 'TRENDS'): void => {
+        const networkInterceptAlias = interceptInsightLoad(insightType)
+
+        if (insightType === 'JSON') {
+            cy.clickNavMenu('savedinsights')
+            cy.get('[data-attr="saved-insights-new-insight-dropdown"]').click()
+            cy.get('[data-attr-insight-type="TRENDS"]').click()
+            insight.clickTab('JSON')
+        } else {
+            cy.clickNavMenu('savedinsights')
+            cy.get('[data-attr="saved-insights-new-insight-dropdown"]').click()
+            cy.get(`[data-attr-insight-type="${insightType}"]`).click()
+        }
+
+        cy.wait(`@${networkInterceptAlias}`)
+    },
+    create: (insightName: string, insightType: string = 'TRENDS'): void => {
+        cy.clickNavMenu('savedinsights')
+        cy.get('[data-attr="saved-insights-new-insight-dropdown"]').click()
+        cy.get(`[data-attr-insight-type="${insightType}"]`).click()
+
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
         cy.url().should('not.include', '/new') // wait for insight to complete and update URL
         cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
@@ -61,23 +123,48 @@ export const insight = {
             })
         })
     },
+    updateQueryEditorText(query: string, selector: string = 'query-editor'): void {
+        // the default JSON query doesn't have any results, switch to one that does
+
+        // obviously we need to clear the text area multiple times
+        cy.get(`[data-attr="${selector}"] textarea`).type('{selectall}')
+        cy.get(`[data-attr="${selector}"] textarea`).type('{backspace}')
+        cy.get(`[data-attr="${selector}"] textarea`).type('{selectall}')
+        cy.get(`[data-attr="${selector}"] textarea`).type('{backspace}')
+        cy.get(`[data-attr="${selector}"] textarea`).type('{selectall}')
+        cy.get(`[data-attr="${selector}"] textarea`).type('{backspace}')
+        cy.get(`[data-attr="${selector}"] textarea`).type('{selectall}')
+        cy.get(`[data-attr="${selector}"] textarea`).type('{backspace}')
+
+        cy.get(`[data-attr="${selector}"] textarea`).type(query)
+
+        // monaco adds closing squares and curlies as we type,
+        // so, we need to delete any trailing characters to make valid JSON
+        // 😡
+        for (let i = 0; i < 10; i++) {
+            cy.get(`[data-attr="${selector}"] textarea`).type('{del}')
+        }
+
+        cy.get(`[data-attr="${selector}"] button`).click()
+    },
 }
 
 export const dashboards = {
     createDashboardFromDefaultTemplate: (dashboardName: string): void => {
         cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
-        cy.get('[data-attr=copy-from-template]').click()
-        cy.get('[data-attr=dashboard-select-default-app]').click()
-
-        cy.get('[data-attr=dashboard-submit-and-go]').click()
-
+        cy.get('[data-attr="create-dashboard-from-template"]').click()
+        cy.get('[data-attr="dashboard-name"]').contains('Product analytics').should('exist')
+        cy.get('[data-attr="dashboard-name"] button').click()
+        cy.get('[data-attr="dashboard-name"] input').clear().type(dashboardName).blur()
         cy.contains(dashboardName).should('exist')
     },
     createAndGoToEmptyDashboard: (dashboardName: string): void => {
         cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
-        cy.get('button[data-attr="dashboard-submit-and-go"]').click()
+        cy.get('[data-attr="create-dashboard-blank"]').click()
+        cy.get('[data-attr="dashboard-name"]').should('exist')
+        cy.get('[data-attr="dashboard-name"] button').click()
+        cy.get('[data-attr="dashboard-name"] input').clear().type(dashboardName).blur()
+        cy.contains(dashboardName).should('exist')
     },
     visitDashboard: (dashboardName: string): void => {
         cy.get('[placeholder="Search for dashboards"]').clear().type(dashboardName)

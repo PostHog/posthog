@@ -13,12 +13,13 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyGroup, PropertyName
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.session_query import SessionQuery
+from posthog.queries.util import PersonPropertiesMode
+from posthog.utils import PersonOnEventsMode
 
 
 class EventQuery(metaclass=ABCMeta):
@@ -26,6 +27,7 @@ class EventQuery(metaclass=ABCMeta):
     PERSON_TABLE_ALIAS = "person"
     SESSION_TABLE_ALIAS = "sessions"
     EVENT_TABLE_ALIAS = "e"
+    PERSON_ID_OVERRIDES_TABLE_ALIAS = "overrides"
 
     _filter: Union[
         Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter, PropertiesTimelineFilter
@@ -39,6 +41,7 @@ class EventQuery(metaclass=ABCMeta):
     _extra_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
     _extra_person_fields: List[ColumnName]
+    _person_id_alias: str
 
     def __init__(
         self,
@@ -55,7 +58,7 @@ class EventQuery(metaclass=ABCMeta):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        using_person_on_events: bool = False,
+        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -70,7 +73,7 @@ class EventQuery(metaclass=ABCMeta):
         self._should_join_persons = should_join_persons
         self._should_join_sessions = should_join_sessions
         self._extra_fields = extra_fields
-        self._using_person_on_events = using_person_on_events
+        self._person_on_events_mode = person_on_events_mode
 
         if override_aggregate_users_by_distinct_id is not None:
             self._aggregate_users_by_distinct_id = override_aggregate_users_by_distinct_id
@@ -88,6 +91,13 @@ class EventQuery(metaclass=ABCMeta):
 
         self._should_round_interval = round_interval
 
+        if person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
+        elif person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+            self._person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
+        else:
+            self._person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+
     @abstractmethod
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         pass
@@ -96,14 +106,22 @@ class EventQuery(metaclass=ABCMeta):
     def _determine_should_join_distinct_ids(self) -> None:
         pass
 
-    def _get_distinct_id_query(self) -> str:
-        if self._should_join_distinct_ids:
-            return f"""
+    def _get_person_ids_query(self) -> str:
+        if not self._should_join_distinct_ids:
+            return ""
+
+        if self._person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            return f"""LEFT OUTER JOIN (
+                SELECT override_person_id as person_id, old_person_id
+                FROM person_overrides
+                WHERE team_id = %(team_id)s
+            ) AS {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}
+            ON {self.EVENT_TABLE_ALIAS}.person_id = {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.old_person_id"""
+
+        return f"""
             INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
-            """
-        else:
-            return ""
+        """
 
     def _determine_should_join_persons(self) -> None:
         if self._person_query.is_used:

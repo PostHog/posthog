@@ -312,16 +312,16 @@ $decorations: underline, overline, line-through, no-underline;
 
 @each $name, $hex in $colors {
     .text-#{$name} {
-        color: $hex;
+        color: var(--#{$name});
     }
     .bg-#{$name} {
-        background-color: $hex;
+        background-color: var(--#{$name});
     }
     .border-#{$name} {
-        border-color: $hex;
+        border-color: var(--#{$name});
     }
     .decoration-#{$name} {
-        text-decoration-color: $hex;
+        text-decoration-color: var(--#{$name});
     }
 }
 
@@ -441,6 +441,10 @@ $decorations: underline, overline, line-through, no-underline;
 
 .float-left {
     float: left;
+}
+
+.align-middle {
+    vertical-align: middle;
 }
 
 // Position
@@ -1020,4 +1024,16 @@ $decorations: underline, overline, line-through, no-underline;
     transition-property: all;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     transition-duration: 150ms;
+}
+
+.aspect-auto {
+    aspect-ratio: auto;
+}
+
+.aspect-square {
+    aspect-ratio: 1 / 1;
+}
+
+.aspect-video {
+    aspect-ratio: 16 / 9;
 }

@@ -1,18 +1,18 @@
 VOLUME_SQL = """
 SELECT
-    {aggregate_operation} as data,
-    {interval}(toTimeZone(toDateTime({timestamp_column}, 'UTC'), %(timezone)s)) as date
+    {aggregate_operation} AS total,
+    {interval}(toTimeZone(toDateTime({timestamp_column}, 'UTC'), %(timezone)s)) AS date
 {event_query_base}
 GROUP BY date
 """
 
 VOLUME_AGGREGATE_SQL = """
-SELECT {aggregate_operation} as data
+SELECT {aggregate_operation} AS total
 {event_query_base}
 """
 
 VOLUME_PER_ACTOR_SQL = """
-SELECT {aggregate_operation} AS data, date FROM (
+SELECT {aggregate_operation} AS total, date FROM (
     SELECT
         count() AS intermediate_count,
         {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS date
@@ -22,7 +22,7 @@ SELECT {aggregate_operation} AS data, date FROM (
 """
 
 VOLUME_PER_ACTOR_AGGREGATE_SQL = """
-SELECT {aggregate_operation} as data FROM (
+SELECT {aggregate_operation} AS total FROM (
     SELECT
         count() AS intermediate_count
     {event_query_base}
@@ -31,7 +31,7 @@ SELECT {aggregate_operation} as data FROM (
 """
 
 SESSION_DURATION_SQL = """
-SELECT {aggregate_operation} as data, date FROM (
+SELECT {aggregate_operation} AS total, date FROM (
     SELECT
         {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as date,
         any(sessions.session_duration) as session_duration
@@ -41,7 +41,7 @@ SELECT {aggregate_operation} as data, date FROM (
 """
 
 SESSION_DURATION_AGGREGATE_SQL = """
-SELECT {aggregate_operation} as data FROM (
+SELECT {aggregate_operation} AS total FROM (
     SELECT any(session_duration) as session_duration
     {event_query_base}
     GROUP BY sessions.$session_id
@@ -79,7 +79,7 @@ SELECT
 """
 
 FINAL_TIME_SERIES_SQL = """
-SELECT groupArray(day_start) as date, groupArray({aggregate}) as data FROM (
+SELECT groupArray(day_start) as date, groupArray({aggregate}) AS total FROM (
     SELECT {smoothing_operation} AS count, day_start
     FROM (
         {null_sql}
@@ -133,7 +133,7 @@ SELECT {bucketing_expression} FROM (
 
 
 BREAKDOWN_QUERY_SQL = """
-SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value FROM (
+SELECT groupArray(day_start) as date, groupArray(count) AS total, breakdown_value FROM (
     SELECT SUM(total) as count, day_start, breakdown_value FROM (
         SELECT * FROM (
             -- Create a table with 1 row for each interval for the requested date range
@@ -456,8 +456,8 @@ WITH
             )
         )
     )
-SELECT groupArray(start_of_period) as date,
-        groupArray(counts) as data,
+SELECT groupArray(start_of_period) AS date,
+        groupArray(counts) AS total,
         status
 FROM (
     SELECT

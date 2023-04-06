@@ -259,7 +259,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                             expandedRowRender: (record) => renderNestedTable(record.event.event),
                             expandedRowKeys: nestedTableExpandedKeys,
                             rowExpandable: () => filters.aggregation_group_type_index === undefined,
-                            /* eslint-disable react/display-name */
                             expandIcon: ({ expanded, onExpand, record, expandable }) => {
                                 if (!expandable) {
                                     return null
@@ -295,7 +294,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                     </Tooltip>
                                 )
                             },
-                            /* eslint-enable react/display-name */
                         }}
                     >
                         <Column

@@ -202,25 +202,50 @@ export function InsightContainer({
                 className="insights-graph-container"
             >
                 <div>
-                    <Row
-                        className={clsx('insights-graph-header', {
-                            funnels: isFunnelsFilter(filters),
-                        })}
-                        align="middle"
-                        justify="space-between"
-                    >
-                        {/*Don't add more than two columns in this row.*/}
-                        {!disableLastComputation && (
-                            <Col>
-                                <ComputationTimeWithRefresh />
+                    {isFunnelsFilter(filters) ? (
+                        <div
+                            className={clsx(
+                                'insights-graph-header',
+                                {
+                                    funnels: isFunnelsFilter(filters),
+                                },
+                                'justify-between',
+                                'items-center',
+                                'flex',
+                                'flex-row'
+                            )}
+                        >
+                            <div className="flex flex-col">
+                                {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
+                            </div>
+                        </div>
+                    ) : null}
+
+                    {!disableLastComputation || !!filters.sampling_factor ? (
+                        <Row
+                            className="insights-graph-header computation-time-and-sampling-notice"
+                            align="middle"
+                            justify="space-between"
+                        >
+                            {/*Don't add more than two columns in this row.*/}
+                            <Col className="flex items-center gap-1">
+                                {!disableLastComputation && <ComputationTimeWithRefresh />}
+                                {!!filters.sampling_factor ? (
+                                    <span className="text-muted-alt">
+                                        {!disableLastComputation ? '• ' : ' '}
+                                        Results calculated from {filters.sampling_factor * 100}% of users
+                                    </span>
+                                ) : null}
                             </Col>
-                        )}
-                        <Col>
-                            {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
-                            {isPathsFilter(filters) ? <PathCanvasLabel /> : null}
-                            <InsightLegendButton />
-                        </Col>
-                    </Row>
+
+                            <Col>
+                                {isPathsFilter(filters) ? <PathCanvasLabel /> : null}
+
+                                <InsightLegendButton />
+                            </Col>
+                        </Row>
+                    ) : null}
+
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : isFilterWithDisplay(filters) && filters.show_legend ? (

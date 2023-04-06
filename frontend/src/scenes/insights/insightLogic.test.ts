@@ -273,17 +273,6 @@ describe('insightLogic', () => {
                 filters: partial({ hidden_legend_keys: { 0: true, 10: true } }),
             })
         })
-        it('setHiddenById', async () => {
-            logic = insightLogic({
-                dashboardItemId: undefined,
-            })
-            logic.mount()
-
-            expectLogic(logic, () => {
-                logic.actions.setHiddenById({ '0': true, '2': false })
-                logic.actions.setHiddenById({ '8': true, '2': true })
-            }).toMatchValues({ hiddenLegendKeys: { 0: true, 2: true, 8: true } })
-        })
         it('toggleVisibility', async () => {
             logic = insightLogic({
                 dashboardItemId: undefined,
@@ -371,6 +360,38 @@ describe('insightLogic', () => {
             })
         })
 
+        describe('props with query and cached results', () => {
+            beforeEach(() => {
+                logic = insightLogic({
+                    dashboardItemId: Insight42,
+                    cachedInsight: {
+                        short_id: Insight42,
+                        results: ['cached result'],
+                        filters: {},
+                        query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                    },
+                })
+                logic.mount()
+            })
+
+            it('has the key set to the id', () => {
+                expect(logic.key).toEqual('42')
+            })
+
+            it('no query to load results', async () => {
+                await expectLogic(logic)
+                    .toMatchValues({
+                        insight: partial({
+                            short_id: Insight42,
+                            results: ['cached result'],
+                            query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                        }),
+                        filters: {},
+                    })
+                    .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
+            })
+        })
+
         describe('props with filters, no cached results', () => {
             it('makes a query to load the results', async () => {
                 logic = insightLogic({
@@ -406,6 +427,36 @@ describe('insightLogic', () => {
                     .delay(1)
                     // do not override the insight if querying with different filters
                     .toNotHaveDispatchedActions(['updateInsight', 'updateInsightSuccess'])
+            })
+        })
+
+        describe('props with query, no cached results', () => {
+            it('still does not make a query to load the results', async () => {
+                logic = insightLogic({
+                    dashboardItemId: Insight42,
+                    cachedInsight: {
+                        short_id: Insight42,
+                        results: undefined,
+                        filters: {},
+                        query: { kind: NodeKind.TimeToSeeDataSessionsQuery },
+                    },
+                })
+                logic.mount()
+
+                await expectLogic(logic)
+                    .toDispatchActions([])
+                    .toMatchValues({
+                        insight: partial({ short_id: Insight42, query: { kind: NodeKind.TimeToSeeDataSessionsQuery } }),
+                        filters: {},
+                    })
+                    .delay(1)
+                    // do not override the insight if querying with different filters
+                    .toNotHaveDispatchedActions([
+                        'loadResults',
+                        'loadResultsSuccess',
+                        'updateInsight',
+                        'updateInsightSuccess',
+                    ])
             })
         })
 

@@ -1664,3 +1664,7 @@ export function insightUrlForEvent(event: EventType): string | undefined {
 
     return insightParams ? urls.insightNew(insightParams) : undefined
 }
+
+export function inStorybookTestRunner(): boolean {
+    return navigator.userAgent.includes('StorybookTestRunner')
+}

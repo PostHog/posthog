@@ -273,11 +273,13 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
                 continue // insight updates have to have a "field" to be described
             }
 
-            const {
-                description,
-                extendedDescription: _extendedDescription,
-                suffix,
-            } = insightActionsMapping[change.field](change, logItem, asNotification)
+            const actionHandler = insightActionsMapping[change.field]
+            const processedChange = actionHandler(change, logItem, asNotification)
+            if (processedChange === null) {
+                continue // // unexpected log from backend is indescribable
+            }
+
+            const { description, extendedDescription: _extendedDescription, suffix } = processedChange
             if (description) {
                 changes = changes.concat(description)
             }

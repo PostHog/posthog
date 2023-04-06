@@ -9,6 +9,8 @@ import type { samplingFilterLogicType } from './samplingFilterLogicType'
 import { InsightLogicProps } from '~/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
+import { subscriptions } from 'kea-subscriptions'
 
 export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
 
@@ -16,6 +18,7 @@ export interface SamplingFilterLogicProps {
     insightProps: InsightLogicProps
     insightType?: InsightType
     setFilters?: (filters: Partial<FilterType>) => void
+    initialSamplingPercentage?: number | null
 }
 
 export const samplingFilterLogic = kea<samplingFilterLogicType>([
@@ -30,6 +33,8 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
             ['setFilters as setFunnelFilters'],
             retentionLogic(props.insightProps),
             ['setFilters as setRetentionFilters'],
+            pathsLogic(props.insightProps),
+            ['setFilter as setPathsFilters'],
             globalInsightLogic,
             ['setGlobalInsightFilters'],
         ],
@@ -37,9 +42,9 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     actions(() => ({
         setSamplingPercentage: (samplingPercentage: number | null) => ({ samplingPercentage }),
     })),
-    reducers(({ values }) => ({
+    reducers(({ props }) => ({
         samplingPercentage: [
-            (values.filters.sampling_factor ? values.filters.sampling_factor * 100 : null) as number | null,
+            props.initialSamplingPercentage || (null as number | null),
             {
                 // clicking on the active button untoggles it and disables sampling
                 setSamplingPercentage: (oldSamplingPercentage, { samplingPercentage }) =>
@@ -81,15 +86,26 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 ...values.filters,
                 sampling_factor: samplingFactor,
             }
-            // Experiments
+
             if (props.setFilters) {
+                // Experiments
                 props.setFilters(newFilters)
             } else if (props.insightType === InsightType.FUNNELS) {
                 actions.setFunnelFilters(newFilters)
             } else if (props.insightType === InsightType.RETENTION) {
                 actions.setRetentionFilters(newFilters)
+            } else if (props.insightType === InsightType.PATHS) {
+                actions.setPathsFilters(newFilters)
             } else {
                 actions.setInsightFilters(newFilters)
+            }
+        },
+    })),
+    subscriptions(({ values, actions }) => ({
+        filters: (filter) => {
+            const newSamplingPercentage = filter.sampling_factor ? filter.sampling_factor * 100 : null
+            if (newSamplingPercentage !== values.samplingPercentage) {
+                actions.setSamplingPercentage(newSamplingPercentage)
             }
         },
     })),

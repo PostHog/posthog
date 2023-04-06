@@ -18,6 +18,7 @@ from posthog.queries.trends.util import (
     offset_time_series_date_by_interval,
     process_math,
 )
+from posthog.utils import PersonOnEventsMode
 
 
 class TrendsActors(ActorBaseQuery):
@@ -118,10 +119,10 @@ class TrendsActors(ActorBaseQuery):
             team=self._team,
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups
-            and not self._team.person_on_events_querying_enabled,
+            and self._team.person_on_events_mode == PersonOnEventsMode.DISABLED,
             extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
             extra_fields=extra_fields,
-            using_person_on_events=self._team.person_on_events_querying_enabled,
+            person_on_events_mode=self._team.person_on_events_mode,
         ).get_query()
 
         matching_events_select_statement = (

@@ -18,6 +18,8 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '../../models/groupsModel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface Props {
     id?: string
@@ -56,7 +58,7 @@ function DashboardScene(): JSX.Element {
     } = useValues(dashboardLogic)
     const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery } =
         useActions(dashboardLogic)
-
+    const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     useEffect(() => {
@@ -162,7 +164,9 @@ function DashboardScene(): JSX.Element {
                             </div>
                         )}
                     </div>
-                    {placement !== DashboardPlacement.Export && <LemonDivider className="my-4" />}
+                    {placement !== DashboardPlacement.Export && !featureFlags[FEATURE_FLAGS.POSTHOG_3000] && (
+                        <LemonDivider className="my-4" />
+                    )}
                     <DashboardItems />
                 </div>
             )}

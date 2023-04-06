@@ -215,7 +215,10 @@ export class UUIDT extends UUID {
     }
 }
 
-/** Format timestamp for ClickHouse. */
+/* Format timestamps.
+Allowed timestamp formats support ISO and ClickHouse formats according to
+`timestampFormat`. This distinction is relevant because ClickHouse does NOT
+ necessarily accept all possible ISO timestamps. */
 export function castTimestampOrNow(
     timestamp?: DateTime | string | null,
     timestampFormat?: TimestampFormat.ISO

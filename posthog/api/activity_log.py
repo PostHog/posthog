@@ -63,7 +63,14 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         )[:10]
 
         serialized_data = ActivityLogSerializer(instance=other_peoples_changes, many=True, context={"user": user}).data
-        return Response(status=status.HTTP_200_OK, data=serialized_data)
+        last_read_date = NotificationViewed.objects.filter(user=user).first()
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "results": serialized_data,
+                "last_read": last_read_date.last_viewed_activity_date if last_read_date else None,
+            },
+        )
 
     @action(methods=["POST"], detail=False)
     def bookmark_activity_notification(self, request: Request, *args: Any, **kwargs: Any) -> Response:

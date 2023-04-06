@@ -64,7 +64,6 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         showNewDashboardModal: true,
         hideNewDashboardModal: true,
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
-        createAndGoToDashboard: true,
         setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
         clearActiveDashboardTemplate: true,
         createDashboardFromTemplate: (template: DashboardTemplateType, variables: DashboardTemplateVariableType[]) => ({
@@ -141,10 +140,6 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         },
         showNewDashboardModal: () => {
             actions.resetNewDashboard()
-        },
-        createAndGoToDashboard: () => {
-            actions.setNewDashboardValue('show', true)
-            actions.submitNewDashboard()
         },
         hideNewDashboardModal: () => {
             actions.clearActiveDashboardTemplate()

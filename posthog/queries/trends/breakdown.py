@@ -24,7 +24,6 @@ from posthog.models.property import PropertyGroup
 from posthog.models.property.util import get_property_string_expr, normalize_url_breakdown, parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
     format_breakdown_cohort_join_query,
@@ -63,7 +62,8 @@ from posthog.queries.trends.util import (
     parse_response,
     process_math,
 )
-from posthog.utils import encode_get_request_params
+from posthog.queries.util import PersonPropertiesMode
+from posthog.utils import PersonOnEventsMode, encode_get_request_params, generate_short_id
 
 
 class TrendsBreakdown:
@@ -75,7 +75,7 @@ class TrendsBreakdown:
         filter: Filter,
         team: Team,
         column_optimizer: Optional[ColumnOptimizer] = None,
-        using_person_on_events: bool = False,
+        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
     ):
         self.entity = entity
         self.filter = filter
@@ -83,13 +83,13 @@ class TrendsBreakdown:
         self.team_id = team.pk
         self.params: Dict[str, Any] = {"team_id": team.pk}
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
-        self.using_person_on_events = using_person_on_events
+        self.person_on_events_mode = person_on_events_mode
 
     @cached_property
     def _person_properties_mode(self) -> PersonPropertiesMode:
         return (
             PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
-            if not self.using_person_on_events
+            if self.person_on_events_mode == PersonOnEventsMode.DISABLED
             else PersonPropertiesMode.DIRECT_ON_EVENTS
         )
 
@@ -106,7 +106,7 @@ class TrendsBreakdown:
         )
 
         target_properties: Optional[PropertyGroup] = props_to_filter
-        if not self.using_person_on_events:
+        if self.person_on_events_mode == PersonOnEventsMode.DISABLED:
             target_properties = self.column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
 
         return parse_prop_grouped_clauses(
@@ -115,7 +115,7 @@ class TrendsBreakdown:
             table_name="e",
             person_properties_mode=self._person_properties_mode,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-            if not self.using_person_on_events
+            if self.person_on_events_mode == PersonOnEventsMode.DISABLED
             else "person_id",
             hogql_context=self.filter.hogql_context,
         )
@@ -140,7 +140,7 @@ class TrendsBreakdown:
             self.team,
             event_table_alias="e",
             person_id_alias=f"person_id"
-            if self.using_person_on_events
+            if self.person_on_events_mode != PersonOnEventsMode.DISABLED
             else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
@@ -153,7 +153,7 @@ class TrendsBreakdown:
                 action=action,
                 table_name="e",
                 person_properties_mode=self._person_properties_mode,
-                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else 'e'}.person_id",
+                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self.person_on_events_mode == PersonOnEventsMode.DISABLED else 'e'}.person_id",
                 hogql_context=self.filter.hogql_context,
             )
 
@@ -174,7 +174,9 @@ class TrendsBreakdown:
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
             "filters": prop_filters,
-            "null_person_filter": f"AND notEmpty(e.person_id)" if self.using_person_on_events else "",
+            "null_person_filter": f"AND notEmpty(e.person_id)"
+            if self.person_on_events_mode != PersonOnEventsMode.DISABLED
+            else "",
         }
 
         _params, _breakdown_filter_params = {}, {}
@@ -196,15 +198,24 @@ class TrendsBreakdown:
             # a "real" SELECT for this, we only include the below dummy SELECT.
             # It's a drop-in replacement for a "real" one, simply always returning 0 rows.
             # See https://github.com/PostHog/posthog/pull/5674 for context.
-            return ("SELECT [now()] AS date, [0] AS data, '' AS breakdown_value LIMIT 0", {}, lambda _: [])
+            return ("SELECT [now()] AS date, [0] AS total, '' AS breakdown_value LIMIT 0", {}, lambda _: [])
 
         person_join_condition, person_join_params = self._person_join_condition()
         groups_join_condition, groups_join_params = self._groups_join_condition()
         sessions_join_condition, sessions_join_params = self._sessions_join_condition()
-        self.params = {**self.params, **_params, **person_join_params, **groups_join_params, **sessions_join_params}
-        breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
-        sample_clause = f"SAMPLE {self.filter.sampling_factor}" if self.filter.sampling_factor else ""
+        sample_clause = "SAMPLE %(sampling_factor)s" if self.filter.sampling_factor else ""
+        sampling_params = {"sampling_factor": self.filter.sampling_factor}
+
+        self.params = {
+            **self.params,
+            **_params,
+            **person_join_params,
+            **groups_join_params,
+            **sessions_join_params,
+            **sampling_params,
+        }
+        breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
         if self.filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
@@ -222,7 +233,9 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS
+                    if self.person_on_events_mode == PersonOnEventsMode.DISABLED
+                    else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -291,7 +304,9 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS
+                    if self.person_on_events_mode == PersonOnEventsMode.DISABLED
+                    else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -307,7 +322,9 @@ class TrendsBreakdown:
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
                     sessions_join=sessions_join_condition,
-                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS
+                    if self.person_on_events_mode == PersonOnEventsMode.DISABLED
+                    else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -413,7 +430,7 @@ class TrendsBreakdown:
                 raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
 
         elif (
-            self.using_person_on_events
+            self.person_on_events_mode != PersonOnEventsMode.DISABLED
             and self.filter.breakdown_type == "group"
             and groups_on_events_querying_enabled()
         ):
@@ -421,7 +438,7 @@ class TrendsBreakdown:
             breakdown_value, _ = get_property_string_expr(
                 "events", breakdown, "%(key)s", properties_field, materialised_table_column=properties_field
             )
-        elif self.using_person_on_events and self.filter.breakdown_type != "group":
+        elif self.person_on_events_mode != PersonOnEventsMode.DISABLED and self.filter.breakdown_type != "group":
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr(
                     "events", breakdown, "%(key)s", "person_properties", materialised_table_column="person_properties"
@@ -552,6 +569,7 @@ class TrendsBreakdown:
         self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime], breakdown_value: Union[str, int]
     ) -> List[Dict[str, Any]]:
         persons_url = []
+        cache_invalidation_key = generate_short_id()
         for date in dates:
             date_in_utc = datetime(
                 date.year,
@@ -576,7 +594,7 @@ class TrendsBreakdown:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
+                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
                 }
             )
         return persons_url
@@ -608,7 +626,7 @@ class TrendsBreakdown:
             return str(value) or "none"
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
-        if self.using_person_on_events:
+        if self.person_on_events_mode != PersonOnEventsMode.DISABLED:
             return "", {}
 
         person_query = PersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
@@ -636,7 +654,7 @@ class TrendsBreakdown:
 
     def _groups_join_condition(self) -> Tuple[str, Dict]:
         return GroupsJoinQuery(
-            self.filter, self.team_id, self.column_optimizer, using_person_on_events=self.using_person_on_events
+            self.filter, self.team_id, self.column_optimizer, person_on_events_mode=self.person_on_events_mode
         ).get_join_query()
 
     def _sessions_join_condition(self) -> Tuple[str, Dict]:

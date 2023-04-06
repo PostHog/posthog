@@ -175,6 +175,7 @@ export interface PluginsServerConfig {
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+    CLOUD_DEPLOYMENT: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -413,8 +414,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
-    runEventPipeline: (event: PluginEvent) => Promise<void>
-    runLightweightCaptureEndpointEventPipeline: (event: PipelineEvent) => Promise<void>
+    runEventPipeline: (event: PipelineEvent) => Promise<void>
 }
 
 export type VMMethods = {

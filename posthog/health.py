@@ -44,6 +44,8 @@ service_dependencies: Dict[ServiceRole, List[str]] = {
     "events": ["http", "kafka_connected"],
     "web": [
         "http",
+        # NOTE: we include Postgres because the way we use django means every request hits the DB
+        # https://posthog.slack.com/archives/C02E3BKC78F/p1679669676438729
         "postgres",
         "postgres_migrations_uptodate",
         "cache",

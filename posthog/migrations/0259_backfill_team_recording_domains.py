@@ -51,5 +51,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(backfill_recording_domains, reverse),
+        migrations.RunPython(backfill_recording_domains, reverse, elidable=True),
     ]

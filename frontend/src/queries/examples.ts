@@ -37,6 +37,7 @@ const Events: EventsQuery = {
     properties: [
         { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
     ],
+    after: '-24h',
     limit: 100,
 }
 
@@ -310,41 +311,49 @@ const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
     },
 }
 
-const HogQL: HogQLQuery = {
-    kind: NodeKind.HogQLQuery,
-    query:
-        '   select event,\n' +
-        '          properties.$geoip_country_name as `Country Name`,\n' +
-        '          count() as `Event count`\n' +
-        '     from events\n' +
-        '    where timestamp > now() - interval 1 month\n' +
-        ' group by event,\n' +
-        '          properties.$geoip_country_name\n' +
-        ' order by count() desc\n' +
-        '    limit 100',
+const RecentPageViewsWithPerformance: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.RecentPerformancePageViewNode,
+        dateRange: {
+            date_to: null,
+            date_from: '-2h',
+        },
+    },
+    columns: ['page_url', 'duration', 'timestamp', 'context.columns.waterfallButton'],
+    expandable: false,
+    showExport: false,
+    showReload: true,
+    showActions: false,
+    showEventFilter: false,
+    showPropertyFilter: false,
+    showColumnConfigurator: false,
 }
 
-const HogQLTable: DataTableNode = {
-    kind: NodeKind.DataTableNode,
-    full: true,
-    source: {
-        kind: NodeKind.HogQLQuery,
-        query: `   select event,
+const HogQLRaw: HogQLQuery = {
+    kind: NodeKind.HogQLQuery,
+    query: `   select event,
           person.properties.email,
           properties.$browser,
           count()
      from events
-    where timestamp > now () - interval 1 month
+    where timestamp > now () - interval 1 day
       and person.properties.email is not null
  group by event,
           properties.$browser,
           person.properties.email
  order by count() desc
     limit 100`,
-    },
 }
 
-export const examples: Record<string, Node> = {
+const HogQLTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: HogQLRaw,
+}
+
+/* a subset of examples including only those we can show all users and that don't use HogQL */
+export const queryExamples: Record<string, Node> = {
     Events,
     EventsTable,
     EventsTableFull,
@@ -361,11 +370,20 @@ export const examples: Record<string, Node> = {
     InsightPathsQuery,
     InsightStickinessQuery,
     InsightLifecycleQuery,
+    RecentPageViewsWithPerformance,
+}
+
+export const stringifiedQueryExamples: Record<string, string> = Object.fromEntries(
+    Object.entries(queryExamples).map(([key, node]) => [key, JSON.stringify(node)])
+)
+
+export const examples: Record<string, Node> = {
+    ...queryExamples,
     TimeToSeeDataSessionsTable,
     TimeToSeeDataSessionsJSON,
     TimeToSeeDataWaterfall,
     TimeToSeeDataJSON,
-    HogQL,
+    HogQLRaw,
     HogQLTable,
 }
 
