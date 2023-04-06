@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import List, Literal, Optional, Union, cast
 
 
-from ee.clickhouse.materialized_columns.columns import TablesWithMaterializedColumns, get_materialized_columns
 from posthog.hogql import ast
 from posthog.hogql.constants import (
     CLICKHOUSE_FUNCTIONS,
@@ -520,14 +519,13 @@ class _Printer(Visitor):
         field_ref = ref.parent
         field = field_ref.resolve_database_field()
 
-        key = f"hogql_val_{len(self.context.values)}"
-        self.context.values[key] = ref.name
-
         # check for a materialised column
         table = field_ref.table
         while isinstance(table, ast.TableAliasRef):
             table = table.table_ref
 
+        # find a materialized property for the first part of the chain
+        materialized_property_sql: Optional[str] = None
         if isinstance(table, ast.TableRef):
             if self.dialect == "clickhouse":
                 table_name = table.table.clickhouse_table()
@@ -537,15 +535,12 @@ class _Printer(Visitor):
                 raise ValueError(f"Can't resolve field {field_ref.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            materialized_column = self._get_materialized_column(table_name, ref.name, field_name)
+            materialized_column = self._get_materialized_column(table_name, ref.chain[0], field_name)
             if materialized_column:
                 property_sql = self._print_identifier(materialized_column)
                 if not self.context.within_non_hogql_query:
                     property_sql = f"{self.visit(field_ref.table)}.{property_sql}"
-                return property_sql
-            else:
-                field_sql = self.visit(field_ref)
-                return trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
+                materialized_property_sql = property_sql
         elif (
             self.context.within_non_hogql_query
             and (isinstance(table, ast.SelectQueryAliasRef) and table.name == "events__pdi__person")
@@ -553,14 +548,29 @@ class _Printer(Visitor):
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", ref.name, "person_properties")
+                materialized_column = self._get_materialized_column("events", ref.chain[0], "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", ref.name, "properties")
+                materialized_column = self._get_materialized_column("person", ref.chain[0], "properties")
             if materialized_column:
-                return self._print_identifier(materialized_column)
+                materialized_property_sql = self._print_identifier(materialized_column)
 
-        field_sql = self.visit(field_ref)
-        return trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
+        if materialized_property_sql is not None:
+            if len(ref.chain) == 1:
+                return materialized_property_sql
+            else:
+                args = [materialized_property_sql]
+                for name in ref.chain[1:]:
+                    key = f"hogql_val_{len(self.context.values)}"
+                    self.context.values[key] = name
+                    args.append(f"%({key})s")
+                return trim_quotes_expr(f"JSONExtractRaw({', '.join(args)})")
+
+        args = [self.visit(field_ref)]
+        for name in ref.chain:
+            key = f"hogql_val_{len(self.context.values)}"
+            self.context.values[key] = name
+            args.append(f"%({key})s")
+        return trim_quotes_expr(f"JSONExtractRaw({', '.join(args)})")
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         sample_value = self.visit_ratio_expr(node.sample_value)
@@ -613,10 +623,18 @@ class _Printer(Visitor):
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _get_materialized_column(
-        self, table_name: TablesWithMaterializedColumns, property_name: PropertyName, field_name: TableColumn
+        self, table_name: str, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
-        materialized_columns = get_materialized_columns(table_name)
-        return materialized_columns.get((property_name, field_name), None)
+        try:
+            from ee.clickhouse.materialized_columns.columns import (
+                TablesWithMaterializedColumns,
+                get_materialized_columns,
+            )
+
+            materialized_columns = get_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
+            return materialized_columns.get((property_name, field_name), None)
+        except ModuleNotFoundError:
+            return None
 
     def _get_timezone(self):
         return self.context.database.get_timezone() if self.context.database else "UTC"
