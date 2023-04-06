@@ -194,31 +194,36 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 stopped_after_pay_person_id = uuid.uuid4()
                 person_factory(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
                 self._signup_event(distinct_id="stopped_after_pay", person_id=stopped_after_pay_person_id)
+            with freeze_time("2012-01-01T03:21:37.000Z"):
                 self._pay_event(distinct_id="stopped_after_pay", person_id=stopped_after_pay_person_id)
 
-            with freeze_time("2012-01-01T03:21:37.000Z"):
+            with freeze_time("2012-01-01T03:21:38.000Z"):
                 had_anonymous_id_person_id = uuid.uuid4()
                 person_factory(distinct_ids=["had_anonymous_id", "completed_movie"], team_id=self.team.pk)
                 self._signup_event(distinct_id="had_anonymous_id", person_id=had_anonymous_id_person_id)
+            with freeze_time("2012-01-01T03:21:39.000Z"):
                 self._pay_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
+            with freeze_time("2012-01-01T03:21:40.000Z"):
                 self._movie_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
 
-            with freeze_time("2012-01-01T03:21:38.000Z"):
+            with freeze_time("2012-01-01T03:21:41.000Z"):
                 just_did_movie_person_id = uuid.uuid4()
                 person_factory(distinct_ids=["just_did_movie"], team_id=self.team.pk)
                 self._movie_event(distinct_id="just_did_movie", person_id=just_did_movie_person_id)
 
-            with freeze_time("2012-01-01T03:21:39.000Z"):
+            with freeze_time("2012-01-01T03:21:42.000Z"):
                 wrong_order_person_id = uuid.uuid4()
                 person_factory(distinct_ids=["wrong_order"], team_id=self.team.pk)
                 self._pay_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
+            with freeze_time("2012-01-01T03:21:43.000Z"):
                 self._signup_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
+            with freeze_time("2012-01-01T03:21:44.000Z"):
                 self._movie_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
 
-            with freeze_time("2012-01-01T03:21:40.000Z"):
+            with freeze_time("2012-01-01T03:21:45.000Z"):
                 create_person_id_override_by_distinct_id("stopped_after_signup", "stopped_after_pay", self.team.pk)
 
-            with freeze_time("2012-01-01T03:21:42.000Z"):
+            with freeze_time("2012-01-01T03:21:46.000Z"):
                 result = funnel.run()
                 self.assertEqual(result[0]["name"], "user signed up")
 
