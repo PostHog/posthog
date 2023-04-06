@@ -214,7 +214,7 @@ class PersonQuery:
             ) {self.COHORT_TABLE_ALIAS}
             ON {self.COHORT_TABLE_ALIAS}.person_id = person.id
             """,
-                {"team_id": self._team_id, "cohort_id": self._cohort.pk},
+                {"team_id": self._team_id, "cohort_id": self._cohort.pk, "version": self._cohort.version},
             )
         else:
             return "", {}
