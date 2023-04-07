@@ -64,8 +64,8 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                     return 10
                 }
 
-                // we can't suggest a percentage for those already sampling at the lowest possible rate
-                if (samplingPercentage === AVAILABLE_SAMPLING_PERCENTAGES[0]) {
+                // we can't suggest a percentage for those already sampling at or below the lowest possible suggestion
+                if (samplingPercentage <= AVAILABLE_SAMPLING_PERCENTAGES[0]) {
                     return null
                 }
 
