@@ -297,7 +297,7 @@ export interface InsightsQueryBase extends Node {
     /** Groups aggregation */
     aggregation_group_type_index?: number
     /** Sampling rate */
-    sampling_factor?: number | null
+    samplingFactor?: number | null
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and

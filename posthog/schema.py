@@ -983,7 +983,7 @@ class RetentionQuery(BaseModel):
         ]
     ] = Field(None, description="Property filters for all series")
     retentionFilter: Optional[RetentionFilter] = Field(None, description="Properties specific to the retention insight")
-    sampling_factor: Optional[float] = Field(None, description="Sampling rate")
+    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
 
 
 class StickinessQuery(BaseModel):
@@ -1018,7 +1018,7 @@ class StickinessQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    sampling_factor: Optional[float] = Field(None, description="Sampling rate")
+    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
         ..., description="Events and actions to include"
     )
@@ -1060,7 +1060,7 @@ class TrendsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    sampling_factor: Optional[float] = Field(None, description="Sampling rate")
+    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
         ..., description="Events and actions to include"
     )
@@ -1510,7 +1510,7 @@ class FunnelsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    sampling_factor: Optional[float] = Field(None, description="Sampling rate")
+    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
         ..., description="Events and actions to include"
     )
@@ -1565,7 +1565,7 @@ class LifecycleQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    sampling_factor: Optional[float] = Field(None, description="Sampling rate")
+    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
     series: List[Union[EventsNode, ActionsNode, NewEntityNode]] = Field(
         ..., description="Events and actions to include"
     )
@@ -1601,7 +1601,7 @@ class PathsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(None, description="Property filters for all series")
-    sampling_factor: Optional[float] = Field(None, description="Sampling rate")
+    samplingFactor: Optional[float] = Field(None, description="Sampling rate")
 
 
 class InsightVizNode(BaseModel):
