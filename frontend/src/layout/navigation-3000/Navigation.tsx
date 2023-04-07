@@ -9,9 +9,11 @@ import './Navigation.scss'
 import { themeLogic } from './themeLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { navigation3000Logic } from './navigationLogic'
 
 export function Navigation({ children }: { children: ReactNode }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
+    const { activeNavbarItem } = useValues(navigation3000Logic)
 
     useEffect(() => {
         // FIXME: Include debug notice in a non-obstructing way
@@ -25,7 +27,7 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="Navigation3000">
             <Navbar />
-            <Sidebar />
+            {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} />}
             <main>
                 <Breadcrumbs />
                 <div className="Navigation3000__scene">
@@ -35,7 +37,6 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
                     </FlaggedFeature>
                 </div>
             </main>
-
             <CommandPalette />
         </div>
     )
