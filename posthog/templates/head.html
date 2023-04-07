@@ -37,3 +37,31 @@
     window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
     window.JS_KEA_VERBOSE_LOGGING = {{js_kea_verbose_logging | yesno:"true,false"}};
 </script>
+{% if zendesk_key %}
+<script id="ze-snippet" src="https://static.zdassets.com/ekr/snippet.js?key={{zendesk_key}}">
+    window.zESettings = {
+        cookies: false
+};
+</script>
+<script type="text/javascript">
+    zE('webWidget:on', 'open', function() {
+        zE('webWidget', 'prefill', {
+        name: {
+            value: 'Tiina testing',
+            readOnly: true // optional
+        },
+        email: {
+            value: 'testing@gmail.com',
+            readOnly: true // optional
+        }
+        });
+        posthog.capture('Zendesk form opened')
+    });
+    zE('webWidget:on', 'userEvent', function(event) {
+        // console.log(JSON.stringify(event))
+        if (event.action == "Contact Form Submitted") {
+            posthog.capture('Zendesk form submitted') // TODO: content sent + how to link these two
+        }
+    });
+</script>
+{% endif %}

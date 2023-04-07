@@ -315,6 +315,9 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
 
+    if os.environ.get("ZENDESK_KEY"):
+        context["zendesk_key"] = os.environ["ZENDESK_KEY"]
+
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
         context["git_rev"] = get_git_commit()
