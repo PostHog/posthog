@@ -5,8 +5,8 @@ import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic, SamplingFilterLogi
 import posthog from 'posthog-js'
 
 interface SamplingFilterProps extends Omit<EditorFilterProps, 'insight' | 'value'> {
-    infoTooltipContent?: string
     setFilters?: SamplingFilterLogicProps['setFilters']
+    infoTooltipContent?: string
     initialSamplingPercentage?: number | null
 }
 
@@ -14,14 +14,12 @@ const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
     'Sampling computes the result on only a subset of the data, making insights load significantly faster.'
 
 export function SamplingFilter({
-    filters,
     insightProps,
-    infoTooltipContent,
     setFilters,
+    infoTooltipContent,
     initialSamplingPercentage,
-}: SamplingFilterProps): JSX.Element {
+}: SamplingFilterProps): JSX.Element | null {
     const logic = samplingFilterLogic({
-        insightType: filters.insight,
         insightProps,
         setFilters,
         initialSamplingPercentage,
@@ -81,5 +79,5 @@ export function SamplingFilter({
             </>
         )
     }
-    return <></>
+    return null
 }

@@ -1,22 +1,18 @@
 import { globalInsightLogic } from 'scenes/insights/globalInsightLogic'
 import { FEATURE_FLAGS } from './../../../lib/constants'
 import { featureFlagLogic } from './../../../lib/logic/featureFlagLogic'
-import { FilterType, InsightType } from './../../../types'
+import { FilterType } from './../../../types'
 import { insightLogic } from './../insightLogic'
 import { kea, path, connect, actions, reducers, props, selectors, listeners } from 'kea'
 
 import type { samplingFilterLogicType } from './samplingFilterLogicType'
 import { InsightLogicProps } from '~/types'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { retentionLogic } from 'scenes/retention/retentionLogic'
-import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { subscriptions } from 'kea-subscriptions'
 
 export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
 
 export interface SamplingFilterLogicProps {
     insightProps: InsightLogicProps
-    insightType?: InsightType
     setFilters?: (filters: Partial<FilterType>) => void
     initialSamplingPercentage?: number | null
 }
@@ -29,12 +25,6 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
         actions: [
             insightLogic(props.insightProps),
             ['setFilters as setInsightFilters'],
-            funnelLogic(props.insightProps),
-            ['setFilters as setFunnelFilters'],
-            retentionLogic(props.insightProps),
-            ['setFilters as setRetentionFilters'],
-            pathsLogic(props.insightProps),
-            ['setFilter as setPathsFilters'],
             globalInsightLogic,
             ['setGlobalInsightFilters'],
         ],
@@ -90,12 +80,6 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
             if (props.setFilters) {
                 // Experiments
                 props.setFilters(newFilters)
-            } else if (props.insightType === InsightType.FUNNELS) {
-                actions.setFunnelFilters(newFilters)
-            } else if (props.insightType === InsightType.RETENTION) {
-                actions.setRetentionFilters(newFilters)
-            } else if (props.insightType === InsightType.PATHS) {
-                actions.setPathsFilters(newFilters)
             } else {
                 actions.setInsightFilters(newFilters)
             }
