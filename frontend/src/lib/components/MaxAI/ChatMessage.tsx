@@ -1,11 +1,12 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { IconWarning } from 'lib/lemon-ui/icons'
 import React from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { ChatHogCircle } from '../hedgehogs'
 import { ChatMessageType } from '~/types'
+import { maxAILogic } from './maxAILogic'
 
 export const ChatAvatar = ({ role }: { role: 'system' | 'assistant' | 'user' }): JSX.Element => {
     const { user } = useValues(userLogic)
@@ -30,10 +31,8 @@ const TypingIndicator = (): JSX.Element => {
     )
 }
 
-export const ChatMessage = ({ role, content, loading }: ChatMessageType): JSX.Element => {
-    // TODO: import onclickrating and ratingvalue above, had to remove to commit
-    // const [rating, setRating] = React.useState<'good' | 'bad' | null>(ratingValue || null)
-    // const thumbClasses = `w-4 h-4 fill-gray-accent-light-hover hover:fill-gray-accent-dark-hover transition-colors`
+export const ChatMessage = ({ role, content, loading, ratingValue, index }: ChatMessageType): JSX.Element => {
+    const { sendBadMessageRating } = useActions(maxAILogic)
     return (
         <div className={`flex gap-x-2 items-end mb-4 ${role === 'user' ? 'justify-end ml-16' : 'mr-16'}`}>
             {role === 'assistant' && <ChatAvatar role={'assistant'} />}
@@ -72,7 +71,15 @@ export const ChatMessage = ({ role, content, loading }: ChatMessageType): JSX.El
                                 >
                                     <ThumbDown className={`${thumbClasses}${rating === 'bad' && ' fill-red'}`} />
                                 </button> */}
-                                <LemonButton icon={<IconWarning />} size="small" status="danger" />
+                                <LemonButton
+                                    icon={
+                                        <IconWarning className={`w-4 h-4 ${ratingValue === 'bad' && 'text-danger'}`} />
+                                    }
+                                    size="small"
+                                    status="danger"
+                                    htmlType="submit"
+                                    onClick={() => index && sendBadMessageRating(index)}
+                                />
                             </div>
                         )}
                     </div>

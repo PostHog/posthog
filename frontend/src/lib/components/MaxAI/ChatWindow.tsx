@@ -56,13 +56,6 @@ export const ChatWindow = ({
                 lastMessage.ratingValue === 'bad')
         ) {
             setIsMaxResponseLoading(true)
-            getResponse()
-        }
-        // save the messages to local storage with a key and expiration date for 1 day
-        if (messages?.length && messages.length > 1) {
-            const expirationDate = new Date()
-            expirationDate.setDate(expirationDate.getDate() + 1) // Expires in 1 day
-            localStorage.setItem('max-ai-messages', JSON.stringify({ messages, expiration: expirationDate.getTime() }))
         }
     }, [messages])
 
@@ -95,7 +88,7 @@ export const ChatWindow = ({
     // }
 
     return (
-        <div className="bg-white rounded-md shadow-lg h-full w-full flex flex-col overflow-hidden">
+        <div className="bg-white rounded-md shadow h-full w-full flex flex-col overflow-hidden">
             <div className="flex rounded-t w-full bg-danger-light justify-between items-center p-4 z-20">
                 <div>
                     <h3 className="font-bold text-base text-white m-0">Max AI</h3>
@@ -107,7 +100,7 @@ export const ChatWindow = ({
                     status="stealth"
                 />
             </div>
-            <div className="h-8 mr-3 bg-gradient-to-b from-white to-transparent z-10" />
+            <div className="MaxAI--TopScrollBuffer h-8 mr-3 bg-gradient-to-b from-white to-transparent z-10" />
             <div className="-mt-8 overflow-y-scroll overflow-x-hidden flex-grow flex flex-col" ref={divRef}>
                 <div className="pt-8 pb-2 px-4 flex-grow flex flex-col justify-end">
                     {messages?.map((message, index) => (
@@ -115,7 +108,8 @@ export const ChatWindow = ({
                             key={`message-${index}`}
                             role={message.role}
                             content={message.content}
-                            // onClickRating={handleOnClickRating}
+                            ratingValue={message.ratingValue}
+                            index={index}
                         />
                     ))}
                     {isMaxResponseLoading && <ChatMessage role="assistant" loading />}
@@ -126,13 +120,17 @@ export const ChatWindow = ({
                     )}
                 </div>
             </div>
-            <div className="h-8 -mt-6 mr-3 bg-gradient-to-t from-white to-transparent" />
-            <div className="bg-white z-20">
-                <Form logic={maxAILogic} formKey="sendChatMessage" enableFormOnSubmit>
-                    <Field name="message">
-                        <LemonInput type="text" placeholder="Type your message here" />
-                    </Field>
-                    <LemonButton htmlType="submit">Submit</LemonButton>
+            <div className="MaxAI--BottomScrollBuffer h-8 -mt-6 mr-3 bg-gradient-to-t from-white to-transparent" />
+            <div className="bg-white z-20 p-4">
+                <Form logic={maxAILogic} formKey="sendChatMessage" enableFormOnSubmit className="flex">
+                    <div className="grow">
+                        <Field name="message">
+                            <LemonInput type="text" placeholder="Type your message here" />
+                        </Field>
+                    </div>
+                    <LemonButton htmlType="submit" className="ml-4" type="primary">
+                        Submit
+                    </LemonButton>
                 </Form>
             </div>
         </div>

@@ -2737,4 +2737,5 @@ export interface ChatMessageType {
     onClickRating?: (rating: 'good' | 'bad') => void
     responseTo?: 'text' | 'rating'
     ratingValue?: 'good' | 'bad'
+    index?: number
 }

@@ -4,6 +4,12 @@
             display: block;
         }
     }
+    .MaxAI--TopScrollBuffer {
+        background: linear-gradient(to bottom, white, transparent);
+    }
+    .MaxAI--BottomScrollBuffer {
+        background: linear-gradient(to bottom, transparent, white);
+    }
 }
 
 .typing-indicator {
