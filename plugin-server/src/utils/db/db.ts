@@ -746,7 +746,6 @@ export class DB {
                 GROUP BY team_id, id
                 HAVING max(is_deleted)=0
             )
-            ORDER BY created_at
             `
             return (await this.clickhouseQuery(query)).data.map((row) => {
                 const { 'person_max._timestamp': _discard1, 'person_max.id': _discard2, ...rest } = row
