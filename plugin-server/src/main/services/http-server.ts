@@ -110,6 +110,15 @@ export function createHttpServer(
     return server
 }
 
+/**
+ * Collects the prometheus metrics to be exposed.
+ * If piscina is disabled, the global registry from the main thread is passed through.
+ * If piscina is enabled, metrics from all the workers are retrieved, then aggregated
+ * with the main thread's metrics before being returned.
+ *
+ * Metrics are summed by default, which is good for counters and histograms.
+ * For gauges, you should set each gauge's aggregator config to one of average, min, max, sum.
+ */
 async function collectMetrics(piscina?: Piscina): Promise<string> {
     if (piscina) {
         // Get metrics from worker threads through piscina
