@@ -5,9 +5,8 @@ import time
 import structlog
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from django.db import DatabaseError, IntegrityError, transaction
+from django.db import DatabaseError, IntegrityError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
-from django.db.backends.utils import CursorWrapper
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from sentry_sdk.api import capture_exception
@@ -487,22 +486,18 @@ def get_all_feature_flags(
     if hash_key_override is not None:
         try:
             hash_key_override = str(hash_key_override)
-            # make the entire hash key override logic a single transaction
-            # with a small timeout
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as timeout_cursor:
-                # :TRICKY: There are a few cases for write we need to handle:
-                # 1. Ingestion delay causing the person to not have been created yet or the distinct_id not yet associated
-                # 2. Merging of two different already existing persons, which results in 1 person_id being deleted and ff hash key overrides to be moved.
-                # 3. Person being deleted via UI or API (this is rare)
-                #
-                # In all cases, we simply try to find all personIDs associated with the distinct_id
-                # and the hash_key_override, and add overrides for all these personIDs.
-                # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
-                # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L696 (addFeatureFlagHashKeysForMergedPerson)
 
-                set_feature_flag_hash_key_overrides(
-                    timeout_cursor, team_id, [distinct_id, hash_key_override], hash_key_override
-                )
+            # :TRICKY: There are a few cases for write we need to handle:
+            # 1. Ingestion delay causing the person to not have been created yet or the distinct_id not yet associated
+            # 2. Merging of two different already existing persons, which results in 1 person_id being deleted and ff hash key overrides to be moved.
+            # 3. Person being deleted via UI or API (this is rare)
+            #
+            # In all cases, we simply try to find all personIDs associated with the distinct_id
+            # and the hash_key_override, and add overrides for all these personIDs.
+            # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
+            # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L696 (addFeatureFlagHashKeysForMergedPerson)
+
+            set_feature_flag_hash_key_overrides(team_id, [distinct_id, hash_key_override], hash_key_override)
 
         except Exception as e:
             # If the database is in read-only mode, we can't handle experience continuity flags,
@@ -545,9 +540,7 @@ def get_all_feature_flags(
     )
 
 
-def set_feature_flag_hash_key_overrides(
-    cursor: CursorWrapper, team_id: int, distinct_ids: List[str], hash_key_override: str
-) -> None:
+def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], hash_key_override: str) -> None:
     # As a product decision, the first override wins, i.e consistency matters for the first walkthrough.
     # Thus, we don't need to do upserts here.
 
@@ -558,7 +551,9 @@ def set_feature_flag_hash_key_overrides(
 
     for _ in range(max_retries):
         try:
-            with transaction.atomic():
+            # make the entire hash key override logic a single transaction
+            # with a small timeout
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as cursor:
                 query = """
                     WITH target_person_ids AS (
                         SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
