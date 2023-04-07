@@ -24,7 +24,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
         values: [insightLogic(props.insightProps), ['filters'], featureFlagLogic, ['featureFlags']],
         actions: [
             insightLogic(props.insightProps),
-            ['setFilters as setInsightFilters'],
+            ['setFiltersMerge as updateInsightFilters'],
             globalInsightLogic,
             ['setGlobalInsightFilters'],
         ],
@@ -71,17 +71,15 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     })),
     listeners(({ props, actions, values }) => ({
         setSamplingPercentage: () => {
-            const samplingFactor = values.samplingPercentage ? values.samplingPercentage / 100 : null
-            const newFilters = {
-                ...values.filters,
-                sampling_factor: samplingFactor,
+            const mergeFilters = {
+                sampling_factor: values.samplingPercentage ? values.samplingPercentage / 100 : null,
             }
 
             if (props.setFilters) {
                 // Experiments
-                props.setFilters(newFilters)
+                props.setFilters(mergeFilters)
             } else {
-                actions.setInsightFilters(newFilters)
+                actions.updateInsightFilters(mergeFilters)
             }
         },
     })),
