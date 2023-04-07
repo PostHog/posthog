@@ -70,10 +70,6 @@
     flex: 0 0 var(--sidebar-width);
     box-sizing: content-box;
 
-    [theme='dark'] & {
-        background: var(--accent-3000);
-    }
-
     &.Sidebar3000--resizing {
         transition: none; // Increase responsiveness when resizing
         will-change: flex-basis;
@@ -108,21 +104,21 @@
 
 .Sidebar3000__content {
     transition: 100ms ease width;
-    position: fixed;
+    position: sticky;
     top: 0;
-    left: calc(3rem + 1px);
     display: flex;
     flex-direction: column;
     align-items: stretch;
     height: 100vh;
     width: var(--sidebar-width);
-    // This is so that the border goes beyond the viewport during overscroll
-    // Hidden when the sidebar is closed
-    border-right: min(1px, var(--sidebar-width)) solid transparent;
     font-size: 0.6875rem;
     box-sizing: content-box;
     white-space: nowrap;
     overflow: hidden;
+    background: var(--bg-3000);
+    [theme='dark'] & {
+        background: var(--accent-3000);
+    }
 
     .Sidebar3000--resizing & {
         transition: none; // Increase responsiveness when resizing
