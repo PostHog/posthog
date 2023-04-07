@@ -1,17 +1,20 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { ChatMessage } from './ChatMessage'
 import './MaxAI.scss'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { IconClose } from 'lib/lemon-ui/icons'
+import { maxAILogic } from './maxAILogic'
+import { Field, Form } from 'kea-forms'
+import { useActions, useValues } from 'kea'
 
 export const ChatWindow = ({
     setIsChatActive,
 }: {
     setIsChatActive: (isChatActive: boolean) => void | undefined
 }): JSX.Element => {
-    const [messages, setMessages] = React.useState<ChatMessage[]>()
     const divRef = useRef<HTMLDivElement>(null)
-    const [maxResponseLoading, setMaxResponseLoading] = React.useState<boolean>(false)
+    const { isMaxResponseLoading, messages, errorSubmittingMessage } = useValues(maxAILogic)
+    const { setIsMaxResponseLoading } = useActions(maxAILogic)
 
     useEffect(() => {
         // Scroll to the bottom of the div on mount and whenever its content changes
@@ -20,69 +23,29 @@ export const ChatWindow = ({
         }
     }, [divRef.current?.innerHTML])
 
-    const defaultMessage: ChatMessage[] = [
-        {
-            role: 'assistant',
-            content: "Hi there! I'm Max, your friendly AI support assistant. How can I help you today?",
-        },
-    ]
-
     const getMessagesFromStorage = (): void => {
-        const messagesInStorage = localStorage.getItem('max-ai-messages')
-        if (messagesInStorage) {
-            const messagesInStorageJSON = JSON.parse(messagesInStorage)
-            if (
-                messagesInStorageJSON &&
-                messagesInStorageJSON.messages.length > 1 &&
-                messagesInStorageJSON.expiration > Date.now()
-            ) {
-                setMessages(messagesInStorageJSON.messages)
-            } else {
-                setMessages(defaultMessage)
-            }
-        } else {
-            setMessages(defaultMessage)
-        }
+        // const messagesInStorage = localStorage.getItem('max-ai-messages')
+        // if (messagesInStorage) {
+        //     const messagesInStorageJSON = JSON.parse(messagesInStorage)
+        //     if (
+        //         messagesInStorageJSON &&
+        //         messagesInStorageJSON.messages.length > 1 &&
+        //         messagesInStorageJSON.expiration > Date.now()
+        //     ) {
+        //         setMessages(messagesInStorageJSON.messages)
+        //     } else {
+        //         setMessages(defaultMessage)
+        //     }
+        // } else {
+        //     setMessages(defaultMessage)
+        // }
     }
 
     const handleCloseClick = (): void => {
         setIsChatActive(false)
     }
 
-    const handleSubmit = (inputContent: string): void => {
-        messages &&
-            setMessages([
-                ...messages,
-                {
-                    role: 'user',
-                    content: inputContent,
-                },
-            ])
-    }
-
     useEffect(() => {
-        const getResponse = async (): Promise<void> => {
-            await fetch('https://max.posthog.cc/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(messages),
-            })
-                .then((res) => res.json())
-                .then((res) => {
-                    setMaxResponseLoading(false)
-                    // add the response to the messages
-                    messages &&
-                        setMessages([
-                            ...messages,
-                            {
-                                role: 'assistant',
-                                content: res,
-                            },
-                        ])
-                })
-        }
         const lastMessage = messages?.[messages.length - 1]
         if (
             // the last message was from the user
@@ -92,7 +55,7 @@ export const ChatWindow = ({
                 lastMessage?.responseTo === 'rating' &&
                 lastMessage.ratingValue === 'bad')
         ) {
-            setMaxResponseLoading(true)
+            setIsMaxResponseLoading(true)
             getResponse()
         }
         // save the messages to local storage with a key and expiration date for 1 day
@@ -107,29 +70,29 @@ export const ChatWindow = ({
         getMessagesFromStorage()
     }, [])
 
-    const handleOnClickRating = (rating: 'good' | 'bad'): void => {
-        messages && rating === 'bad'
-            ? setMessages([
-                  ...messages,
-                  {
-                      role: 'assistant',
-                      content: `Whoops, sorry my response wasn't what you were looking for. I will pass this feedback on to the team and will attempt to re-generate a better response for you.\n\nYou can also send an email to hey@posthog.com to get in touch with a human.`,
-                      responseTo: 'rating',
-                      ratingValue: 'bad',
-                  },
-              ])
-            : messages &&
-              rating === 'good' &&
-              setMessages([
-                  ...messages,
-                  {
-                      role: 'assistant',
-                      content: `Happy to help! If you have any other questions just let me know.`,
-                      responseTo: 'rating',
-                      ratingValue: 'good',
-                  },
-              ])
-    }
+    // const handleOnClickRating = (rating: 'good' | 'bad'): void => {
+    // messages && rating === 'bad'
+    //     ? setMessages([
+    //           ...messages,
+    //           {
+    //               role: 'assistant',
+    //               content: `Whoops, sorry my response wasn't what you were looking for. I will pass this feedback on to the team and will attempt to re-generate a better response for you.\n\nYou can also send an email to hey@posthog.com to get in touch with a human.`,
+    //               responseTo: 'rating',
+    //               ratingValue: 'bad',
+    //           },
+    //       ])
+    //     : messages &&
+    //       rating === 'good' &&
+    //       setMessages([
+    //           ...messages,
+    //           {
+    //               role: 'assistant',
+    //               content: `Happy to help! If you have any other questions just let me know.`,
+    //               responseTo: 'rating',
+    //               ratingValue: 'good',
+    //           },
+    //       ])
+    // }
 
     return (
         <div className="bg-white rounded-md shadow-lg h-full w-full flex flex-col overflow-hidden">
@@ -152,15 +115,25 @@ export const ChatWindow = ({
                             key={`message-${index}`}
                             role={message.role}
                             content={message.content}
-                            onClickRating={handleOnClickRating}
+                            // onClickRating={handleOnClickRating}
                         />
                     ))}
-                    {maxResponseLoading && <ChatMessage role="assistant" loading />}
+                    {isMaxResponseLoading && <ChatMessage role="assistant" loading />}
+                    {errorSubmittingMessage && (
+                        <p className="text-center text-xs text-danger-light italic">
+                            We seem to be having difficult communicating with Max. Please wait a moment and try again.
+                        </p>
+                    )}
                 </div>
             </div>
             <div className="h-8 -mt-6 mr-3 bg-gradient-to-t from-white to-transparent" />
             <div className="bg-white z-20">
-                <LemonInput onPressEnter={handleSubmit} />
+                <Form logic={maxAILogic} formKey="sendChatMessage" enableFormOnSubmit>
+                    <Field name="message">
+                        <LemonInput type="text" placeholder="Type your message here" />
+                    </Field>
+                    <LemonButton htmlType="submit">Submit</LemonButton>
+                </Form>
             </div>
         </div>
     )

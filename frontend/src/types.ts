@@ -2728,3 +2728,13 @@ export type PromptFlag = {
     locationCSS?: Partial<CSSStyleDeclaration>
     tooltipCSS?: Partial<CSSStyleDeclaration>
 }
+
+// MaxAI types
+export interface ChatMessageType {
+    role: 'system' | 'assistant' | 'user'
+    content?: string
+    loading?: boolean
+    onClickRating?: (rating: 'good' | 'bad') => void
+    responseTo?: 'text' | 'rating'
+    ratingValue?: 'good' | 'bad'
+}

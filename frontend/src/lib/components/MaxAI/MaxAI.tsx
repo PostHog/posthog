@@ -1,15 +1,15 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { useState } from 'react'
 import { ChatHog } from '../hedgehogs'
 import './maxAI.scss'
 import { ChatWindow } from './ChatWindow'
+import { useActions, useValues } from 'kea'
+import { maxAILogic } from './maxAILogic'
 
 export default function MaxAI(): JSX.Element {
-    const [isChatActive, setIsChatActive] = useState<boolean>(true)
+    const { isChatActive } = useValues(maxAILogic)
+    const { setIsChatActive } = useActions(maxAILogic)
     const handleClick = (): void => {
-        if (typeof window !== 'undefined') {
-            setIsChatActive(true)
-        }
+        setIsChatActive(true)
     }
     return (
         <>
