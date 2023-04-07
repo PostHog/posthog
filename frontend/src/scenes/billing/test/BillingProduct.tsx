@@ -159,7 +159,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const addonPriceColumns = product.addons
         // only get addons that are subscribed or were subscribed and have a projected amount
-        .filter((addon) => addon.subscribed || parseFloat(addon.projected_amount_usd || ''))
+        ?.filter((addon) => addon.subscribed || parseFloat(addon.projected_amount_usd || ''))
         .map((addon) => ({
             title: `${addon.name} price`,
             dataIndex: `${addon.type}-price`,
@@ -167,8 +167,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const tableColumns = [
         { title: `Priced per ${product.unit}`, dataIndex: 'volume' },
-        { title: addonPriceColumns.length > 0 ? 'Base price' : 'Price', dataIndex: 'basePrice' },
-        ...addonPriceColumns,
+        { title: addonPriceColumns?.length > 0 ? 'Base price' : 'Price', dataIndex: 'basePrice' },
+        ...(addonPriceColumns || []),
         { title: 'Current Usage', dataIndex: 'usage' },
         { title: 'Total', dataIndex: 'total' },
         { title: 'Projected Total', dataIndex: 'projectedTotal' },
@@ -187,16 +187,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
           }[]
         | undefined = product.tiers
         ?.map((tier, i) => {
-            const addonPricesForTier = product.addons.map((addon) => ({
+            const addonPricesForTier = product.addons?.map((addon) => ({
                 [`${addon.type}-price`]: `$${addon.tiers?.[i].unit_amount_usd}`,
             }))
             // take the tier.current_amount_usd and add it to the same tier level for all the addons
             const totalForTier =
                 parseFloat(tier.current_amount_usd || '') +
-                product.addons.reduce((acc, addon) => acc + parseFloat(addon.tiers?.[i].current_amount_usd || ''), 0)
+                product.addons?.reduce((acc, addon) => acc + parseFloat(addon.tiers?.[i].current_amount_usd || ''), 0)
             const projectedTotalForTier =
                 (tier.projected_amount_usd || 0) +
-                product.addons.reduce((acc, addon) => acc + (addon.tiers?.[i].projected_amount_usd || 0), 0)
+                product.addons?.reduce((acc, addon) => acc + (addon.tiers?.[i].projected_amount_usd || 0), 0)
 
             const tierData = {
                 volume: getTierDescription(tier, i, product, billing?.billing_period?.interval || ''),
@@ -206,7 +206,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 projectedTotal: `$${projectedTotalForTier || '0.00'}`,
             }
             // if there are any addon prices we need to include, put them in the table
-            addonPricesForTier.map((addonPrice) => {
+            addonPricesForTier?.map((addonPrice) => {
                 Object.assign(tierData, addonPrice)
             })
             return tierData
