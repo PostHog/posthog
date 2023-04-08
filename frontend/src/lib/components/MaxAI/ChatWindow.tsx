@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { ChatMessage } from './ChatMessage'
 import './MaxAI.scss'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { maxAILogic } from './maxAILogic'
 import { Field, Form } from 'kea-forms'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 export const ChatWindow = ({
     setIsChatActive,
@@ -14,7 +14,6 @@ export const ChatWindow = ({
 }): JSX.Element => {
     const divRef = useRef<HTMLDivElement>(null)
     const { isMaxResponseLoading, messages, errorSubmittingMessage } = useValues(maxAILogic)
-    const { setIsMaxResponseLoading } = useActions(maxAILogic)
 
     useEffect(() => {
         // Scroll to the bottom of the div on mount and whenever its content changes
@@ -23,45 +22,9 @@ export const ChatWindow = ({
         }
     }, [divRef.current?.innerHTML])
 
-    const getMessagesFromStorage = (): void => {
-        // const messagesInStorage = localStorage.getItem('max-ai-messages')
-        // if (messagesInStorage) {
-        //     const messagesInStorageJSON = JSON.parse(messagesInStorage)
-        //     if (
-        //         messagesInStorageJSON &&
-        //         messagesInStorageJSON.messages.length > 1 &&
-        //         messagesInStorageJSON.expiration > Date.now()
-        //     ) {
-        //         setMessages(messagesInStorageJSON.messages)
-        //     } else {
-        //         setMessages(defaultMessage)
-        //     }
-        // } else {
-        //     setMessages(defaultMessage)
-        // }
-    }
-
     const handleCloseClick = (): void => {
         setIsChatActive(false)
     }
-
-    useEffect(() => {
-        const lastMessage = messages?.[messages.length - 1]
-        if (
-            // the last message was from the user
-            lastMessage?.role === 'user' ||
-            // or the last message was from the assistant and was a bad rating
-            (lastMessage?.role === 'assistant' &&
-                lastMessage?.responseTo === 'rating' &&
-                lastMessage.ratingValue === 'bad')
-        ) {
-            setIsMaxResponseLoading(true)
-        }
-    }, [messages])
-
-    useEffect(() => {
-        getMessagesFromStorage()
-    }, [])
 
     // const handleOnClickRating = (rating: 'good' | 'bad'): void => {
     // messages && rating === 'bad'
@@ -91,7 +54,12 @@ export const ChatWindow = ({
         <div className="bg-white rounded-md shadow h-full w-full flex flex-col overflow-hidden">
             <div className="flex rounded-t w-full bg-danger-light justify-between items-center p-4 z-20">
                 <div>
-                    <h3 className="font-bold text-base text-white m-0">Max AI</h3>
+                    <div className="flex gap-x-2 items-center">
+                        <h3 className="font-bold text-base text-white m-0">Max AI</h3>
+                        <div>
+                            <LemonTag type="caution">Beta</LemonTag>
+                        </div>
+                    </div>
                     <p className="ml-0 text-xs opacity-80 text-white mb-0">PostHog's AI support assistant</p>
                 </div>
                 <LemonButton
@@ -100,9 +68,13 @@ export const ChatWindow = ({
                     status="stealth"
                 />
             </div>
-            <div className="MaxAI--TopScrollBuffer h-8 mr-3 bg-gradient-to-b from-white to-transparent z-10" />
-            <div className="-mt-8 overflow-y-scroll overflow-x-hidden flex-grow flex flex-col" ref={divRef}>
-                <div className="pt-8 pb-2 px-4 flex-grow flex flex-col justify-end">
+            <div className="MaxAI--TopScrollBuffer h-8 mr-3 z-10" />
+            <div className="-mt-8 overflow-y-scroll overflow-x-hidden grow flex flex-col" ref={divRef}>
+                <div className="pt-8 pb-2 px-4 flex flex-col justify-end grow">
+                    <p className="mx-6 mb-6 italic text-muted leading-none text-center text-xs">
+                        Max AI is in a beta stage and may say some unexpected things. This chat will be recorded so we
+                        can review responses and adjust the algorithm accordingly.
+                    </p>
                     {messages?.map((message, index) => (
                         <ChatMessage
                             key={`message-${index}`}
