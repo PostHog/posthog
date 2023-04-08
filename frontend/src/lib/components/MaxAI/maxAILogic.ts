@@ -18,6 +18,8 @@ export const maxAILogic = kea<maxAILogicType>({
         saveMessagesToLocalStorage: () => true,
         getResponseFromMax: () => true,
         sendBadMessageRating: (messageIndex: number) => ({ messageIndex }),
+        closeChat: () => true,
+        openChat: () => true,
     }),
     reducers: () => ({
         isChatActive: [
@@ -57,7 +59,6 @@ export const maxAILogic = kea<maxAILogicType>({
                 }
             },
             submit: async ({ message }: { message: string }) => {
-                console.log('submitting', message)
                 actions.addMessage({
                     role: 'user',
                     content: message,
@@ -78,6 +79,14 @@ export const maxAILogic = kea<maxAILogicType>({
                 'max-ai-messages',
                 JSON.stringify({ messages: values.messages, expiration: expirationDate.getTime() })
             )
+        },
+        closeChat: () => {
+            actions.setIsChatActive(false)
+            localStorage.setItem('max-ai-chat-closed', JSON.stringify(1))
+        },
+        openChat: () => {
+            actions.setIsChatActive(true)
+            localStorage.removeItem('max-ai-chat-closed')
         },
         getResponseFromMax: async () => {
             await fetch('https://maxfly.posthog.cc/chat', {
@@ -104,7 +113,6 @@ export const maxAILogic = kea<maxAILogicType>({
                 })
         },
         sendBadMessageRating: async ({ messageIndex }) => {
-            console.log('submitting bad rating', messageIndex)
             const newMessages = values.messages
             newMessages[messageIndex].ratingValue = 'bad'
             actions.setMessages(newMessages)
@@ -119,11 +127,9 @@ export const maxAILogic = kea<maxAILogicType>({
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            // TODO: store a cookie if the chat is currently active vs has history and has been closed, so it shouldn't open automatically
-            // For now during dev just keep it open
-            actions.setIsChatActive(true)
             // get messages from storage, if there are any
             const messagesInStorage = localStorage.getItem('max-ai-messages')
+            const chatClosedInStorage = localStorage.getItem('max-ai-chat-closed')
             if (messagesInStorage) {
                 const messagesInStorageJSON = JSON.parse(messagesInStorage)
                 if (
@@ -132,6 +138,9 @@ export const maxAILogic = kea<maxAILogicType>({
                     messagesInStorageJSON.expiration > Date.now()
                 ) {
                     actions.setMessages(messagesInStorageJSON.messages)
+                    if (!chatClosedInStorage) {
+                        actions.setIsChatActive(true)
+                    }
                 }
             }
         },

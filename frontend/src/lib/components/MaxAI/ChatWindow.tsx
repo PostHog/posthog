@@ -5,15 +5,12 @@ import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { maxAILogic } from './maxAILogic'
 import { Field, Form } from 'kea-forms'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-export const ChatWindow = ({
-    setIsChatActive,
-}: {
-    setIsChatActive: (isChatActive: boolean) => void | undefined
-}): JSX.Element => {
+export const ChatWindow = (): JSX.Element => {
     const divRef = useRef<HTMLDivElement>(null)
     const { isMaxResponseLoading, messages, errorSubmittingMessage } = useValues(maxAILogic)
+    const { closeChat } = useActions(maxAILogic)
 
     useEffect(() => {
         // Scroll to the bottom of the div on mount and whenever its content changes
@@ -21,10 +18,6 @@ export const ChatWindow = ({
             divRef.current.scrollTop = divRef?.current?.scrollHeight
         }
     }, [divRef.current?.innerHTML])
-
-    const handleCloseClick = (): void => {
-        setIsChatActive(false)
-    }
 
     // const handleOnClickRating = (rating: 'good' | 'bad'): void => {
     // messages && rating === 'bad'
@@ -64,7 +57,7 @@ export const ChatWindow = ({
                 </div>
                 <LemonButton
                     icon={<IconClose className="text-white opacity-80" />}
-                    onClick={handleCloseClick}
+                    onClick={() => closeChat()}
                     status="stealth"
                 />
             </div>

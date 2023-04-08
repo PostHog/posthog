@@ -23,6 +23,7 @@ import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppProm
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { maxAILogic } from '../MaxAI/maxAILogic'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -88,6 +89,7 @@ export function HelpButton({
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { toggleActivationSideBar } = useActions(navigationLogic)
+    const { openChat } = useActions(maxAILogic)
 
     return (
         <>
@@ -115,6 +117,7 @@ export function HelpButton({
                             fullWidth
                             onClick={() => {
                                 reportHelpButtonUsed(HelpType.Chat)
+                                openChat()
                                 hideHelp()
                             }}
                         >
