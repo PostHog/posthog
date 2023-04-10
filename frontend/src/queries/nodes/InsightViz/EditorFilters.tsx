@@ -228,7 +228,6 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 {
                     key: 'sampling',
-                    label: '',
                     position: 'right',
                     component: SamplingFilterDataExploration,
                 },

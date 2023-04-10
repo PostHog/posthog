@@ -76,10 +76,9 @@ export function InsightContainer({
         trendsFilter,
         funnelsFilter,
         supportsDisplay,
+        isUsingSessionAnalysis,
         insightFilter,
         samplingFactor,
-
-        isUsingSessionAnalysis,
         insightDataLoading,
         erroredQueryId,
         timedOutQueryId,
