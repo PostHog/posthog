@@ -18,6 +18,7 @@ export interface SamplingFilterLogicProps {
     insightProps: InsightLogicProps
     insightType?: InsightType
     setFilters?: (filters: Partial<FilterType>) => void
+    initialSamplingPercentage?: number | null
 }
 
 export const samplingFilterLogic = kea<samplingFilterLogicType>([
@@ -41,9 +42,9 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     actions(() => ({
         setSamplingPercentage: (samplingPercentage: number | null) => ({ samplingPercentage }),
     })),
-    reducers(() => ({
+    reducers(({ props }) => ({
         samplingPercentage: [
-            null as number | null,
+            props.initialSamplingPercentage || (null as number | null),
             {
                 // clicking on the active button untoggles it and disables sampling
                 setSamplingPercentage: (oldSamplingPercentage, { samplingPercentage }) =>
@@ -85,6 +86,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 ...values.filters,
                 sampling_factor: samplingFactor,
             }
+
             if (props.setFilters) {
                 // Experiments
                 props.setFilters(newFilters)

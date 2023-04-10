@@ -30,9 +30,13 @@ describe('insightNavLogic', () => {
 
             theFeatureFlagLogic = featureFlagLogic()
             theFeatureFlagLogic.mount()
-            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS], {
-                [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]: false,
-            })
+            theFeatureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS, FEATURE_FLAGS.HOGQL],
+                {
+                    [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]: false,
+                    [FEATURE_FLAGS.HOGQL]: false,
+                }
+            )
 
             const insightLogicProps: InsightLogicProps = {
                 dashboardItemId: 'new',
@@ -121,11 +125,11 @@ describe('insightNavLogic', () => {
             await expectLogic(theInsightLogic).toMatchValues({ erroredQueryId: null })
         })
 
-        it('can ignore set active view to QUERY when data exploration off', async () => {
+        it('can set active view to JSON even when data exploration off', async () => {
             await expectLogic(theInsightNavLogic, () => {
-                theInsightNavLogic.actions.setActiveView(InsightType.QUERY)
+                theInsightNavLogic.actions.setActiveView(InsightType.JSON)
             }).toMatchValues({
-                activeView: InsightType.TRENDS,
+                activeView: InsightType.JSON,
             })
         })
 
@@ -135,9 +139,9 @@ describe('insightNavLogic', () => {
             })
 
             await expectLogic(theInsightNavLogic, () => {
-                theInsightNavLogic.actions.setActiveView(InsightType.QUERY)
+                theInsightNavLogic.actions.setActiveView(InsightType.JSON)
             }).toMatchValues({
-                activeView: InsightType.QUERY,
+                activeView: InsightType.JSON,
             })
         })
 
@@ -192,15 +196,6 @@ describe('insightNavLogic', () => {
                 })
             })
 
-            it('does not set view from loadInsightSuccess if there is already a filter in state', async () => {
-                await expectLogic(theInsightNavLogic, () => {
-                    theInsightLogic.actions.setFilters({ insight: InsightType.FUNNELS })
-                    theInsightLogic.actions.loadInsightSuccess({ filters: { insight: InsightType.PATHS } })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
-                })
-            })
-
             it('sets view from loadResultsSuccess', async () => {
                 await expectLogic(theInsightNavLogic, () => {
                     theInsightLogic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
@@ -209,14 +204,14 @@ describe('insightNavLogic', () => {
                 })
             })
 
-            it('ignores sets QUERY view from loadResultsSuccess when data exploration is off', async () => {
+            it('does not ignore set of JSON view from loadResultsSuccess when data exploration is off', async () => {
                 await expectLogic(theInsightNavLogic, () => {
                     theInsightLogic.actions.loadResultsSuccess({
                         filters: {},
                         query: { kind: NodeKind.DataTableNode } as DataTableNode,
                     })
                 }).toMatchValues({
-                    activeView: InsightType.TRENDS,
+                    activeView: InsightType.JSON,
                 })
             })
 
@@ -231,16 +226,7 @@ describe('insightNavLogic', () => {
                         query: { kind: NodeKind.DataTableNode } as DataTableNode,
                     })
                 }).toMatchValues({
-                    activeView: InsightType.QUERY,
-                })
-            })
-
-            it('does not set view from loadResultsSuccess if there is already a filter in state', async () => {
-                await expectLogic(theInsightNavLogic, () => {
-                    theInsightLogic.actions.setFilters({ insight: InsightType.FUNNELS })
-                    theInsightLogic.actions.loadResultsSuccess({ filters: { insight: InsightType.PATHS } })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
+                    activeView: InsightType.JSON,
                 })
             })
         })

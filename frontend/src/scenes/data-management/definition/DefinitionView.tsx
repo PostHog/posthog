@@ -35,6 +35,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -57,10 +58,10 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
         isProperty,
         backDetailUrl,
     } = useValues(logic)
-    const { setPageMode } = useActions(logic)
+    const { setPageMode, deleteDefinition } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (definitionLoading) {
         return <SpinnerOverlay />
@@ -126,6 +127,43 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         }
                         buttons={
                             <>
+                                {
+                                    <LemonButton
+                                        data-attr="delete-definition"
+                                        type="secondary"
+                                        status="danger"
+                                        onClick={() =>
+                                            LemonDialog.open({
+                                                title: `Delete this ${singular} definition?`,
+                                                description: (
+                                                    <>
+                                                        <p>
+                                                            <strong>{getPropertyLabel(definition.name)}</strong> will
+                                                            no longer appear in selectors. Associated data will remain
+                                                            in the database.
+                                                        </p>
+                                                        <p>
+                                                            This definition will be recreated if the {singular} is ever
+                                                            seen again in the event stream.
+                                                        </p>
+                                                    </>
+                                                ),
+                                                primaryButton: {
+                                                    status: 'danger',
+                                                    children: 'Delete definition',
+                                                    onClick: () => deleteDefinition(),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                                width: 448,
+                                            })
+                                        }
+                                        tooltip="Delete this definition. Associated data will remain."
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                }
                                 {isEvent && (
                                     <LemonButton
                                         type="secondary"

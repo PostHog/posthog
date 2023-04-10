@@ -8,6 +8,7 @@ export enum Scene {
     ErrorProjectUnavailable = 'ProjectUnavailable',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
+    Database = 'Database',
     Insight = 'Insight',
     Cohorts = 'Cohorts',
     Cohort = 'Cohort',
@@ -63,6 +64,7 @@ export enum Scene {
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
+    Issues = 'Issues',
 }
 
 export type SceneProps = Record<string, any>

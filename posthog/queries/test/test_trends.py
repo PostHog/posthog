@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
-from unittest.mock import patch
+from unittest.mock import patch, ANY
 from urllib.parse import parse_qsl, urlparse
 
 import pytz
@@ -5115,25 +5115,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
 
-            self.assertEqual(
-                dict(parse_qsl(urlparse(response[0]["persons_urls"][7]["url"]).query)),
-                {
-                    "breakdown_attribution_type": "first_touch",
-                    "breakdown_normalize_url": "False",
-                    "date_from": f"2020-01-05T07:00:00{utc_offset_sign}{abs(utc_offset_hours):02.0f}:00",
-                    "date_to": f"2020-01-05T08:00:00{utc_offset_sign}{abs(utc_offset_hours):02.0f}:00",
-                    "display": "ActionsLineGraph",
-                    "entity_id": "sign up",
-                    "entity_math": "dau",
-                    "entity_type": "events",
-                    "events": '[{"id": "sign up", "type": "events", "order": null, "name": "sign '
-                    'up", "custom_name": null, "math": "dau", "math_property": null, '
-                    '"math_group_type_index": null, "properties": {}}]',
-                    "insight": "TRENDS",
-                    "interval": "hour",
-                    "smoothing_intervals": "1",
-                },
-            )
+            assert dict(parse_qsl(urlparse(response[0]["persons_urls"][7]["url"]).query)) == {
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": "False",
+                "date_from": f"2020-01-05T07:00:00{utc_offset_sign}{abs(utc_offset_hours):02.0f}:00",
+                "date_to": f"2020-01-05T08:00:00{utc_offset_sign}{abs(utc_offset_hours):02.0f}:00",
+                "display": "ActionsLineGraph",
+                "entity_id": "sign up",
+                "entity_math": "dau",
+                "entity_type": "events",
+                "events": '[{"id": "sign up", "type": "events", "order": null, "name": "sign '
+                'up", "custom_name": null, "math": "dau", "math_property": null, '
+                '"math_group_type_index": null, "properties": {}}]',
+                "insight": "TRENDS",
+                "interval": "hour",
+                "smoothing_intervals": "1",
+                "cache_invalidation_key": ANY,
+            }
             persons = self.client.get("/" + response[0]["persons_urls"][7]["url"]).json()
             self.assertEqual(persons["results"][0]["count"], 1)
 

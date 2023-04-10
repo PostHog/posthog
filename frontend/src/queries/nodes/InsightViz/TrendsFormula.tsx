@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LemonInput } from '@posthog/lemon-ui'
 import { isTrendsQuery } from '~/queries/utils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 // When updating this regex, remember to update the regex with the same name in mixins/common.py
 const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z\ \-\*\^0-9\+\/\(\)\.]+$/
@@ -13,7 +13,7 @@ export function TrendsFormula({ query, insightProps }: QueryEditorFilterProps): 
     const { isFormulaOn } = useValues(trendsLogic(insightProps))
     const formula = isTrendsQuery(query) ? query.trendsFilter?.formula : null
 
-    const { updateInsightFilter } = useActions(insightDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const [value, setValue] = useState(formula)
 

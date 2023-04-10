@@ -2,14 +2,14 @@ from typing import List, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserRef
-from posthog.hogql.database import database
+from posthog.hogql.database import Database
 from posthog.hogql.visitor import TraversingVisitor
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
 
-def resolve_refs(node: ast.Expr, scope: Optional[ast.SelectQueryRef] = None):
-    Resolver(scope=scope).visit(node)
+def resolve_refs(node: ast.Expr, database: Database, scope: Optional[ast.SelectQueryRef] = None):
+    Resolver(scope=scope, database=database).visit(node)
 
 
 class ResolverException(ValueError):
@@ -19,9 +19,10 @@ class ResolverException(ValueError):
 class Resolver(TraversingVisitor):
     """The Resolver visits an AST and assigns Refs to the nodes."""
 
-    def __init__(self, scope: Optional[ast.SelectQueryRef] = None):
+    def __init__(self, database: Database, scope: Optional[ast.SelectQueryRef] = None):
         # Each SELECT query creates a new scope. Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryRef] = [scope] if scope else []
+        self.database = database
 
     def visit_select_union_query(self, node):
         for expr in node.select_queries:
@@ -89,8 +90,13 @@ class Resolver(TraversingVisitor):
             if table_alias in scope.tables:
                 raise ResolverException(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            if database.has_table(table_name):
-                node.table.ref = ast.TableRef(table=database.get_table(table_name))
+            if self.database.has_table(table_name):
+                database_table = self.database.get_table(table_name)
+                if isinstance(database_table, ast.LazyTable):
+                    node.table.ref = ast.LazyTableRef(table=database_table)
+                else:
+                    node.table.ref = ast.TableRef(table=database_table)
+
                 if table_alias == table_name:
                     node.ref = node.table.ref
                 else:
@@ -147,6 +153,24 @@ class Resolver(TraversingVisitor):
             if arg.ref is not None:
                 arg_refs.append(arg.ref)
         node.ref = ast.CallRef(name=node.name, args=arg_refs)
+
+    def visit_lambda(self, node: ast.Lambda):
+        """Visit each SELECT query or subquery."""
+        if node.ref is not None:
+            return
+
+        # Each Lambda is a new scope in field name resolution.
+        # This ref keeps track of all lambda arguments that are in scope.
+        node.ref = ast.SelectQueryRef()
+        self.scopes.append(node.ref)
+
+        for arg in node.args:
+            node.ref.aliases[arg] = ast.FieldAliasRef(name=arg, ref=ast.LambdaArgumentRef(name=arg))
+
+        self.visit(node.expr)
+        self.scopes.pop()
+
+        return node.ref
 
     def visit_field(self, node):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""

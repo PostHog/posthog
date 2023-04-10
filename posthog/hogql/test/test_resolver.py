@@ -1,16 +1,19 @@
 from posthog.hogql import ast
-from posthog.hogql.database import database
+from posthog.hogql.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import ResolverException, resolve_refs
 from posthog.test.base import BaseTest
 
 
 class TestResolver(BaseTest):
+    def setUp(self):
+        self.database = create_hogql_database(self.team.pk)
+
     def test_resolve_events_table(self):
         expr = parse_select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
-        resolve_refs(expr)
+        resolve_refs(expr, self.database)
 
-        events_table_ref = ast.TableRef(table=database.events)
+        events_table_ref = ast.TableRef(table=self.database.events)
         event_field_ref = ast.FieldRef(name="event", table=events_table_ref)
         timestamp_field_ref = ast.FieldRef(name="timestamp", table=events_table_ref)
         select_query_ref = ast.SelectQueryRef(
@@ -44,9 +47,9 @@ class TestResolver(BaseTest):
 
     def test_resolve_events_table_alias(self):
         expr = parse_select("SELECT event, e.timestamp FROM events e WHERE e.event = 'test'")
-        resolve_refs(expr)
+        resolve_refs(expr, database=self.database)
 
-        events_table_ref = ast.TableRef(table=database.events)
+        events_table_ref = ast.TableRef(table=self.database.events)
         events_table_alias_ref = ast.TableAliasRef(name="e", table_ref=events_table_ref)
         event_field_ref = ast.FieldRef(name="event", table=events_table_alias_ref)
         timestamp_field_ref = ast.FieldRef(name="timestamp", table=events_table_alias_ref)
@@ -82,9 +85,9 @@ class TestResolver(BaseTest):
 
     def test_resolve_events_table_column_alias(self):
         expr = parse_select("SELECT event as ee, ee, ee as e, e.timestamp FROM events e WHERE e.event = 'test'")
-        resolve_refs(expr)
+        resolve_refs(expr, database=self.database)
 
-        events_table_ref = ast.TableRef(table=database.events)
+        events_table_ref = ast.TableRef(table=self.database.events)
         events_table_alias_ref = ast.TableAliasRef(name="e", table_ref=events_table_ref)
         event_field_ref = ast.FieldRef(name="event", table=events_table_alias_ref)
         timestamp_field_ref = ast.FieldRef(name="timestamp", table=events_table_alias_ref)
@@ -138,8 +141,8 @@ class TestResolver(BaseTest):
 
     def test_resolve_events_table_column_alias_inside_subquery(self):
         expr = parse_select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")
-        resolve_refs(expr)
-        inner_events_table_ref = ast.TableRef(table=database.events)
+        resolve_refs(expr, database=self.database)
+        inner_events_table_ref = ast.TableRef(table=self.database.events)
         inner_event_field_ref = ast.FieldAliasRef(
             name="b", ref=ast.FieldRef(name="event", table=inner_events_table_ref)
         )
@@ -219,7 +222,7 @@ class TestResolver(BaseTest):
             "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'"
         )
         with self.assertRaises(ResolverException) as e:
-            resolve_refs(expr)
+            resolve_refs(expr, database=self.database)
         self.assertEqual(str(e.exception), "Unable to resolve field: e")
 
     def test_resolve_errors(self):
@@ -232,13 +235,13 @@ class TestResolver(BaseTest):
         ]
         for query in queries:
             with self.assertRaises(ResolverException) as e:
-                resolve_refs(parse_select(query))
+                resolve_refs(parse_select(query), self.database)
             self.assertIn("Unable to resolve field:", str(e.exception))
 
     def test_resolve_lazy_pdi_person_table(self):
         expr = parse_select("select distinct_id, person.id from person_distinct_ids")
-        resolve_refs(expr)
-        pdi_table_ref = ast.TableRef(table=database.person_distinct_ids)
+        resolve_refs(expr, database=self.database)
+        pdi_table_ref = ast.TableRef(table=self.database.person_distinct_ids)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
@@ -249,8 +252,8 @@ class TestResolver(BaseTest):
                     chain=["person", "id"],
                     ref=ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableRef(
-                            table=pdi_table_ref, field="person", lazy_table=database.person_distinct_ids.person
+                        table=ast.LazyJoinRef(
+                            table=pdi_table_ref, field="person", lazy_join=self.database.person_distinct_ids.person
                         ),
                     ),
                 ),
@@ -266,9 +269,9 @@ class TestResolver(BaseTest):
                     "distinct_id": ast.FieldRef(name="distinct_id", table=pdi_table_ref),
                     "id": ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableRef(
+                        table=ast.LazyJoinRef(
                             table=pdi_table_ref,
-                            lazy_table=database.person_distinct_ids.person,
+                            lazy_join=self.database.person_distinct_ids.person,
                             field="person",
                         ),
                     ),
@@ -284,8 +287,8 @@ class TestResolver(BaseTest):
 
     def test_resolve_lazy_events_pdi_table(self):
         expr = parse_select("select event, pdi.person_id from events")
-        resolve_refs(expr)
-        events_table_ref = ast.TableRef(table=database.events)
+        resolve_refs(expr, database=self.database)
+        events_table_ref = ast.TableRef(table=self.database.events)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
@@ -296,7 +299,7 @@ class TestResolver(BaseTest):
                     chain=["pdi", "person_id"],
                     ref=ast.FieldRef(
                         name="person_id",
-                        table=ast.LazyTableRef(table=events_table_ref, field="pdi", lazy_table=database.events.pdi),
+                        table=ast.LazyJoinRef(table=events_table_ref, field="pdi", lazy_join=self.database.events.pdi),
                     ),
                 ),
             ],
@@ -311,9 +314,9 @@ class TestResolver(BaseTest):
                     "event": ast.FieldRef(name="event", table=events_table_ref),
                     "person_id": ast.FieldRef(
                         name="person_id",
-                        table=ast.LazyTableRef(
+                        table=ast.LazyJoinRef(
                             table=events_table_ref,
-                            lazy_table=database.events.pdi,
+                            lazy_join=self.database.events.pdi,
                             field="pdi",
                         ),
                     ),
@@ -329,8 +332,8 @@ class TestResolver(BaseTest):
 
     def test_resolve_lazy_events_pdi_table_aliased(self):
         expr = parse_select("select event, e.pdi.person_id from events e")
-        resolve_refs(expr)
-        events_table_ref = ast.TableRef(table=database.events)
+        resolve_refs(expr, database=self.database)
+        events_table_ref = ast.TableRef(table=self.database.events)
         events_table_alias_ref = ast.TableAliasRef(table_ref=events_table_ref, name="e")
         expected = ast.SelectQuery(
             select=[
@@ -342,8 +345,8 @@ class TestResolver(BaseTest):
                     chain=["e", "pdi", "person_id"],
                     ref=ast.FieldRef(
                         name="person_id",
-                        table=ast.LazyTableRef(
-                            table=events_table_alias_ref, field="pdi", lazy_table=database.events.pdi
+                        table=ast.LazyJoinRef(
+                            table=events_table_alias_ref, field="pdi", lazy_join=self.database.events.pdi
                         ),
                     ),
                 ),
@@ -360,9 +363,9 @@ class TestResolver(BaseTest):
                     "event": ast.FieldRef(name="event", table=events_table_alias_ref),
                     "person_id": ast.FieldRef(
                         name="person_id",
-                        table=ast.LazyTableRef(
+                        table=ast.LazyJoinRef(
                             table=events_table_alias_ref,
-                            lazy_table=database.events.pdi,
+                            lazy_join=self.database.events.pdi,
                             field="pdi",
                         ),
                     ),
@@ -378,8 +381,8 @@ class TestResolver(BaseTest):
 
     def test_resolve_lazy_events_pdi_person_table(self):
         expr = parse_select("select event, pdi.person.id from events")
-        resolve_refs(expr)
-        events_table_ref = ast.TableRef(table=database.events)
+        resolve_refs(expr, database=self.database)
+        events_table_ref = ast.TableRef(table=self.database.events)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
@@ -390,10 +393,12 @@ class TestResolver(BaseTest):
                     chain=["pdi", "person", "id"],
                     ref=ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableRef(
-                            table=ast.LazyTableRef(table=events_table_ref, field="pdi", lazy_table=database.events.pdi),
+                        table=ast.LazyJoinRef(
+                            table=ast.LazyJoinRef(
+                                table=events_table_ref, field="pdi", lazy_join=self.database.events.pdi
+                            ),
                             field="person",
-                            lazy_table=database.events.pdi.table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,
                         ),
                     ),
                 ),
@@ -409,10 +414,12 @@ class TestResolver(BaseTest):
                     "event": ast.FieldRef(name="event", table=events_table_ref),
                     "id": ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableRef(
-                            table=ast.LazyTableRef(table=events_table_ref, field="pdi", lazy_table=database.events.pdi),
+                        table=ast.LazyJoinRef(
+                            table=ast.LazyJoinRef(
+                                table=events_table_ref, field="pdi", lazy_join=self.database.events.pdi
+                            ),
                             field="person",
-                            lazy_table=database.events.pdi.table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,
                         ),
                     ),
                 },
@@ -427,8 +434,8 @@ class TestResolver(BaseTest):
 
     def test_resolve_lazy_events_pdi_person_table_aliased(self):
         expr = parse_select("select event, e.pdi.person.id from events e")
-        resolve_refs(expr)
-        events_table_ref = ast.TableRef(table=database.events)
+        resolve_refs(expr, database=self.database)
+        events_table_ref = ast.TableRef(table=self.database.events)
         events_table_alias_ref = ast.TableAliasRef(table_ref=events_table_ref, name="e")
         expected = ast.SelectQuery(
             select=[
@@ -440,12 +447,12 @@ class TestResolver(BaseTest):
                     chain=["e", "pdi", "person", "id"],
                     ref=ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableRef(
-                            table=ast.LazyTableRef(
-                                table=events_table_alias_ref, field="pdi", lazy_table=database.events.pdi
+                        table=ast.LazyJoinRef(
+                            table=ast.LazyJoinRef(
+                                table=events_table_alias_ref, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_table=database.events.pdi.table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,
                         ),
                     ),
                 ),
@@ -462,12 +469,12 @@ class TestResolver(BaseTest):
                     "event": ast.FieldRef(name="event", table=events_table_alias_ref),
                     "id": ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableRef(
-                            table=ast.LazyTableRef(
-                                table=events_table_alias_ref, field="pdi", lazy_table=database.events.pdi
+                        table=ast.LazyJoinRef(
+                            table=ast.LazyJoinRef(
+                                table=events_table_alias_ref, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
-                            lazy_table=database.events.pdi.table.person,
+                            lazy_join=self.database.events.pdi.join_table.person,
                         ),
                     ),
                 },
@@ -482,8 +489,8 @@ class TestResolver(BaseTest):
 
     def test_resolve_virtual_events_poe(self):
         expr = parse_select("select event, poe.id from events")
-        resolve_refs(expr)
-        events_table_ref = ast.TableRef(table=database.events)
+        resolve_refs(expr, database=self.database)
+        events_table_ref = ast.TableRef(table=self.database.events)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
@@ -495,7 +502,7 @@ class TestResolver(BaseTest):
                     ref=ast.FieldRef(
                         name="id",
                         table=ast.VirtualTableRef(
-                            table=events_table_ref, field="poe", virtual_table=database.events.poe
+                            table=events_table_ref, field="poe", virtual_table=self.database.events.poe
                         ),
                     ),
                 ),
@@ -512,7 +519,7 @@ class TestResolver(BaseTest):
                     "id": ast.FieldRef(
                         name="id",
                         table=ast.VirtualTableRef(
-                            table=events_table_ref, field="poe", virtual_table=database.events.poe
+                            table=events_table_ref, field="poe", virtual_table=self.database.events.poe
                         ),
                     ),
                 },
@@ -527,9 +534,9 @@ class TestResolver(BaseTest):
 
     def test_resolve_union_all(self):
         node = parse_select("select event, timestamp from events union all select event, timestamp from events")
-        resolve_refs(node)
+        resolve_refs(node, self.database)
 
-        events_table_ref = ast.TableRef(table=database.events)
+        events_table_ref = ast.TableRef(table=self.database.events)
         self.assertEqual(
             node.select_queries[0].select,
             [

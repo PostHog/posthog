@@ -38,4 +38,4 @@ class Migration(migrations.Migration):
         ("posthog", "0041_merge_20200407_1805"),
     ]
 
-    operations = [migrations.RunPython(update_filter_types, reverse_filter_types)]
+    operations = [migrations.RunPython(update_filter_types, reverse_filter_types, elidable=True)]

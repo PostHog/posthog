@@ -9,12 +9,13 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { userLogic } from 'scenes/userLogic'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { searchTerm } = useValues(dashboardsLogic)
     const { allTemplates, allTemplatesLoading } = useValues(dashboardTemplatesLogic)
 
-    const { openDashboardTemplateEditor, setDashboardTemplateId, deleteDashboardTemplate } =
+    const { openDashboardTemplateEditor, setDashboardTemplateId, deleteDashboardTemplate, updateDashboardTemplate } =
         useActions(dashboardTemplateEditorLogic)
 
     const { user } = useValues(userLogic)
@@ -35,10 +36,10 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             },
         },
         {
-            title: 'Source',
+            title: 'Type',
             dataIndex: 'team_id',
-            render: (_, { team_id }) => {
-                if (team_id === null) {
+            render: (_, { scope }) => {
+                if (scope === 'global') {
                     return <LemonSnack>Official</LemonSnack>
                 } else {
                     return <LemonSnack>Team</LemonSnack>
@@ -47,7 +48,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         },
         {
             width: 0,
-            render: (_, { id }: DashboardTemplateType) => {
+            render: (_, { id, scope }: DashboardTemplateType) => {
                 if (!user?.is_staff) {
                     return null
                 }
@@ -69,6 +70,24 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                 >
                                     Edit
                                 </LemonButton>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => {
+                                        if (id === undefined) {
+                                            console.error('Dashboard template id not defined')
+                                            return
+                                        }
+                                        updateDashboardTemplate({
+                                            id,
+                                            dashboardTemplateUpdates: {
+                                                scope: scope === 'global' ? 'team' : 'global',
+                                            },
+                                        })
+                                    }}
+                                    fullWidth
+                                >
+                                    Make visible to {scope === 'global' ? 'this team only' : 'everyone'}
+                                </LemonButton>
 
                                 <LemonDivider />
                                 <LemonButton
@@ -77,10 +96,25 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                             console.error('Dashboard template id not defined')
                                             return
                                         }
-                                        deleteDashboardTemplate(id)
+                                        LemonDialog.open({
+                                            title: 'Delete dashboard template?',
+                                            description: 'This action cannot be undone.',
+                                            primaryButton: {
+                                                status: 'danger',
+                                                children: 'Delete',
+                                                onClick: () => {
+                                                    deleteDashboardTemplate(id)
+                                                },
+                                            },
+                                        })
                                     }}
                                     fullWidth
                                     status="danger"
+                                    disabledReason={
+                                        scope === 'global'
+                                            ? 'Cannot delete global dashboard templates, make them team only first'
+                                            : undefined
+                                    }
                                 >
                                     Delete dashboard
                                 </LemonButton>

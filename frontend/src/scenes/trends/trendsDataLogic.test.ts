@@ -7,6 +7,7 @@ import { trendsDataLogic } from './trendsDataLogic'
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 import { DataNode, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema'
 import { trendResult, trendPieResult, lifecycleResult } from './__mocks__/trendsDataLogicMocks'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 let logic: ReturnType<typeof trendsDataLogic.build>
@@ -20,6 +21,9 @@ async function initTrendsDataLogic(): Promise<void> {
     builtDataNodeLogic = dataNodeLogic({ key: 'InsightViz.new', query: {} as DataNode })
     builtDataNodeLogic.mount()
     await expectLogic(dataNodeLogic).toFinishAllListeners()
+
+    insightDataLogic(insightProps).mount()
+    insightVizDataLogic(insightProps).mount()
 
     logic = trendsDataLogic(insightProps)
     logic.mount()
@@ -80,7 +84,7 @@ describe('trendsDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    insightDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                    insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     indexedResults: [
@@ -116,7 +120,7 @@ describe('trendsDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    insightDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                    insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     indexedResults: [

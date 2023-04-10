@@ -8,10 +8,11 @@ from pydantic import Field as PydanticField
 from posthog.hogql.database import (
     DatabaseField,
     FieldTraverser,
-    LazyTable,
+    LazyJoin,
     StringJSONDatabaseField,
     Table,
     VirtualTable,
+    LazyTable,
 )
 
 # NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
@@ -42,6 +43,17 @@ class Ref(AST):
         return self.get_child(name) is not None
 
 
+class Expr(AST):
+    ref: Optional[Ref]
+
+
+class Macro(Expr):
+    name: str
+    expr: Expr
+    # Whether the macro is an inlined column "SELECT 1 AS a" or a subquery "SELECT a AS (SELECT 1)"
+    type: Literal["column", "subquery"]
+
+
 class FieldAliasRef(Ref):
     name: str
     ref: Ref
@@ -65,8 +77,10 @@ class BaseTableRef(Ref):
             return AsteriskRef(table=self)
         if self.has_child(name):
             field = self.resolve_database_table().get_field(name)
+            if isinstance(field, LazyJoin):
+                return LazyJoinRef(table=self, field=name, lazy_join=field)
             if isinstance(field, LazyTable):
-                return LazyTableRef(table=self, field=name, lazy_table=field)
+                return LazyTableRef(table=field)
             if isinstance(field, FieldTraverser):
                 return FieldTraverserRef(table=self, chain=field.chain)
             if isinstance(field, VirtualTable):
@@ -90,13 +104,20 @@ class TableAliasRef(BaseTableRef):
         return self.table_ref.table
 
 
-class LazyTableRef(BaseTableRef):
+class LazyJoinRef(BaseTableRef):
     table: BaseTableRef
     field: str
-    lazy_table: LazyTable
+    lazy_join: LazyJoin
 
     def resolve_database_table(self) -> Table:
-        return self.lazy_table.table
+        return self.lazy_join.join_table
+
+
+class LazyTableRef(BaseTableRef):
+    table: LazyTable
+
+    def resolve_database_table(self) -> Table:
+        return self.table
 
 
 class VirtualTableRef(BaseTableRef):
@@ -120,6 +141,7 @@ class SelectQueryRef(Ref):
     tables: Dict[
         str, Union[BaseTableRef, "SelectUnionQueryRef", "SelectQueryRef", "SelectQueryAliasRef"]
     ] = PydanticField(default_factory=dict)
+    macros: Dict[str, Macro] = PydanticField(default_factory=dict)
     # all from and join subqueries without aliases
     anonymous_tables: List[Union["SelectQueryRef", "SelectUnionQueryRef"]] = PydanticField(default_factory=list)
 
@@ -211,14 +233,14 @@ class FieldRef(Ref):
         if database_field is None:
             raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
-            return PropertyRef(name=name, parent=self)
+            return PropertyRef(chain=[name], parent=self)
         raise ValueError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
 
 
 class PropertyRef(Ref):
-    name: str
+    chain: List[str]
     parent: FieldRef
 
     # The property has been moved into a field we query from a joined subquery
@@ -226,14 +248,14 @@ class PropertyRef(Ref):
     joined_subquery_field_name: Optional[str]
 
     def get_child(self, name: str) -> "Ref":
-        raise NotImplementedError("JSON property traversal is not yet supported")
+        return PropertyRef(chain=self.chain + [name], parent=self.parent)
 
     def has_child(self, name: str) -> bool:
-        return False
+        return True
 
 
-class Expr(AST):
-    ref: Optional[Ref]
+class LambdaArgumentRef(Ref):
+    name: str
 
 
 class Alias(Expr):
@@ -301,6 +323,24 @@ class OrderExpr(Expr):
     order: Literal["ASC", "DESC"] = "ASC"
 
 
+class ArrayAccess(Expr):
+    array: Expr
+    property: Expr
+
+
+class Array(Expr):
+    exprs: List[Expr]
+
+
+class Tuple(Expr):
+    exprs: List[Expr]
+
+
+class Lambda(Expr):
+    args: List[str]
+    expr: Expr
+
+
 class Constant(Expr):
     value: Any
 
@@ -316,20 +356,24 @@ class Placeholder(Expr):
 class Call(Expr):
     name: str
     args: List[Expr]
+    distinct: Optional[bool] = None
 
 
 class JoinExpr(Expr):
+    ref: Optional[BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef]
+
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
     constraint: Optional[Expr] = None
     next_join: Optional["JoinExpr"] = None
+    sample: Optional["SampleExpr"] = None
 
 
 class SelectQuery(Expr):
     ref: Optional[SelectQueryRef] = None
-
+    macros: Optional[Dict[str, Macro]] = None
     select: List[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None
@@ -349,5 +393,17 @@ class SelectUnionQuery(Expr):
     select_queries: List[SelectQuery]
 
 
+class RatioExpr(Expr):
+    left: Constant
+    right: Optional[Constant] = None
+
+
+class SampleExpr(Expr):
+    # k or n
+    sample_value: RatioExpr
+    offset_value: Optional[RatioExpr]
+
+
+JoinExpr.update_forward_refs(SampleExpr=SampleExpr)
 JoinExpr.update_forward_refs(SelectUnionQuery=SelectUnionQuery)
 JoinExpr.update_forward_refs(SelectQuery=SelectQuery)
