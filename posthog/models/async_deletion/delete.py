@@ -5,7 +5,6 @@ from typing import Dict, List, Tuple
 import structlog
 from django.utils import timezone
 
-from posthog.models import DeletionType
 from posthog.models.async_deletion import AsyncDeletion
 
 logger = structlog.get_logger(__name__)
