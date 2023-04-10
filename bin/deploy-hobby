@@ -2,7 +2,7 @@
 
 set -e
 
-export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
 export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 
 POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
@@ -21,7 +21,7 @@ if ! [ -z "$1" ]
 then
 export POSTHOG_APP_TAG=$1
 else
-echo "What version of Posthog would you like to install? (We default to 'latest-release')"
+echo "What version of Posthog would you like to install? (We default to 'latest')"
 echo "You can check out available versions here: https://hub.docker.com/r/posthog/posthog/tags"
 read -r POSTHOG_APP_TAG_READ
 if [ -z "$POSTHOG_APP_TAG_READ" ]
@@ -75,7 +75,24 @@ sudo apt install -y git
 # try to clone - if folder is already there pull latest for that branch
 git clone https://github.com/PostHog/posthog.git &> /dev/null || true
 cd posthog
-git pull
+
+if [[ "$POSTHOG_APP_TAG" = "latest-release" ]]
+then
+    git fetch --tags
+    latestReleaseTag=$(git describe --tags `git rev-list --tags --max-count=1`)
+    echo "Checking out latest PostHog release: $latestReleaseTag"
+    git checkout $latestReleaseTag
+elif [[ "$POSTHOG_APP_TAG" = "latest" ]]
+then
+    echo "Pulling latest from current branch: $(git branch --show-current)"
+    git pull
+else
+    releaseTag="${POSTHOG_APP_TAG/release-/""}"
+    git fetch --tags
+    echo "Checking out PostHog release: $releaseTag"
+    git checkout $releaseTag
+fi
+
 cd ..
 
 if [ -n "$3" ]
@@ -113,6 +130,12 @@ cat > compose/start <<EOF
 ./bin/docker-server
 EOF
 chmod +x compose/start
+
+cat > compose/temporal-django-worker <<EOF
+#!/bin/bash
+./bin/temporal-django-worker
+EOF
+chmod +x compose/temporal-django-worker
 
 # write wait script
 cat > compose/wait <<EOF

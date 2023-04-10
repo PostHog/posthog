@@ -57,5 +57,5 @@ class Migration(migrations.Migration):
             model_name="pluginsourcefile",
             constraint=models.UniqueConstraint(fields=("plugin_id", "filename"), name="unique_filename_for_plugin"),
         ),
-        migrations.RunPython(migrate_plugin_source, migrations.RunPython.noop),
+        migrations.RunPython(migrate_plugin_source, migrations.RunPython.noop, elidable=True),
     ]

@@ -74,12 +74,12 @@ export function getBarColorFromStatus(status: LifecycleToggle, hover?: boolean):
     }
 }
 
-export function getGraphColors(): Record<string, string | null> {
+export function getGraphColors(isDarkModeOn: boolean): Record<string, string | null> {
     return {
-        axisLabel: '#333',
-        axisLine: '#ddd',
-        axis: '#999',
-        crosshair: 'rgba(0,0,0,0.2)',
+        axisLabel: isDarkModeOn ? '#ddd' : '#333',
+        axisLine: isDarkModeOn ? '#888' : '#ddd',
+        axis: isDarkModeOn ? '#aaa' : '#999',
+        crosshair: isDarkModeOn ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
         tooltipBackground: '#1dc9b7',
         tooltipTitle: '#fff',
         tooltipBody: '#fff',

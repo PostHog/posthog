@@ -1,8 +1,7 @@
 import json
 import re
-from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, List, Literal, Optional, Tuple, Union, cast
+from typing import List, Literal, Optional, Union
 from uuid import UUID
 
 import structlog
@@ -10,7 +9,6 @@ from django.core.exceptions import RequestDataTooBig
 from django.db.models import QuerySet
 from rest_framework import request, status
 from rest_framework.exceptions import ValidationError
-from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.constants import EventDefinitionType
@@ -19,8 +17,6 @@ from posthog.models import Entity, EventDefinition
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.team import Team
-from posthog.models.user import User
 from posthog.utils import cors_response, load_data_from_request
 
 logger = structlog.get_logger(__name__)
@@ -210,140 +206,6 @@ def get_data(request):
         )
 
     return data, None
-
-
-@dataclass(frozen=True)
-class EventIngestionContext:
-    """
-    Specifies the data needed to process inbound `Event`s. Specifically we need
-    to know which team_id to attach to an event, and if we should exclude ip
-    address information.
-
-    Prior to this structure we were pulling in the entirety of
-    `posthog.models.Team`, which includes many variables that are not specific
-    to the context of ingestion. With this structure we can be deliberate about
-    our ingestion interfaces.
-
-    The initial driver for this was to reduce the amount of data we were
-    fetching from postgresql db.
-    """
-
-    team_id: int
-    anonymize_ips: bool
-
-
-def get_event_ingestion_context(
-    request, data, token
-) -> Tuple[Optional[EventIngestionContext], Optional[str], Optional[Any]]:
-    db_error = None
-    ingestion_context = None
-    error_response = None
-
-    try:
-        ingestion_context = get_event_ingestion_context_for_token(token)
-    except Exception as e:
-        capture_exception(e)
-        statsd.incr("capture_endpoint_fetch_team_fail")
-
-        db_error = getattr(e, "message", repr(e))
-
-        return None, db_error, error_response
-
-    if ingestion_context is None:
-        try:
-            project_id = get_project_id(data, request)
-        except ValueError:
-            error_response = cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Invalid Project ID.",
-                    code="invalid_project",
-                    attr="project_id",
-                ),
-            )
-            return None, db_error, error_response
-
-        if not project_id:
-            error_response = cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Project API key invalid. You can find your project API key in PostHog project settings.",
-                    type="authentication_error",
-                    code="invalid_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
-            return None, db_error, error_response
-
-        ingestion_context = get_event_ingestion_context_for_personal_api_key(
-            personal_api_key=token, project_id=project_id
-        )
-        if ingestion_context is None:
-            error_response = cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Invalid Personal API key.",
-                    type="authentication_error",
-                    code="invalid_personal_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
-            return None, db_error, error_response
-
-    # if we still haven't found a ingestion_context, return an error to the client
-    if not ingestion_context:
-        error_response = cors_response(
-            request,
-            generate_exception_response(
-                "capture",
-                "No team found for API Key",
-                type="authentication_error",
-                code="invalid_personal_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
-
-    return ingestion_context, db_error, error_response
-
-
-def get_event_ingestion_context_for_token(
-    token: str,
-) -> Optional[EventIngestionContext]:
-    """
-    Based on a token associated with a Team, retrieve the context that is
-    required to ingest events.
-    """
-    try:
-        team_id, anonymize_ips = Team.objects.values_list("id", "anonymize_ips").get(api_token=token)
-        # NOTE: Not sure why, but I needed to do this cast otherwise I got
-        # `Optional[bool]` instead of `bool` from mypy, even though
-        # anonymize_ips is non-null in the model
-        anonymize_ips = cast(bool, anonymize_ips)
-        return EventIngestionContext(team_id=team_id, anonymize_ips=anonymize_ips)
-    except Team.DoesNotExist:
-        return None
-
-
-def get_event_ingestion_context_for_personal_api_key(
-    personal_api_key: str, project_id: int
-) -> Optional[EventIngestionContext]:
-    """
-    Some events use the personal_api_key on a `User` for authentication, along
-    with a `project_id`.
-    """
-    user = User.objects.get_from_personal_api_key(personal_api_key)
-
-    if user is None:
-        return None
-
-    try:
-        team_id, anonymize_ips = user.teams.values_list("id", "anonymize_ips").get(id=project_id)
-        return EventIngestionContext(team_id=team_id, anonymize_ips=anonymize_ips)
-    except Team.DoesNotExist:
-        return None
 
 
 def check_definition_ids_inclusion_field_sql(

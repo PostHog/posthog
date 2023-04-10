@@ -203,7 +203,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
+        query, params = PersonQuery(filter, team.pk).get_query(paginate=True, filter_future_persons=True)
 
         raw_result = insight_sync_execute(
             query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
@@ -355,7 +355,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             distinct_id=person.distinct_ids[0],
             ip=None,
             site_url=None,
-            team_id=self.team_id,
+            token=self.team.api_token,
             now=datetime.now(),
             sent_at=None,
             event={
@@ -438,7 +438,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             distinct_id=instance.distinct_ids[0],
             ip=None,
             site_url=None,
-            team_id=instance.team_id,
+            token=instance.team.api_token,
             now=datetime.now(),
             sent_at=None,
             event={

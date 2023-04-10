@@ -81,39 +81,43 @@ export function ProjectHomepage(): JSX.Element {
                 </>
             )}
             {currentTeam?.primary_dashboard ? (
-                <div>
-                    <div className="homepage-dashboard-header">
-                        <div className="dashboard-title-container">
-                            {!dashboard && <LemonSkeleton className="w-20" />}
-                            {dashboard?.name && (
-                                <>
-                                    <IconCottage className="mr-2 text-warning text-2xl" />
-                                    <Link
-                                        className="font-semibold text-xl text-default"
-                                        to={urls.dashboard(dashboard.id)}
+                <>
+                    {!featureFlags[FEATURE_FLAGS.POSTHOG_3000] && (
+                        <>
+                            <div className="homepage-dashboard-header">
+                                <div className="dashboard-title-container">
+                                    {!dashboard && <LemonSkeleton className="w-20" />}
+                                    {dashboard?.name && (
+                                        <>
+                                            <IconCottage className="mr-2 text-warning text-2xl" />
+                                            <Link
+                                                className="font-semibold text-xl text-default"
+                                                to={urls.dashboard(dashboard.id)}
+                                            >
+                                                {dashboard?.name}
+                                            </Link>
+                                        </>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        data-attr="project-home-new-insight"
+                                        onClick={showPrimaryDashboardModal}
                                     >
-                                        {dashboard?.name}
-                                    </Link>
-                                </>
-                            )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <LemonButton
-                                type="secondary"
-                                data-attr="project-home-new-insight"
-                                onClick={showPrimaryDashboardModal}
-                            >
-                                Change dashboard
-                            </LemonButton>
-                            {featureFlags[FEATURE_FLAGS.POSTHOG_3000] && headerButtons}
-                        </div>
-                    </div>
-                    <LemonDivider className="my-4" />
+                                        Change dashboard
+                                    </LemonButton>
+                                    {featureFlags[FEATURE_FLAGS.POSTHOG_3000] && headerButtons}
+                                </div>
+                            </div>
+                            <LemonDivider className="my-4" />
+                        </>
+                    )}
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
                         placement={DashboardPlacement.ProjectHomepage}
                     />
-                </div>
+                </>
             ) : (
                 <div className="empty-state-container">
                     <IconCottage className="mb-2 text-warning" style={{ fontSize: '2rem' }} />

@@ -17,11 +17,11 @@ import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/Action
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { RetentionFilter } from '~/queries/schema'
-import { insightDataLogic } from '../insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function RetentionSummaryDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
-    const { retentionFilter } = useValues(insightDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightDataLogic(insightProps))
+    const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     return (
         <RetentionSummaryComponent
             insightProps={insightProps}

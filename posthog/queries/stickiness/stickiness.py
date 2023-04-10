@@ -12,7 +12,7 @@ from posthog.queries.insight import insight_sync_execute
 from posthog.queries.stickiness.stickiness_actors import StickinessActors
 from posthog.queries.stickiness.stickiness_event_query import StickinessEventsQuery
 from posthog.queries.util import correct_result_for_sampling
-from posthog.utils import encode_get_request_params
+from posthog.utils import encode_get_request_params, generate_short_id
 
 
 class Stickiness:
@@ -32,7 +32,7 @@ class Stickiness:
 
     def stickiness(self, entity: Entity, filter: StickinessFilter, team: Team) -> Dict[str, Any]:
         events_query, event_params = self.event_query_class(
-            entity, filter, team, using_person_on_events=team.person_on_events_querying_enabled
+            entity, filter, team, person_on_events_mode=team.person_on_events_mode
         ).get_query()
 
         query = f"""
@@ -97,6 +97,7 @@ class Stickiness:
 
     def _get_persons_url(self, filter: StickinessFilter, entity: Entity) -> List[Dict[str, Any]]:
         persons_url = []
+        cache_invalidation_key = generate_short_id()
         for interval_idx in range(1, filter.total_intervals):
             filter_params = filter.to_params()
             extra_params = {
@@ -108,6 +109,9 @@ class Stickiness:
             }
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(
-                {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}"}
+                {
+                    "filter": extra_params,
+                    "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
+                }
             )
         return persons_url

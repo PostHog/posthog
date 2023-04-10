@@ -15,7 +15,7 @@ from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.util import PersonPropertiesMode
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -25,6 +25,7 @@ from posthog.test.base import (
     snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
 )
+from posthog.utils import PersonOnEventsMode
 
 
 def _create_action(**kwargs):
@@ -108,9 +109,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -150,9 +151,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -165,9 +166,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -207,9 +208,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -222,9 +223,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.person_on_events_querying_enabled
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
+            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -640,7 +641,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            sql, _ = format_filter_query(cohort, 0, HogQLContext())
+            sql, _ = format_filter_query(cohort, 0, HogQLContext(team_id=self.team.pk))
             self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):

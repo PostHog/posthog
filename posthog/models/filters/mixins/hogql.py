@@ -9,7 +9,10 @@ class HogQLParamMixin:
 
     @cached_property
     def hogql_context(self) -> HogQLContext:
-        context = self.kwargs.get("hogql_context", HogQLContext(within_non_hogql_query=True))
-        if self.kwargs.get("team"):
-            context.using_person_on_events = self.kwargs["team"].person_on_events_querying_enabled
+        team = self.kwargs.get("team")
+        context = self.kwargs.get(
+            "hogql_context", HogQLContext(within_non_hogql_query=True, team_id=team.pk if team else None)
+        )
+        if team:
+            context.person_on_events_mode = self.kwargs["team"].person_on_events_mode
         return context

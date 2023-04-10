@@ -1,0 +1,995 @@
+import { Noun } from '~/models/groupsModel'
+import {
+    BaseMathType,
+    CohortType,
+    CountPerActorMathType,
+    FilterLogicalOperator,
+    GroupMathType,
+    InsightType,
+    PathsFilterType,
+    PathType,
+    PropertyMathType,
+    RetentionFilterType,
+    TrendsFilterType,
+} from '~/types'
+import {
+    BASE_MATH_DEFINITIONS,
+    COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    MathCategory,
+    MathDefinition,
+    PROPERTY_MATH_DEFINITIONS,
+} from 'scenes/trends/mathsLogic'
+import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import {
+    DataTableNode,
+    FunnelsQuery,
+    HogQLQuery,
+    InsightVizNode,
+    LifecycleQuery,
+    NodeKind,
+    PathsQuery,
+    RecentPerformancePageViewNode,
+    RetentionQuery,
+    StickinessQuery,
+    TimeToSeeDataWaterfallNode,
+    TrendsQuery,
+} from '~/queries/schema'
+import { summarizeInsight, SummaryContext } from 'scenes/insights/summarizeInsight'
+
+const aggregationLabel = (groupTypeIndex: number | null | undefined): Noun =>
+    groupTypeIndex != undefined
+        ? {
+              singular: 'organization',
+              plural: 'organizations',
+          }
+        : { singular: 'user', plural: 'users' }
+const cohortIdsMapped: Partial<Record<CohortType['id'], CohortType>> = {
+    1: {
+        id: 1,
+        name: 'Poles',
+        filters: { properties: { id: '1', type: FilterLogicalOperator.Or, values: [] } },
+        groups: [],
+    },
+}
+const mathDefinitions: Record<string, MathDefinition> = {
+    ...BASE_MATH_DEFINITIONS,
+    'unique_group::0': {
+        name: 'Unique organizations',
+        shortName: 'unique organizations',
+        description: 'Foo.',
+        category: MathCategory.ActorCount,
+    },
+    ...PROPERTY_MATH_DEFINITIONS,
+    ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
+}
+
+const summaryContext: SummaryContext = {
+    aggregationLabel,
+    cohortsById: cohortIdsMapped,
+    mathDefinitions,
+    isUsingDataExploration: false,
+    isUsingDashboardQueries: false,
+}
+
+const flagsOnSummaryContext: SummaryContext = {
+    ...summaryContext,
+    isUsingDataExploration: true,
+    isUsingDashboardQueries: true,
+}
+
+describe('summarizing insights', () => {
+    describe('summarizeInsight()', () => {
+        it('summarizes a Trends insight with four event and actor count series', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.TRENDS,
+                        events: [
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                math: 'dau',
+                                order: 0,
+                            },
+                            {
+                                id: '$rageclick',
+                                name: '$rageclick',
+                                math: 'monthly_active',
+                                order: 1,
+                            },
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                math: 'unique_group',
+                                math_group_type_index: 0,
+                                order: 4,
+                            },
+                            {
+                                id: '$autocapture',
+                                name: '$autocapture',
+                                math: 'unique_group',
+                                math_group_type_index: 11, // Non-existent group
+                                order: 5,
+                            },
+                        ],
+                        actions: [
+                            {
+                                id: 1,
+                                name: 'Random action',
+                                math: 'total',
+                                order: 2,
+                            },
+                        ],
+                    },
+                    summaryContext
+                )
+            ).toEqual(
+                'Pageview unique users & Rageclick MAUs & Random action count & Pageview unique organizations & Autocapture unique groups'
+            )
+        })
+
+        it('summarizes a Trends insight with two property value and event count per actor series', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.TRENDS,
+                        events: [
+                            {
+                                id: 'purchase',
+                                name: 'purchase',
+                                math: 'sum',
+                                math_property: 'price',
+                                order: 1,
+                            },
+                        ],
+                        actions: [
+                            {
+                                id: 1,
+                                name: 'Random action',
+                                math: 'avg_count_per_actor',
+                                order: 0,
+                            },
+                        ],
+                    },
+                    summaryContext
+                )
+            ).toEqual("Random action count per user average & purchase's price sum")
+        })
+
+        it('summarizes a Trends insight with no series', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.TRENDS,
+                    },
+                    summaryContext
+                )
+            ).toEqual('')
+        })
+
+        it('summarizes a Trends insight with event property breakdown', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.TRENDS,
+                        events: [
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                math: 'dau',
+                                order: 0,
+                            },
+                        ],
+                        breakdown_type: 'event',
+                        breakdown: '$browser',
+                    },
+                    summaryContext
+                )
+            ).toEqual("Pageview unique users by event's Browser")
+        })
+
+        it('summarizes a Trends insight with cohort breakdown', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.TRENDS,
+                        events: [
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                order: 0,
+                            },
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                math: 'dau',
+                                order: 0,
+                            },
+                        ],
+                        breakdown_type: 'cohort',
+                        breakdown: ['all', 1],
+                    },
+                    summaryContext
+                )
+            ).toEqual('Pageview count & Pageview unique users, by cohorts: all users, Poles')
+        })
+
+        it('summarizes a Trends insight with a formula', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.TRENDS,
+                        events: [
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                math: 'dau',
+                                order: 0,
+                            },
+                        ],
+                        actions: [
+                            {
+                                id: 1,
+                                name: 'Random action',
+                                math: 'total',
+                                order: 2,
+                            },
+                        ],
+                        formula: '(A + B) / 100',
+                    } as TrendsFilterType,
+                    summaryContext
+                )
+            ).toEqual('(A + B) / 100 on A. Pageview unique users & B. Random action count')
+        })
+
+        it('summarizes a user-based Funnels insight with 3 steps', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.FUNNELS,
+                        events: [
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                order: 0,
+                            },
+                            {
+                                id: 'random_event',
+                                name: 'random_event',
+                                order: 1,
+                            },
+                        ],
+                        actions: [
+                            {
+                                id: 1,
+                                name: 'Random action',
+                                order: 2,
+                            },
+                        ],
+                    },
+                    summaryContext
+                )
+            ).toEqual('Pageview → random_event → Random action user conversion rate')
+        })
+
+        it('summarizes an organization-based Funnels insight with 2 steps and a breakdown', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.FUNNELS,
+                        events: [
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                order: 0,
+                            },
+                            {
+                                id: 'random_event',
+                                name: 'random_event',
+                                order: 1,
+                            },
+                        ],
+                        aggregation_group_type_index: 0,
+                        breakdown_type: 'person',
+                        breakdown: 'some_prop',
+                    },
+                    summaryContext
+                )
+            ).toEqual("Pageview → random_event organization conversion rate by person's some_prop")
+        })
+
+        it('summarizes a user first-time Retention insight with the same event for cohortizing and returning', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.RETENTION,
+                        target_entity: {
+                            id: '$autocapture',
+                            name: '$autocapture',
+                            type: 'event',
+                        },
+                        returning_entity: {
+                            id: '$autocapture',
+                            name: '$autocapture',
+                            type: 'event',
+                        },
+                        retention_type: RETENTION_FIRST_TIME,
+                    } as RetentionFilterType,
+                    summaryContext
+                )
+            ).toEqual(
+                'Retention of users based on doing Autocapture for the first time and returning with the same event'
+            )
+        })
+
+        it('summarizes an organization recurring Retention insight with the different events for cohortizing and returning', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.RETENTION,
+                        target_entity: {
+                            id: 'purchase',
+                            name: 'purchase',
+                            type: 'event',
+                        },
+                        returning_entity: {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'event',
+                        },
+                        retention_type: RETENTION_RECURRING,
+                        aggregation_group_type_index: 0,
+                    } as RetentionFilterType,
+                    summaryContext
+                )
+            ).toEqual('Retention of organizations based on doing purchase recurringly and returning with Pageview')
+        })
+
+        it('summarizes a Paths insight based on all events', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.PATHS,
+                        include_event_types: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
+                    } as PathsFilterType,
+                    summaryContext
+                )
+            ).toEqual('User paths based on all events')
+        })
+
+        it('summarizes a Paths insight based on all events (empty include_event_types case)', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.PATHS,
+                        include_event_types: [],
+                    } as PathsFilterType,
+                    summaryContext
+                )
+            ).toEqual('User paths based on all events')
+        })
+
+        it('summarizes a Paths insight based on pageviews with start and end points', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.PATHS,
+                        include_event_types: [PathType.PageView],
+                        start_point: '/landing-page',
+                        end_point: '/basket',
+                    } as PathsFilterType,
+                    summaryContext
+                )
+            ).toEqual('User paths based on page views starting at /landing-page and ending at /basket')
+        })
+
+        it('summarizes a Stickiness insight with a user-based series and an organization-based one', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.STICKINESS,
+                        events: [
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                type: 'event',
+                                order: 1,
+                            },
+                        ],
+                        actions: [
+                            {
+                                id: 1,
+                                name: 'Random action',
+                                type: 'action',
+                                order: 0,
+                                math: 'unique_group',
+                                math_group_type_index: 0,
+                            },
+                        ],
+                    },
+                    summaryContext
+                )
+            ).toEqual('Organization stickiness based on Random action & user stickiness based on Pageview')
+        })
+
+        it('summarizes a Lifecycle insight', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.LIFECYCLE,
+                        events: [
+                            {
+                                id: '$rageclick',
+                                name: '$rageclick',
+                                type: 'event',
+                                order: 1,
+                            },
+                        ],
+                    },
+                    summaryContext
+                )
+            ).toEqual('User lifecycle based on Rageclick')
+        })
+    })
+
+    describe('summariseInsightQuery()', () => {
+        it('summarizes a Trends insight with four event and actor count series', () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        math: BaseMathType.UniqueUsers,
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$rageclick',
+                        name: '$rageclick',
+                        math: BaseMathType.MonthlyActiveUsers,
+                    },
+                    {
+                        kind: NodeKind.ActionsNode,
+                        id: 1,
+                        name: 'Random action',
+                        math: BaseMathType.TotalCount,
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        math: GroupMathType.UniqueGroup,
+                        math_group_type_index: 0,
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$autocapture',
+                        name: '$autocapture',
+                        math: GroupMathType.UniqueGroup,
+                        math_group_type_index: 4, // Non-existent group
+                    },
+                ],
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual(
+                'Pageview unique users & Rageclick MAUs & Random action count & Pageview unique organizations & Autocapture unique groups'
+            )
+        })
+
+        it('summarizes a Trends insight with two property value and event count per actor series', () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.ActionsNode,
+                        id: 1,
+                        name: 'Random action',
+                        math: CountPerActorMathType.Average,
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'purchase',
+                        name: 'purchase',
+                        math: PropertyMathType.Sum,
+                        math_property: 'price',
+                    },
+                ],
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual("Random action count per user average & purchase's price sum")
+        })
+
+        it('summarizes a Trends insight with no series', () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual('')
+        })
+
+        it('summarizes a Trends insight with event property breakdown', () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        math: BaseMathType.UniqueUsers,
+                    },
+                ],
+                breakdown: {
+                    breakdown_type: 'event',
+                    breakdown: '$browser',
+                },
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual("Pageview unique users by event's Browser")
+        })
+
+        it('summarizes a Trends insight with cohort breakdown', () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        math: BaseMathType.UniqueUsers,
+                    },
+                ],
+                breakdown: {
+                    breakdown_type: 'cohort',
+                    breakdown: ['all', 1],
+                },
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual('Pageview count & Pageview unique users, by cohorts: all users, Poles')
+        })
+
+        it('summarizes a Trends insight with a formula', () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        math: BaseMathType.UniqueUsers,
+                    },
+                    {
+                        kind: NodeKind.ActionsNode,
+                        id: 1,
+                        name: 'Random action',
+                        math: BaseMathType.TotalCount,
+                    },
+                ],
+                trendsFilter: {
+                    formula: '(A + B) / 100',
+                },
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual('(A + B) / 100 on A. Pageview unique users & B. Random action count')
+        })
+
+        it('summarizes a user-based Funnels insight with 3 steps', () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'random_event',
+                        name: 'random_event',
+                    },
+                    {
+                        kind: NodeKind.ActionsNode,
+                        id: 1,
+                        name: 'Random action',
+                    },
+                ],
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual('Pageview → random_event → Random action user conversion rate')
+        })
+
+        it('summarizes an organization-based Funnels insight with 2 steps and a breakdown', () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'random_event',
+                        name: 'random_event',
+                    },
+                ],
+                aggregation_group_type_index: 0,
+                breakdown: {
+                    breakdown_type: 'person',
+                    breakdown: 'some_prop',
+                },
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual("Pageview → random_event organization conversion rate by person's some_prop")
+        })
+
+        it('summarizes a user first-time Retention insight with the same event for cohortizing and returning', () => {
+            const query: RetentionQuery = {
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {
+                    target_entity: {
+                        id: '$autocapture',
+                        name: '$autocapture',
+                        type: 'event',
+                    },
+                    returning_entity: {
+                        id: '$autocapture',
+                        name: '$autocapture',
+                        type: 'event',
+                    },
+                    retention_type: RETENTION_FIRST_TIME,
+                },
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual(
+                'Retention of users based on doing Autocapture for the first time and returning with the same event'
+            )
+        })
+
+        it('summarizes an organization recurring Retention insight with the different events for cohortizing and returning', () => {
+            const query: RetentionQuery = {
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {
+                    target_entity: {
+                        id: 'purchase',
+                        name: 'purchase',
+                        type: 'event',
+                    },
+                    returning_entity: {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: 'event',
+                    },
+                    retention_type: RETENTION_RECURRING,
+                },
+                aggregation_group_type_index: 0,
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual(
+                'Retention of organizations based on doing purchase recurringly and returning with Pageview'
+            )
+        })
+
+        it('summarizes a Paths insight based on all events', () => {
+            const query: PathsQuery = {
+                kind: NodeKind.PathsQuery,
+                pathsFilter: {
+                    include_event_types: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
+                },
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual('User paths based on all events')
+        })
+
+        it('summarizes a Paths insight based on all events (empty include_event_types case)', () => {
+            const query: PathsQuery = {
+                kind: NodeKind.PathsQuery,
+                pathsFilter: {
+                    include_event_types: [],
+                },
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual('User paths based on all events')
+        })
+
+        it('summarizes a Paths insight based on pageviews with start and end points', () => {
+            const query: PathsQuery = {
+                kind: NodeKind.PathsQuery,
+                pathsFilter: {
+                    include_event_types: [PathType.PageView],
+                    start_point: '/landing-page',
+                    end_point: '/basket',
+                },
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual('User paths based on page views starting at /landing-page and ending at /basket')
+        })
+
+        it('summarizes a Stickiness insight with a user-based series and an organization-based one', () => {
+            const query: StickinessQuery = {
+                kind: NodeKind.StickinessQuery,
+                series: [
+                    {
+                        kind: NodeKind.ActionsNode,
+                        id: 1,
+                        name: 'Random action',
+                        math_group_type_index: 0,
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                    },
+                ],
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual('Organization stickiness based on Random action & user stickiness based on Pageview')
+        })
+
+        it('summarizes a Lifecycle insight', () => {
+            const query: LifecycleQuery = {
+                kind: NodeKind.LifecycleQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$rageclick',
+                        name: '$rageclick',
+                    },
+                ],
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                {},
+                flagsOnSummaryContext
+            )
+
+            expect(result).toEqual('User lifecycle based on Rageclick')
+        })
+    })
+
+    describe('summarize data table query', () => {
+        it('summarizes a simple query', () => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['event'],
+                },
+            }
+
+            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+
+            expect(result).toEqual('event from events into a data table.')
+        })
+
+        it('summarizes a two column events query', () => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['event', 'timestamp'],
+                },
+            }
+
+            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+
+            expect(result).toEqual('event, timestamp from events into a data table.')
+        })
+
+        it('summarizes using columns from top-level query', () => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                columns: ['event'],
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['event', 'timestamp'],
+                },
+            }
+
+            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+
+            expect(result).toEqual('event from events into a data table.')
+        })
+
+        it('summarizes using hiddencolumns from top-level query', () => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                hiddenColumns: ['event'],
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['event', 'timestamp'],
+                },
+            }
+
+            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+
+            expect(result).toEqual('timestamp from events into a data table.')
+        })
+
+        it('summarizes time to see data sessions listing', () => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                columns: ['session_id', 'session_start', 'session_end', 'duration_ms'],
+                source: {
+                    kind: NodeKind.TimeToSeeDataSessionsQuery,
+                },
+            }
+
+            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+
+            expect(result).toEqual(
+                'session_id, session_start, session_end, duration_ms from Time to See Data into a data table.'
+            )
+        })
+
+        it('summarizes a single time to see data sessions listing', () => {
+            const query: TimeToSeeDataWaterfallNode = {
+                kind: NodeKind.TimeToSeeDataSessionsWaterfallNode,
+                source: {
+                    kind: NodeKind.TimeToSeeDataQuery,
+                    sessionId: 'complete_me',
+                    sessionStart: 'iso_date',
+                    sessionEnd: 'iso_date',
+                },
+            }
+
+            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+
+            expect(result).toEqual('Waterfall chart for time to see session complete_me.')
+        })
+
+        it('summarizes a count table', () => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                full: true,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['count()'],
+                },
+            }
+            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+
+            expect(result).toEqual('count() from events into a data table.')
+        })
+
+        it('avoids summarizing hogql', () => {
+            const query: HogQLQuery = {
+                kind: NodeKind.HogQLQuery,
+                query: 'select event,\n          person.properties.email from events\n  where timestamp > now() - interval 1 day',
+            }
+
+            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+
+            expect(result).toEqual('HogQL data table.')
+        })
+
+        it('summarizes a person query', () => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                columns: ['person', 'id', 'created_at', 'person.$delete'],
+                source: {
+                    kind: NodeKind.PersonsNode,
+                },
+            }
+            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+
+            expect(result).toEqual('person, id, created_at, person.$delete from persons into a data table.')
+        })
+
+        it('summarizes a recent page views for performance query', () => {
+            const query: RecentPerformancePageViewNode = {
+                kind: NodeKind.RecentPerformancePageViewNode,
+                dateRange: { date_from: '-7d' },
+            }
+            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+
+            expect(result).toEqual('Recent page views with performance data.')
+        })
+    })
+})

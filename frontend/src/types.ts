@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { InsightQueryNode, Node } from './queries/schema'
+import { InsightQueryNode, Node, QueryContext } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -880,6 +880,7 @@ export interface EventType {
     elements_chain?: string | null
     /** Used in session recording events list */
     colonTimestamp?: string
+    uuid?: string
 }
 
 export interface RecordingTimeMixinType {
@@ -1232,7 +1233,7 @@ export interface InsightModel extends Cacheable {
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
     filters: Partial<FilterType>
-    query?: Node
+    query?: Node | null
 }
 
 export interface DashboardType {
@@ -1266,6 +1267,7 @@ export interface DashboardTemplateType {
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
+    scope?: 'team' | 'global'
 }
 
 export interface MonacoMarker {
@@ -1459,7 +1461,7 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
-    QUERY = 'QUERY',
+    JSON = 'JSON',
     SQL = 'SQL',
 }
 
@@ -1925,6 +1927,8 @@ export interface ChartParams {
     inCardView?: boolean
     inSharedMode?: boolean
     showPersonsModal?: boolean
+    /** allows overriding by queries, e.g. setting empty state text*/
+    context?: QueryContext
 }
 
 export interface HistogramGraphDatum {
@@ -2244,14 +2248,25 @@ interface BaseExperimentResults {
     variants: ExperimentVariant[]
 }
 
-export interface TrendsExperimentResults extends BaseExperimentResults {
+export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
 }
 
-export interface FunnelExperimentResults extends BaseExperimentResults {
+export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
+}
+
+export interface TrendsExperimentResults {
+    result: _TrendsExperimentResults
+    is_cached?: boolean
+    last_refresh?: string | null
+}
+export interface FunnelExperimentResults {
+    result: _FunnelExperimentResults
+    is_cached?: boolean
+    last_refresh?: string | null
 }
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults

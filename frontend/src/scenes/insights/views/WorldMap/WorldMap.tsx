@@ -104,7 +104,6 @@ interface WorldMapSVGProps extends ChartParams {
     updateTooltipCoordinates: (x: number, y: number) => void
 }
 
-// eslint-disable-next-line react/display-name
 const WorldMapSVG = React.memo(
     React.forwardRef<SVGSVGElement, WorldMapSVGProps>(
         (

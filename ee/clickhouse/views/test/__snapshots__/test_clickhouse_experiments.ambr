@@ -1,6 +1,6 @@
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results
   '
-  /* user_id:51 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:53 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -140,7 +140,7 @@
 ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones
   '
-  /* user_id:52 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:54 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -280,7 +280,7 @@
 ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
   '
-  /* user_id:53 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:56 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -420,7 +420,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results
   '
-  /* user_id:54 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:57 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -619,7 +619,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
   '
-  /* user_id:55 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:58 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -762,7 +762,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone
   '
-  /* user_id:57 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:60 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events

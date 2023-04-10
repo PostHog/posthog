@@ -5,11 +5,12 @@ from posthog.models import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.util import get_active_user_params
+from posthog.queries.util import get_person_properties_mode
+from posthog.utils import PersonOnEventsMode
 
 
 class TrendsEventQueryBase(EventQuery):
@@ -30,10 +31,8 @@ class TrendsEventQueryBase(EventQuery):
 
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups),
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
+            person_properties_mode=get_person_properties_mode(self._team),
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
         )
 
         self.params.update(prop_params)
@@ -56,7 +55,7 @@ class TrendsEventQueryBase(EventQuery):
         query = f"""
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_distinct_id_query()}
+            {self._get_person_ids_query()}
             {person_query}
             {groups_query}
             {session_query}
@@ -70,7 +69,7 @@ class TrendsEventQueryBase(EventQuery):
         return query, self.params
 
     def _determine_should_join_persons(self) -> None:
-        if self._using_person_on_events:
+        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
             self._should_join_distinct_ids = False
             self._should_join_persons = False
         else:
@@ -86,7 +85,11 @@ class TrendsEventQueryBase(EventQuery):
     def _get_not_null_actor_condition(self) -> str:
         if self._entity.math_group_type_index is None:
             # If aggregating by person, exclude events with null/zero person IDs
-            return f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
+            return (
+                f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
+                if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+                else ""
+            )
         else:
             # If aggregating by group, exclude events that aren't associated with a group
             return f"""AND "$group_{self._entity.math_group_type_index}" != ''"""
@@ -126,9 +129,7 @@ class TrendsEventQueryBase(EventQuery):
             allowed_entities=[self._entity],
             team_id=self._team_id,
             table_name=self.EVENT_TABLE_ALIAS,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=get_person_properties_mode(self._team),
             hogql_context=self._filter.hogql_context,
         )
 

@@ -4,6 +4,7 @@ export function HogIcon({ style }: { style?: CSSProperties }): JSX.Element {
     return (
         <svg
             className="hog-icon"
+            // eslint-disable-next-line react/forbid-dom-props
             style={style}
             fill="none"
             width="206"

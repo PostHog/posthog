@@ -7,8 +7,8 @@
     &--dashed {
         background: repeating-linear-gradient(
             to right,
-            currentColor,
-            currentColor 4px,
+            var(--border),
+            var(--border) 4px,
             transparent 4px,
             transparent 8px
         );
@@ -30,8 +30,8 @@
         &.LemonDivider--dashed {
             background: repeating-linear-gradient(
                 to bottom,
-                currentColor,
-                currentColor 4px,
+                var(--border),
+                var(--border) 4px,
                 transparent 4px,
                 transparent 8px
             );

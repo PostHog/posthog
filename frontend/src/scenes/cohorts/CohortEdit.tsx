@@ -26,19 +26,18 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { pluralize } from 'lib/utils'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
-    const { deleteCohort, setOuterGroupsType } = useActions(logic)
-    const { cohort, cohortLoading, cohortMissing } = useValues(logic)
+    const { deleteCohort, setOuterGroupsType, setQuery } = useActions(logic)
+    const { cohort, cohortLoading, cohortMissing, query } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -223,17 +222,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     minutes.
                                 </div>
                             ) : featureDataExploration ? (
-                                <Query
-                                    query={{
-                                        kind: NodeKind.DataTableNode,
-                                        source: {
-                                            kind: NodeKind.PersonsNode,
-                                            cohort: cohort.id,
-                                        },
-                                        columns: undefined,
-                                        full: true,
-                                    }}
-                                />
+                                <Query query={query} setQuery={setQuery} />
                             ) : (
                                 <Persons cohort={cohort.id} />
                             )}

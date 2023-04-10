@@ -369,6 +369,9 @@ class QueryMatchingTest:
             query,
         )
 
+        # replace Savepoint numbers
+        query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
+
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run
@@ -377,7 +380,10 @@ class QueryMatchingTest:
 
 @contextmanager
 def snapshot_postgres_queries_context(
-    testcase: QueryMatchingTest, replace_all_numbers: bool = True, using: str = "default"
+    testcase: QueryMatchingTest,
+    replace_all_numbers: bool = True,
+    using: str = "default",
+    capture_all_queries: bool = False,
 ):
     """
     Captures and snapshots select queries from test using `syrupy` library.
@@ -410,7 +416,9 @@ def snapshot_postgres_queries_context(
 
     for query_with_time in context.captured_queries:
         query = query_with_time["sql"]
-        if query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
+        if capture_all_queries:
+            testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
+        elif query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
@@ -763,3 +771,28 @@ def _create_insight(
     insight = Insight.objects.create(team=team, filters=insight_filters)
     dashboard_tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
     return insight, dashboard, dashboard_tile
+
+
+# Populate the person_overrides table with an override from the person_id
+# for a person with a given distinct ID `distinct_id_from` to a given distinct ID
+# `distinct_id_to` such that with person_on_events_mode set to V2_ENABLED these
+# persons will both count as 1
+def create_person_id_override_by_distinct_id(distinct_id_from: str, distinct_id_to: str, team_id: int):
+    person_ids_result = sync_execute(
+        f"""
+        SELECT distinct_id, person_id
+        FROM events
+        WHERE team_id = {team_id} AND distinct_id IN ('{distinct_id_from}', '{distinct_id_to}')
+        GROUP BY distinct_id, person_id
+        ORDER BY if(distinct_id = '{distinct_id_from}', -1, 0)
+    """
+    )
+
+    person_id_from, person_id_to = [row[1] for row in person_ids_result]
+
+    sync_execute(
+        f"""
+        INSERT INTO person_overrides (team_id, old_person_id, override_person_id)
+        VALUES ({team_id}, '{person_id_from}', '{person_id_to}')
+    """
+    )
