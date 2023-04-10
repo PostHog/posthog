@@ -5,14 +5,14 @@ from typing import Dict, List, Tuple
 import structlog
 from django.utils import timezone
 
-from posthog.models.async_deletion import AsyncDeletion
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 
 logger = structlog.get_logger(__name__)
 
 
 class AsyncDeletionProcess(ABC):
     CLICKHOUSE_CHUNK_SIZE = 1000
-    DELETION_TYPES = []
+    DELETION_TYPES: List[DeletionType] = []
 
     def __init__(self) -> None:
         super().__init__()
