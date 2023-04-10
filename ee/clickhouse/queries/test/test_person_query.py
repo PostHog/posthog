@@ -202,3 +202,15 @@ def test_person_query_with_entity_filters_and_property_group_filters(testdata, t
 
     assert person_query(team, filter, entity=filter.entities[0]) == snapshot
     assert run_query(team, filter, entity=filter.entities[0]) == {"rows": 2, "columns": 2}
+
+
+def test_person_query_with_updated_after(testdata, team, snapshot):
+    filter = Filter(data={"updated_after": "2023-04-04"})
+
+    assert person_query(team, filter) == snapshot
+    assert run_query(team, filter) == {"rows": 3, "columns": 1}
+
+    filter = Filter(data={"updated_after": "2055-04-04"})
+
+    assert person_query(team, filter) == snapshot
+    assert run_query(team, filter) == {"rows": 0}

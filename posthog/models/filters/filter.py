@@ -31,6 +31,7 @@ from posthog.models.filters.mixins.common import (
     SelectorMixin,
     ShownAsMixin,
     SmoothingIntervalsMixin,
+    UpdatedAfterMixin,
 )
 from posthog.models.filters.mixins.funnel import (
     FunnelCorrelationActorsMixin,
@@ -89,6 +90,7 @@ class Filter(
     SearchMixin,
     DistinctIdMixin,
     EmailMixin,
+    UpdatedAfterMixin,
     ClientQueryIdMixin,
     SampleMixin,
     BaseFilter,
