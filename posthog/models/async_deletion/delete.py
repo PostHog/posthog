@@ -11,12 +11,16 @@ logger = structlog.get_logger(__name__)
 
 
 class AsyncDeletionProcess(ABC):
+    CLICKHOUSE_CHUNK_SIZE = 1000
+    
     def __init__(self) -> None:
         super().__init__()
 
     def run(self):
         queued_deletions = list(AsyncDeletion.objects.filter(delete_verified_at__isnull=True))
-        self.process(queued_deletions)
+        for i in range(0, len(queued_deletions), self.CLICKHOUSE_CHUNK_SIZE):
+            chunk = queued_deletions[i: i + self.CLICKHOUSE_CHUNK_SIZE]
+            self.process(chunk)
 
     def mark_deletions_done(self):
         """
@@ -26,7 +30,9 @@ class AsyncDeletionProcess(ABC):
         unverified = self._fetch_unverified_deletions_grouped()
 
         for (deletion_type, _), async_deletions in unverified.items():
-            to_verify.extend(self._verify_by_group(deletion_type, async_deletions))
+            for i in range(0, len(async_deletions), self.CLICKHOUSE_CHUNK_SIZE):
+                chunk = async_deletions[i: i + self.CLICKHOUSE_CHUNK_SIZE]
+                to_verify.extend(self._verify_by_group(deletion_type, chunk))
 
         if len(to_verify) > 0:
             AsyncDeletion.objects.filter(pk__in=[row.pk for row in to_verify]).update(delete_verified_at=timezone.now())
