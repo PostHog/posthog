@@ -1,5 +1,6 @@
 import { urls } from 'scenes/urls'
 import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProvider } from '../types'
+import { standardAccessories } from './components/HedgehogBuddy/sprites/sprites'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -147,6 +148,7 @@ export const FEATURE_FLAGS = {
     HOGQL: 'hogql', // owner: #team-product-analytics
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
     ARUBUG: 'arubug', // owner: #team-arubug
+    HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

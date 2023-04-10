@@ -6,12 +6,22 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useActions, useValues } from 'kea'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { SHADOW_HEIGHT, SPRITE_SHEET_WIDTH, SPRITE_SIZE, standardAnimations, standardAccessories} from './sprites/sprites'
-import './HedgehogBuddy.scss'
+import {
+    SHADOW_HEIGHT,
+    SPRITE_SHEET_WIDTH,
+    SPRITE_SIZE,
+    standardAnimations,
+    standardAccessories,
+    AccessoryInfo,
+    accessoryGroups,
+} from './sprites/sprites'
+import { FlaggedFeature } from '../FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { HedgehogBuddyAccessory } from './components/AccessoryButton'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20
-const FPS = 24
+const FPS = 24 // 24
 const GRAVITY_PIXELS = 10
 const MAX_JUMP_COUNT = 2
 const COLLISION_DETECTION_DISTANCE_INCREMENT = SPRITE_SIZE / 2
@@ -39,6 +49,7 @@ export class HedgehogActor {
     animation = this.animations[this.animationName]
     animationFrame = 0
     animationIterations: number | null = null
+    accessories: AccessoryInfo[] = [standardAccessories.beret, standardAccessories.sunshine]
 
     constructor() {
         this.setAnimation('fall')
@@ -52,8 +63,8 @@ export class HedgehogActor {
             }
 
             if (['arrowdown', 's'].includes(key)) {
-                if (this.animationName !== 'spin') {
-                    this.setAnimation('spin')
+                if (this.animationName !== 'wave') {
+                    this.setAnimation('wave')
                 }
                 this.animationIterations = null
             }
@@ -271,6 +282,7 @@ export class HedgehogActor {
     }
 
     render({ onClick }: { onClick: () => void }): JSX.Element {
+        const accessoryPosition = this.animation.accessoryPositions?.[this.animationFrame]
         return (
             <div
                 id="hedgehog"
@@ -320,6 +332,24 @@ export class HedgehogActor {
                         }px`,
                     }}
                 />
+                {this.accessories.map((accessory, index) => (
+                    <div
+                        key={index}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            imageRendering: 'pixelated',
+                            width: SPRITE_SIZE,
+                            height: SPRITE_SIZE,
+                            backgroundImage: `url(${accessory.img})`,
+                            transform: accessoryPosition
+                                ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
+                                : undefined,
+                        }}
+                    />
+                ))}
 
                 {/* We need to preload the images to avoid flashing on the first animation
                     The images are small and this is the best way I could find...  */}
@@ -363,6 +393,7 @@ export function HedgehogBuddy({
     }
 
     const actor = actorRef.current
+    const { accessories } = useValues(hedgehogbuddyLogic)
 
     useEffect(() => {
         return actor.setupKeyboardListeners()
@@ -370,8 +401,11 @@ export function HedgehogBuddy({
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [_, setTimerLoop] = useState(0)
-
     const [popoverVisible, setPopoverVisible] = useState(false)
+
+    useEffect(() => {
+        actor.accessories = accessories
+    }, [accessories])
 
     useEffect(() => {
         let timer: any = null
@@ -415,49 +449,55 @@ export function HedgehogBuddy({
         <Popover
             onClickOutside={() => {
                 setPopoverVisible(false)
-                // setAnimationName('fall')
             }}
             visible={popoverVisible}
             placement="top"
             overlay={
                 popoverOverlay || (
-                    <div className="HedgehoygBuddyPopover p-2">
-                        <h3>Hello!</h3>
+                    <div className="HedgehoygBuddyPopover p-2 max-w-140">
+                        <h3>Hi, I'm Max!</h3>
                         <p>
                             Don't mind me. I'm just here to keep you company.
                             <br />
-                            You can move me around by clicking and dragging.
+                            You can move me around by clicking and dragging or control me with WASD / arrow keys. See if
+                            you can unlock all my accessories the more you use PostHog...
                         </p>
 
-                        <div className="flex gap-2 my-2">
-                            {Object.keys(standardAccessories).map(
-                                (x) => (
-                                    <LemonButton
-                                        key={x}
-                                        type="secondary"
-                                        size="small"
-                                        onClick={() => actor.setAnimation(x)}
-                                    >
-                                        {capitalizeFirstLetter(x)}
-                                     <img src={standardAccessories[x].img}/>
-                                    </LemonButton>
-                                )
-                            )}
+                        {accessoryGroups.map((group) => (
+                            <div key={group}>
+                                <h4>{capitalizeFirstLetter(group)}</h4>
 
-                        {/* <div className="flex gap-2 my-2">
-                            {['jump', 'sign', 'spin', 'wave', 'walk', 'heatmaps', 'flag', 'inspect', 'phone'].map(
-                                (x) => (
-                                    <LemonButton
-                                        key={x}
-                                        type="secondary"
-                                        size="small"
-                                        onClick={() => actor.setAnimation(x)}
-                                    >
-                                        {capitalizeFirstLetter(x)}
-                                    </LemonButton>
-                                )
-                            )} */}
-                        </div>
+                                <div className="flex gap-2 my-2 overflow-y-auto">
+                                    {Object.keys(standardAccessories)
+                                        .filter((acc) => standardAccessories[acc].group === group)
+                                        .map((acc) => (
+                                            <HedgehogBuddyAccessory
+                                                key={acc}
+                                                accessoryKey={acc}
+                                                accessory={standardAccessories[acc]}
+                                            />
+                                        ))}
+                                </div>
+                            </div>
+                        ))}
+
+                        <FlaggedFeature flag={FEATURE_FLAGS.HEDGEHOG_MODE_DEBUG} match>
+                            <>
+                                <LemonDivider />
+                                <div className="flex gap-2 my-2 max-w-100 overflow-y-auto">
+                                    {Object.keys(standardAnimations).map((x) => (
+                                        <LemonButton
+                                            key={x}
+                                            type="secondary"
+                                            size="small"
+                                            onClick={() => actor.setAnimation(x)}
+                                        >
+                                            {capitalizeFirstLetter(x)}
+                                        </LemonButton>
+                                    ))}
+                                </div>
+                            </>
+                        </FlaggedFeature>
                         <LemonDivider />
                         <div className="flex justify-end gap-2">
                             <LemonButton type="secondary" status="danger" onClick={() => disappear()}>
