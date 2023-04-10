@@ -2342,6 +2342,7 @@ export enum HelpType {
     Email = 'email',
     Docs = 'docs',
     Updates = 'updates',
+    SupportForm = 'support_form',
 }
 
 export interface VersionType {

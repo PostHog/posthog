@@ -23,6 +23,8 @@ import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppProm
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { supportLogic } from '../Support/supportLogic'
+import SupportForm from '../Support/SupportForm'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -88,6 +90,7 @@ export function HelpButton({
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { toggleActivationSideBar } = useActions(navigationLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <>
@@ -140,13 +143,12 @@ export function HelpButton({
                             status="stealth"
                             fullWidth
                             onClick={() => {
-                                reportHelpButtonUsed(HelpType.Email)
+                                reportHelpButtonUsed(HelpType.SupportForm)
+                                openSupportForm()
                                 hideHelp()
                             }}
-                            to={'mailto:hey@posthog.com'}
-                            targetBlank
                         >
-                            Send us an email
+                            Bug / Feedback / Question
                         </LemonButton>
                         {!contactOnly && (
                             <LemonButton
@@ -219,6 +221,7 @@ export function HelpButton({
                 </div>
             </Popover>
             <HedgehogBuddyWithLogic />
+            <SupportForm />
         </>
     )
 }
