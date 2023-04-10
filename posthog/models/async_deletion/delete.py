@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 import structlog
 from django.utils import timezone
 
+from posthog.models import DeletionType
 from posthog.models.async_deletion import AsyncDeletion
 
 logger = structlog.get_logger(__name__)
@@ -12,12 +13,16 @@ logger = structlog.get_logger(__name__)
 
 class AsyncDeletionProcess(ABC):
     CLICKHOUSE_CHUNK_SIZE = 1000
-    
+    DELETION_TYPES = []
+
     def __init__(self) -> None:
         super().__init__()
 
     def run(self):
-        queued_deletions = list(AsyncDeletion.objects.filter(delete_verified_at__isnull=True))
+        queued_deletions = list(AsyncDeletion.objects.filter(
+            delete_verified_at__isnull=True,
+            deletion_type__in=self.DELETION_TYPES
+        ))
         for i in range(0, len(queued_deletions), self.CLICKHOUSE_CHUNK_SIZE):
             chunk = queued_deletions[i: i + self.CLICKHOUSE_CHUNK_SIZE]
             self.process(chunk)
@@ -43,7 +48,11 @@ class AsyncDeletionProcess(ABC):
 
     def _fetch_unverified_deletions_grouped(self):
         result = defaultdict(list)
-        for item in AsyncDeletion.objects.filter(delete_verified_at__isnull=True):
+        items = AsyncDeletion.objects.filter(
+            delete_verified_at__isnull=True,
+            deletion_type__in=self.DELETION_TYPES
+        )
+        for item in items:
             key = (
                 item.deletion_type,
                 item.group_type_index,
