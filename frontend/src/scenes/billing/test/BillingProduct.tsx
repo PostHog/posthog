@@ -112,7 +112,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 icon={<IconPlus />}
                                 size="small"
                                 to={`/api/billing-v2/activation?products=${addon.type}:${
-                                    getCurrentAndUpgradePlans(addon).upgradePlan.plan_key
+                                    getCurrentAndUpgradePlans(addon).upgradePlan?.plan_key
                                 }`}
                                 disableClientSideRouting
                             >
@@ -304,7 +304,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     </div>
                 </div>
-                <div className="p-8 border-b border-border">
+                {/* <div className="p-8 border-b border-border">
                     <ul className="space-y-2">
                         <li>
                             <IconCheckmark className="text-success text-lg" /> A great thing about this product
@@ -319,7 +319,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             <IconCheckmark className="text-success text-lg" /> Another great thing about this product
                         </li>
                     </ul>
-                </div>
+                </div> */}
                 <div className="px-8">
                     {product.percentage_usage > 1 ? (
                         <AlertMessage type={'error'}>
