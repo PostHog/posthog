@@ -1060,15 +1060,15 @@ export interface BillingV2TierType {
 
 export interface BillingProductV2Type {
     type: string
-    usage_key: string
+    usage_key?: string
     name: string
     description: string
-    price_description: string | null
-    image_url: string | null
+    price_description?: string | null
+    image_url?: string | null
     docs_url: string | null
-    free_allocation: number
+    free_allocation?: number
     subscribed: boolean
-    tiers: BillingV2TierType[] | null
+    tiers?: BillingV2TierType[] | null
     tiered: boolean
     current_usage: number
     projected_usage: number | null
@@ -1081,6 +1081,7 @@ export interface BillingProductV2Type {
     unit: string
     unit_amount_usd: string | null
     plans: BillingV2PlanType[]
+    contact_support: boolean
     feature_groups: {
         // deprecated, remove after removing the billing plans table
         group: string

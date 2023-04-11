@@ -30,7 +30,7 @@ import {
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { InsightLegendButtonDataExploration } from 'lib/components/InsightLegend/InsightLegendButton'
-// import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
 import { FunnelStepsTableDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsTable'
@@ -61,11 +61,7 @@ export function InsightContainer({
     insightMode?: ItemMode
     context?: QueryContext
 }): JSX.Element {
-    const {
-        insightProps,
-        canEditInsight,
-        // isUsingSessionAnalysis,
-    } = useValues(insightLogic)
+    const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -80,6 +76,7 @@ export function InsightContainer({
         trendsFilter,
         funnelsFilter,
         supportsDisplay,
+        isUsingSessionAnalysis,
         insightFilter,
         insightDataLoading,
         erroredQueryId,
@@ -192,7 +189,7 @@ export function InsightContainer({
 
     return (
         <>
-            {/* {isUsingSessionAnalysis ? (
+            {isUsingSessionAnalysis ? (
                 <div className="mb-4">
                     <AlertMessage type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the
@@ -200,7 +197,7 @@ export function InsightContainer({
                         <a href="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</a>
                     </AlertMessage>
                 </div>
-            ) : null} */}
+            ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
                 title={disableHeader ? null : <InsightDisplayConfig disableTable={!!disableTable} />}
