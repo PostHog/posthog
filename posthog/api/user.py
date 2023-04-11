@@ -353,7 +353,6 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         if user:
             EmailVerifier.create_token_and_send_email_verification(user)
 
-        # TODO (charlotte): Limit number of requests for verification emails
         return Response({"success": True})
 
 
