@@ -267,7 +267,8 @@ class PasswordResetSerializer(serializers.Serializer):
             cache.incr(cache_key, 1)
         else:
             raise serializers.ValidationError(
-                "Too many password reset requests. Please try again in 24 hours.", code="email_too_many_requests"
+                "Too many password reset requests. Please try again in 24 hours.",
+                code="email_too_many_password_reset_requests",
             )
 
         if user:

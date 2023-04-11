@@ -11,6 +11,7 @@ import requests
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
@@ -335,10 +336,24 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
             user = User.objects.filter(is_active=True).get(uuid=uuid)
         except User.DoesNotExist:
             user = None
+
+        cache_key = f"num_email_verification_requests{user.id}"
+
+        num_requests = cache.get(cache_key)
+        if num_requests is None:
+            cache.set(cache_key, 1, 60 * 60 * 24)  # number of seconds in 24 hours
+        elif num_requests < 3:  # limit the number of requests to 3 in 24 hours
+            cache.incr(cache_key, 1)
+        else:
+            raise serializers.ValidationError(
+                "Too many email verification requests. Please try again in 24 hours.",
+                code="email_too_many_verification_requests",
+            )
+
         if user:
             EmailVerifier.create_token_and_send_email_verification(user)
 
-        # TODO: Limit number of requests for verification emails
+        # TODO (charlotte): Limit number of requests for verification emails
         return Response({"success": True})
 
 
