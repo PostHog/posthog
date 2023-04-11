@@ -51,7 +51,7 @@ jobs:
                   tags: |
                       type=raw,value=cache
 
-            - uses: docker/build-push-action@@v4
+            - uses: docker/build-push-action@v4
               with:
                   context: cdp
                   file: cdp/Dockerfile
