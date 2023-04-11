@@ -1083,7 +1083,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        cohort1.calculate_people_ch(pending_version=5)
 
         cohort1.pending_version = 5
         cohort1.version = 5
