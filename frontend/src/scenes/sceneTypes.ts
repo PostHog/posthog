@@ -34,7 +34,6 @@ export enum Scene {
     FeatureFlag = 'FeatureFlag',
     Features = 'Features',
     Feature = 'Feature',
-    FeaturePreview = 'FeaturePreview',
     OrganizationSettings = 'OrganizationSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',

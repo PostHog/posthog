@@ -84,7 +84,6 @@ export const urls = {
     experiments: (): string => '/experiments',
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-    featurePreview: (): string => '/feature-preview',
     features: (): string => '/features',
     feature: (id: ':id' | 'new' | string): string => `/features/${id}`,
     annotations: (): string => '/annotations',
