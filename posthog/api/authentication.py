@@ -258,20 +258,20 @@ class PasswordResetSerializer(serializers.Serializer):
         except User.DoesNotExist:
             user = None
 
-        cache_key = f"num_password_reset_requests{user.id}"
-
-        num_requests = cache.get(cache_key)
-        if num_requests is None:
-            cache.set(cache_key, 1, 60 * 60 * 24)  # number of seconds in 24 hours
-        elif num_requests < 3:  # limit the number of requests to 3 in 24 hours
-            cache.incr(cache_key, 1)
-        else:
-            raise serializers.ValidationError(
-                "Too many password reset requests. Please try again in 24 hours.",
-                code="email_too_many_password_reset_requests",
-            )
-
         if user:
+            # limit the number of requests to 3 in 24 hours
+            cache_key = f"num_password_reset_requests{user.id}"
+            num_requests = cache.get(cache_key)
+            if num_requests is None:
+                cache.set(cache_key, 1, 60 * 60 * 24)  # number of seconds in 24 hours
+            elif num_requests < 3:
+                cache.incr(cache_key, 1)
+            else:
+                raise serializers.ValidationError(
+                    "Too many password reset requests. Please try again in 24 hours.",
+                    code="email_too_many_password_reset_requests",
+                )
+
             send_password_reset(user.id)
 
         return True
