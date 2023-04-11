@@ -60,6 +60,7 @@ jobs:
                   labels: ${{ steps.meta.outputs.labels }}
                   cache-from: type=registry,ref=${{ steps.meta-cache.outputs.tags }}
                   cache-to: type=registry,ref=${{ steps.meta-cache.outputs.tags }},mode=max
+
         # Output the image tags so that we can use them in the next job.
         outputs:
             tags: ${{ steps.meta.outputs.tags }}
@@ -110,13 +111,13 @@ jobs:
                   done
 
                   # Create a shell alias for the docker image we just built, using the tags output.
-                  alias cdp='docker run -e DATABASE_URL=postgres://posthog:posthog@localhost5432/posthog --rm --network=host ${{ needs.build.outputs.tags }}'
+                  CDP_RUN="docker run -e DATABASE_URL=postgres://posthog:posthog@localhost5432/posthog --rm --network=host ${{ needs.build.outputs.tags }}"
 
                   # Run the migrations.
-                  cdp sqlx migrate run
+                  $CDP_RUN sqlx migrate run
 
                   # Start the CDP service.
-                  cdp &> /tmp/logs/cdp.txt &
+                  $CDP_RUN &> /tmp/logs/cdp.txt &
 
                   # Run the functional tests.
                   pnpm jest
