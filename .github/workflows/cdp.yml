@@ -33,7 +33,7 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
-            - uses: docker/metadata-action@v3
+            - uses: docker/metadata-action@v4
               id: meta
               with:
                   images: ghcr.io/${{ github.repository }}/cdp
@@ -44,14 +44,14 @@ jobs:
             # ${{ github.repository }} directly because the repository
             # organization name is has upper case characters, which are not
             # allowed in docker image names.
-            - uses: docker/metadata-action@v3
+            - uses: docker/metadata-action@v4
               id: meta-cache
               with:
                   images: ghcr.io/${{ github.repository }}/cdp
                   tags: |
                       type=raw,value=cache
 
-            - uses: docker/build-push-action@v2
+            - uses: docker/build-push-action@@v4
               with:
                   context: cdp
                   file: cdp/Dockerfile
