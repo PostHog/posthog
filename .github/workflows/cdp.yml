@@ -32,12 +32,24 @@ jobs:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
+
             - uses: docker/metadata-action@v3
               id: meta
               with:
                   images: ghcr.io/${{ github.repository }}/cdp
                   flavor: |
                       latest=${{ github.ref == 'refs/heads/master' }}
+
+            # Make the image tags used for docker cache. We use this rather than
+            # ${{ github.repository }} directly because the repository
+            # organization name is has upper case characters, which are not
+            # allowed in docker image names.
+            - uses: docker/metadata-action@v3
+              id: meta-cache
+              with:
+                  images: ghcr.io/${{ github.repository }}/cdp
+                  tags: |
+                      type=raw,value=cache
 
             - uses: docker/build-push-action@v2
               with:
@@ -46,8 +58,8 @@ jobs:
                   push: true
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
-                  cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cdp:cache
-                  cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/cdp:cache,mode=max
+                  cache-from: type=registry,ref=${{ steps.meta-cache.outputs.tags }}
+                  cache-to: type=registry,ref=${{ steps.meta-cache.outputs.tags }},mode=max
         # Output the image tags so that we can use them in the next job.
         outputs:
             tags: ${{ steps.meta.outputs.tags }}
