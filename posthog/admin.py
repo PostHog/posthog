@@ -129,7 +129,7 @@ class UserAdmin(DjangoUserAdmin):
 
     inlines = [OrganizationMemberInline]
     fieldsets = (
-        (None, {"fields": ("email", "password", "current_organization")}),
+        (None, {"fields": ("email", "password", "current_organization", "is_email_verified", "pending_email")}),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
         (_("Permissions"), {"fields": ("is_active", "is_staff")}),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),

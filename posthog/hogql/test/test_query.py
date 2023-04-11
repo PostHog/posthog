@@ -91,7 +91,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', '') FROM person WHERE and(equals(person.team_id, {self.team.id}), equals(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_1)s), '^\"|\"$', ''), %(hogql_val_2)s)) LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
+                f"SELECT DISTINCT persons.properties___sneaky_mail FROM (SELECT argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), person.version) AS properties___sneaky_mail, argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_1)s), '^\"|\"$', ''), person.version) AS properties___random_uuid, person.id FROM person WHERE equals(person.team_id, {self.team.id}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons WHERE equals(persons.properties___random_uuid, %(hogql_val_2)s) LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
             )
             self.assertEqual(
                 response.hogql,
@@ -105,7 +105,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT DISTINCT person_distinct_id2.person_id, person_distinct_id2.distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.id}) LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
+                f"SELECT DISTINCT person_distinct_ids.person_id, person_distinct_ids.distinct_id FROM (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.id}) GROUP BY person_distinct_id2.distinct_id HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS person_distinct_ids LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
             )
             self.assertEqual(
                 response.hogql,
@@ -150,7 +150,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     INNER JOIN (
                         SELECT distinct_id,
                                argMax(person_id, version) as person_id
-                          FROM person_distinct_ids
+                          FROM raw_person_distinct_ids
                          GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0
                        ) AS pdi
@@ -169,7 +169,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT event, timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_id, version) AS person_id FROM person_distinct_ids GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) LIMIT 100",
+                "SELECT event, timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_id, version) AS person_id FROM raw_person_distinct_ids GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) LIMIT 100",
             )
             self.assertTrue(len(response.results) > 0)
 
@@ -643,3 +643,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"SELECT e.event, s.session_id FROM session_recording_events AS s LEFT JOIN events AS e ON equals(replaceRegexpAll(JSONExtractRaw(e.properties, %(hogql_val_0)s), '^\"|\"$', ''), s.session_id) WHERE and(equals(e.team_id, {self.team.pk}), equals(s.team_id, {self.team.pk}), isNotNull(replaceRegexpAll(JSONExtractRaw(e.properties, %(hogql_val_1)s), '^\"|\"$', ''))) LIMIT 10 SETTINGS readonly=1, max_execution_time=60",
             )
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
+
+    def test_hogql_lambdas(self):
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
+            response = execute_hogql_query(
+                "SELECT arrayMap(x -> x * 2, [1, 2, 3]), 1",
+                team=self.team,
+            )
+            self.assertEqual(response.results, [([2, 4, 6], 1)])
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT arrayMap(x -> multiply(x, 2), [1, 2, 3]), 1 LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
+            )
+
+    def test_hogql_arrays(self):
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
+            response = execute_hogql_query(
+                "SELECT [1, 2, 3], [10,11,12][1]",
+                team=self.team,
+            )
+            # Following SQL tradition, ClickHouse array indexes start at 1, not 0.
+            self.assertEqual(response.results, [([1, 2, 3], 10)])
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT [1, 2, 3], [10, 11, 12][1] LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
+            )

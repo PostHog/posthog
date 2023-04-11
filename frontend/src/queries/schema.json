@@ -1369,11 +1369,48 @@
                     "type": "string"
                 },
                 "response": {
-                    "description": "Cached query response",
-                    "type": "object"
+                    "$ref": "#/definitions/DatabaseSchemaQueryResponse",
+                    "description": "Cached query response"
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "DatabaseSchemaQueryResponse": {
+            "additionalProperties": {
+                "items": {
+                    "$ref": "#/definitions/DatabaseSchemaQueryResponseField"
+                },
+                "type": "array"
+            },
+            "type": "object"
+        },
+        "DatabaseSchemaQueryResponseField": {
+            "additionalProperties": false,
+            "properties": {
+                "chain": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "fields": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "table": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "type"],
             "type": "object"
         },
         "DateRange": {
