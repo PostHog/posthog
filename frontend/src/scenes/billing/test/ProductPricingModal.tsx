@@ -22,8 +22,8 @@ export const ProductPricingModal = ({
     if (!product || !tiers) {
         return null
     }
-    const isFirstTierFree = parseFloat(tiers[0].unit_amount_usd) === 0
-    const numberOfSigFigs = tiers.map((tier) => tier.unit_amount_usd.split('.')[1]?.length).sort((a, b) => b - a)[0]
+    const isFirstTierFree = parseFloat(tiers[0]?.unit_amount_usd) === 0
+    const numberOfSigFigs = tiers.map((tier) => tier.unit_amount_usd?.split('.')[1]?.length).sort((a, b) => b - a)[0]
 
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>

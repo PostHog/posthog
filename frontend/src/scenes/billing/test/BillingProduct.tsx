@@ -1,4 +1,4 @@
-import { LemonSelectOptions, LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonSelectOptions, LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -96,6 +96,10 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 }
                             />
                         </>
+                    ) : addon.included ? (
+                        <LemonTag type="purple" icon={<IconCheckmark />}>
+                            Included with plan
+                        </LemonTag>
                     ) : (
                         <>
                             <LemonButton
@@ -242,7 +246,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             <h3 className="font-bold mb-0">{product.name}</h3>
                             <div>{product.description}</div>
                         </div>
-                        <div className="flex grow justify-end gap-x-2">
+                        <div className="flex grow justify-end gap-x-2 items-center">
                             {product.docs_url && (
                                 <Tooltip title="Read the docs">
                                     <LemonButton
@@ -254,7 +258,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     />
                                 </Tooltip>
                             )}
-                            {!product.subscribed ? (
+                            {!product.subscribed && !product.contact_support ? (
                                 <>
                                     <LemonButton
                                         type="secondary"
@@ -275,6 +279,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         }}
                                     >
                                         Upgrade
+                                    </LemonButton>
+                                </>
+                            ) : product.contact_support ? (
+                                <>
+                                    {product.subscribed && <p className="m-0">Need to manage your plan?</p>}
+                                    <LemonButton
+                                        type="primary"
+                                        to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request"
+                                    >
+                                        Contact support
                                     </LemonButton>
                                 </>
                             ) : (
@@ -328,41 +342,83 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </AlertMessage>
                     ) : null}
                     <div className="flex w-full items-center gap-x-8">
-                        <LemonButton
-                            icon={showTierBreakdown ? <IconExpandMore /> : <IconChevronRight />}
-                            status="stealth"
-                            onClick={() => setShowTierBreakdown(!showTierBreakdown)}
-                        />
-                        <div className="grow">{product.tiered && <BillingGauge items={billingGaugeItems} />}</div>
-                        {product.current_amount_usd ? (
-                            <div className="flex justify-end gap-8 flex-wrap items-end">
-                                <Tooltip
-                                    title={`The current amount you have been billed for this ${billing?.billing_period?.interval} so far.`}
-                                    className="flex flex-col items-center"
-                                >
-                                    <div className="font-bold text-3xl leading-7">${product.current_amount_usd}</div>
-                                    <span className="text-xs text-muted">
-                                        {capitalizeFirstLetter(billing?.billing_period?.interval || '')}-to-date
-                                    </span>
-                                </Tooltip>
-                                {product.tiered && product.tiers && (
-                                    <Tooltip
-                                        title={
-                                            'This is roughly calculated based on your current bill and the remaining time left in this billing period.'
-                                        }
-                                        className="flex flex-col items-center justify-end"
-                                    >
-                                        <div className="font-bold text-muted text-lg leading-5">
-                                            $
-                                            {product.projected_usage
-                                                ? convertUsageToAmount(product.projected_usage, product.tiers)
-                                                : '0.00'}
+                        {product.contact_support && !product.subscribed ? (
+                            <>
+                                <p className="m-0 p-8">
+                                    Need additional platform and support (aka enterprise) features?{' '}
+                                    <Link to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request">
+                                        Get in touch
+                                    </Link>{' '}
+                                    for a quick chat.
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                {product.tiered ? (
+                                    <>
+                                        {product.subscribed && (
+                                            <LemonButton
+                                                icon={showTierBreakdown ? <IconExpandMore /> : <IconChevronRight />}
+                                                status="stealth"
+                                                onClick={() => setShowTierBreakdown(!showTierBreakdown)}
+                                            />
+                                        )}
+                                        <div className="grow">
+                                            <BillingGauge items={billingGaugeItems} />
                                         </div>
-                                        <span className="text-xs text-muted">Predicted</span>
-                                    </Tooltip>
+                                        {product.current_amount_usd ? (
+                                            <div className="flex justify-end gap-8 flex-wrap items-end">
+                                                <Tooltip
+                                                    title={`The current amount you have been billed for this ${billing?.billing_period?.interval} so far.`}
+                                                    className="flex flex-col items-center"
+                                                >
+                                                    <div className="font-bold text-3xl leading-7">
+                                                        ${product.current_amount_usd}
+                                                    </div>
+                                                    <span className="text-xs text-muted">
+                                                        {capitalizeFirstLetter(billing?.billing_period?.interval || '')}
+                                                        -to-date
+                                                    </span>
+                                                </Tooltip>
+                                                {product.tiers && (
+                                                    <Tooltip
+                                                        title={
+                                                            'This is roughly calculated based on your current bill and the remaining time left in this billing period.'
+                                                        }
+                                                        className="flex flex-col items-center justify-end"
+                                                    >
+                                                        <div className="font-bold text-muted text-lg leading-5">
+                                                            $
+                                                            {product.projected_usage
+                                                                ? convertUsageToAmount(
+                                                                      product.projected_usage,
+                                                                      product.tiers
+                                                                  )
+                                                                : '0.00'}
+                                                        </div>
+                                                        <span className="text-xs text-muted">Predicted</span>
+                                                    </Tooltip>
+                                                )}
+                                            </div>
+                                        ) : null}
+                                    </>
+                                ) : (
+                                    <div className="my-8">
+                                        <Tooltip
+                                            title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
+                                            className="flex flex-col items-center"
+                                        >
+                                            <div className="font-bold text-3xl leading-7">
+                                                ${product.current_amount_usd}
+                                            </div>
+                                            <span className="text-xs text-muted">
+                                                per {billing?.billing_period?.interval || 'period'}
+                                            </span>
+                                        </Tooltip>
+                                    </div>
                                 )}
-                            </div>
-                        ) : null}
+                            </>
+                        )}
                     </div>
                     {product.price_description ? (
                         <AlertMessage type="info">

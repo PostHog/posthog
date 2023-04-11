@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { billingLogic } from '../billingLogic'
-import { LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
@@ -10,11 +10,8 @@ import clsx from 'clsx'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-// import { PlanTable } from '../PlanTable'
 import { BillingHero } from '../BillingHero'
 import { PageHeader } from 'lib/components/PageHeader'
-// import { router } from 'kea-router'
-// import { urls } from 'scenes/urls'
 import BillingProduct from '../BillingProduct'
 import { BillingProduct as BillingProductTest } from './BillingProduct'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -84,7 +81,22 @@ export function Billing(): JSX.Element {
 
     return (
         <div ref={ref}>
-            <BillingPageHeader />
+            <div className="flex justify-between">
+                <BillingPageHeader />
+                {billing?.has_active_subscription && (
+                    <div>
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            to={billing.stripe_portal_url}
+                            disableClientSideRouting
+                            center
+                        >
+                            Manage card details
+                        </LemonButton>
+                    </div>
+                )}
+            </div>
             {billing?.free_trial_until ? (
                 <AlertMessage type="success" className="mb-2">
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
@@ -95,15 +107,6 @@ export function Billing(): JSX.Element {
                     <div className="my-8">
                         <BillingHero />
                     </div>
-                    {/* <div className="mb-18 flex justify-center">
-                        <PlanTable
-                            redirectPath={
-                                router.values.location.pathname.includes('/ingestion')
-                                    ? urls.ingestion() + '/billing'
-                                    : ''
-                            }
-                        />
-                    </div> */}
                 </>
             )}
             <div

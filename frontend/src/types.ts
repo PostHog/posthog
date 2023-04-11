@@ -1089,6 +1089,8 @@ export interface BillingProductV2Type {
         features: BillingV2FeatureType[]
     }[]
     addons: BillingProductV2AddonType[]
+    // sometimes addons are included with the base product, but they aren't subscribed individually
+    included?: boolean
 }
 
 export interface BillingProductV2AddonType {
@@ -1101,6 +1103,9 @@ export interface BillingProductV2AddonType {
     tiers: BillingV2TierType[] | null
     tiered: boolean
     subscribed: boolean
+    // sometimes addons are included with the base product, but they aren't subscribed individually
+    included?: boolean
+    contact_support?: boolean
     unit: string | null
     unit_amount_usd: string | null
     current_amount_usd: string | null
