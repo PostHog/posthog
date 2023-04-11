@@ -11,9 +11,9 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
     connect({
         values: [
             dashboardsModel,
-            ['pinSortedDashboards', 'dashboardsLoading', 'lastDashboardId'],
+            ['pinSortedDashboards', 'dashboardsLoading'],
             sceneLogic,
-            ['activeScene'],
+            ['activeScene', 'sceneParams'],
         ],
     }),
     selectors({
@@ -32,9 +32,9 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
                 ),
         ],
         activeListItemKey: [
-            (s) => [s.activeScene, s.lastDashboardId],
-            (activeScene, lastDashboardId) => {
-                return activeScene === Scene.Dashboard ? lastDashboardId : null
+            (s) => [s.activeScene, s.sceneParams],
+            (activeScene, sceneParams) => {
+                return activeScene === Scene.Dashboard && sceneParams.params.id ? parseInt(sceneParams.params.id) : null
             },
         ],
     }),
