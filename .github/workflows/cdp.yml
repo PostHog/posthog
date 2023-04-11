@@ -81,6 +81,10 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
+            - name: Install PNPM
+              run: |
+                  npm install -g pnpm
+
             - name: Setup node
               uses: actions/setup-node@v3
               with:
@@ -91,10 +95,7 @@ jobs:
             - name: Install test dependencies
               working-directory: cdp
               run: |
-                  # use npm to install pnpm globally
-                  npm install -g pnpm
-                  # install dev dependencies
-                  pnpm install --frozen-lockfile
+                  pnpm install --frozen-lockfile --dev
 
             - name: Start CDP
               working-directory: cdp
