@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { supportLogic } from './supportLogic'
-import { Field, Form } from 'kea-forms'
+import { Form } from 'kea-forms'
 import { LemonButton } from 'lib/lemon-ui/LemonButton/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import { Field } from 'lib/forms/Field'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export default function SupportForm(): JSX.Element {
     const { isSupportFormOpen } = useValues(supportLogic)
@@ -44,28 +46,24 @@ export default function SupportForm(): JSX.Element {
                 enableFormOnSubmit
                 className="space-y-4"
             >
-                <div className="flex gap-2">
-                    <Field name="kind" label="Kind">
-                        <LemonSelect
-                            options={['bug', 'feedback', 'question'].map((key) => {
-                                return {
-                                    value: key,
-                                    label: key,
-                                }
-                            })}
-                        />
-                    </Field>
-                    <Field name="target_area" label="Target Area">
-                        <LemonSelect
-                            options={Object.entries(TargetAreaToName).map(([key, value]) => {
-                                return {
-                                    label: value,
-                                    value: key,
-                                }
-                            })}
-                        />
-                    </Field>
-                </div>
+                <Field name="kind" label="What kind of request is this?">
+                    <LemonSelect
+                        fullWidth
+                        options={['bug', 'feedback', 'question'].map((key) => ({
+                            value: key,
+                            label: capitalizeFirstLetter(key),
+                        }))}
+                    />
+                </Field>
+                <Field name="target_area" label="What area does it best relate to?">
+                    <LemonSelect
+                        fullWidth
+                        options={Object.entries(TargetAreaToName).map(([key, value]) => ({
+                            label: value,
+                            value: key,
+                        }))}
+                    />
+                </Field>
                 <Field name="message" label="Content">
                     <LemonTextArea placeholder="Type your message here" data-attr="support-form-content-input" />
                 </Field>

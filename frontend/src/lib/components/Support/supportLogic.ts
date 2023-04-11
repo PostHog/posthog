@@ -27,13 +27,15 @@ export const supportLogic = kea<supportLogicType>({
     forms: ({ actions }) => ({
         sendSupportRequest: {
             defaults: {
-                kind: '', // bug, feedback, question
-                target_area: '', // session_replay, billing, ...
+                kind: undefined as string | undefined, // bug, feedback, question
+                target_area: undefined as string | undefined, // session_replay, billing, ...
                 message: '',
             },
-            errors: ({ message }: { message: string }) => {
+            errors: ({ message, kind, target_area }) => {
                 return {
                     message: !message ? 'Please enter a message' : null,
+                    kind: !kind ? 'Please choose' : null,
+                    target_area: !target_area ? 'Please choose' : null,
                 }
             },
             submit: async ({ kind, target_area, message }: { kind: string; target_area: string; message: string }) => {
