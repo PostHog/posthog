@@ -327,5 +327,7 @@ class PersonQuery:
             return "", {}
 
         if self._filter.updated_after:
-            return "and max(_timestamp) > toDateTime(%(updated_after)s)", {"updated_after": self._filter.updated_after}
+            return "and max(_timestamp) > parseDateTimeBestEffort(%(updated_after)s)", {
+                "updated_after": self._filter.updated_after
+            }
         return "", {}

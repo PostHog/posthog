@@ -559,7 +559,7 @@ class EmailMixin(BaseParamMixin):
 
 class UpdatedAfterMixin(BaseParamMixin):
     """
-    Filter on updated after (parsable by CH toDateTime). Only used for person endpoint
+    Filter on updated after (parsable by CH parseDateTimeBestEffort). Only used for person endpoint
     """
 
     @cached_property
