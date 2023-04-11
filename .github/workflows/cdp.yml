@@ -81,10 +81,6 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
-            - uses: pnpm/action-setup@v2
-              with:
-                  version: 8.2.0
-
             - name: Setup node
               uses: actions/setup-node@v3
               with:
@@ -92,10 +88,13 @@ jobs:
                   cache: 'pnpm'
                   cache-dependency-path: cdp/pnpm-lock.yaml
 
-            - name: Install pnpm dependencies including dev dependencies
+            - name: Install test dependencies
               working-directory: cdp
               run: |
-                  pnpm install --frozen-lockfile --dev
+                  # use npm to install pnpm globally
+                  npm install -g pnpm
+                  # install dev dependencies
+                  pnpm install --frozen-lockfile
 
             - name: Start CDP
               working-directory: cdp
