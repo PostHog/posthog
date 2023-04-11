@@ -186,7 +186,7 @@ export function Billing(): JSX.Element {
                 </div>
             </div>
 
-            <h2>Your products</h2>
+            <h2>Products</h2>
             <LemonDivider className="mt-2 mb-8" />
 
             {products?.map((x) => (
