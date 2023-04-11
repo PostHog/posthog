@@ -255,6 +255,10 @@ class PropertyRef(Ref):
         return True
 
 
+class LambdaArgumentRef(Ref):
+    name: str
+
+
 class Alias(Expr):
     alias: str
     expr: Expr
@@ -331,6 +335,11 @@ class Array(Expr):
 
 class Tuple(Expr):
     exprs: List[Expr]
+
+
+class Lambda(Expr):
+    args: List[str]
+    expr: Expr
 
 
 class Constant(Expr):

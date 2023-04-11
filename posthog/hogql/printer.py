@@ -317,6 +317,14 @@ class _Printer(Visitor):
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
 
+    def visit_lambda(self, node: ast.Lambda):
+        identifiers = [self._print_identifier(arg) for arg in node.args]
+        if len(identifiers) == 0:
+            raise ValueError("Lambdas require at least one argument")
+        elif len(identifiers) == 1:
+            return f"{identifiers[0]} -> {self.visit(node.expr)}"
+        return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"
+
     def visit_order_expr(self, node: ast.OrderExpr):
         return f"{self.visit(node.expr)} {node.order}"
 
@@ -458,6 +466,9 @@ class _Printer(Visitor):
             return self._print_identifier(ref.table.hogql_table())
 
     def visit_table_alias_ref(self, ref: ast.TableAliasRef):
+        return self._print_identifier(ref.name)
+
+    def visit_lambda_argument_ref(self, ref: ast.LambdaArgumentRef):
         return self._print_identifier(ref.name)
 
     def visit_field_ref(self, ref: ast.FieldRef):

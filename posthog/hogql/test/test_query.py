@@ -643,3 +643,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"SELECT e.event, s.session_id FROM session_recording_events AS s LEFT JOIN events AS e ON equals(replaceRegexpAll(JSONExtractRaw(e.properties, %(hogql_val_0)s), '^\"|\"$', ''), s.session_id) WHERE and(equals(e.team_id, {self.team.pk}), equals(s.team_id, {self.team.pk}), isNotNull(replaceRegexpAll(JSONExtractRaw(e.properties, %(hogql_val_1)s), '^\"|\"$', ''))) LIMIT 10 SETTINGS readonly=1, max_execution_time=60",
             )
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
+
+    def test_hogql_lambdas(self):
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
+            response = execute_hogql_query(
+                "SELECT arrayMap(x -> x * 2, [1, 2, 3]), 1",
+                team=self.team,
+            )
+            self.assertEqual(response.results, [([2, 4, 6], 1)])
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT arrayMap(x -> multiply(x, 2), [1, 2, 3]), 1 LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
+            )
+
+    def test_hogql_arrays(self):
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
+            response = execute_hogql_query(
+                "SELECT [1, 2, 3], [10,11,12][1]",
+                team=self.team,
+            )
+            # Following SQL tradition, ClickHouse array indexes start at 1, not 0.
+            self.assertEqual(response.results, [([1, 2, 3], 10)])
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT [1, 2, 3], [10, 11, 12][1] LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
+            )

@@ -489,7 +489,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
-                                                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS}>
+                                                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
                                                     <span>
                                                         <AddToNotebook
                                                             node={NotebookNodeType.FeatureFlag}

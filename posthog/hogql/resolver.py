@@ -151,6 +151,24 @@ class Resolver(TraversingVisitor):
                 arg_refs.append(arg.ref)
         node.ref = ast.CallRef(name=node.name, args=arg_refs)
 
+    def visit_lambda(self, node: ast.Lambda):
+        """Visit each SELECT query or subquery."""
+        if node.ref is not None:
+            return
+
+        # Each Lambda is a new scope in field name resolution.
+        # This ref keeps track of all lambda arguments that are in scope.
+        node.ref = ast.SelectQueryRef()
+        self.scopes.append(node.ref)
+
+        for arg in node.args:
+            node.ref.aliases[arg] = ast.FieldAliasRef(name=arg, ref=ast.LambdaArgumentRef(name=arg))
+
+        self.visit(node.expr)
+        self.scopes.pop()
+
+        return node.ref
+
     def visit_field(self, node):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""
         if node.ref is not None:

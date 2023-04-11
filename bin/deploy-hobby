@@ -2,7 +2,7 @@
 
 set -e
 
-export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
 export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 
 POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
@@ -21,7 +21,7 @@ if ! [ -z "$1" ]
 then
 export POSTHOG_APP_TAG=$1
 else
-echo "What version of Posthog would you like to install? (We default to 'latest-release')"
+echo "What version of Posthog would you like to install? (We default to 'latest')"
 echo "You can check out available versions here: https://hub.docker.com/r/posthog/posthog/tags"
 read -r POSTHOG_APP_TAG_READ
 if [ -z "$POSTHOG_APP_TAG_READ" ]

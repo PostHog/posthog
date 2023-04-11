@@ -54,6 +54,9 @@ class TraversingVisitor(Visitor):
         for expr in node.exprs:
             self.visit(expr)
 
+    def visit_lambda(self, node: ast.Lambda):
+        self.visit(node.expr)
+
     def visit_array_access(self, node: ast.ArrayAccess):
         self.visit(node.array)
         self.visit(node.property)
@@ -107,6 +110,9 @@ class TraversingVisitor(Visitor):
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         for expr in node.select_queries:
             self.visit(expr)
+
+    def visit_lambda_argument_ref(self, node: ast.LambdaArgumentRef):
+        pass
 
     def visit_field_alias_ref(self, node: ast.FieldAliasRef):
         self.visit(node.ref)
@@ -220,6 +226,11 @@ class CloningVisitor(Visitor):
 
     def visit_tuple(self, node: ast.Array):
         return ast.Tuple(ref=None if self.clear_refs else node.ref, exprs=[self.visit(expr) for expr in node.exprs])
+
+    def visit_lambda(self, node: ast.Lambda):
+        return ast.Lambda(
+            ref=None if self.clear_refs else node.ref, args=[arg for arg in node.args], expr=self.visit(node.expr)
+        )
 
     def visit_array_access(self, node: ast.ArrayAccess):
         return ast.ArrayAccess(
