@@ -386,18 +386,21 @@ class TestPasswordResetAPI(APIBaseTest):
             if i < 3:
                 self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
                 self.assertEqual(cache.get(cache_key), i + 1)
-            else:
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-                self.assertEqual(
-                    response.json(),
-                    {
-                        "type": "validation_error",
-                        "code": "email_too_many_password_reset_requests",
-                        "detail": "Too many password reset requests. Please try again in 24 hours.",
-                        "attr": None,
-                    },
-                )
-                self.assertEqual(cache.get(cache_key), 3)
+
+        # Fourth request should fail
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "email_too_many_password_reset_requests",
+                "detail": "Too many password reset requests. Please try again in 24 hours.",
+                "attr": None,
+            },
+        )
+        self.assertEqual(cache.get(cache_key), 3)
 
         # Three emails should be sent, fourth should not
         self.assertEqual(len(mail.outbox), 3)

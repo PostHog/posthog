@@ -920,18 +920,21 @@ class TestEmailVerificationAPI(APIBaseTest):
             if i < 3:
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(cache.get(cache_key), i + 1)
-            else:
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-                self.assertEqual(
-                    response.json(),
-                    {
-                        "type": "validation_error",
-                        "code": "email_too_many_verification_requests",
-                        "detail": "Too many email verification requests. Please try again in 24 hours.",
-                        "attr": None,
-                    },
-                )
-                self.assertEqual(cache.get(cache_key), 3)
+
+        # Fourth request should fail
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post(f"/api/users/@me/request_email_verification/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "email_too_many_verification_requests",
+                "detail": "Too many email verification requests. Please try again in 24 hours.",
+                "attr": None,
+            },
+        )
+        self.assertEqual(cache.get(cache_key), 3)
 
         # Three emails should be sent, fourth should not
         self.assertEqual(len(mail.outbox), 3)
