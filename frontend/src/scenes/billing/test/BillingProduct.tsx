@@ -28,7 +28,7 @@ const getCurrentAndUpgradePlans = (
 export const getTierDescription = (
     tier: BillingV2TierType,
     i: number,
-    product: BillingProductV2Type,
+    product: BillingProductV2Type | BillingProductV2AddonType,
     interval: string
 ): string => {
     return i === 0

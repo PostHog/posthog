@@ -1113,6 +1113,7 @@ export interface BillingProductV2AddonType {
     projected_usage: number | null
     projected_amount_usd: string | null
     plans: BillingV2PlanType[]
+    usage_key: string
 }
 export interface BillingV2Type {
     customer_id: string
