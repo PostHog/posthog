@@ -63,7 +63,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         freeTier: [
-            (s, p) => [p.product],
+            (_s, p) => [p.product],
             (product) => {
                 return (product.subscribed ? product.tiers?.[0]?.up_to : product.free_allocation) || 0
             },
@@ -90,7 +90,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     },
                     {
                         text: 'Current',
-                        color: product.percentage_usage <= 1 ? 'success' : 'danger',
+                        color: product.percentage_usage && product.percentage_usage <= 1 ? 'success' : 'danger',
                         value: product.current_usage || 0,
                         top: false,
                     },

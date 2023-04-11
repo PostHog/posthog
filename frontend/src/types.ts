@@ -1060,7 +1060,7 @@ export interface BillingV2TierType {
 
 export interface BillingProductV2Type {
     type: string
-    usage_key?: string
+    usage_key: string
     name: string
     description: string
     price_description?: string | null
@@ -1114,6 +1114,8 @@ export interface BillingProductV2AddonType {
     projected_amount_usd: string | null
     plans: BillingV2PlanType[]
     usage_key: string
+    free_allocation?: number
+    percentage_usage?: number
 }
 export interface BillingV2Type {
     customer_id: string
