@@ -15,7 +15,7 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = NULL
+    AND version = 0
   '
 ---
 # name: TestEventQuery.test_account_filters.2
