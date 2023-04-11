@@ -255,7 +255,7 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
         settings={"optimize_on_insert": 0},
     )
 
-    count = get_cohort_size(cohort)
+    count = get_cohort_size(cohort, override_version=pending_version)
 
     if count is not None and before_count is not None:
         logger.info(
@@ -286,9 +286,14 @@ def clear_stale_cohortpeople(cohort: Cohort, current_version: int) -> None:
                 )
 
 
-def get_cohort_size(cohort: Cohort) -> Optional[int]:
+def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None) -> Optional[int]:
     count_result = sync_execute(
-        GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "version": cohort.version, "team_id": cohort.team_id}
+        GET_COHORT_SIZE_SQL,
+        {
+            "cohort_id": cohort.pk,
+            "version": override_version if override_version is not None else cohort.version,
+            "team_id": cohort.team_id,
+        },
     )
 
     if count_result and len(count_result) and len(count_result[0]):
