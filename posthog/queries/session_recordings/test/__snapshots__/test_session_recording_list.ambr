@@ -135,7 +135,7 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = NULL
+    AND version = 0
   '
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.2
@@ -1181,7 +1181,7 @@
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
-    AND version = NULL
+    AND version = 0
   '
 ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_cohort_properties.2
