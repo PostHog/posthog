@@ -229,7 +229,7 @@ class PersonQuery:
                 try:
                     cohort = Cohort.objects.get(pk=property.value, team_id=self._team_id)
                     if property.type == "static-cohort":
-                        subquery, subquery_params = format_static_cohort_query(cohort.pk, index, prepend)
+                        subquery, subquery_params = format_static_cohort_query(cohort, index, prepend)
                     else:
                         subquery, subquery_params = format_precalculated_cohort_query(cohort.pk, index, prepend)
                     query.append(f"AND id in ({subquery})")
