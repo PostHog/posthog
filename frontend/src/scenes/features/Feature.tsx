@@ -15,7 +15,6 @@ import { InstructionOption, OPTIONS } from 'scenes/feature-flags/FeatureFlagCode
 import { LemonFileInput, useUploadFiles } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { SQLTable } from '~/queries/Query/SQLTable'
 import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
@@ -191,16 +190,6 @@ export function Feature(): JSX.Element {
                     </Radio.Group>
                 )}
             </KeaField>
-            {'feature_flag' in feature && feature.stage === 'beta' && (
-                <div className="mt-4">
-                    <SQLTable
-                        query={`SELECT
-                    concat(properties.name, ' (', properties.email, ')') AS Person
-                FROM persons
-                WHERE properties.$feature_enrollment/${feature.feature_flag.key}`}
-                    />
-                </div>
-            )}
         </Form>
     )
 }

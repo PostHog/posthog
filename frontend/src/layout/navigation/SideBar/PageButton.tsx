@@ -28,7 +28,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
             : activeScene === Scene.Dashboard && identifier === lastDashboardId)
 
     const buttonStatus = isActive ? 'primary' : 'stealth'
-    title ||= sceneConfigurations[identifier]?.name || identifier
+    title = title || sceneConfigurations[identifier]?.name || identifier
 
     return (
         <li>
