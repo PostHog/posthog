@@ -68,13 +68,40 @@ const getApp = async (config: NodeJS.ProcessEnv): Promise<Koa> => {
     })
     opentelemetry.start()
 
+    app.use(jwt({ secret: config.SECRET_KEY, key: 'jwtData' }))
+
+    // For any route matching /api/projects/:projectId/... we want to make sure
+    // that the JWT token contains the projectId as a claim. If it doesn't we
+    // return a 403 Forbidden response.
+    router.use('/api/projects/:projectId', async (ctx, next) => {
+        const projectId = Number.parseInt(ctx.params.projectId)
+        const jwtData = ctx.state.jwtData
+        if (jwtData.projectIds.indexOf(projectId) === -1) {
+            ctx.status = 403
+            ctx.body = {
+                detail: 'You do not have permission to perform this action.',
+            }
+            return
+        }
+        await next()
+    })
+
+    router.param('projectId', (projectId, ctx, next) => {
+        if (projectId.match(/^[0-9]+$/)) {
+            return next()
+        }
+        ctx.status = 400
+        ctx.body = {
+            detail: 'Invalid project ID.',
+        }
+    })
+
     router.get('/api/projects/:projectId/destination-types', listDestinationTypesHandler)
     router.post('/api/projects/:projectId/destinations', createDestinationHandler(database))
     router.get('/api/projects/:projectId/destinations/:destinationId', getDestinationHandler(database))
     router.put('/api/projects/:projectId/destinations/:destinationId', updateDestinationHandler(database))
     router.delete('/api/projects/:projectId/destinations/:destinationId', deleteDestinationHandler(database))
 
-    app.use(jwt({ secret: config.SECRET_KEY, key: 'jwtData' }))
     app.use(logger())
     app.use(bodyParser())
     app.use(router.routes())

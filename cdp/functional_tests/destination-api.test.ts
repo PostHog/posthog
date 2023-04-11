@@ -22,7 +22,7 @@ describe('DestinationType API', () => {
     describe('GET destination types', () => {
         test.concurrent('should be able to retrieve a list of destination types', async () => {
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const token = await generateJwt({ projectIds: [projectId], userId: 1 })
             const destinationTypes = await listDestinationTypesOk(token, projectId)
             expect(destinationTypes).toEqual(
                 expect.arrayContaining([
@@ -33,6 +33,23 @@ describe('DestinationType API', () => {
                 ])
             )
         })
+
+        test.concurrent('project id must be a number', async () => {
+            const projectId = (await createProjectOk()).id
+            const token = await generateJwt({ projectIds: [projectId], userId: 1 })
+            const response = await listDestinationTypes(token, 'invalid')
+            expect(response.status).toEqual(400)
+        })
+
+        test.concurrent(
+            "should not be able to retrieve a list of destination types if you don't have access to the project",
+            async () => {
+                const projectId = (await createProjectOk()).id
+                const token = await generateJwt({ projectIds: [], userId: 1 })
+                const response = await listDestinationTypes(token, projectId)
+                expect(response.status).toEqual(403)
+            }
+        )
     })
 })
 
@@ -40,7 +57,7 @@ describe('Destination API', () => {
     describe('POST destination', () => {
         test.concurrent('should be able to create a destination', async () => {
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const token = await generateJwt({ projectIds: [projectId], userId: 1 })
             const response = await postDestination(token, projectId, {
                 name: 'Test Destination',
                 description: 'Test Description',
@@ -54,7 +71,7 @@ describe('Destination API', () => {
 
         test.concurrent('should not be able to create a destination with an invalid config schema', async () => {
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const token = await generateJwt({ projectIds: [projectId], userId: 1 })
             const response = await postDestination(token, projectId, {
                 name: 'Test Destination',
                 description: 'Test Description',
@@ -65,12 +82,29 @@ describe('Destination API', () => {
             })
             expect(response.status).toEqual(400)
         })
+
+        test.concurrent(
+            "should not be able to create a destination if you don't have access to the project",
+            async () => {
+                const projectId = (await createProjectOk()).id
+                const token = await generateJwt({ projectIds: [], userId: 1 })
+                const response = await postDestination(token, projectId, {
+                    name: 'Test Destination',
+                    description: 'Test Description',
+                    type: 'webhook',
+                    config: {
+                        url: 'https://example.com',
+                    },
+                })
+                expect(response.status).toEqual(403)
+            }
+        )
     })
 
     describe('GET destination', () => {
         test.concurrent('should be able to retrieve a destination', async () => {
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const token = await generateJwt({ projectIds: [projectId], userId: 1 })
             const destination = await postDestinationOk(token, projectId, {
                 name: 'Test Destination',
                 description: 'Test Description',
@@ -84,7 +118,8 @@ describe('Destination API', () => {
 
         test.concurrent('should not be able to retrieve a destination from another project', async () => {
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const otherProjectId = (await createProjectOk()).id
+            const token = await generateJwt({ projectIds: [projectId, otherProjectId], userId: 1 })
             const destination = await postDestinationOk(token, projectId, {
                 name: 'Test Destination',
                 description: 'Test Description',
@@ -94,16 +129,35 @@ describe('Destination API', () => {
             const destinationId = destination.id
             expect(destinationId).toBeDefined()
 
-            const otherProjectId = (await createProjectOk()).id
             const response = await getDestination(token, otherProjectId, destinationId)
             expect(response.status).toEqual(404)
         })
+
+        test.concurrent(
+            "should not be able to retrieve a destination if you don't have access to the project",
+            async () => {
+                const projectId = (await createProjectOk()).id
+                const token = await generateJwt({ projectIds: [projectId], userId: 1 })
+                const destination = await postDestinationOk(token, projectId, {
+                    name: 'Test Destination',
+                    description: 'Test Description',
+                    type: 'webhook',
+                    config: { url: 'https://example.com' },
+                })
+                const destinationId = destination.id
+                expect(destinationId).toBeDefined()
+
+                const unauthorizedToken = await generateJwt({ projectIds: [], userId: 1 })
+                const response = await getDestination(unauthorizedToken, projectId, destinationId)
+                expect(response.status).toEqual(403)
+            }
+        )
     })
 
     describe('PUT destination', () => {
         test.concurrent('should be able to update a destination', async () => {
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const token = await generateJwt({ projectIds: [projectId], userId: 1 })
             const destination = await postDestinationOk(token, projectId, {
                 name: 'Test Destination',
                 description: 'Test Description',
@@ -129,7 +183,7 @@ describe('Destination API', () => {
 
         test.concurrent('should not be able to update a destination with an invalid config schema', async () => {
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const token = await generateJwt({ projectIds: [projectId], userId: 1 })
             const destination = await postDestinationOk(token, projectId, {
                 name: 'Test Destination',
                 description: 'Test Description',
@@ -152,7 +206,7 @@ describe('Destination API', () => {
             // want to allow changing the destination type rather the user
             // should delete and recreate a distination.
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const token = await generateJwt({ projectIds: [projectId], userId: 1 })
             const destination = await postDestinationOk(token, projectId, {
                 name: 'Test Destination',
                 description: 'Test Description',
@@ -172,7 +226,7 @@ describe('Destination API', () => {
 
         test.concurrent('should not be able to update a destination with an invalid id', async () => {
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const token = await generateJwt({ projectIds: [projectId], userId: 1 })
             const response = await putDestination(token, projectId, 'invalid', {
                 name: 'Updated Destination',
                 description: 'Updated Description',
@@ -184,7 +238,8 @@ describe('Destination API', () => {
 
         test.concurrent('should not be able to update a destination from another project', async () => {
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const otherProjectId = (await createProjectOk()).id
+            const token = await generateJwt({ projectIds: [projectId, otherProjectId], userId: 1 })
             const destination = await postDestinationOk(token, projectId, {
                 name: 'Test Destination',
                 description: 'Test Description',
@@ -194,7 +249,6 @@ describe('Destination API', () => {
             const destinationId = destination.id
             expect(destinationId).toBeDefined()
 
-            const otherProjectId = (await createProjectOk()).id
             const response = await putDestination(token, otherProjectId, destinationId, {
                 name: 'Updated Destination',
                 description: 'Updated Description',
@@ -203,12 +257,37 @@ describe('Destination API', () => {
             })
             expect(response.status).toEqual(404)
         })
+
+        test.concurrent(
+            "should not be able to update a destination if you don't have access to the project",
+            async () => {
+                const projectId = (await createProjectOk()).id
+                const token = await generateJwt({ projectIds: [projectId], userId: 1 })
+                const destination = await postDestinationOk(token, projectId, {
+                    name: 'Test Destination',
+                    description: 'Test Description',
+                    type: 'webhook',
+                    config: { url: 'https://example.com' },
+                })
+                const destinationId = destination.id
+                expect(destinationId).toBeDefined()
+
+                const unauthorizedToken = await generateJwt({ projectIds: [], userId: 1 })
+                const response = await putDestination(unauthorizedToken, projectId, destinationId, {
+                    name: 'Updated Destination',
+                    description: 'Updated Description',
+                    type: 'webhook',
+                    config: { url: 'https://example.com' },
+                })
+                expect(response.status).toEqual(403)
+            }
+        )
     })
 
     describe('DELETE destination', () => {
         test.concurrent('should be able to delete a destination', async () => {
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const token = await generateJwt({ projectIds: [projectId], userId: 1 })
             const destination = await postDestinationOk(token, projectId, {
                 name: 'Test Destination',
                 description: 'Test Description',
@@ -229,14 +308,15 @@ describe('Destination API', () => {
         test.concurrent('should not be able to delete a destination with an invalid id', async () => {
             const id = 'invalid'
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const token = await generateJwt({ projectIds: [projectId], userId: 1 })
             const response = await deleteDestination(token, projectId, id)
             expect(response.status).toEqual(400)
         })
 
         test.concurrent('should not be able to delete a destination from another project', async () => {
             const projectId = (await createProjectOk()).id
-            const token = await generateJwt({ projectId, userId: 1 })
+            const otherProjectId = (await createProjectOk()).id
+            const token = await generateJwt({ projectIds: [projectId, otherProjectId], userId: 1 })
             const destination = await postDestinationOk(token, projectId, {
                 name: 'Test Destination',
                 description: 'Test Description',
@@ -246,7 +326,6 @@ describe('Destination API', () => {
             const destinationId = destination.id
             expect(destinationId).toBeDefined()
 
-            const otherProjectId = (await createProjectOk()).id
             const response = await deleteDestination(token, otherProjectId, destinationId)
             expect(response.status).toEqual(404)
 
@@ -254,10 +333,34 @@ describe('Destination API', () => {
             const getResponse = await getDestination(token, projectId, destinationId)
             expect(getResponse.status).toEqual(200)
         })
+
+        test.concurrent(
+            "should not be able to delete a destination if you don't have access to the project",
+            async () => {
+                const projectId = (await createProjectOk()).id
+                const token = await generateJwt({ projectIds: [projectId], userId: 1 })
+                const destination = await postDestinationOk(token, projectId, {
+                    name: 'Test Destination',
+                    description: 'Test Description',
+                    type: 'webhook',
+                    config: { url: 'https://example.com' },
+                })
+                const destinationId = destination.id
+                expect(destinationId).toBeDefined()
+
+                const unauthorizedToken = await generateJwt({ projectIds: [], userId: 1 })
+                const response = await deleteDestination(unauthorizedToken, projectId, destinationId)
+                expect(response.status).toEqual(403)
+
+                // Check that the destination is still retrievable
+                const getResponse = await getDestination(token, projectId, destinationId)
+                expect(getResponse.status).toEqual(200)
+            }
+        )
     })
 })
 
-const listDestinationTypes = async (token: string, projectId: number): Promise<Response> => {
+const listDestinationTypes = async (token: string, projectId: any): Promise<Response> => {
     return await fetch(`http://localhost:3000/api/projects/${projectId}/destination-types`, {
         headers: {
             Authorization: `Bearer ${token}`,
@@ -330,7 +433,11 @@ const putDestinationOk = async (
 }
 
 const getDestination = async (token: string, projectId: number, id: string): Promise<Response> => {
-    return await fetch(`http://localhost:3000/api/projects/${projectId}/destinations/${id}`)
+    return await fetch(`http://localhost:3000/api/projects/${projectId}/destinations/${id}`, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+    })
 }
 
 const getDestinationOk = async (token: string, projectId: number, id: string): Promise<Destination> => {
