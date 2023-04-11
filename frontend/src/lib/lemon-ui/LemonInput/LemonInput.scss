@@ -36,10 +36,6 @@
         width: 100%;
         text-overflow: ellipsis;
 
-        &:placeholder-shown {
-            font-style: italic;
-        }
-
         &:disabled {
             opacity: var(--opacity-disabled);
             cursor: not-allowed;
@@ -80,7 +76,6 @@
         // NOTE Design: Search inputs are given a specific small width
         max-width: 240px;
     }
-
     &--full-width {
         width: 100%;
         max-width: 100%;
