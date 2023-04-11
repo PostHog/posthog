@@ -49,7 +49,6 @@ class CustomerInfo(TypedDict):
     customer_id: Optional[str]
     deactivated: bool
     has_active_subscription: bool
-    stripe_portal_url: str
     billing_period: BillingPeriod
     available_features: List[AvailableFeature]
     current_total_amount_usd: Optional[str]

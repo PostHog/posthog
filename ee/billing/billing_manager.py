@@ -76,6 +76,8 @@ class BillingManager:
                 response["products_enterprise"] = products["products_enterprise"]
 
             response["available_plans"] = plans["plans"]
+            stripe_portal_url = self._get_stripe_portal_url(organization)
+            response["stripe_portal_url"] = stripe_portal_url
         else:
             products = self.get_default_products(organization)
             response = {
@@ -162,6 +164,21 @@ class BillingManager:
         data = res.json()
 
         return data
+
+    def _get_stripe_portal_url(self, organization: Organization) -> BillingStatus:
+        """
+        Retrieves stripe protal url
+        """
+        if not self.license:  # mypy
+            raise Exception("No license found")
+
+        res = requests.get(f"{BILLING_SERVICE_URL}/api/billing/portal", headers=self.get_auth_headers(organization))
+
+        handle_billing_service_error(res)
+
+        data = res.json()
+
+        return data["url"]
 
     def _get_plans(self, plan_keys: Optional[str]):
         res = requests.get(
