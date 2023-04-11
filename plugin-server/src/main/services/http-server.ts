@@ -65,7 +65,7 @@ export function createHttpServer(
             if (statusCode === 200) {
                 status.info('💚', 'Server liveness check succeeded')
             } else {
-                status.info('💔', 'Server liveness check failed', checkResultsMapping)
+                status.info('💔', 'Server liveness check failed', checkResults)
             }
 
             res.end(JSON.stringify({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping }))
