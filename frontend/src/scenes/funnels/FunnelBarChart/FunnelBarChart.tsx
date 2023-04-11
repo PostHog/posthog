@@ -114,14 +114,14 @@ export function FunnelBarChartComponent({
                             <td key={stepIndex}>
                                 {isUsingDataExploration ? (
                                     <StepLegendDataExploration
-                                        step={step.nested_breakdown?.length ? step.nested_breakdown[0] : step}
+                                        step={step}
                                         stepIndex={stepIndex}
                                         showTime={showTime}
                                         showPersonsModal={showPersonsModal}
                                     />
                                 ) : (
                                     <StepLegend
-                                        step={step.nested_breakdown?.length ? step.nested_breakdown[0] : step}
+                                        step={step}
                                         stepIndex={stepIndex}
                                         showTime={showTime}
                                         showPersonsModal={showPersonsModal}

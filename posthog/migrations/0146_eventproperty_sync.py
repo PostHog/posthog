@@ -70,5 +70,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(sync_team_event_names_and_properties, migrations.RunPython.noop),
+        migrations.RunPython(sync_team_event_names_and_properties, migrations.RunPython.noop, elidable=True),
     ]

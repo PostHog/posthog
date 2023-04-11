@@ -42,4 +42,4 @@ class Migration(migrations.Migration):
         ("posthog", "0079_move_funnels_to_insights"),
     ]
 
-    operations = [migrations.RunPython(forward, reverse)]
+    operations = [migrations.RunPython(forward, reverse, elidable=True)]

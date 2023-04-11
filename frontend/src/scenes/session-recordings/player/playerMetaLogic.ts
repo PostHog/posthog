@@ -7,7 +7,7 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PersonType } from '~/types'
-import { ceilMsToClosestSecond, findLastIndex } from 'lib/utils'
+import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
 
 export const playerMetaLogic = kea<playerMetaLogicType>({
@@ -57,6 +57,13 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
                     width: snapshot.data['width'],
                     height: snapshot.data['height'],
                 }
+            },
+            {
+                resultEqualityCheck: (prev, next) => {
+                    // Only update if the resolution values have changed (not the object reference)
+                    // stops PlayerMeta from re-rendering on every player position
+                    return objectsEqual(prev, next)
+                },
             },
         ],
         recordingStartTime: [
