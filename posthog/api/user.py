@@ -11,7 +11,6 @@ import requests
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
-from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
@@ -52,6 +51,10 @@ class UserAuthenticationThrottle(UserRateThrottle):
         if request.method == "GET":
             return True
         return super().allow_request(request, view)
+
+
+class UserEmailAuthenticationThrottle(UserRateThrottle):
+    rate = "3/day"
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -324,7 +327,9 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         report_user_logged_in(user)
         return Response({"success": True, "token": token})
 
-    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
+    @action(
+        methods=["POST"], detail=True, permission_classes=[AllowAny], throttle_classes=[UserEmailAuthenticationThrottle]
+    )
     def request_email_verification(self, request, **kwargs):
         uuid = request.data["uuid"]
         if not is_email_available():
@@ -336,21 +341,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
             user = User.objects.filter(is_active=True).get(uuid=uuid)
         except User.DoesNotExist:
             user = None
-
         if user:
-            # limit the number of requests to 3 in 24 hours
-            cache_key = f"num_email_verification_requests{user.id}"
-            num_requests = cache.get(cache_key)
-            if num_requests is None:
-                cache.set(cache_key, 1, 60 * 60 * 24)  # number of seconds in 24 hours
-            elif num_requests < 3:
-                cache.incr(cache_key, 1)
-            else:
-                raise serializers.ValidationError(
-                    "Too many email verification requests. Please try again in 24 hours.",
-                    code="email_too_many_verification_requests",
-                )
-
             EmailVerifier.create_token_and_send_email_verification(user)
 
         return Response({"success": True})

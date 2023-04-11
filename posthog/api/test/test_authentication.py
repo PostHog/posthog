@@ -3,7 +3,6 @@ import uuid
 from unittest.mock import ANY, patch
 
 from django.contrib.auth.tokens import default_token_generator
-from django.core.cache import cache
 from django.core import mail
 from django.utils import timezone
 from django_otp.oath import totp
@@ -378,30 +377,18 @@ class TestPasswordResetAPI(APIBaseTest):
 
     def test_cant_reset_more_than_three_times(self):
         set_instance_setting("EMAIL_HOST", "localhost")
-        cache_key = f"num_password_reset_requests{self.user.id}"
-        cache.delete(cache_key)
 
         for i in range(4):
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
                 response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
             if i < 3:
                 self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-                self.assertEqual(cache.get(cache_key), i + 1)
-
-        # Fourth request should fail
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
-            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "email_too_many_password_reset_requests",
-                "detail": "Too many password reset requests. Please try again in 24 hours.",
-                "attr": None,
-            },
-        )
-        self.assertEqual(cache.get(cache_key), 3)
+            else:
+                # Fourth request should fail
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                self.assertDictContainsSubset(
+                    {"attr": None, "code": "throttled", "type": "throttled_error"}, response.json()
+                )
 
         # Three emails should be sent, fourth should not
         self.assertEqual(len(mail.outbox), 3)
