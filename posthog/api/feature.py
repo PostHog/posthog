@@ -1,5 +1,5 @@
 from typing import Type
-from posthog.api.feature_flag import FeatureFlagBasicSerializer
+from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.feature import Feature
 from rest_framework import serializers, viewsets
@@ -32,7 +32,7 @@ class FeaturePreviewSerializer(serializers.ModelSerializer):
 
 
 class FeatureSerializer(serializers.ModelSerializer):
-    feature_flag = FeatureFlagBasicSerializer(read_only=True)
+    feature_flag = MinimalFeatureFlagSerializer(read_only=True)
 
     class Meta:
         model = Feature
