@@ -9,9 +9,6 @@ from posthog.hogql.visitor import TraversingVisitor
 
 
 def resolve_lazy_tables(node: ast.Expr, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
-    if stack:
-        # TODO: remove this kludge for old props
-        LazyTableResolver(stack=stack, context=context).visit(stack[-1])
     LazyTableResolver(stack=stack, context=context).visit(node)
 
 

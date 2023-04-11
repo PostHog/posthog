@@ -65,7 +65,6 @@ def prepare_ast_for_printing(
     resolve_refs(node, context.database, ref)
     expand_asterisks(node)
     if dialect == "clickhouse":
-        # This makes printed "hogql" nicer.
         node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
 
@@ -300,13 +299,30 @@ class _Printer(Visitor):
             raise ValueError(f"Unknown BinaryOperationType {node.op}")
 
     def visit_and(self, node: ast.And):
-        return f"and({', '.join([self.visit(operand) for operand in node.exprs])})"
+        return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_or(self, node: ast.Or):
-        return f"or({', '.join([self.visit(operand) for operand in node.exprs])})"
+        return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_not(self, node: ast.Not):
         return f"not({self.visit(node.expr)})"
+
+    def visit_tuple(self, node: ast.Tuple):
+        return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+    def visit_array_access(self, node: ast.ArrayAccess):
+        return f"{self.visit(node.array)}[{self.visit(node.property)}]"
+
+    def visit_array(self, node: ast.Array):
+        return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
+
+    def visit_lambda(self, node: ast.Lambda):
+        identifiers = [self._print_identifier(arg) for arg in node.args]
+        if len(identifiers) == 0:
+            raise ValueError("Lambdas require at least one argument")
+        elif len(identifiers) == 1:
+            return f"{identifiers[0]} -> {self.visit(node.expr)}"
+        return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"
 
     def visit_order_expr(self, node: ast.OrderExpr):
         return f"{self.visit(node.expr)} {node.order}"
@@ -447,6 +463,9 @@ class _Printer(Visitor):
             return self._print_identifier(ref.table.hogql_table())
 
     def visit_table_alias_ref(self, ref: ast.TableAliasRef):
+        return self._print_identifier(ref.name)
+
+    def visit_lambda_argument_ref(self, ref: ast.LambdaArgumentRef):
         return self._print_identifier(ref.name)
 
     def visit_field_ref(self, ref: ast.FieldRef):

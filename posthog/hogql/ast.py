@@ -254,6 +254,10 @@ class PropertyRef(Ref):
         return True
 
 
+class LambdaArgumentRef(Ref):
+    name: str
+
+
 class Alias(Expr):
     alias: str
     expr: Expr
@@ -317,6 +321,24 @@ class Not(Expr):
 class OrderExpr(Expr):
     expr: Expr
     order: Literal["ASC", "DESC"] = "ASC"
+
+
+class ArrayAccess(Expr):
+    array: Expr
+    property: Expr
+
+
+class Array(Expr):
+    exprs: List[Expr]
+
+
+class Tuple(Expr):
+    exprs: List[Expr]
+
+
+class Lambda(Expr):
+    args: List[str]
+    expr: Expr
 
 
 class Constant(Expr):
