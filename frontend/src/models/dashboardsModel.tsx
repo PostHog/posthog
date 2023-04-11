@@ -94,7 +94,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         return {}
                     }
                     const { results } = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=300`
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=1000`
                     )
                     return idToKey(results ?? [])
                 },
