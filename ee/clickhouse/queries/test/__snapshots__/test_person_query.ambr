@@ -228,7 +228,7 @@
               WHERE team_id = %(team_id)s
               
               GROUP BY id
-              HAVING max(is_deleted) = 0  and max(_timestamp) > toDateTime(%(updated_after)s)
+              HAVING max(is_deleted) = 0  and max(_timestamp) > parseDateTimeBestEffort(%(updated_after)s)
                  
               
               
@@ -244,7 +244,7 @@
               WHERE team_id = %(team_id)s
               
               GROUP BY id
-              HAVING max(is_deleted) = 0  and max(_timestamp) > toDateTime(%(updated_after)s)
+              HAVING max(is_deleted) = 0  and max(_timestamp) > parseDateTimeBestEffort(%(updated_after)s)
                  
               
               
