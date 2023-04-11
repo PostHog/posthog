@@ -910,6 +910,29 @@ class TestEmailVerificationAPI(APIBaseTest):
             },
         )
 
+    def test_cant_verify_more_than_three_times(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
+        for i in range(4):
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+                response = self.client.post(f"/api/users/@me/request_email_verification/", {"uuid": self.user.uuid})
+            if i < 3:
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+            else:
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(
+                    response.json(),
+                    {
+                        "type": "validation_error",
+                        "code": "email_too_many_verification_requests",
+                        "detail": "Too many email verification requests. Please try again in 24 hours.",
+                        "attr": None,
+                    },
+                )
+
+        # Three emails should be sent, fourth should not
+        self.assertEqual(len(mail.outbox), 3)
+
     # Token validation
 
     def test_can_validate_email_verification_token(self):
