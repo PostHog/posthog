@@ -913,7 +913,7 @@ class TestEmailVerificationAPI(APIBaseTest):
     def test_cant_verify_more_than_three_times(self):
         set_instance_setting("EMAIL_HOST", "localhost")
         cache_key = f"num_email_verification_requests{self.user.id}"
-        cache.clear()
+        cache.delete(cache_key)
 
         for i in range(4):
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
