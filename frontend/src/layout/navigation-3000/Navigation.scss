@@ -62,7 +62,6 @@
     --sidebar-row-height: 2rem;
     --sidebar-basic-leaf-row-height: 2rem;
     --sidebar-extended-leaf-row-height: 2.875rem;
-    transition: 100ms ease flex-basis;
     position: relative;
     // This border is just for sizing, the visible border is on the content and slider
     // Hidden when the sidebar is closed
@@ -71,7 +70,6 @@
     box-sizing: content-box;
 
     &.Sidebar3000--resizing {
-        transition: none; // Increase responsiveness when resizing
         will-change: flex-basis;
     }
 
@@ -103,7 +101,6 @@
 }
 
 .Sidebar3000__content {
-    transition: 100ms ease width;
     position: sticky;
     top: 0;
     display: flex;
