@@ -64,7 +64,7 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
         return actuallyUpdateLimit()
     }
 
-    if (!showBillingLimitInput) {
+    if (!showBillingLimitInput || !product.subscribed) {
         return null
     }
     return (
