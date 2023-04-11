@@ -286,7 +286,7 @@ def clear_stale_cohortpeople(cohort: Cohort, current_version: int) -> None:
                 )
 
 
-def get_cohort_size(cohort: Cohort, team_id: int) -> Optional[int]:
+def get_cohort_size(cohort: Cohort) -> Optional[int]:
     count_result = sync_execute(
         GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "version": cohort.version, "team_id": cohort.team_id}
     )
