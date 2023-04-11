@@ -42,7 +42,7 @@ logger = structlog.get_logger(__name__)
 
 def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
-        return format_static_cohort_query(cohort.pk, index, prepend="")
+        return format_static_cohort_query(cohort, index, prepend="")
 
     if not cohort.properties.values:
         # No person can match an empty cohort
