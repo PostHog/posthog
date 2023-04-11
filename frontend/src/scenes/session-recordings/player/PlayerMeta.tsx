@@ -185,7 +185,7 @@ export function PlayerMeta(props: SessionRecordingPlayerProps): JSX.Element {
                 >
                     <div className="PlayerMetaPersonProperties">
                         {Object.keys(sessionPerson.properties).length ? (
-                            <PropertiesTable properties={sessionPerson.properties} />
+                            <PropertiesTable properties={sessionPerson.properties} searchable filterable />
                         ) : (
                             <p className="text-center m-4">There are no properties.</p>
                         )}

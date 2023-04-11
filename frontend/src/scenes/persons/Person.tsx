@@ -159,6 +159,7 @@ export function Person(): JSX.Element | null {
                         sortProperties
                         embedded={false}
                         onDelete={(key) => deleteProperty(key)}
+                        filterable
                     />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>

@@ -27,16 +27,17 @@ interface EventDetailsProps {
 
 export function EventDetails({ event, tableProps, useReactJsonView }: EventDetailsProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const [showHiddenProps, setShowHiddenProps] = useState(false)
+
+    const [showSystemProps, setShowSystemProps] = useState(false)
 
     const displayedEventProperties: Properties = {}
-    const visibleHiddenProperties: Properties = {}
-    let hiddenPropsCount = 0
+    const visibleSystemProperties: Properties = {}
+    let systemPropsCount = 0
     for (const key of Object.keys(event.properties)) {
         if (keyMapping.event[key] && keyMapping.event[key].hide) {
-            hiddenPropsCount += 1
-            if (showHiddenProps) {
-                visibleHiddenProperties[key] = event.properties[key]
+            systemPropsCount += 1
+            if (showSystemProps) {
+                visibleSystemProperties[key] = event.properties[key]
             }
         }
         if (!keyMapping.event[key] || !keyMapping.event[key].hide) {
@@ -52,20 +53,22 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
             tabBarStyle={{ margin: 0, paddingLeft: 12 }}
         >
             <TabPane tab="Properties" key="properties">
-                <div className="ml-10">
+                <div className="ml-10 mt-2">
                     <PropertiesTable
                         properties={{
                             $timestamp: dayjs(event.timestamp).toISOString(),
                             ...displayedEventProperties,
-                            ...visibleHiddenProperties,
+                            ...visibleSystemProperties,
                         }}
                         useDetectedPropertyType={true}
                         tableProps={tableProps}
+                        filterable
+                        searchable
                     />
-                    {hiddenPropsCount > 0 && (
-                        <LemonButton className="mb-2" onClick={() => setShowHiddenProps(!showHiddenProps)} size="small">
-                            {showHiddenProps ? 'Hide' : 'Show'}{' '}
-                            {pluralize(hiddenPropsCount, 'hidden property', 'hidden properties')}
+                    {systemPropsCount > 0 && (
+                        <LemonButton className="mb-2" onClick={() => setShowSystemProps(!showSystemProps)} size="small">
+                            {showSystemProps ? 'Hide' : 'Show'}{' '}
+                            {pluralize(systemPropsCount, 'system property', 'system properties')}
                         </LemonButton>
                     )}
                 </div>
