@@ -67,6 +67,6 @@ describe('session-recordings-consumer', () => {
         })
 
         // Should have send to the DLQ.
-        expect(producer.produce).toHaveBeenCalledTimes(2)
+        expect(producer.produce).toHaveBeenCalledTimes(1)
     })
 })
