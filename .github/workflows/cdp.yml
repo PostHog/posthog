@@ -38,6 +38,7 @@ jobs:
                   images: ghcr.io/${{ github.repository }}/cdp
                   flavor: |
                       latest=${{ github.ref == 'refs/heads/master' }}
+
             - uses: docker/build-push-action@v2
               with:
                   context: cdp
@@ -45,6 +46,8 @@ jobs:
                   push: true
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
+                  cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/cdp:cache
+                  cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/cdp:cache,mode=max
         # Output the image tags so that we can use them in the next job.
         outputs:
             tags: ${{ steps.meta.outputs.tags }}
@@ -64,6 +67,10 @@ jobs:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
+
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8.2.0
 
             - name: Setup node
               uses: actions/setup-node@v3
