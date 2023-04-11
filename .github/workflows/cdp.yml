@@ -92,11 +92,10 @@ jobs:
                   cache: 'pnpm'
                   cache-dependency-path: cdp/pnpm-lock.yaml
 
-            - name: Install pnpm dev dependencies
+            - name: Install pnpm dependencies including dev dependencies
               working-directory: cdp
               run: |
-                  npm install -g pnpm
-                  pnpm install
+                  pnpm install --frozen-lockfile
 
             - name: Start CDP
               working-directory: cdp
