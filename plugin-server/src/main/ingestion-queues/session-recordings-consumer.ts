@@ -214,7 +214,7 @@ export const eachBatch =
                                 message.key
                             )
                         )
-                    } else if (event.event === '$performance_event') {
+                    } else if (team.capture_performance_opt_in && event.event === '$performance_event') {
                         const clickHouseRecord = createPerformanceEvent(
                             messagePayload.uuid,
                             team.id,

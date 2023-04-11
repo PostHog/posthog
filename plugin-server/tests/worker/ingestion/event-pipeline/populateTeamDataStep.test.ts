@@ -23,6 +23,7 @@ const teamTwo: Team = {
     api_token: 'token',
     slack_incoming_webhook: '',
     session_recording_opt_in: false,
+    capture_performance_opt_in: true,
     ingested_event: true,
 }
 

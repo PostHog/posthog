@@ -136,7 +136,7 @@ test.concurrent(
     20000
 )
 
-test.concurrent(`recording events not ingested to ClickHouse if team is opted out`, async () => {
+async function test_recordings_opt_out(sessions_opt_in, performance_events_opt_in, event) {
     // NOTE: to have something we can assert on in the positive to ensure that
     // we had tried to ingest the recording for the team with the opted out
     // session recording status, we create a team that is opted in and then
@@ -145,14 +145,20 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     // for the team that is opted in was ingested and the recording for the team
     // that is opted out was not ingested.
     const tokenOptedOut = uuidv4()
-    const teamOptedOutId = await createTeam(organizationId, undefined, tokenOptedOut, false)
+    const teamOptedOutId = await createTeam(
+        organizationId,
+        undefined,
+        tokenOptedOut,
+        sessions_opt_in,
+        performance_events_opt_in
+    )
     const uuidOptedOut = new UUIDT().toString()
 
     await capture({
         teamId: null,
         distinctId: new UUIDT().toString(),
         uuid: uuidOptedOut,
-        event: '$snapshot',
+        event: event,
         properties: {
             $session_id: '1234abc',
             $snapshot_data: 'yes way',
@@ -195,6 +201,18 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     // partitioning / ordering setup e.g. an ingestion warning.
     const events = await fetchSessionRecordingsEvents(teamOptedOutId, uuidOptedOut)
     expect(events.length).toBe(0)
+}
+
+test.concurrent(`recording events not ingested to ClickHouse if team is opted out`, async () => {
+    await test_recordings_opt_out(false, true, '$snapshot')
+})
+
+test.concurrent(`performance events not ingested to ClickHouse if team is opted out of recordings`, async () => {
+    await test_recordings_opt_out(false, true, '$performance_event')
+})
+
+test.concurrent(`performance events not ingested to ClickHouse if team is opted out`, async () => {
+    await test_recordings_opt_out(true, false, '$performance_event')
 })
 
 test.concurrent(

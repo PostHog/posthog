@@ -494,6 +494,7 @@ export interface Team {
     api_token: string
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
+    capture_performance_opt_in: boolean
     ingested_event: boolean
 }
 

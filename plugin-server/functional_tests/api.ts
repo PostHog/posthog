@@ -223,7 +223,8 @@ export const createTeam = async (
     organizationId: string,
     slack_incoming_webhook?: string,
     token?: string,
-    sessionRecordingOptIn = true
+    sessionRecordingOptIn = true,
+    performanceEventsOptIn = true
 ) => {
     const team = await insertRow(postgres, 'posthog_team', {
         organization_id: organizationId,
@@ -241,6 +242,7 @@ export const createTeam = async (
         ingested_event: true,
         uuid: new UUIDT().toString(),
         session_recording_opt_in: sessionRecordingOptIn,
+        capture_performance_opt_in: performanceEventsOptIn,
         plugins_opt_in: false,
         opt_out_capture: false,
         is_demo: false,

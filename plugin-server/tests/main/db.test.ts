@@ -1200,6 +1200,7 @@ describe('DB', () => {
                 name: 'TEST PROJECT',
                 organization_id: organizationId,
                 session_recording_opt_in: true,
+                capture_performance_opt_in: true,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
             })
@@ -1225,6 +1226,7 @@ describe('DB', () => {
                 name: 'TEST PROJECT',
                 organization_id: organizationId,
                 session_recording_opt_in: true,
+                capture_performance_opt_in: true,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
             })

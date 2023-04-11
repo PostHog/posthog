@@ -210,6 +210,7 @@ class OrganizationTeamInline(admin.TabularInline):
         "completed_snippet_onboarding",
         "ingested_event",
         "session_recording_opt_in",
+        "capture_performance_opt_in",
         "signup_token",
         "is_demo",
         "access_control",
