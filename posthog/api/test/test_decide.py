@@ -1063,7 +1063,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             team=self.team,
             name="Sprocket",
             description="A fancy new sprocket.",
-            status="beta",
+            stage="beta",
             feature_flag=feature_flag,
         )
 
@@ -1080,9 +1080,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
                     {
                         "name": "Sprocket",
                         "description": "A fancy new sprocket.",
-                        "status": "beta",
-                        "imageUrl": None,
-                        "documentationUrl": None,
+                        "stage": "beta",
+                        "imageUrl": "",
+                        "documentationUrl": "",
                         "flagKey": "sprocket",
                     }
                 ],
