@@ -175,7 +175,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             overrideFilter: true,
                         }
                     )
-                    values.insightCache?.logic.actions.loadResults()
+
+                    // values.insightCache?.logic.actions.loadResults()
                     eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
                 } else if (filters) {
                     values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))

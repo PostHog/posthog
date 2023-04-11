@@ -14,6 +14,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
+import { insightDataTimingLogic } from './insightDataTimingLogic'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
@@ -55,6 +56,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             ['loadData', 'loadDataSuccess'],
         ],
+        logic: [insightDataTimingLogic(props)],
     })),
 
     actions({
@@ -107,9 +109,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setQuery: () => {
-            actions.loadData()
-        },
         setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
             if (overrideFilter && query == null) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
