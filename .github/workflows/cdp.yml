@@ -95,7 +95,7 @@ jobs:
             - name: Install pnpm dependencies including dev dependencies
               working-directory: cdp
               run: |
-                  pnpm install --frozen-lockfile
+                  pnpm install --frozen-lockfile --dev
 
             - name: Start CDP
               working-directory: cdp
