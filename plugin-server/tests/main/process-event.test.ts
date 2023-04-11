@@ -22,7 +22,6 @@ import {
     Team,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
-import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
@@ -1188,22 +1187,15 @@ test('capture first team event', async () => {
     expect(elements.length).toEqual(1)
 })
 
-test('snapshot event stored as session_recording_event', async () => {
-    const producer = {
-        queueSingleJsonMessage: jest.fn(),
-    }
-
-    await createSessionRecordingEvent(
+test('snapshot event stored as session_recording_event', () => {
+    const data = createSessionRecordingEvent(
         'some-id',
         team.id,
         '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
         now,
         '',
-        { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } } as any as Properties,
-        producer as any as KafkaProducerWrapper
+        { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } } as any as Properties
     )
-
-    const [_topic, _uuid, data] = producer.queueSingleJsonMessage.mock.calls[0]
 
     expect(data).toEqual({
         created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2} [\d\s:]+/),
@@ -1217,53 +1209,39 @@ test('snapshot event stored as session_recording_event', async () => {
     })
 })
 
-test('performance event stored as performance_event', async () => {
-    const producer = {
-        queueSingleJsonMessage: jest.fn(),
-    }
-
-    await createPerformanceEvent(
-        'some-id',
-        team.id,
-        '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
-        {
-            // Taken from a real event from the JS
-            '0': 'resource',
-            '1': 1671723295836,
-            '2': 'http://localhost:8000/api/projects/1/session_recordings',
-            '3': 10737.89999999106,
-            '4': 0,
-            '5': 0,
-            '6': 0,
-            '7': 10737.89999999106,
-            '8': 10737.89999999106,
-            '9': 10737.89999999106,
-            '10': 10737.89999999106,
-            '11': 0,
-            '12': 10737.89999999106,
-            '13': 10745.09999999404,
-            '14': 11121.70000000298,
-            '15': 11122.20000000298,
-            '16': 73374,
-            '17': 1767,
-            '18': 'fetch',
-            '19': 'http/1.1',
-            '20': 'non-blocking',
-            '22': 2067,
-            '39': 384.30000001192093,
-            '40': 1671723306573,
-            token: 'phc_234',
-            $session_id: '1853a793ad26c1-0eea05631cbeff-17525635-384000-1853a793ad31dd2',
-            $window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
-            distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
-            $current_url: 'http://localhost:8000/recordings/recent',
-        },
-        '',
-        now,
-        producer as any as KafkaProducerWrapper
-    )
-
-    const [_topic, _uuid, data] = producer.queueSingleJsonMessage.mock.calls[0]
+test('performance event stored as performance_event', () => {
+    const data = createPerformanceEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', {
+        // Taken from a real event from the JS
+        '0': 'resource',
+        '1': 1671723295836,
+        '2': 'http://localhost:8000/api/projects/1/session_recordings',
+        '3': 10737.89999999106,
+        '4': 0,
+        '5': 0,
+        '6': 0,
+        '7': 10737.89999999106,
+        '8': 10737.89999999106,
+        '9': 10737.89999999106,
+        '10': 10737.89999999106,
+        '11': 0,
+        '12': 10737.89999999106,
+        '13': 10745.09999999404,
+        '14': 11121.70000000298,
+        '15': 11122.20000000298,
+        '16': 73374,
+        '17': 1767,
+        '18': 'fetch',
+        '19': 'http/1.1',
+        '20': 'non-blocking',
+        '22': 2067,
+        '39': 384.30000001192093,
+        '40': 1671723306573,
+        token: 'phc_234',
+        $session_id: '1853a793ad26c1-0eea05631cbeff-17525635-384000-1853a793ad31dd2',
+        $window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
+        distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
+        $current_url: 'http://localhost:8000/recordings/recent',
+    })
 
     expect(data).toEqual({
         connect_end: 10737.89999999106,
