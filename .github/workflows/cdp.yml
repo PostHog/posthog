@@ -111,7 +111,8 @@ jobs:
                   done
 
                   # Create a shell alias for the docker image we just built, using the tags output.
-                  CDP_RUN="docker run -e DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog --rm --network=host ${{ needs.build.outputs.tags }}"
+                  SECRET_KEY=$(openssl rand -hex 32)
+                  CDP_RUN="docker run -e SECRET_KEY=$SECRET_KEY -e DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog --rm --network=host ${{ needs.build.outputs.tags }}"
 
                   # Run the migrations.
                   $CDP_RUN sqlx migrate run
