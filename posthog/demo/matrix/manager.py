@@ -106,6 +106,7 @@ class MatrixManager:
         )
         return team
 
+    # TODO(charlotte): breadcrumb
     def run_on_team(self, team: Team, user: User):
         does_clickhouse_data_need_saving = True
         if self.use_pre_save:
@@ -116,6 +117,7 @@ class MatrixManager:
         if does_clickhouse_data_need_saving:
             if self.matrix.is_complete is None:
                 self.matrix.simulate()
+            # TODO(charlotte): breadcrumb
             self._save_analytics_data(source_team)
         if self.use_pre_save:
             self._copy_analytics_data_from_master_team(team)
@@ -126,6 +128,7 @@ class MatrixManager:
             cohort.calculate_people_ch(pending_version=0)
         team.save()
 
+    # TODO(charlotte): breadcrumb
     def _save_analytics_data(self, data_team: Team):
         sim_persons = self.matrix.people
         bulk_group_type_mappings = []
