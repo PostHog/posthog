@@ -54,6 +54,9 @@ devDependencies:
   '@swc/helpers':
     specifier: ^0.5.0
     version: 0.5.0
+  '@types/jest':
+    specifier: ^29.5.0
+    version: 29.5.0
   '@types/jsonwebtoken':
     specifier: ^9.0.1
     version: 9.0.1
@@ -1453,6 +1456,13 @@ packages:
     resolution: {integrity: sha512-c3mAZEuK0lvBp8tmuL74XRKn1+y2dcwOUpH7x4WrF6gk1GIgiluDRgMYQtw2OFcBvAJWlt6ASU3tSqxp0Uu0Aw==}
     dependencies:
       '@types/istanbul-lib-report': 3.0.0
+    dev: true
+
+  /@types/jest@29.5.0:
+    resolution: {integrity: sha512-3Emr5VOl/aoBwnWcH/EFQvlSAmjV+XtV9GGu5mwdYew5vhQh0IUZx/60x0TzHDu09Bi7HMx10t/namdJw5QIcg==}
+    dependencies:
+      expect: 29.5.0
+      pretty-format: 29.5.0
     dev: true
 
   /@types/jsonwebtoken@9.0.1:
