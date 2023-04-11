@@ -13,7 +13,7 @@ export const supportLogic = kea<supportLogicType>({
     actions: () => ({
         closeSupportForm: () => true,
         openSupportForm: () => true,
-        submitZendeskTicket: (kind: string, target_area: string, body: string) => ({ kind, target_area, body }),
+        submitZendeskTicket: (kind: string, target_area: string, message: string) => ({ kind, target_area, message }),
     }),
     reducers: () => ({
         isSupportFormOpen: [
@@ -46,7 +46,7 @@ export const supportLogic = kea<supportLogicType>({
         },
     }),
     listeners: ({}) => ({
-        submitZendeskTicket: async ({ kind, target_area, body }) => {
+        submitZendeskTicket: async ({ kind, target_area, message }) => {
             const name = userLogic.values.user?.first_name
             const email = userLogic.values.user?.email
 
@@ -57,7 +57,7 @@ export const supportLogic = kea<supportLogicType>({
                     subject: 'Help in-app',
                     comment: {
                         body:
-                            body +
+                            message +
                             `\n\n-----` +
                             `\nKind: ${kind}` +
                             `\nTarget area: ${target_area}` +
@@ -75,7 +75,9 @@ export const supportLogic = kea<supportLogicType>({
                     const zendesk_ticket_id = res.request.id
                     const properties = {
                         zendesk_ticket_uuid,
+                        kind,
                         target_area,
+                        message,
                         zendesk_ticket_id,
                         zendesk_ticket_link: `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`,
                     }
