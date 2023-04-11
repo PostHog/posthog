@@ -1,7 +1,4 @@
-/**
- * @file Handlers for destination resources
- * @module destinations/handlers
- * @see module:destinations
+/*
  *
  * This file is responsible for handling the destination API. It provides
  * handlers for creating, updating, and deleting destinations, as well as

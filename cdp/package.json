@@ -4,9 +4,9 @@
     "description": "",
     "main": "index.js",
     "scripts": {
-        "dev": "nodemon --watch \"src/**/*\" --exec ts-node --swc src/rest.ts | pino-pretty",
+        "dev": "NODE_ENV=dev nodemon -w src/ src/rest.ts | pino-pretty",
         "test": "jest",
-        "build": "swc ./src/rest.ts --out-dir ./dist",
+        "build": "swc ./src/ --out-dir ./dist/",
         "migrate": "sqlx migrate run"
     },
     "keywords": [],
