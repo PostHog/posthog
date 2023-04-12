@@ -46,6 +46,7 @@ export const billingLogic = kea<billingLogicType>([
         reportBillingV2Shown: true,
         registerInstrumentationProps: true,
         setRedirectPath: true,
+        setIsOnboarding: true,
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -64,6 +65,12 @@ export const billingLogic = kea<billingLogicType>([
                 setRedirectPath: () => {
                     return window.location.pathname.includes('/ingestion') ? urls.ingestion() + '/billing' : ''
                 },
+            },
+        ],
+        isOnboarding: [
+            false,
+            {
+                setIsOnboarding: () => window.location.pathname.includes('/ingestion'),
             },
         ],
     }),
@@ -258,9 +265,11 @@ export const billingLogic = kea<billingLogicType>([
                 actions.submitActivateLicense()
             }
             actions.setRedirectPath()
+            actions.setIsOnboarding()
         },
         '*': () => {
             actions.setRedirectPath()
+            actions.setIsOnboarding()
         },
     })),
 ])

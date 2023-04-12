@@ -143,7 +143,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { billing, redirectPath } = useValues(billingLogic)
+    const { billing, redirectPath, isOnboarding } = useValues(billingLogic)
     const { deactivateProduct } = useActions(billingLogic)
     const { customLimitUsd, showTierBreakdown, billingGaugeItems, isPricingModalOpen, isPlanComparisonModalOpen } =
         useValues(billingProductLogic({ product }))
@@ -154,11 +154,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         toggleIsPlanComparisonModalOpen,
     } = useActions(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const isOnboarding = window.location.pathname.includes('ingestion')
 
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
-    // This assumes that the first plan is the free plan, and there is only one other plan that is paid
-    // If there are more than two plans for single product in the future we need to make this smarter
     const upgradePlan = getCurrentAndUpgradePlans(product).upgradePlan
     const currentPlan = getCurrentAndUpgradePlans(product).currentPlan
     const downgradePlan = getCurrentAndUpgradePlans(product).downgradePlan
@@ -174,6 +171,22 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
+
+    const getUpgradeAllProductsLink = (): string => {
+        let url = '/api/billing-v2/activation?products='
+        url += `${product.type}:${upgradeToPlanKey},`
+        if (product.addons?.length) {
+            for (const addon of product.addons) {
+                url += `${addon.type}:${addon.plans[0].plan_key},`
+            }
+        }
+        // remove the trailing comma that will be at the end of the url
+        url = url.slice(0, -1)
+        if (redirectPath) {
+            url += `&redirect_path=${redirectPath}`
+        }
+        return url
+    }
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -489,9 +502,17 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         Compare plans
                                     </LemonButton>
                                     <LemonButton
-                                        to={`/api/billing-v2/activation?products=${product.type}:${upgradeToPlanKey}${
-                                            redirectPath && `&redirect_path=${redirectPath}`
-                                        }`}
+                                        to={
+                                            // if we're in onboarding we want to upgrade them to the product and the addons at once
+                                            isOnboarding
+                                                ? getUpgradeAllProductsLink()
+                                                : // otherwise we just want to upgrade them to the product
+                                                  `/api/billing-v2/activation?products=${
+                                                      product.type
+                                                  }:${upgradeToPlanKey}${
+                                                      redirectPath && `&redirect_path=${redirectPath}`
+                                                  }`
+                                        }
                                         type="primary"
                                         icon={<IconPlus />}
                                         disableClientSideRouting

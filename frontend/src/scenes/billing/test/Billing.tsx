@@ -20,11 +20,10 @@ export function BillingPageHeader(): JSX.Element {
 }
 
 export function Billing(): JSX.Element {
-    const { billing, billingLoading, redirectPath } = useValues(billingLogic)
+    const { billing, billingLoading, redirectPath, isOnboarding } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const cloudOrDev = preflight?.cloud || preflight?.is_debug
-    const isOnboarding = window.location.pathname.includes('ingestion')
 
     useEffect(() => {
         if (billing) {
