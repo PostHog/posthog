@@ -15,11 +15,12 @@ FROM rust:1.68.2-slim-bullseye AS sqlx-cli-build
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Since we are using the slim image, we need to install `pkg-config` so cargo
-# install completes successfully.
+# Since we are using the slim image, we need to install `pkg-config` and
+# `libssl-dev` so cargo install completes successfully.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "pkg-config" \
+    "libssl-dev" \
     && \
     rm -rf /var/lib/apt/lists/*
 
