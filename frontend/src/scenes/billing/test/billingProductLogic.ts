@@ -2,7 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 import { billingLogic } from '../billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
-import { convertUsageToAmount, convertAmountToUsage } from '../billing-utils'
+import { convertAmountToUsage } from '../billing-utils'
 
 const DEFAULT_BILLING_LIMIT = 500
 
@@ -136,11 +136,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.setIsEditingBillingLimit(false)
             actions.setBillingLimitInput(
                 parseInt(values.customLimitUsd || '0') ||
-                    (props.product.tiers
-                        ? parseInt(
-                              convertUsageToAmount((props.product.projected_usage || 0) * 1.5, props.product.tiers)
-                          )
-                        : 0) ||
+                    (props.product.tiers ? parseInt(props.product.projected_amount_usd || '0') * 1.5 : 0) ||
                     DEFAULT_BILLING_LIMIT
             )
         },

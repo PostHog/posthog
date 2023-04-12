@@ -7,7 +7,7 @@ import { IconChevronRight, IconCheckmark, IconExpandMore, IconPlus, IconArticle 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
-import { convertUsageToAmount, summarizeUsage } from '../billing-utils'
+import { summarizeUsage } from '../billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from '../billingLogic'
 import { BillingLimitInput } from './BillingLimitInput'
@@ -386,13 +386,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             className="flex flex-col items-center justify-end"
                                                         >
                                                             <div className="font-bold text-muted text-lg leading-5">
-                                                                $
-                                                                {product.projected_usage
-                                                                    ? convertUsageToAmount(
-                                                                          product.projected_usage,
-                                                                          product.tiers
-                                                                      )
-                                                                    : '0.00'}
+                                                                ${product.projected_amount_usd || '0.00'}
                                                             </div>
                                                             <span className="text-xs text-muted">Predicted</span>
                                                         </Tooltip>
