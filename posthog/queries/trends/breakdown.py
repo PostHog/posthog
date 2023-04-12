@@ -146,7 +146,9 @@ class TrendsBreakdown:
             self.entity,
             self.team,
             event_table_alias=self.EVENT_TABLE_ALIAS,
-            person_id_alias=self._person_id_alias,
+            person_id_alias=f"person_id"
+            if self.person_on_events_mode != PersonOnEventsMode.DISABLED
+            else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
         action_query = ""
