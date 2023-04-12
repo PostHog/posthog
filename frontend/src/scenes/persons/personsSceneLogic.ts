@@ -13,7 +13,6 @@ const getDefaultQuery = (): DataTableNode => ({
     kind: NodeKind.DataTableNode,
     source: { kind: NodeKind.PersonsNode },
     full: true,
-    columns: undefined,
     propertiesViaUrl: true,
 })
 

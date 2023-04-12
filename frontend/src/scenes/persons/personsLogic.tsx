@@ -11,6 +11,8 @@ import { asDisplay } from 'scenes/persons/PersonHeader'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface PersonPaginatedResponse {
     next: string | null
@@ -35,7 +37,7 @@ export const personsLogic = kea<personsLogicType>({
     path: (key) => ['scenes', 'persons', 'personsLogic', key],
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
     },
     actions: {
         setPerson: (person: PersonType | null) => ({ person }),
@@ -281,7 +283,8 @@ export const personsLogic = kea<personsLogicType>({
     }),
     urlToAction: ({ actions, values, props }) => ({
         '/persons': ({}, searchParams) => {
-            if (props.syncWithUrl) {
+            const featureDataExploration = values.featureFlags[FEATURE_FLAGS.HOGQL]
+            if (props.syncWithUrl && !featureDataExploration) {
                 actions.setListFilters(searchParams)
                 if (!values.persons.results.length && !values.personsLoading) {
                     // Initial load
