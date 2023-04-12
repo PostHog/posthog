@@ -439,10 +439,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                         Predicted bill
                                     </LemonLabel>
                                     <div className="font-bold text-muted text-2xl">
-                                        $
-                                        {product.projected_usage
-                                            ? convertUsageToAmount(product.projected_usage, product.tiers)
-                                            : '0.00'}
+                                        ${product.projected_amount_usd || '0.00'}
                                     </div>
                                 </div>
                                 {billing?.billing_period?.interval == 'month' && (
