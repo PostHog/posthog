@@ -7,7 +7,7 @@
 #
 # Once built we run the functional tests against the running image.
 
-name: cdp
+name: CDP CI
 
 on:
     push:
@@ -104,8 +104,13 @@ jobs:
 
                   docker compose -f ../docker-compose.dev.yml up -d db >> /tmp/logs/db.txt
 
-                  # Wait for the db service to be ready.
-                  while ! docker compose -f ../docker-compose.dev.yml exec -T db pg_isready; do
+                  # Wait for the db service to be ready, up to 30 seconds.
+                  SECONDS=0
+                  until docker compose -f ../docker-compose.dev.yml exec -T db pg_isready; do
+                      if [ $SECONDS -gt 30 ]; then
+                          echo "Timed out waiting for db service to be ready."
+                          exit 1
+                      fi
                       sleep 1
                   done
 
