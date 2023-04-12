@@ -11,6 +11,7 @@ import { IconCalendar } from 'lib/lemon-ui/icons'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
+import { Placement } from '@floating-ui/react'
 
 export interface DateFilterProps {
     showCustom?: boolean
@@ -23,6 +24,7 @@ export interface DateFilterProps {
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
     size?: LemonButtonProps['size']
+    dropdownPlacement?: Placement
 }
 interface RawDateFilterProps extends DateFilterProps {
     dateFrom?: string | null | dayjs.Dayjs
@@ -42,6 +44,7 @@ export function DateFilter({
     dateOptions = dateMapping,
     isDateFormatted = true,
     size,
+    dropdownPlacement = 'bottom-start',
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
@@ -154,7 +157,7 @@ export function DateFilter({
                 onClickOutside: close,
                 visible: isVisible,
                 overlay: popoverOverlay,
-                placement: 'bottom-start',
+                placement: dropdownPlacement,
                 actionable: true,
                 closeOnClickInside: false,
                 additionalRefs: [rollingDateRangeRef, '.datefilter-datepicker'],
