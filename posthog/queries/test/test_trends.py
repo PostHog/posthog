@@ -5478,7 +5478,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @snapshot_clickhouse_queries
-    def test_same_day_with_person_on_events_v2g(self):
+    def test_same_day_with_person_on_events_v2(self):
         person_id1 = str(uuid.uuid4())
         person_id2 = str(uuid.uuid4())
 
