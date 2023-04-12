@@ -4,8 +4,12 @@
 #
 #    pip-compile requirements.in
 #
+aiochclient[aiohttp]==2.3.1
+    # via -r requirements.in
 aiohttp==3.8.1
-    # via geoip2
+    # via
+    #   aiochclient
+    #   geoip2
 aiosignal==1.2.0
     # via aiohttp
 amqp==2.6.0
@@ -341,6 +345,7 @@ sortedcontainers==2.4.0
 sqlparse==0.4.2
     # via
     #   -r requirements.in
+    #   aiochclient
     #   django
 statshog==1.0.6
     # via -r requirements.in
@@ -369,9 +374,6 @@ typing-extensions==4.4.0
     #   pydantic
     #   qrcode
     #   temporalio
-    #   typing-inspect
-typing-inspect==0.7.1
-    # via dataclasses-json
 tzlocal==2.1
     # via clickhouse-driver
 unicodecsv==0.14.1
