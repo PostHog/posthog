@@ -53,17 +53,13 @@ class TrendsTotalVolume:
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
 
-        person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-        if team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
-            person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
-        elif team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
-            person_id_alias = "person_id"
-
         aggregate_operation, join_condition, math_params = process_math(
             entity,
             team,
             event_table_alias=TrendsEventQuery.EVENT_TABLE_ALIAS,
-            person_id_alias=person_id_alias,
+            person_id_alias=f"person_id"
+            if team.person_on_events_mode != PersonOnEventsMode.DISABLED
+            else "pdi.person_id",
         )
 
         trend_event_query = TrendsEventQuery(
