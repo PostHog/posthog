@@ -1072,6 +1072,7 @@ export interface BillingProductV2Type {
     tiered: boolean
     current_usage?: number
     projected_usage?: number
+    projected_amount_usd?: string
     percentage_usage: number
     current_amount_usd?: string
     usage_limit?: number
