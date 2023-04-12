@@ -1,10 +1,12 @@
 class HogQLException(Exception):
-    """An exception in the HogQL layer. This is exposed to the user."""
+    """Base exception for HogQL. These are exposed to the user."""
 
     pass
 
 
 class SyntaxException(HogQLException):
+    """Invalid HogQL syntax."""
+
     line: int
     column: int
 
@@ -17,13 +19,19 @@ class SyntaxException(HogQLException):
         return f"Syntax error at line {self.line}, column {self.column}: {super().__str__()}"
 
 
-class ResolverException(HogQLException):
-    pass
+class QueryException(HogQLException):
+    """The query invalid (though correct syntactically)."""
 
-
-class ParserException(HogQLException):
     pass
 
 
 class NotImplementedException(HogQLException):
+    """This feature isn't implemented in HogQL (yet)."""
+
+    pass
+
+
+class ResolverException(HogQLException):
+    """An internal problem in the resolver layer."""
+
     pass

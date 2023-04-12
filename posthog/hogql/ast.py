@@ -33,7 +33,7 @@ class AST(BaseModel):
             return visit(self)
         if hasattr(visitor, "visit_unknown"):
             return visitor.visit_unknown(self)
-        raise HogQLException(f"Visitor has no method {method_name}")
+        raise NotImplementedException(f"Visitor has no method {method_name}")
 
 
 class Ref(AST):
