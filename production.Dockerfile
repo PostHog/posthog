@@ -49,6 +49,7 @@ RUN apt-get update && \
     "g++" \
     "gcc" \
     "python3" \
+    "libssl-dev" \
     && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \
