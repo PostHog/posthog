@@ -168,6 +168,15 @@ function Pages(): JSX.Element {
                         identifier={Scene.SessionRecordings}
                         to={urls.sessionRecordings()}
                     />
+                    {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
+                        <PageButton
+                            icon={<IconCoffee />}
+                            identifier={Scene.WebPerformance}
+                            to={urls.webPerformance()}
+                        />
+                    )}
+
+                    <div className="SideBar__heading">Feature Management</div>
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
                     {featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT] && (
                         <PageButton icon={<IconRocketLaunch />} identifier={Scene.Features} to={urls.features()} />
@@ -175,13 +184,6 @@ function Pages(): JSX.Element {
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                         !preflight?.instance_preferences?.disable_paid_fs) && (
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
-                    )}
-                    {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
-                        <PageButton
-                            icon={<IconCoffee />}
-                            identifier={Scene.WebPerformance}
-                            to={urls.webPerformance()}
-                        />
                     )}
                     <div className="SideBar__heading">Data</div>
 
