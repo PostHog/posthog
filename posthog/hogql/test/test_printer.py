@@ -233,14 +233,14 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
 
     def test_expr_syntax_errors(self):
-        self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")
-        self._assert_expr_error("())", "line 1, column 1: no viable alternative at input '()'")
+        self._assert_expr_error("(", "Syntax error at line 1, column 1: no viable alternative at input '('")
+        self._assert_expr_error("())", "Syntax error at line 1, column 1: no viable alternative at input '()'")
         self._assert_expr_error(
-            "select query from events", "line 1, column 13: mismatched input 'from' expecting <EOF>"
+            "select query from events", "Syntax error at line 1, column 13: mismatched input 'from' expecting <EOF>"
         )
         self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
-        self._assert_expr_error("1;2", "line 1, column 1: mismatched input ';' expecting")
-        self._assert_expr_error("b.a(bla)", "SyntaxError: line 1, column 3: mismatched input '(' expecting '.'")
+        self._assert_expr_error("1;2", "Syntax error at line 1, column 1: mismatched input ';' expecting <EOF>")
+        self._assert_expr_error("b.a(bla)", "Syntax error at line 1, column 3: mismatched input '(' expecting '.'")
 
     def test_logic(self):
         self.assertEqual(
