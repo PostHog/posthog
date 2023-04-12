@@ -25,6 +25,7 @@ class CachedTeam:
     recording_domains: List[str]
     inject_web_apps: bool
     capture_performance_enabled: bool
+    autocapture_opt_out: bool
 
 
 def set_cached_team(token: str, team: Optional["Team"] = None) -> Optional[CachedTeam]:
@@ -46,6 +47,7 @@ def set_cached_team(token: str, team: Optional["Team"] = None) -> Optional[Cache
         session_recording_version=team.session_recording_version,
         recording_domains=team.recording_domains,
         inject_web_apps=team.inject_web_apps,
+        autocapture_opt_out=team.autocapture_opt_out,
     )
 
     cache.set(f"team_token:{token}", json.dumps(asdict(serialized_team)), FIVE_DAYS)
