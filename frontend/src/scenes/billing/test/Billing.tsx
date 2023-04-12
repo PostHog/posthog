@@ -20,7 +20,7 @@ export function BillingPageHeader(): JSX.Element {
 }
 
 export function Billing(): JSX.Element {
-    const { billing, billingLoading } = useValues(billingLogic)
+    const { billing, billingLoading, redirectPath } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const cloudOrDev = preflight?.cloud || preflight?.is_debug
@@ -99,6 +99,9 @@ export function Billing(): JSX.Element {
         }
         // remove the trailing comma that will be at the end of the url
         url = url.slice(0, -1)
+        if (redirectPath) {
+            url += `&redirect_path=${redirectPath}`
+        }
         return url
     }
 

@@ -40,7 +40,7 @@ export const getTierDescription = (
 }
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
-    const { billing } = useValues(billingLogic)
+    const { billing, redirectPath } = useValues(billingLogic)
     const { deactivateProduct } = useActions(billingLogic)
     const { isPricingModalOpen } = useValues(billingProductLogic({ product: addon }))
     const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: addon }))
@@ -118,7 +118,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 size="small"
                                 to={`/api/billing-v2/activation?products=${addon.type}:${
                                     getCurrentAndUpgradePlans(addon).upgradePlan?.plan_key
-                                }`}
+                                }${redirectPath && `&redirect_path=${redirectPath}`}`}
                                 disableClientSideRouting
                             >
                                 Add
@@ -142,7 +142,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { billing } = useValues(billingLogic)
+    const { billing, redirectPath } = useValues(billingLogic)
     const { deactivateProduct } = useActions(billingLogic)
     const { customLimitUsd, showTierBreakdown, billingGaugeItems, isPricingModalOpen, isPlanComparisonModalOpen } =
         useValues(billingProductLogic({ product }))
@@ -474,7 +474,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     Compare plans
                                 </LemonButton>
                                 <LemonButton
-                                    to={`/api/billing-v2/activation?products=${product.type}:${upgradeToPlanKey}`}
+                                    to={`/api/billing-v2/activation?products=${product.type}:${upgradeToPlanKey}${
+                                        redirectPath && `&redirect_path=${redirectPath}`
+                                    }`}
                                     type="primary"
                                     icon={<IconPlus />}
                                     disableClientSideRouting
