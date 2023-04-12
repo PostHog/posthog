@@ -2002,6 +2002,10 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
@@ -2239,6 +2243,10 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
@@ -2447,6 +2455,10 @@
                         }
                     ],
                     "description": "Property filters for all series"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 }
             },
             "required": ["kind"],
@@ -2760,6 +2772,10 @@
                 "retentionFilter": {
                     "$ref": "#/definitions/RetentionFilter",
                     "description": "Properties specific to the retention insight"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 }
             },
             "required": ["kind"],
@@ -2868,6 +2884,10 @@
                         }
                     ],
                     "description": "Property filters for all series"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "series": {
                     "description": "Events and actions to include",
@@ -3014,6 +3034,10 @@
                         }
                     ],
                     "description": "Property filters for all series"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "series": {
                     "description": "Events and actions to include",

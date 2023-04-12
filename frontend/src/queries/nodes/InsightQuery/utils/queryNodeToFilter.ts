@@ -100,6 +100,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         // TODO: not used by retention queries
         date_from: query.dateRange?.date_from,
         entity_type: 'events',
+        sampling_factor: query.samplingFactor,
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query)) {
