@@ -15,11 +15,13 @@ on:
             - master
         paths:
             - cdp/**
+            - .github/workflows/customer-data-pipeline.yml
     pull_request:
         branches:
             - master
         paths:
             - cdp/**
+            - .github/workflows/customer-data-pipeline.yml
 
 jobs:
     build:
@@ -37,8 +39,6 @@ jobs:
               id: meta
               with:
                   images: ghcr.io/${{ github.repository }}/cdp
-                  flavor: |
-                      latest=${{ github.ref == 'refs/heads/master' }}
 
             # Make the image tags used for docker cache. We use this rather than
             # ${{ github.repository }} directly because the repository
@@ -126,3 +126,18 @@ jobs:
 
                   # Run the functional tests.
                   pnpm jest
+
+            - name: Generate docker latest tag
+              if: github.ref == 'refs/heads/master'
+              uses: docker/metadata-action@v4
+              id: meta
+              with:
+                  images: ghcr.io/${{ github.repository }}/cdp
+                  tags: |
+                      type=raw,value=latest
+
+            - name: Push image as latest on master
+              if: github.ref == 'refs/heads/master'
+              run: |
+                  docker tag ${{ needs.build.outputs.tags }} ${{ steps.meta.outputs.tags }}
+                  docker push ${{ steps.meta.outputs.tags }}
