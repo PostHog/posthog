@@ -30,9 +30,14 @@ export function BillingPanel(): JSX.Element {
         )
     }
 
+    const hasSubscribedToAllProducts = billing.products
+        .filter((product) => !product.contact_support)
+        .every((product) => product.subscribed)
+    const hasSubscribedToAnyProduct = billing.products.some((product) => product.subscribed)
+
     return (
         <CardContainer>
-            {billing?.has_active_subscription ? (
+            {hasSubscribedToAllProducts ? (
                 <div className="flex flex-col space-y-4">
                     <h1 className="ingestion-title">You're good to go!</h1>
 
@@ -63,13 +68,13 @@ export function BillingPanel(): JSX.Element {
                         size="large"
                         fullWidth
                         center
-                        type="tertiary"
+                        type={hasSubscribedToAnyProduct ? 'primary' : 'tertiary'}
                         onClick={() => {
                             completeOnboarding()
-                            reportIngestionContinueWithoutBilling()
+                            !hasSubscribedToAnyProduct && reportIngestionContinueWithoutBilling()
                         }}
                     >
-                        Skip for now
+                        {hasSubscribedToAnyProduct ? 'Continue' : 'Skip for now'}
                     </LemonButton>
                 </div>
             )}

@@ -107,22 +107,24 @@ export function Billing(): JSX.Element {
 
     return (
         <div ref={ref}>
-            <div className="flex justify-between">
-                {!isOnboarding && <BillingPageHeader />}
-                {billing?.has_active_subscription && (
-                    <div>
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            to={billing.stripe_portal_url}
-                            disableClientSideRouting
-                            center
-                        >
-                            Manage card details
-                        </LemonButton>
-                    </div>
-                )}
-            </div>
+            {!isOnboarding && (
+                <div className="flex justify-between">
+                    <BillingPageHeader />
+                    {billing?.has_active_subscription && (
+                        <div>
+                            <LemonButton
+                                type="primary"
+                                htmlType="submit"
+                                to={billing.stripe_portal_url}
+                                disableClientSideRouting
+                                center
+                            >
+                                Manage card details
+                            </LemonButton>
+                        </div>
+                    )}
+                </div>
+            )}
             {billing?.free_trial_until ? (
                 <AlertMessage type="success" className="mb-2">
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>

@@ -19,11 +19,12 @@ import { PlanComparisonModal } from './PlanComparisonModal'
 
 const getCurrentAndUpgradePlans = (
     product: BillingProductV2Type | BillingProductV2AddonType
-): { currentPlan: BillingV2PlanType; upgradePlan: BillingV2PlanType } => {
+): { currentPlan: BillingV2PlanType; upgradePlan: BillingV2PlanType; downgradePlan: BillingV2PlanType } => {
     const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
     const currentPlan = product.plans?.[currentPlanIndex]
     const upgradePlan = product.plans?.[currentPlanIndex + 1]
-    return { currentPlan, upgradePlan }
+    const downgradePlan = product.plans?.[currentPlanIndex - 1]
+    return { currentPlan, upgradePlan, downgradePlan }
 }
 
 export const getTierDescription = (
@@ -158,11 +159,18 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
     // This assumes that the first plan is the free plan, and there is only one other plan that is paid
     // If there are more than two plans for single product in the future we need to make this smarter
-    const upgradePlan = product.plans?.filter((plan) => !plan.current_plan)[0]
-    const currentPlan = product.plans?.find((plan) => plan.current_plan)
-    const upgradeFeatures = upgradePlan?.features?.filter(
-        (feature) => !currentPlan?.features?.some((currentPlanFeature) => currentPlanFeature.name === feature.name)
-    )
+    const upgradePlan = getCurrentAndUpgradePlans(product).upgradePlan
+    const currentPlan = getCurrentAndUpgradePlans(product).currentPlan
+    const downgradePlan = getCurrentAndUpgradePlans(product).downgradePlan
+    const additionalFeaturesOnUpgradedPlan = upgradePlan
+        ? upgradePlan?.features?.filter(
+              (feature) =>
+                  !currentPlan?.features?.some((currentPlanFeature) => currentPlanFeature.name === feature.name)
+          )
+        : currentPlan?.features?.filter(
+              (feature) =>
+                  !downgradePlan?.features?.some((downgradePlanFeature) => downgradePlanFeature.name === feature.name)
+          )
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
@@ -446,13 +454,19 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
                 </div>
-                {showUpgradeCTA && (
-                    <div className="border-t border-border p-8 bg-warning-highlight flex justify-between">
+                {(showUpgradeCTA || (isOnboarding && !product.contact_support)) && (
+                    <div
+                        className={`border-t border-border p-8 flex justify-between ${
+                            product.subscribed ? 'bg-success-highlight' : 'bg-warning-highlight'
+                        }`}
+                    >
                         <div>
-                            <h4 className="text-warning-dark">You're on the free plan for {product.name}.</h4>
+                            <h4 className={`${product.subscribed ? 'text-success-dark' : 'text-warning-dark'}`}>
+                                You're on the {product.subscribed ? 'paid' : 'free'} plan for {product.name}.
+                            </h4>
                             <p className="m-0 max-w-200">
-                                Upgrade to get sweet features such as{' '}
-                                {upgradeFeatures.map((feature, i) => {
+                                {product.subscribed ? 'You now' : 'Upgrade to'} get sweet features such as{' '}
+                                {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
                                     return (
                                         i < 3 && (
                                             <Tooltip key={feature.key} title={feature.description}>
@@ -464,31 +478,33 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 and more{!billing?.has_active_subscription && ', plus upgraded platform features'}.
                             </p>
                         </div>
-                        <div>
-                            <div className="flex flex-wrap gap-x-2 gap-y-2">
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={toggleIsPlanComparisonModalOpen}
-                                    className="grow"
-                                >
-                                    Compare plans
-                                </LemonButton>
-                                <LemonButton
-                                    to={`/api/billing-v2/activation?products=${product.type}:${upgradeToPlanKey}${
-                                        redirectPath && `&redirect_path=${redirectPath}`
-                                    }`}
-                                    type="primary"
-                                    icon={<IconPlus />}
-                                    disableClientSideRouting
-                                    onClick={() => {
-                                        reportBillingUpgradeClicked(product.type)
-                                    }}
-                                    className="grow"
-                                >
-                                    Upgrade
-                                </LemonButton>
+                        {!product.subscribed && (
+                            <div className="ml-4">
+                                <div className="flex flex-wrap gap-x-2 gap-y-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={toggleIsPlanComparisonModalOpen}
+                                        className="grow"
+                                    >
+                                        Compare plans
+                                    </LemonButton>
+                                    <LemonButton
+                                        to={`/api/billing-v2/activation?products=${product.type}:${upgradeToPlanKey}${
+                                            redirectPath && `&redirect_path=${redirectPath}`
+                                        }`}
+                                        type="primary"
+                                        icon={<IconPlus />}
+                                        disableClientSideRouting
+                                        onClick={() => {
+                                            reportBillingUpgradeClicked(product.type)
+                                        }}
+                                        className="grow"
+                                    >
+                                        Upgrade
+                                    </LemonButton>
+                                </div>
                             </div>
-                        </div>
+                        )}
                         <PlanComparisonModal
                             product={product}
                             modalOpen={isPlanComparisonModalOpen}
