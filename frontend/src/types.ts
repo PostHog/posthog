@@ -1071,6 +1071,7 @@ export interface BillingProductV2Type {
     tiers?: BillingV2TierType[]
     tiered: boolean
     current_usage?: number
+    projected_amount_usd?: string
     projected_usage?: number
     percentage_usage: number
     current_amount_usd?: string
