@@ -60,12 +60,12 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the SQLx CLI binary from the previous stage.
-COPY --from=sqlx-cli-build /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
+COPY --from=sqlx-cli-build --link /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
 
 # Copy the built CDP server from the previous stage.
-COPY --from=cdp-build /code/node_modules/ ./node_modules/
-COPY --from=cdp-build /code/dist/ ./dist/
-COPY ./migrations/ ./migrations/
+COPY --from=cdp-build --link /code/node_modules/ ./node_modules/
+COPY --from=cdp-build --link /code/dist/ ./dist/
+COPY ./migrations/ --link ./migrations/
 
 # Set [Tini](https://github.com/krallin/tini) as the entrypoint.
 ENTRYPOINT ["/usr/bin/tini", "--"]
