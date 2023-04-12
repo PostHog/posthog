@@ -11,6 +11,7 @@ import {
     IconCohort,
     IconComment,
     IconExperiment,
+    IconFilter,
     IconFlag,
     IconGauge,
     IconLive,
@@ -216,6 +217,9 @@ function Pages(): JSX.Element {
                     ) : null}
                     {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
+                    )}
+                    {featureFlags[FEATURE_FLAGS.CDP] && (
+                        <PageButton icon={<IconFilter />} identifier={Scene.CDP} to={urls.cdp()} />
                     )}
                     {featureFlags[FEATURE_FLAGS.ARUBUG] && (
                         <PageButton icon={<IconBugShield />} identifier={Scene.Issues} to={urls.issues()} />
