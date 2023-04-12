@@ -48,7 +48,7 @@ describe('insightSceneLogic', () => {
                 location: partial({ pathname: urls.insightNew(), search: '', hash: '' }),
             })
 
-        await expect(logic.values.insightCache?.logic.values.filters.insight).toEqual(InsightType.FUNNELS)
+        await expect(logic.values.insightLogicRef?.logic.values.filters.insight).toEqual(InsightType.FUNNELS)
     })
 
     it('persists edit mode in the url', async () => {
