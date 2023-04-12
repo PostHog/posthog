@@ -17,7 +17,7 @@ export function BillingPanel(): JSX.Element {
     if (!billing) {
         return (
             <CardContainer>
-                <div className="space-y-4" style={{ width: 800 }}>
+                <div className="space-y-4" style={{ width: 550 }}>
                     <LemonSkeleton className="w-full h-10" />
                     <LemonSkeleton className="w-full" />
                     <LemonSkeleton className="w-full" />
@@ -54,7 +54,7 @@ export function BillingPanel(): JSX.Element {
                 </div>
             ) : (
                 <div className="text-left flex flex-col space-y-4">
-                    <h1 className="ingestion-title">Subscribe to use all features</h1>
+                    <h1 className="ingestion-title">Subscribe for access to all features</h1>
                     <Billing />
 
                     <LemonDivider dashed />

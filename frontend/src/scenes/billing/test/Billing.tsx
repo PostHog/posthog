@@ -13,6 +13,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { BillingHero } from '../BillingHero'
 import { PageHeader } from 'lib/components/PageHeader'
 import { BillingProduct } from './BillingProduct'
+import { IconPlus } from 'lib/lemon-ui/icons'
 
 export function BillingPageHeader(): JSX.Element {
     return <PageHeader title="Billing &amp; usage" />
@@ -75,6 +76,31 @@ export function Billing(): JSX.Element {
     }
 
     const products = billing?.products
+    const getUpgradeAllProductsLink = (): string => {
+        if (!products) {
+            return ''
+        }
+        let url = '/api/billing-v2/activation?products='
+        for (const product of products) {
+            if (product.subscribed || product.contact_support) {
+                continue
+            }
+            const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
+            const upgradePlanKey = product.plans?.[currentPlanIndex + 1]?.plan_key
+            if (!upgradePlanKey) {
+                continue
+            }
+            url += `${product.type}:${upgradePlanKey},`
+            if (product.addons?.length) {
+                for (const addon of product.addons) {
+                    url += `${addon.type}:${addon.plans[0].plan_key},`
+                }
+            }
+        }
+        // remove the trailing comma that will be at the end of the url
+        url = url.slice(0, -1)
+        return url
+    }
 
     return (
         <div ref={ref}>
@@ -183,7 +209,19 @@ export function Billing(): JSX.Element {
                 </div>
             </div>
 
-            <h2>Products</h2>
+            <div className="flex justify-between">
+                <h2>Products</h2>
+                {isOnboarding && (
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        to={getUpgradeAllProductsLink()}
+                        disableClientSideRouting
+                    >
+                        Upgrade All
+                    </LemonButton>
+                )}
+            </div>
             <LemonDivider className="mt-2 mb-8" />
 
             {products?.map((x) => (
