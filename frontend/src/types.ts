@@ -1059,6 +1059,7 @@ export interface BillingV2TierType {
 export interface BillingProductV2Type {
     type: 'events' | 'recordings' | 'enterprise' | 'base'
     name: string
+    usage_key?: string
     description?: string
     price_description?: string
     image_url?: string
@@ -1071,6 +1072,7 @@ export interface BillingProductV2Type {
     current_amount_usd?: string
     usage_limit?: number
     unit_amount_usd: string | null
+    contact_support: boolean
     feature_groups: {
         group: string
         name: string

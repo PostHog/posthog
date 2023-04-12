@@ -110,6 +110,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         series: [(s) => [s.querySource], (q) => (q ? getSeries(q) : null)],
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
+        samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
 
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],

@@ -1,7 +1,10 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { SidebarNavbarItem } from './types'
 
 import type { navigation3000LogicType } from './navigationLogicType'
+import { NAVBAR_ITEM_ID_TO_ITEM } from './sidebars/navbarItems'
+import { Scene } from 'scenes/sceneTypes'
 
 const MINIMUM_SIDEBAR_WIDTH_PX: number = 192
 const DEFAULT_SIDEBAR_WIDTH_PX: number = 288
@@ -12,7 +15,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     path(['layout', 'navigation-3000', 'navigationLogic']),
     actions({
         hideSidebar: true,
-        showSidebar: true,
+        showSidebar: (newNavbarItemId?: string) => ({ newNavbarItemId }),
         toggleSidebar: true,
         setSidebarWidth: (width: number) => ({ width }),
         setSidebarOverslide: (overslide: number) => ({ overslide }),
@@ -65,6 +68,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 acknowledgeSidebarKeyboardShortcut: () => true,
             },
         ],
+        activeNavbarItemId: [
+            Scene.Dashboards as string,
+            {
+                persist: true,
+            },
+            {
+                showSidebar: (state, { newNavbarItemId }) => newNavbarItemId || state,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         syncSidebarWidthWithMouseMove: ({ delta }) => {
@@ -114,6 +126,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 } else {
                     return null
                 }
+            },
+        ],
+        activeNavbarItem: [
+            (s) => [s.activeNavbarItemId],
+            (activeNavbarItemId): SidebarNavbarItem => {
+                return NAVBAR_ITEM_ID_TO_ITEM[activeNavbarItemId] as SidebarNavbarItem
             },
         ],
     }),
