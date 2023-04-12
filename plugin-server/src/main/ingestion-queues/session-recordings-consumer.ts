@@ -7,7 +7,7 @@ import { PipelineEvent, RawEventMessage, Team } from '../../types'
 import { DependencyUnavailableError } from '../../utils/db/error'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { status } from '../../utils/status'
-import { createPerformanceEvent, createSessionRecordingEvent } from '../../worker/ingestion/process-event'
+import { createPerformanceEvents, createSessionRecordingEvent } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
@@ -199,13 +199,11 @@ export const eachBatch =
                             producer
                         )
                     } else if (event.event === '$performance_event') {
-                        await createPerformanceEvent(
+                        await createPerformanceEvents(
                             messagePayload.uuid,
                             team.id,
                             messagePayload.distinct_id,
                             event.properties || {},
-                            event.ip,
-                            parseEventTimestamp(event as PluginEvent),
                             producer
                         )
                     } else {

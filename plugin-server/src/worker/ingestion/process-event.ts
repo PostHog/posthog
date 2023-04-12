@@ -24,7 +24,7 @@ import { elementsToString, extractElements } from '../../utils/db/elements-chain
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { castTimestampOrNow, UUID } from '../../utils/utils'
+import { castTimestampOrNow, UUID, UUIDT } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { LazyPersonContainer } from './lazy-person-container'
@@ -291,15 +291,25 @@ export const createSessionRecordingEvent = async (
         teamId: team_id,
     }
 }
-export async function createPerformanceEvent(
+
+const extractEncodedPerformanceProperties = (properties: Properties): Partial<RawPerformanceEvent> => {
+    const data = {} as Partial<RawPerformanceEvent>
+    Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
+        if (key in properties) {
+            data[value] = properties[key]
+        }
+    })
+
+    return data
+}
+
+export async function createPerformanceEvents(
     uuid: string,
     team_id: number,
     distinct_id: string,
     properties: Properties,
-    ip: string | null,
-    timestamp: DateTime,
     kafkaProducer: KafkaProducerWrapper
-): Promise<PostIngestionEvent> {
+): Promise<RawPerformanceEvent[]> {
     const data: Partial<RawPerformanceEvent> = {
         uuid,
         team_id: team_id,
@@ -310,22 +320,27 @@ export async function createPerformanceEvent(
         current_url: properties['$current_url'],
     }
 
-    Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
-        if (key in properties) {
-            data[value] = properties[key]
-        }
-    })
+    const events: Partial<RawPerformanceEvent>[] = []
 
-    await kafkaProducer.queueSingleJsonMessage(KAFKA_PERFORMANCE_EVENTS, uuid, data)
-
-    return {
-        eventUuid: uuid,
-        event: '$performance_event',
-        ip,
-        distinctId: distinct_id,
-        properties,
-        timestamp: timestamp.toISO() as ISOTimestamp,
-        elementsList: [],
-        teamId: team_id,
+    if (properties['entries']) {
+        // Batched performance events that we unpack
+        properties['entries'].forEach((entry: any) => {
+            events.push({
+                ...extractEncodedPerformanceProperties(entry),
+                ...data,
+                uuid: new UUIDT().toString(), // Batched events get new UUIDs
+            })
+        })
+    } else {
+        events.push({
+            ...extractEncodedPerformanceProperties(properties),
+            ...data,
+        })
     }
+
+    for (const event of events) {
+        await kafkaProducer.queueSingleJsonMessage(KAFKA_PERFORMANCE_EVENTS, event.uuid, event)
+    }
+
+    return events as RawPerformanceEvent[]
 }

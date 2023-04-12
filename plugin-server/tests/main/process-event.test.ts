@@ -28,7 +28,7 @@ import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import {
-    createPerformanceEvent,
+    createPerformanceEvents,
     createSessionRecordingEvent,
     EventsProcessor,
 } from '../../src/worker/ingestion/process-event'
@@ -1222,7 +1222,7 @@ test('performance event stored as performance_event', async () => {
         queueSingleJsonMessage: jest.fn(),
     }
 
-    await createPerformanceEvent(
+    await createPerformanceEvents(
         'some-id',
         team.id,
         '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
@@ -1258,8 +1258,6 @@ test('performance event stored as performance_event', async () => {
             distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
             $current_url: 'http://localhost:8000/recordings/recent',
         },
-        '',
-        now,
         producer as any as KafkaProducerWrapper
     )
 
