@@ -66,7 +66,7 @@ COPY --from=sqlx-cli-build --link /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
 # Copy the built CDP server from the previous stage.
 COPY --from=cdp-build --link /code/node_modules/ ./node_modules/
 COPY --from=cdp-build --link /code/dist/ ./dist/
-COPY ./migrations/ --link ./migrations/
+COPY --link ./migrations/ ./migrations/
 
 # Set [Tini](https://github.com/krallin/tini) as the entrypoint.
 ENTRYPOINT ["/usr/bin/tini", "--"]
