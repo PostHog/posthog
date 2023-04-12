@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database import LazyJoin, LazyTable
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.resolver import resolve_refs
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -46,7 +47,7 @@ class LazyTableResolver(TraversingVisitor):
         elif isinstance(ref, ast.VirtualTableRef):
             return f"{self._get_long_table_name(select, ref.table)}__{ref.field}"
         else:
-            raise ValueError("Should not be reachable")
+            raise HogQLException("Should not be reachable")
 
     def visit_property_ref(self, node: ast.PropertyRef):
         if node.joined_subquery is not None:
@@ -59,20 +60,20 @@ class LazyTableResolver(TraversingVisitor):
             else:
                 # Place the property in a list for processing in "visit_select_query"
                 if len(self.stack_of_fields) == 0:
-                    raise ValueError("Can't access a lazy field when not in a SelectQuery context")
+                    raise HogQLException("Can't access a lazy field when not in a SelectQuery context")
                 self.stack_of_fields[-1].append(node)
 
     def visit_field_ref(self, node: ast.FieldRef):
         if isinstance(node.table, ast.LazyJoinRef) or isinstance(node.table, ast.LazyTableRef):
             # Each time we find a field, we place it in a list for processing in "visit_select_query"
             if len(self.stack_of_fields) == 0:
-                raise ValueError("Can't access a lazy field when not in a SelectQuery context")
+                raise HogQLException("Can't access a lazy field when not in a SelectQuery context")
             self.stack_of_fields[-1].append(node)
 
     def visit_select_query(self, node: ast.SelectQuery):
         select_ref = node.ref
         if not select_ref:
-            raise ValueError("Select query must have a ref")
+            raise HogQLException("Select query must have a ref")
 
         # Collect each `ast.Field` with `ast.LazyJoinRef`
         field_collector: List[ast.FieldRef] = []

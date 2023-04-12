@@ -3,6 +3,7 @@ from typing import Literal, Optional
 from django.test import override_settings
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -24,14 +25,14 @@ class TestPrinter(BaseTest):
         )
 
     def _assert_expr_error(self, expr, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(HogQLException) as context:
             self._expr(expr, None, dialect)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
 
     def _assert_select_error(self, statement, expected_error):
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(HogQLException) as context:
             self._select(statement, None)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
@@ -232,14 +233,14 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
 
     def test_expr_syntax_errors(self):
-        self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")
-        self._assert_expr_error("())", "line 1, column 1: no viable alternative at input '()'")
+        self._assert_expr_error("(", "Syntax error at line 1, column 1: no viable alternative at input '('")
+        self._assert_expr_error("())", "Syntax error at line 1, column 1: no viable alternative at input '()'")
         self._assert_expr_error(
-            "select query from events", "line 1, column 13: mismatched input 'from' expecting <EOF>"
+            "select query from events", "Syntax error at line 1, column 13: mismatched input 'from' expecting <EOF>"
         )
         self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
-        self._assert_expr_error("1;2", "line 1, column 1: mismatched input ';' expecting")
-        self._assert_expr_error("b.a(bla)", "SyntaxError: line 1, column 3: mismatched input '(' expecting '.'")
+        self._assert_expr_error("1;2", "Syntax error at line 1, column 1: mismatched input ';' expecting <EOF>")
+        self._assert_expr_error("b.a(bla)", "Syntax error at line 1, column 3: mismatched input '(' expecting '.'")
 
     def test_logic(self):
         self.assertEqual(
@@ -551,6 +552,6 @@ class TestPrinter(BaseTest):
         self.team.save()
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        with self.assertRaises(ValueError) as error_context:
+        with self.assertRaises(HogQLException) as error_context:
             self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context)
         self.assertEqual(str(error_context.exception), "Unknown timezone: 'Europe/PostHogLandia'")
