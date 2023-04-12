@@ -259,7 +259,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
-        networkEvents: [
+        allPerformanceEvents: [
             (s) => [s.sessionPlayerData, s.performanceEvents],
             (sessionPlayerData, performanceEvents): PerformanceEvent[] => {
                 // performanceEvents come from the API but we decided to instead store them in the recording data
@@ -293,7 +293,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         allItems: [
-            (s) => [s.recordingTimeInfo, s.networkEvents, s.consoleLogs, s.sessionEventsData, s.matchingEvents],
+            (s) => [s.recordingTimeInfo, s.allPerformanceEvents, s.consoleLogs, s.sessionEventsData, s.matchingEvents],
             (recordingTimeInfo, performanceEvents, consoleLogs, eventsData, matchingEvents): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -604,7 +604,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.sessionPlayerSnapshotDataLoading,
                 s.sessionEventsData,
                 s.consoleLogs,
-                s.networkEvents,
+                s.allPerformanceEvents,
             ],
             (
                 sessionEventsDataLoading,
