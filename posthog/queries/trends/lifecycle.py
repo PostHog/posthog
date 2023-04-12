@@ -17,7 +17,7 @@ from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.sql import LIFECYCLE_EVENTS_QUERY, LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.queries.trends.util import parse_response
 from posthog.queries.util import get_person_properties_mode
-from posthog.utils import PersonOnEventsMode, encode_get_request_params
+from posthog.utils import PersonOnEventsMode, encode_get_request_params, generate_short_id
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
 #
@@ -85,6 +85,7 @@ class Lifecycle:
 
     def _get_persons_urls(self, filter: Filter, entity: Entity, times: List[str], status) -> List[Dict[str, Any]]:
         persons_url = []
+        cache_invalidation_key = generate_short_id()
         for target_date in times:
             filter_params = filter.to_params()
             extra_params = {
@@ -100,7 +101,7 @@ class Lifecycle:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/person/lifecycle/?{urllib.parse.urlencode(parsed_params)}",
+                    "url": f"api/person/lifecycle/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
                 }
             )
         return persons_url

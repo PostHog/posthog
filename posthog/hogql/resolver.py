@@ -91,7 +91,12 @@ class Resolver(TraversingVisitor):
                 raise ResolverException(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
             if self.database.has_table(table_name):
-                node.table.ref = ast.TableRef(table=self.database.get_table(table_name))
+                database_table = self.database.get_table(table_name)
+                if isinstance(database_table, ast.LazyTable):
+                    node.table.ref = ast.LazyTableRef(table=database_table)
+                else:
+                    node.table.ref = ast.TableRef(table=database_table)
+
                 if table_alias == table_name:
                     node.ref = node.table.ref
                 else:
@@ -148,6 +153,24 @@ class Resolver(TraversingVisitor):
             if arg.ref is not None:
                 arg_refs.append(arg.ref)
         node.ref = ast.CallRef(name=node.name, args=arg_refs)
+
+    def visit_lambda(self, node: ast.Lambda):
+        """Visit each SELECT query or subquery."""
+        if node.ref is not None:
+            return
+
+        # Each Lambda is a new scope in field name resolution.
+        # This ref keeps track of all lambda arguments that are in scope.
+        node.ref = ast.SelectQueryRef()
+        self.scopes.append(node.ref)
+
+        for arg in node.args:
+            node.ref.aliases[arg] = ast.FieldAliasRef(name=arg, ref=ast.LambdaArgumentRef(name=arg))
+
+        self.visit(node.expr)
+        self.scopes.pop()
+
+        return node.ref
 
     def visit_field(self, node):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""

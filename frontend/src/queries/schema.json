@@ -1369,11 +1369,48 @@
                     "type": "string"
                 },
                 "response": {
-                    "description": "Cached query response",
-                    "type": "object"
+                    "$ref": "#/definitions/DatabaseSchemaQueryResponse",
+                    "description": "Cached query response"
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "DatabaseSchemaQueryResponse": {
+            "additionalProperties": {
+                "items": {
+                    "$ref": "#/definitions/DatabaseSchemaQueryResponseField"
+                },
+                "type": "array"
+            },
+            "type": "object"
+        },
+        "DatabaseSchemaQueryResponseField": {
+            "additionalProperties": false,
+            "properties": {
+                "chain": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "fields": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "table": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "type"],
             "type": "object"
         },
         "DateRange": {
@@ -1548,6 +1585,9 @@
                     "type": "object"
                 },
                 "timestamp": {
+                    "type": "string"
+                },
+                "uuid": {
                     "type": "string"
                 }
             },
@@ -1962,6 +2002,10 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
@@ -2199,6 +2243,10 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
@@ -2407,6 +2455,10 @@
                         }
                     ],
                     "description": "Property filters for all series"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 }
             },
             "required": ["kind"],
@@ -2720,6 +2772,10 @@
                 "retentionFilter": {
                     "$ref": "#/definitions/RetentionFilter",
                     "description": "Properties specific to the retention insight"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 }
             },
             "required": ["kind"],
@@ -2828,6 +2884,10 @@
                         }
                     ],
                     "description": "Property filters for all series"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "series": {
                     "description": "Events and actions to include",
@@ -2974,6 +3034,10 @@
                         }
                     ],
                     "description": "Property filters for all series"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "series": {
                     "description": "Events and actions to include",

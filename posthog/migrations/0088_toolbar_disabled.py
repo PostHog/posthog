@@ -32,5 +32,5 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.RunPython(forward, reverse),
+        migrations.RunPython(forward, reverse, elidable=True),
     ]

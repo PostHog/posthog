@@ -1,19 +1,25 @@
 import asyncio
 import logging
-from datetime import datetime
 from uuid import uuid4
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from posthog.temporal.client import connect
-from posthog.temporal.workflows import NoOpWorkflow
+from posthog.temporal.workflows import WORKFLOWS
 
 
 class Command(BaseCommand):
     help = "Execute Temporal Workflow"
 
     def add_arguments(self, parser):
+        parser.add_argument("workflow", metavar="<WORKFLOW>", help="The name of the workflow to execute")
+        parser.add_argument(
+            "inputs",
+            metavar="INPUTS",
+            nargs="*",
+            help="Inputs for the workflow to execute",
+        )
         parser.add_argument(
             "--temporal_host", default=settings.TEMPORAL_SCHEDULER_HOST, help="Hostname for Temporal Scheduler"
         )
@@ -39,7 +45,7 @@ class Command(BaseCommand):
         client_cert = None
         client_key = None
         workflow_id = str(uuid4())
-        ts = datetime.now().isoformat()
+        workflow_name = options["workflow"]
 
         if options.get("server_root_ca_cert", False):
             with open(options["server_root_ca_cert"], "rb") as f:
@@ -61,5 +67,19 @@ class Command(BaseCommand):
                 client_key=client_key,
             )
         )
-        result = asyncio.run(client.execute_workflow(NoOpWorkflow.run, ts, id=workflow_id, task_queue=task_queue))
+
+        try:
+            workflow = [workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name)][0]
+        except IndexError:
+            raise ValueError(f"No workflow with name '{workflow_name}'")
+        except AttributeError:
+            raise TypeError(
+                f"Workflow '{workflow_name}' is not a CommandableWorkflow that can invoked by execute_temporal_workflow."
+            )
+
+        result = asyncio.run(
+            client.execute_workflow(
+                workflow_name, workflow.parse_inputs(options["inputs"]), id=workflow_id, task_queue=task_queue
+            )
+        )
         logging.warning(f"Workflow output: {result}")

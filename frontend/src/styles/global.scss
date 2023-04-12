@@ -622,6 +622,7 @@ body {
         --light: var(--bg-3000);
         --bg-mid: var(--bg-3000);
         background: var(--bg-3000);
+        cursor: default; // Make the app feel less page-like and more app-like  - apps scarcely allow text selection
     }
 
     h1,

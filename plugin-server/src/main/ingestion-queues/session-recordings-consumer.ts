@@ -17,10 +17,16 @@ export const startSessionRecordingEventsConsumer = async ({
     teamManager,
     kafka,
     partitionsConsumedConcurrently = 5,
+    consumerMaxBytes,
+    consumerMaxBytesPerPartition,
+    consumerMaxWaitMs,
 }: {
     teamManager: TeamManager
     kafka: Kafka
     partitionsConsumedConcurrently: number
+    consumerMaxBytes: number
+    consumerMaxBytesPerPartition: number
+    consumerMaxWaitMs: number
 }) => {
     /*
         For Session Recordings we need to prepare the data for ClickHouse.
@@ -41,7 +47,13 @@ export const startSessionRecordingEventsConsumer = async ({
 
     const groupId = 'session-recordings'
     const sessionTimeout = 30000
-    const consumer = kafka.consumer({ groupId: groupId, sessionTimeout: sessionTimeout })
+    const consumer = kafka.consumer({
+        groupId: groupId,
+        sessionTimeout: sessionTimeout,
+        maxBytes: consumerMaxBytes,
+        maxBytesPerPartition: consumerMaxBytesPerPartition,
+        maxWaitTimeInMs: consumerMaxWaitMs,
+    })
     setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting session recordings consumer')

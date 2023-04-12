@@ -1,5 +1,5 @@
 from typing import Any, Callable, Dict, List, Optional
-
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Extra
 
 
@@ -65,8 +65,7 @@ class Table(BaseModel):
                 asterisk[key] = database_field
             elif (
                 isinstance(database_field, Table)
-                or isinstance(database_field, LazyTable)
-                or isinstance(database_field, VirtualTable)
+                or isinstance(database_field, LazyJoin)
                 or isinstance(database_field, FieldTraverser)
             ):
                 pass  # ignore virtual tables for now
@@ -75,13 +74,21 @@ class Table(BaseModel):
         return asterisk
 
 
-class LazyTable(BaseModel):
+class LazyJoin(BaseModel):
     class Config:
         extra = Extra.forbid
 
     join_function: Callable[[str, str, Dict[str, Any]], Any]
-    table: Table
+    join_table: Table
     from_field: str
+
+
+class LazyTable(Table):
+    class Config:
+        extra = Extra.forbid
+
+    def lazy_select(self, requested_fields: Dict[str, Any]) -> Any:
+        raise NotImplementedError("LazyTable.lazy_select not overridden")
 
 
 class VirtualTable(Table):
@@ -96,19 +103,51 @@ class FieldTraverser(BaseModel):
     chain: List[str]
 
 
-class EventsPersonSubTable(VirtualTable):
-    id: StringDatabaseField = StringDatabaseField(name="person_id")
-    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="person_created_at")
-    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="person_properties")
+def select_from_persons_table(requested_fields: Dict[str, Any]):
+    from posthog.hogql import ast
 
-    def clickhouse_table(self):
-        return "events"
+    if not requested_fields:
+        raise ValueError("No fields requested from persons table.")
 
-    def hogql_table(self):
-        return "events"
+    fields_to_select: List[ast.Expr] = []
+    argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
+        name="argMax", args=[field, ast.Field(chain=["version"])]
+    )
+    for field, expr in requested_fields.items():
+        if field != "id":
+            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(expr)))
+
+    id = ast.Field(chain=["id"])
+
+    return ast.SelectQuery(
+        select=fields_to_select + [id],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),
+        group_by=[id],
+        having=ast.CompareOperation(
+            op=ast.CompareOperationType.Eq,
+            left=argmax_version(ast.Field(chain=["is_deleted"])),
+            right=ast.Constant(value=0),
+        ),
+    )
 
 
-class PersonsTable(Table):
+def join_with_persons_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+    from posthog.hogql import ast
+
+    if not requested_fields:
+        raise ValueError("No fields requested from persons table.")
+    join_expr = ast.JoinExpr(table=select_from_persons_table(requested_fields))
+    join_expr.join_type = "INNER JOIN"
+    join_expr.alias = to_table
+    join_expr.constraint = ast.CompareOperation(
+        op=ast.CompareOperationType.Eq,
+        left=ast.Field(chain=[from_table, "person_id"]),
+        right=ast.Field(chain=[to_table, "id"]),
+    )
+    return join_expr
+
+
+class RawPersonsTable(Table):
     id: StringDatabaseField = StringDatabaseField(name="id")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
     team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
@@ -121,76 +160,33 @@ class PersonsTable(Table):
         return "person"
 
     def hogql_table(self):
+        return "raw_persons"
+
+
+class PersonsTable(LazyTable):
+    id: StringDatabaseField = StringDatabaseField(name="id")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
+    is_identified: BooleanDatabaseField = BooleanDatabaseField(name="is_identified")
+
+    def lazy_select(self, requested_fields: Dict[str, Any]):
+        return select_from_persons_table(requested_fields)
+
+    def clickhouse_table(self):
+        return "person"
+
+    def hogql_table(self):
         return "persons"
 
 
-def join_with_persons_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
-    from posthog.hogql import ast
-
-    if not requested_fields:
-        raise ValueError("No fields requested from persons table. Why are we joining it?")
-
-    # contains the list of fields we will select from this table
-    fields_to_select: List[ast.Expr] = []
-
-    argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
-        name="argMax", args=[field, ast.Field(chain=["version"])]
-    )
-    for field, expr in requested_fields.items():
-        if field != "id":
-            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(expr)))
-
-    id = ast.Field(chain=["id"])
-
-    return ast.JoinExpr(
-        join_type="INNER JOIN",
-        table=ast.SelectQuery(
-            select=fields_to_select + [id],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-            group_by=[id],
-            having=ast.CompareOperation(
-                op=ast.CompareOperationType.Eq,
-                left=argmax_version(ast.Field(chain=["is_deleted"])),
-                right=ast.Constant(value=0),
-            ),
-        ),
-        alias=to_table,
-        constraint=ast.CompareOperation(
-            op=ast.CompareOperationType.Eq,
-            left=ast.Field(chain=[from_table, "person_id"]),
-            right=ast.Field(chain=[to_table, "id"]),
-        ),
-    )
-
-
-class PersonDistinctIdTable(Table):
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
-    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
-    is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
-    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
-
-    person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
-
-    def avoid_asterisk_fields(self):
-        return ["is_deleted", "version"]
-
-    def clickhouse_table(self):
-        return "person_distinct_id2"
-
-    def hogql_table(self):
-        return "person_distinct_ids"
-
-
-def join_with_max_person_distinct_id_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+def select_from_person_distinct_ids_table(requested_fields: Dict[str, Any]):
     from posthog.hogql import ast
 
     if not requested_fields:
         requested_fields = {"person_id": ast.Field(chain=["person_id"])}
 
-    # contains the list of fields we will select from this table
     fields_to_select: List[ast.Expr] = []
-
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
         name="argMax", args=[field, ast.Field(chain=["version"])]
     )
@@ -200,25 +196,76 @@ def join_with_max_person_distinct_id_table(from_table: str, to_table: str, reque
 
     distinct_id = ast.Field(chain=["distinct_id"])
 
-    return ast.JoinExpr(
-        join_type="INNER JOIN",
-        table=ast.SelectQuery(
-            select=fields_to_select + [distinct_id],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["person_distinct_ids"])),
-            group_by=[distinct_id],
-            having=ast.CompareOperation(
-                op=ast.CompareOperationType.Eq,
-                left=argmax_version(ast.Field(chain=["is_deleted"])),
-                right=ast.Constant(value=0),
-            ),
-        ),
-        alias=to_table,
-        constraint=ast.CompareOperation(
+    return ast.SelectQuery(
+        select=fields_to_select + [distinct_id],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["raw_person_distinct_ids"])),
+        group_by=[distinct_id],
+        having=ast.CompareOperation(
             op=ast.CompareOperationType.Eq,
-            left=ast.Field(chain=[from_table, "distinct_id"]),
-            right=ast.Field(chain=[to_table, "distinct_id"]),
+            left=argmax_version(ast.Field(chain=["is_deleted"])),
+            right=ast.Constant(value=0),
         ),
     )
+
+
+def join_with_person_distinct_ids_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+    from posthog.hogql import ast
+
+    if not requested_fields:
+        raise ValueError("No fields requested from person_distinct_ids.")
+    join_expr = ast.JoinExpr(table=select_from_person_distinct_ids_table(requested_fields))
+    join_expr.join_type = "INNER JOIN"
+    join_expr.alias = to_table
+    join_expr.constraint = ast.CompareOperation(
+        op=ast.CompareOperationType.Eq,
+        left=ast.Field(chain=[from_table, "distinct_id"]),
+        right=ast.Field(chain=[to_table, "distinct_id"]),
+    )
+    return join_expr
+
+
+class RawPersonDistinctIdTable(Table):
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
+    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
+    is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
+    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
+
+    def clickhouse_table(self):
+        return "person_distinct_id2"
+
+    def hogql_table(self):
+        return "raw_person_distinct_ids"
+
+
+class PersonDistinctIdTable(LazyTable):
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
+    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
+    person: LazyJoin = LazyJoin(
+        from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table
+    )
+
+    def lazy_select(self, requested_fields: Dict[str, Any]):
+        return select_from_person_distinct_ids_table(requested_fields)
+
+    def clickhouse_table(self):
+        return "person_distinct_id2"
+
+    def hogql_table(self):
+        return "person_distinct_ids"
+
+
+class EventsPersonSubTable(VirtualTable):
+    id: StringDatabaseField = StringDatabaseField(name="person_id")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="person_created_at")
+    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="person_properties")
+
+    def clickhouse_table(self):
+        return "events"
+
+    def hogql_table(self):
+        return "events"
 
 
 class EventsTable(Table):
@@ -232,8 +279,10 @@ class EventsTable(Table):
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
 
     # lazy table that adds a join to the persons table
-    pdi: LazyTable = LazyTable(
-        from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
+    pdi: LazyJoin = LazyJoin(
+        from_field="distinct_id",
+        join_table=PersonDistinctIdTable(),
+        join_function=join_with_person_distinct_ids_table,
     )
     # person fields on the event itself
     poe: EventsPersonSubTable = EventsPersonSubTable()
@@ -267,8 +316,10 @@ class SessionRecordingEvents(Table):
     last_event_timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="last_event_timestamp")
     urls: StringDatabaseField = StringDatabaseField(name="urls", array=True)
 
-    pdi: LazyTable = LazyTable(
-        from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
+    pdi: LazyJoin = LazyJoin(
+        from_field="distinct_id",
+        join_table=PersonDistinctIdTable(),
+        join_function=join_with_person_distinct_ids_table,
     )
 
     person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
@@ -290,7 +341,9 @@ class CohortPeople(Table):
 
     # TODO: automatically add "HAVING SUM(sign) > 0" to fields selected from this table?
 
-    person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
+    person: LazyJoin = LazyJoin(
+        from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table
+    )
 
     def clickhouse_table(self):
         return "cohortpeople"
@@ -304,7 +357,9 @@ class StaticCohortPeople(Table):
     cohort_id: IntegerDatabaseField = IntegerDatabaseField(name="cohort_id")
     team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
 
-    person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
+    person: LazyJoin = LazyJoin(
+        from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table
+    )
 
     def avoid_asterisk_fields(self):
         return ["_timestamp", "_offset"]
@@ -332,16 +387,30 @@ class Groups(Table):
 
 class Database(BaseModel):
     class Config:
-        extra = Extra.forbid
+        extra = Extra.allow
 
     # Users can query from the tables below
     events: EventsTable = EventsTable()
+    groups: Groups = Groups()
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
+
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
-    groups: Groups = Groups()
+
+    raw_person_distinct_ids: RawPersonDistinctIdTable = RawPersonDistinctIdTable()
+    raw_persons: RawPersonsTable = RawPersonsTable()
+
+    def __init__(self, timezone: Optional[str]):
+        super().__init__()
+        try:
+            self._timezone = str(ZoneInfo(timezone)) if timezone else None
+        except ZoneInfoNotFoundError:
+            raise ValueError(f"Unknown timezone: '{str(timezone)}'")
+
+    def get_timezone(self) -> str:
+        return self._timezone or "UTC"
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
@@ -355,8 +424,8 @@ class Database(BaseModel):
 def create_hogql_database(team_id: Optional[int]) -> Database:
     from posthog.models import Team
 
-    database = Database()
     team = Team.objects.get(pk=team_id)
+    database = Database(timezone=team.timezone)
     if team.person_on_events_querying_enabled:
         database.events.person = FieldTraverser(chain=["poe"])
         database.events.person_id = StringDatabaseField(name="person_id")
@@ -384,8 +453,8 @@ def serialize_database(database: Database) -> dict:
                     fields.append({"key": field_key, "type": "boolean"})
                 elif isinstance(field, StringJSONDatabaseField):
                     fields.append({"key": field_key, "type": "json"})
-            elif isinstance(field, LazyTable):
-                fields.append({"key": field_key, "type": "lazy_table", "table": field.table.hogql_table()})
+            elif isinstance(field, LazyJoin):
+                fields.append({"key": field_key, "type": "lazy_table", "table": field.join_table.hogql_table()})
             elif isinstance(field, VirtualTable):
                 fields.append(
                     {

@@ -39,6 +39,7 @@ import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogi
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
@@ -108,6 +109,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         compare: [(s) => [s.querySource], (q) => (q ? getCompare(q) : null)],
         series: [(s) => [s.querySource], (q) => (q ? getSeries(q) : null)],
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
+        properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
+        samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
 
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
@@ -116,6 +119,31 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
         stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
+
+        isUsingSessionAnalysis: [
+            (s) => [s.series, s.breakdown, s.properties],
+            (series, breakdown, properties) => {
+                const using_session_breakdown = breakdown?.breakdown_type === 'session'
+                const using_session_math = series?.some((entity) => entity.math === 'unique_session')
+                const using_session_property_math = series?.some((entity) => {
+                    // Should be made more generic is we ever add more session properties
+                    return entity.math_property === '$session_duration'
+                })
+                const using_entity_session_property_filter = series?.some((entity) => {
+                    return parseProperties(entity.properties).some((property) => property.type === 'session')
+                })
+                const using_global_session_property_filter = parseProperties(properties).some(
+                    (property) => property.type === 'session'
+                )
+                return (
+                    using_session_breakdown ||
+                    using_session_math ||
+                    using_session_property_math ||
+                    using_entity_session_property_filter ||
+                    using_global_session_property_filter
+                )
+            },
+        ],
 
         isNonTimeSeriesDisplay: [
             (s) => [s.display],

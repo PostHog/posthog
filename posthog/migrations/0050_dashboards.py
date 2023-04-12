@@ -73,7 +73,7 @@ class Migration(migrations.Migration):
                 to="posthog.Dashboard",
             ),
         ),
-        migrations.RunPython(forwards, reverse_code=backwards, hints={"target_db": "default"}),
+        migrations.RunPython(forwards, reverse_code=backwards, hints={"target_db": "default"}, elidable=True),
         migrations.AlterField(
             model_name="dashboarditem",
             name="dashboard",

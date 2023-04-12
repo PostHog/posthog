@@ -437,13 +437,16 @@ export async function startPluginsServer(
                 teamManager: teamManager,
                 kafka: kafka,
                 partitionsConsumedConcurrently: serverConfig.RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY,
+                consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
+                consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
+                consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             })
             sessionRecordingEventsConsumer = consumer
             healthChecks['session-recordings'] = isSessionRecordingsHealthy
         }
 
         if (capabilities.http) {
-            httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer)
+            httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer, piscina)
         }
 
         return serverInstance ?? { stop: closeJobs }

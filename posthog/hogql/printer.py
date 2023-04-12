@@ -1,15 +1,25 @@
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Literal, Optional, Union, cast
 
-from clickhouse_driver.util.escape import escape_param
 
-from ee.clickhouse.materialized_columns.columns import TablesWithMaterializedColumns, get_materialized_columns
 from posthog.hogql import ast
-from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS, HogQLSettings
+from posthog.hogql.constants import (
+    CLICKHOUSE_FUNCTIONS,
+    HOGQL_AGGREGATIONS,
+    MAX_SELECT_RETURNED_ROWS,
+    HogQLSettings,
+    ADD_TIMEZONE_TO_FUNCTIONS,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database import Table, create_hogql_database
-from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
+from posthog.hogql.escape_sql import (
+    escape_clickhouse_identifier,
+    escape_clickhouse_string,
+    escape_hogql_identifier,
+    escape_hogql_string,
+)
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_refs
 from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
 from posthog.hogql.transforms.macros import expand_macros
@@ -55,7 +65,6 @@ def prepare_ast_for_printing(
     resolve_refs(node, context.database, ref)
     expand_asterisks(node)
     if dialect == "clickhouse":
-        # This makes printed "hogql" nicer.
         node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
 
@@ -112,7 +121,7 @@ class _Printer(Visitor):
                 if isinstance(value, int) or isinstance(value, float):
                     settings.append(f"{key}={value}")
                 else:
-                    settings.append(f"{key}={escape_param(value)}")
+                    settings.append(f"{key}={self._print_escaped_string(value)}")
             if len(settings) > 0:
                 response += f" SETTINGS {', '.join(settings)}"
 
@@ -242,11 +251,6 @@ class _Printer(Visitor):
             else:
                 join_strings.append(self._print_identifier(node.ref.table.hogql_table()))
 
-            if node.sample is not None:
-                sample_clause = self.visit_sample_expr(node.sample)
-                if sample_clause is not None:
-                    join_strings.append(sample_clause)
-
             if self.dialect == "clickhouse":
                 # TODO: do this in a separate pass before printing, along with person joins and other transforms
                 extra_where = team_id_guard_for_table(node.ref, self.context)
@@ -260,11 +264,20 @@ class _Printer(Visitor):
         elif isinstance(node.ref, ast.SelectQueryAliasRef) and node.alias is not None:
             join_strings.append(self.visit(node.table))
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
+
+        elif isinstance(node.ref, ast.LazyTableRef) and self.dialect == "hogql":
+            join_strings.append(self._print_identifier(node.ref.table.hogql_table()))
+
         else:
             raise ValueError("Only selecting from a table or a subquery is supported")
 
         if node.table_final:
             join_strings.append("FINAL")
+
+        if node.sample is not None:
+            sample_clause = self.visit_sample_expr(node.sample)
+            if sample_clause is not None:
+                join_strings.append(sample_clause)
 
         if node.constraint is not None:
             join_strings.append(f"ON {self.visit(node.constraint)}")
@@ -286,13 +299,30 @@ class _Printer(Visitor):
             raise ValueError(f"Unknown BinaryOperationType {node.op}")
 
     def visit_and(self, node: ast.And):
-        return f"and({', '.join([self.visit(operand) for operand in node.exprs])})"
+        return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_or(self, node: ast.Or):
-        return f"or({', '.join([self.visit(operand) for operand in node.exprs])})"
+        return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_not(self, node: ast.Not):
         return f"not({self.visit(node.expr)})"
+
+    def visit_tuple(self, node: ast.Tuple):
+        return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+    def visit_array_access(self, node: ast.ArrayAccess):
+        return f"{self.visit(node.array)}[{self.visit(node.property)}]"
+
+    def visit_array(self, node: ast.Array):
+        return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
+
+    def visit_lambda(self, node: ast.Lambda):
+        identifiers = [self._print_identifier(arg) for arg in node.args]
+        if len(identifiers) == 0:
+            raise ValueError("Lambdas require at least one argument")
+        elif len(identifiers) == 1:
+            return f"{identifiers[0]} -> {self.visit(node.expr)}"
+        return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"
 
     def visit_order_expr(self, node: ast.OrderExpr):
         return f"{self.visit(node.expr)} {node.order}"
@@ -338,23 +368,15 @@ class _Printer(Visitor):
             raise ValueError(f"Unknown CompareOperationType: {type(node.op).__name__}")
 
     def visit_constant(self, node: ast.Constant):
-        key = f"hogql_val_{len(self.context.values)}"
-        if isinstance(node.value, bool) and node.value is True:
-            return "true"
-        elif isinstance(node.value, bool) and node.value is False:
-            return "false"
-        elif isinstance(node.value, int) or isinstance(node.value, float):
-            # :WATCH_OUT: isinstance(True, int) is True (!), so check for numbers lower down the chain
-            return str(node.value)
-        elif isinstance(node.value, str) or isinstance(node.value, list):
+        if self.dialect == "clickhouse" and (
+            isinstance(node.value, str) or isinstance(node.value, list) or isinstance(node.value, tuple)
+        ):
+            # inline the string in hogql, but use %(hogql_val_0)s in clickhouse
+            key = f"hogql_val_{len(self.context.values)}"
             self.context.values[key] = node.value
             return f"%({key})s"
-        elif node.value is None:
-            return "null"
         else:
-            raise ValueError(
-                f"Unknown AST Constant node type '{type(node.value).__name__}' for value '{str(node.value)}'"
-            )
+            return self._print_escaped_string(node.value)
 
     def visit_field(self, node: ast.Field):
         original_field = ".".join([self._print_identifier(identifier) for identifier in node.chain])
@@ -401,7 +423,27 @@ class _Printer(Visitor):
             return f"{node.name}({translated_args})"
 
         elif node.name in CLICKHOUSE_FUNCTIONS:
-            return f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join([self.visit(arg) for arg in node.args])})"
+            clickhouse_name, min_args, max_args = CLICKHOUSE_FUNCTIONS[node.name]
+            args = [self.visit(arg) for arg in node.args]
+
+            if min_args is not None and len(args) < min_args:
+                if min_args == max_args:
+                    raise ValueError(f"Function '{node.name}' expects {min_args} arguments. Passed {len(args)}.")
+                raise ValueError(f"Function '{node.name}' expects at least {min_args} arguments. Passed {len(args)}.")
+
+            if max_args is not None and len(args) > max_args:
+                if min_args == max_args:
+                    raise ValueError(f"Function '{node.name}' expects {max_args} arguments. Passed {len(args)}.")
+                raise ValueError(
+                    f"Function '{node.name}' expects at most least {max_args} arguments. Passed {len(args)}."
+                )
+
+            if self.dialect == "clickhouse":
+                if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
+                    args.append(self.visit(ast.Constant(value=self._get_timezone())))
+                return f"{clickhouse_name}({', '.join(args)})"
+            else:
+                return f"{node.name}({', '.join(args)})"
         else:
             raise ValueError(f"Unsupported function call '{node.name}(...)'")
 
@@ -421,6 +463,9 @@ class _Printer(Visitor):
             return self._print_identifier(ref.table.hogql_table())
 
     def visit_table_alias_ref(self, ref: ast.TableAliasRef):
+        return self._print_identifier(ref.name)
+
+    def visit_lambda_argument_ref(self, ref: ast.LambdaArgumentRef):
         return self._print_identifier(ref.name)
 
     def visit_field_ref(self, ref: ast.FieldRef):
@@ -491,14 +536,13 @@ class _Printer(Visitor):
         field_ref = ref.parent
         field = field_ref.resolve_database_field()
 
-        key = f"hogql_val_{len(self.context.values)}"
-        self.context.values[key] = ref.name
-
         # check for a materialised column
         table = field_ref.table
         while isinstance(table, ast.TableAliasRef):
             table = table.table_ref
 
+        # find a materialized property for the first part of the chain
+        materialized_property_sql: Optional[str] = None
         if isinstance(table, ast.TableRef):
             if self.dialect == "clickhouse":
                 table_name = table.table.clickhouse_table()
@@ -508,15 +552,12 @@ class _Printer(Visitor):
                 raise ValueError(f"Can't resolve field {field_ref.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            materialized_column = self._get_materialized_column(table_name, ref.name, field_name)
+            materialized_column = self._get_materialized_column(table_name, ref.chain[0], field_name)
             if materialized_column:
                 property_sql = self._print_identifier(materialized_column)
                 if not self.context.within_non_hogql_query:
                     property_sql = f"{self.visit(field_ref.table)}.{property_sql}"
-                return property_sql
-            else:
-                field_sql = self.visit(field_ref)
-                return trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
+                materialized_property_sql = property_sql
         elif (
             self.context.within_non_hogql_query
             and (isinstance(table, ast.SelectQueryAliasRef) and table.name == "events__pdi__person")
@@ -524,14 +565,29 @@ class _Printer(Visitor):
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", ref.name, "person_properties")
+                materialized_column = self._get_materialized_column("events", ref.chain[0], "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", ref.name, "properties")
+                materialized_column = self._get_materialized_column("person", ref.chain[0], "properties")
             if materialized_column:
-                return self._print_identifier(materialized_column)
+                materialized_property_sql = self._print_identifier(materialized_column)
 
-        field_sql = self.visit(field_ref)
-        return trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
+        if materialized_property_sql is not None:
+            if len(ref.chain) == 1:
+                return materialized_property_sql
+            else:
+                args = [materialized_property_sql]
+                for name in ref.chain[1:]:
+                    key = f"hogql_val_{len(self.context.values)}"
+                    self.context.values[key] = name
+                    args.append(f"%({key})s")
+                return trim_quotes_expr(f"JSONExtractRaw({', '.join(args)})")
+
+        args = [self.visit(field_ref)]
+        for name in ref.chain:
+            key = f"hogql_val_{len(self.context.values)}"
+            self.context.values[key] = name
+            args.append(f"%({key})s")
+        return trim_quotes_expr(f"JSONExtractRaw({', '.join(args)})")
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         sample_value = self.visit_ratio_expr(node.sample_value)
@@ -557,8 +613,11 @@ class _Printer(Visitor):
     def visit_asterisk_ref(self, ref: ast.AsteriskRef):
         return "*"
 
-    def visit_lazy_table_ref(self, ref: ast.LazyTableRef):
-        raise ValueError("Unexpected ast.LazyTableRef. Make sure LazyTableResolver has run on the AST.")
+    def visit_lazy_join_ref(self, ref: ast.LazyJoinRef):
+        raise ValueError("Unexpected ast.LazyJoinRef. Make sure LazyJoinResolver has run on the AST.")
+
+    def visit_lazy_table_ref(self, ref: ast.LazyJoinRef):
+        raise ValueError("Unexpected ast.LazyTableRef. Make sure LazyJoinResolver has run on the AST.")
 
     def visit_field_traverser_ref(self, ref: ast.FieldTraverserRef):
         raise ValueError("Unexpected ast.FieldTraverserRef. This should have been resolved.")
@@ -575,14 +634,30 @@ class _Printer(Visitor):
 
     def _print_identifier(self, name: str) -> str:
         if self.dialect == "clickhouse":
-            return print_clickhouse_identifier(name)
-        return print_hogql_identifier(name)
+            return escape_clickhouse_identifier(name)
+        return escape_hogql_identifier(name)
+
+    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime) -> str:
+        if self.dialect == "clickhouse":
+            return escape_clickhouse_string(name, timezone=self._get_timezone())
+        return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _get_materialized_column(
-        self, table_name: TablesWithMaterializedColumns, property_name: PropertyName, field_name: TableColumn
+        self, table_name: str, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
-        materialized_columns = get_materialized_columns(table_name)
-        return materialized_columns.get((property_name, field_name), None)
+        try:
+            from ee.clickhouse.materialized_columns.columns import (
+                TablesWithMaterializedColumns,
+                get_materialized_columns,
+            )
+
+            materialized_columns = get_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
+            return materialized_columns.get((property_name, field_name), None)
+        except ModuleNotFoundError:
+            return None
+
+    def _get_timezone(self):
+        return self.context.database.get_timezone() if self.context.database else "UTC"
 
 
 def trim_quotes_expr(expr: str) -> str:
