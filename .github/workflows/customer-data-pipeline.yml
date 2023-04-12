@@ -15,11 +15,13 @@ on:
             - master
         paths:
             - cdp/**
+            - .github/workflows/customer-data-pipeline.yml
     pull_request:
         branches:
             - master
         paths:
             - cdp/**
+            - .github/workflows/customer-data-pipeline.yml
 
 jobs:
     build:
