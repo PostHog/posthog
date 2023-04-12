@@ -437,6 +437,8 @@ export async function startPluginsServer(
                 teamManager: teamManager,
                 kafka: kafka,
                 partitionsConsumedConcurrently: serverConfig.RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY,
+                maxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
+                maxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             })
             sessionRecordingEventsConsumer = consumer
             healthChecks['session-recordings'] = isSessionRecordingsHealthy
