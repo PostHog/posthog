@@ -26,7 +26,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             insightMode,
             subscriptionId,
         }),
-        setInsightLogic: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
+        setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
             logic,
             unmount,
         }),
@@ -55,18 +55,18 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         : null,
             },
         ],
-        insightCache: [
+        insightLogicRef: [
             null as null | {
                 logic: BuiltLogic<insightLogicType>
                 unmount: () => void
             },
             {
-                setInsightLogic: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
+                setInsightLogicRef: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
     }),
     selectors(() => ({
-        insightSelector: [(s) => [s.insightCache], (insightCache) => insightCache?.logic.selectors.insight],
+        insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
             (s) => [s.insight],
@@ -87,16 +87,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const insightId = values.insightId ?? null
 
             if (logicInsightId !== insightId) {
-                const oldCache = values.insightCache // free old logic after mounting new one
+                const oldRef = values.insightLogicRef // free old logic after mounting new one
                 if (insightId) {
                     const logic = insightLogic.build({ dashboardItemId: insightId })
                     const unmount = logic.mount()
-                    actions.setInsightLogic(logic, unmount)
+                    actions.setInsightLogicRef(logic, unmount)
                 } else {
-                    actions.setInsightLogic(null, null)
+                    actions.setInsightLogicRef(null, null)
                 }
-                if (oldCache) {
-                    oldCache.unmount()
+                if (oldRef) {
+                    oldRef.unmount()
                 }
             }
         },
@@ -133,7 +133,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return
             }
 
-            // this makes sure we have "values.insightCache?.logic" below
             if (
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
@@ -160,7 +159,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             // reset the insight's state if we have to
             if (initial || method === 'PUSH' || filters || q) {
                 if (insightId === 'new') {
-                    values.insightCache?.logic.actions.setInsight(
+                    values.insightLogicRef?.logic.actions.setInsight(
                         {
                             ...createEmptyInsight(
                                 'new',
@@ -175,10 +174,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             overrideFilter: true,
                         }
                     )
-                    values.insightCache?.logic.actions.loadResults()
+                    values.insightLogicRef?.logic.actions.loadResults()
                     eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
                 } else if (filters) {
-                    values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))
+                    values.insightLogicRef?.logic.actions.setFilters(cleanFilters(filters || {}))
                 }
             }
 
@@ -209,10 +208,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         }
     }),
     beforeUnload(({ values }) => ({
-        enabled: () => values.insightMode === ItemMode.Edit && !!values.insightCache?.logic.values.insightChanged,
+        enabled: () => values.insightMode === ItemMode.Edit && !!values.insightLogicRef?.logic.values.insightChanged,
         message: 'Leave insight? Changes you made will be discarded.',
         onConfirm: () => {
-            values.insightCache?.logic.actions.cancelChanges()
+            values.insightLogicRef?.logic.actions.cancelChanges()
         },
     })),
 ])
