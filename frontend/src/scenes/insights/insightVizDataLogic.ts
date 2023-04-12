@@ -36,10 +36,12 @@ import { subscriptions } from 'kea-subscriptions'
 import { displayTypesWithoutLegend } from 'lib/components/InsightLegend/utils'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 
-const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
+
+const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
 export const insightVizDataLogic = kea<insightVizDataLogicType>([
     props({} as InsightLogicProps),
@@ -107,6 +109,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         compare: [(s) => [s.querySource], (q) => (q ? getCompare(q) : null)],
         series: [(s) => [s.querySource], (q) => (q ? getSeries(q) : null)],
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
+        properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
 
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
@@ -115,6 +118,31 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
         stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
+
+        isUsingSessionAnalysis: [
+            (s) => [s.series, s.breakdown, s.properties],
+            (series, breakdown, properties) => {
+                const using_session_breakdown = breakdown?.breakdown_type === 'session'
+                const using_session_math = series?.some((entity) => entity.math === 'unique_session')
+                const using_session_property_math = series?.some((entity) => {
+                    // Should be made more generic is we ever add more session properties
+                    return entity.math_property === '$session_duration'
+                })
+                const using_entity_session_property_filter = series?.some((entity) => {
+                    return parseProperties(entity.properties).some((property) => property.type === 'session')
+                })
+                const using_global_session_property_filter = parseProperties(properties).some(
+                    (property) => property.type === 'session'
+                )
+                return (
+                    using_session_breakdown ||
+                    using_session_math ||
+                    using_session_property_math ||
+                    using_entity_session_property_filter ||
+                    using_global_session_property_filter
+                )
+            },
+        ],
 
         isNonTimeSeriesDisplay: [
             (s) => [s.display],
@@ -185,13 +213,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
             if (isInsightVizNode(query)) {
                 const querySource = query.source
-                if (isLifecycleQuery(querySource)) {
-                    const filters = queryNodeToFilter(querySource)
-                    actions.setFilters(filters)
-                }
+                const filters = queryNodeToFilter(querySource)
+                actions.setFilters(filters)
             }
         },
         loadData: async ({ queryId }, breakpoint) => {
+            if (!values.isUsingDataExploration) {
+                return
+            }
+
             actions.setTimedOutQueryId(null)
 
             await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
@@ -221,16 +251,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             if (!values.isUsingDataExploration || insightData === null) {
                 return
             }
+            if (isInsightVizNode(values.query)) {
+                const updatedInsight = {
+                    ...values.insight,
+                    result: insightData?.result,
+                    next: insightData?.next,
+                }
 
-            const updatedInsight = {
-                ...values.insight,
-                result: insightData?.result,
-                next: insightData?.next,
+                updatedInsight.filters = queryNodeToFilter(values.query.source)
+                updatedInsight.query = undefined
+
+                actions.setInsight(updatedInsight, {})
             }
-            if (values.querySource) {
-                updatedInsight.filters = queryNodeToFilter(values.querySource)
-            }
-            actions.setInsight(updatedInsight, {})
         },
     })),
 ])

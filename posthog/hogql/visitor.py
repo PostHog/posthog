@@ -3,9 +3,9 @@ from typing import Optional
 from posthog.hogql import ast
 
 
-def clone_expr(self: ast.Expr) -> ast.Expr:
-    """Clone an expression node. Removes all refs."""
-    return CloningVisitor().visit(self)
+def clone_expr(self: ast.Expr, clear_refs=False) -> ast.Expr:
+    """Clone an expression node."""
+    return CloningVisitor(clear_refs=clear_refs).visit(self)
 
 
 class Visitor(object):
@@ -20,6 +20,9 @@ class TraversingVisitor(Visitor):
 
     def visit_expr(self, node: ast.Expr):
         raise ValueError("Can not visit generic Expr node")
+
+    def visit_macro(self, node: ast.Macro):
+        pass
 
     def visit_alias(self, node: ast.Alias):
         self.visit(node.expr)
@@ -45,6 +48,21 @@ class TraversingVisitor(Visitor):
 
     def visit_order_expr(self, node: ast.OrderExpr):
         self.visit(node.expr)
+
+    def visit_tuple(self, node: ast.Tuple):
+        for expr in node.exprs:
+            self.visit(expr)
+
+    def visit_lambda(self, node: ast.Lambda):
+        self.visit(node.expr)
+
+    def visit_array_access(self, node: ast.ArrayAccess):
+        self.visit(node.array)
+        self.visit(node.property)
+
+    def visit_array(self, node: ast.Array):
+        for expr in node.exprs:
+            self.visit(expr)
 
     def visit_constant(self, node: ast.Constant):
         self.visit(node.ref)
@@ -92,6 +110,9 @@ class TraversingVisitor(Visitor):
         for expr in node.select_queries:
             self.visit(expr)
 
+    def visit_lambda_argument_ref(self, node: ast.LambdaArgumentRef):
+        pass
+
     def visit_field_alias_ref(self, node: ast.FieldAliasRef):
         self.visit(node.ref)
 
@@ -115,10 +136,13 @@ class TraversingVisitor(Visitor):
     def visit_table_ref(self, node: ast.TableRef):
         pass
 
-    def visit_field_traverser_ref(self, node: ast.LazyTableRef):
+    def visit_lazy_table_ref(self, node: ast.TableRef):
+        pass
+
+    def visit_field_traverser_ref(self, node: ast.LazyJoinRef):
         self.visit(node.table)
 
-    def visit_lazy_table_ref(self, node: ast.LazyTableRef):
+    def visit_lazy_join_ref(self, node: ast.LazyJoinRef):
         self.visit(node.table)
 
     def visit_virtual_table_ref(self, node: ast.VirtualTableRef):
@@ -152,6 +176,13 @@ class CloningVisitor(Visitor):
 
     def visit_expr(self, node: ast.Expr):
         raise ValueError("Can not visit generic Expr node")
+
+    def visit_macro(self, node: ast.Macro):
+        return ast.Macro(
+            name=node.name,
+            expr=clone_expr(node.expr),
+            type=node.type,
+        )
 
     def visit_alias(self, node: ast.Alias):
         return ast.Alias(
@@ -192,6 +223,22 @@ class CloningVisitor(Visitor):
             order=node.order,
         )
 
+    def visit_tuple(self, node: ast.Array):
+        return ast.Tuple(ref=None if self.clear_refs else node.ref, exprs=[self.visit(expr) for expr in node.exprs])
+
+    def visit_lambda(self, node: ast.Lambda):
+        return ast.Lambda(
+            ref=None if self.clear_refs else node.ref, args=[arg for arg in node.args], expr=self.visit(node.expr)
+        )
+
+    def visit_array_access(self, node: ast.ArrayAccess):
+        return ast.ArrayAccess(
+            ref=None if self.clear_refs else node.ref, array=self.visit(node.array), property=self.visit(node.property)
+        )
+
+    def visit_array(self, node: ast.Array):
+        return ast.Array(ref=None if self.clear_refs else node.ref, exprs=[self.visit(expr) for expr in node.exprs])
+
     def visit_constant(self, node: ast.Constant):
         return ast.Constant(ref=None if self.clear_refs else node.ref, value=node.value)
 
@@ -206,6 +253,7 @@ class CloningVisitor(Visitor):
             ref=None if self.clear_refs else node.ref,
             name=node.name,
             args=[self.visit(arg) for arg in node.args],
+            distinct=node.distinct,
         )
 
     def visit_ratio_expr(self, node: ast.RatioExpr):
@@ -235,6 +283,7 @@ class CloningVisitor(Visitor):
     def visit_select_query(self, node: ast.SelectQuery):
         return ast.SelectQuery(
             ref=None if self.clear_refs else node.ref,
+            macros={key: expr for key, expr in node.macros.items()} if node.macros else None,  # to not traverse
             select=[self.visit(expr) for expr in node.select] if node.select else None,
             select_from=self.visit(node.select_from),
             where=self.visit(node.where),

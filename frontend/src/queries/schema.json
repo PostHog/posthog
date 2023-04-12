@@ -1306,16 +1306,16 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
-                "showEventsBufferWarning": {
-                    "description": "Show warning about live events being buffered max 60 sec (default: false)",
-                    "type": "boolean"
-                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
                 },
                 "showHogQLEditor": {
                     "description": "Include a HogQL query editor above HogQL tables",
+                    "type": "boolean"
+                },
+                "showOpenEditorButton": {
+                    "description": "Show a button to open the current query as a new insight. (default: true)",
                     "type": "boolean"
                 },
                 "showPropertyFilter": {
@@ -1369,11 +1369,48 @@
                     "type": "string"
                 },
                 "response": {
-                    "description": "Cached query response",
-                    "type": "object"
+                    "$ref": "#/definitions/DatabaseSchemaQueryResponse",
+                    "description": "Cached query response"
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "DatabaseSchemaQueryResponse": {
+            "additionalProperties": {
+                "items": {
+                    "$ref": "#/definitions/DatabaseSchemaQueryResponseField"
+                },
+                "type": "array"
+            },
+            "type": "object"
+        },
+        "DatabaseSchemaQueryResponseField": {
+            "additionalProperties": false,
+            "properties": {
+                "chain": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "fields": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "table": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "type"],
             "type": "object"
         },
         "DateRange": {
@@ -1548,6 +1585,9 @@
                     "type": "object"
                 },
                 "timestamp": {
+                    "type": "string"
+                },
+                "uuid": {
                     "type": "string"
                 }
             },

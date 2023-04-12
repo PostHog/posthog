@@ -35,4 +35,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    .posthog-3000 & {
+        backdrop-filter: blur(5px);
+        background: none;
+    }
 }

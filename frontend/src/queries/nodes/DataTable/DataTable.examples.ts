@@ -83,7 +83,6 @@ const ShowAllTheThings: DataTableNode = {
     showColumnConfigurator: true,
     showEventFilter: true,
     showPropertyFilter: true,
-    showEventsBufferWarning: true,
 }
 
 const Persons: PersonsNode = {

@@ -6,6 +6,7 @@ import {
     EventsQuery,
     HogQLExpression,
     NodeKind,
+    QueryContext,
     TimeToSeeDataSessionsQuery,
 } from '~/queries/schema'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
@@ -20,6 +21,7 @@ import equal from 'fast-deep-equal'
 export interface DataTableLogicProps {
     key: string
     query: DataTableNode
+    context?: QueryContext
 }
 
 export interface DataTableRow {
@@ -133,8 +135,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
             },
         ],
         queryWithDefaults: [
-            (s, p) => [p.query, s.columnsInQuery, s.featureFlags],
-            (query: DataTableNode, columnsInQuery, featureFlags): Required<DataTableNode> => {
+            (s, p) => [p.query, s.columnsInQuery, s.featureFlags, (_, props) => props.context],
+            (query: DataTableNode, columnsInQuery, featureFlags, context): Required<DataTableNode> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
                 const flagQueryRunningTimeEnabled = featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
@@ -160,9 +162,12 @@ export const dataTableLogic = kea<dataTableLogicType>([
                             (flagQueryRunningTimeEnabled || source.kind === NodeKind.HogQLQuery ? showIfFull : false),
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
                         showSavedQueries: query.showSavedQueries ?? false,
-                        showEventsBufferWarning: query.showEventsBufferWarning ?? showIfFull,
                         showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
+                        showOpenEditorButton:
+                            context?.showOpenEditorButton !== undefined
+                                ? context.showOpenEditorButton
+                                : query.showOpenEditorButton ?? true,
                     }),
                 }
             },

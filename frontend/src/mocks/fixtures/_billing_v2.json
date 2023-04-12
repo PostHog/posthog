@@ -1,6 +1,5 @@
 {
     "has_active_subscription": true,
-    "stripe_portal_url": "https://billing.stripe.com/p/session/test_12345",
     "current_total_amount_usd": "457.65",
     "products": [
         {

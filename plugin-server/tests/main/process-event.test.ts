@@ -69,17 +69,19 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
     const events = await hub.db.fetchEvents()
 
     return await Promise.all(
-        persons.map(async (person) => {
-            const distinctIds = await hub.db.fetchDistinctIdValues(person)
+        persons
+            .sort((p1, p2) => p1.created_at.diff(p2.created_at).toMillis())
+            .map(async (person) => {
+                const distinctIds = await hub.db.fetchDistinctIdValues(person)
 
-            return [
-                distinctIds,
-                (events as ClickHouseEvent[])
-                    .filter((event) => distinctIds.includes(event.distinct_id))
-                    .sort((e1, e2) => new Date(e1.timestamp).getTime() - new Date(e2.timestamp).getTime())
-                    .map((event) => event.event),
-            ] as EventsByPerson
-        })
+                return [
+                    distinctIds,
+                    (events as ClickHouseEvent[])
+                        .filter((event) => distinctIds.includes(event.distinct_id))
+                        .sort((e1, e2) => e1.timestamp.diff(e2.timestamp).toMillis())
+                        .map((event) => event.event),
+                ] as EventsByPerson
+            })
     )
 }
 
@@ -2328,6 +2330,32 @@ test('groupidentify', async () => {
         properties_last_operation: {},
         version: 1,
     })
+})
+
+test('groupidentify without group_type ingests event', async () => {
+    await createPerson(hub, team, ['distinct_id1'])
+
+    await processEvent(
+        'distinct_id1',
+        '',
+        '',
+        {
+            event: '$groupidentify',
+            properties: {
+                token: team.api_token,
+                distinct_id: 'distinct_id1',
+                $group_key: 'org::5',
+                $group_set: {
+                    foo: 'bar',
+                },
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        new UUIDT().toString()
+    )
+
+    expect((await hub.db.fetchEvents()).length).toBe(1)
 })
 
 test('$groupidentify updating properties', async () => {

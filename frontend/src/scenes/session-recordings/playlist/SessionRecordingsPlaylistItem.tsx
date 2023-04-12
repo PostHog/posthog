@@ -82,6 +82,7 @@ export function SessionRecordingPlaylistItem({
 
     return (
         <li
+            draggable
             key={recording.id}
             className={clsx(
                 'SessionRecordingsPlaylist__list-item',

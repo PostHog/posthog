@@ -466,6 +466,45 @@
   OFFSET 100
   '
 ---
+# name: TestClickhouseStickiness.test_stickiness_with_person_on_events_v2
+  '
+  
+  SELECT distinct_id,
+         person_id
+  FROM events
+  WHERE team_id = 2
+    AND distinct_id IN ('person1',
+                        'person2')
+  GROUP BY distinct_id,
+           person_id
+  ORDER BY if(distinct_id = 'person1', -1, 0)
+  '
+---
+# name: TestClickhouseStickiness.test_stickiness_with_person_on_events_v2.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT countDistinct(aggregation_target),
+         num_intervals
+  FROM
+    (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) AS aggregation_target,
+            countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT override_person_id as person_id,
+               old_person_id
+        FROM person_overrides
+        WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
+     WHERE team_id = 2
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND event = 'watched movie'
+       AND notEmpty(e.person_id)
+     GROUP BY aggregation_target)
+  WHERE num_intervals <= 9
+  GROUP BY num_intervals
+  ORDER BY num_intervals
+  '
+---
 # name: TestClickhouseStickiness.test_timezones
   '
   

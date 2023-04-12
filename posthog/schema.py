@@ -90,12 +90,15 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
-class DatabaseSchemaQuery(BaseModel):
+class DatabaseSchemaQueryResponseField(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    kind: str = Field("DatabaseSchemaQuery", const=True)
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
+    chain: Optional[List[str]] = None
+    fields: Optional[List[str]] = None
+    key: str
+    table: Optional[str] = None
+    type: str
 
 
 class DateRange(BaseModel):
@@ -166,6 +169,7 @@ class EventType(BaseModel):
     person: Optional[Person] = None
     properties: Dict[str, Any]
     timestamp: str
+    uuid: Optional[str] = None
 
 
 class MathGroupTypeIndex1(float, Enum):
@@ -617,6 +621,16 @@ class TimeToSeeDataSessionsQuery(BaseModel):
     teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
 
 
+class DatabaseSchemaQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("DatabaseSchemaQuery", const=True)
+    response: Optional[Dict[str, List[DatabaseSchemaQueryResponseField]]] = Field(
+        None, description="Cached query response"
+    )
+
+
 class EventsNode(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -917,11 +931,11 @@ class DataTableNode(BaseModel):
     showEventFilter: Optional[bool] = Field(
         None, description="Include an event filter above the table (EventsNode only)"
     )
-    showEventsBufferWarning: Optional[bool] = Field(
-        None, description="Show warning about live events being buffered max 60 sec (default: false)"
-    )
     showExport: Optional[bool] = Field(None, description="Show the export button")
     showHogQLEditor: Optional[bool] = Field(None, description="Include a HogQL query editor above HogQL tables")
+    showOpenEditorButton: Optional[bool] = Field(
+        None, description="Show a button to open the current query as a new insight. (default: true)"
+    )
     showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(None, description="Show a reload button")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")

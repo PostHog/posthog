@@ -21,6 +21,7 @@
     align-items: center;
     white-space: pre;
     cursor: default;
+    color: var(--default);
 
     &.Breadcrumbs3000__breadcrumb--here {
         cursor: default;
@@ -67,4 +68,5 @@
     justify-content: flex-end;
     align-items: center;
     margin-left: 0.5rem;
+    gap: 0.5rem;
 }

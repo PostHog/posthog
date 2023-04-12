@@ -7,7 +7,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
-import { StickinessFilter, TrendsFilter } from '~/queries/schema'
+import { QueryContext, StickinessFilter, TrendsFilter } from '~/queries/schema'
 import { ChartDisplayType, FunnelVizType, ExporterFormat, InsightType, ItemMode } from '~/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -30,12 +30,12 @@ import {
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { InsightLegendButtonDataExploration } from 'lib/components/InsightLegend/InsightLegendButton'
-// import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
-// import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
 import { FunnelStepsTableDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -49,27 +49,22 @@ const VIEW_MAP = {
 export function InsightContainer({
     disableHeader,
     disableTable,
-    // disableCorrelationTable,
+    disableCorrelationTable,
     disableLastComputation,
     insightMode,
+    context,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
     disableCorrelationTable?: boolean
     disableLastComputation?: boolean
     insightMode?: ItemMode
+    context?: QueryContext
 }): JSX.Element {
-    const {
-        insightProps,
-        canEditInsight,
-        // isUsingSessionAnalysis,
-    } = useValues(insightLogic)
+    const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    // const {
-    //     // correlationAnalysisAvailable
-    // } = useValues(funnelLogic(insightProps))
     const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
         funnelDataLogic(insightProps)
     )
@@ -81,6 +76,7 @@ export function InsightContainer({
         trendsFilter,
         funnelsFilter,
         supportsDisplay,
+        isUsingSessionAnalysis,
         insightFilter,
         insightDataLoading,
         erroredQueryId,
@@ -109,7 +105,7 @@ export function InsightContainer({
                 return <FunnelInvalidExclusionState />
             }
             if (!hasFunnelResults && !insightDataLoading) {
-                return <InsightEmptyState />
+                return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
             }
         }
 
@@ -193,7 +189,7 @@ export function InsightContainer({
 
     return (
         <>
-            {/* {isUsingSessionAnalysis ? (
+            {isUsingSessionAnalysis ? (
                 <div className="mb-4">
                     <AlertMessage type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the
@@ -201,7 +197,7 @@ export function InsightContainer({
                         <a href="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</a>
                     </AlertMessage>
                 </div>
-            ) : null} */}
+            ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
                 title={disableHeader ? null : <InsightDisplayConfig disableTable={!!disableTable} />}
@@ -241,9 +237,7 @@ export function InsightContainer({
                 </div>
             </Card>
             {renderTable()}
-            {/* {!disableCorrelationTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
-                <FunnelCorrelation />
-            )} */}
+            {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }

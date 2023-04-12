@@ -1,4 +1,4 @@
-import { actions, kea, reducers, path, connect, props, key, selectors, listeners } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import {
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -221,7 +221,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     const timestamp = dayjs(event.timestamp)
                     const responseStatus = event.response_status || 200
 
-                    // NOTE: Navigtion events are missing the first contentful paint info so we find the relevant first contentful paint event and add it to the navigation event
+                    // NOTE: Navigation events are missing the first contentful paint info
+                    // so, we find the relevant first contentful paint event and add it to the navigation event
                     if (event.entry_type === 'navigation' && !event.first_contentful_paint) {
                         const firstContentfulPaint = performanceEventsArr.find(
                             (x) =>
@@ -562,9 +563,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
 
                 const timeSeconds = Math.floor(playerTime / 1000)
-                const startIndex = items.findIndex((x) => Math.floor(x.timeInRecording / 1000) >= timeSeconds)
-
-                return startIndex
+                return items.findIndex((x) => Math.floor(x.timeInRecording / 1000) >= timeSeconds)
             },
         ],
 
@@ -591,9 +590,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 if (searchQuery === '') {
                     return filteredItems
                 }
-                const items = fuse.search(searchQuery).map((x: any) => x.item)
-
-                return items
+                return fuse.search(searchQuery).map((x: any) => x.item)
             },
         ],
     })),
