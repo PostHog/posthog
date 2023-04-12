@@ -3,24 +3,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
-import {
-    IconChevronRight,
-    IconCheckmark,
-    IconExpandMore,
-    IconPlus,
-    IconArticle,
-    IconClose,
-    IconWarning,
-} from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconCheckmark, IconExpandMore, IconPlus, IconArticle } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import {
-    BillingProductV2AddonType,
-    BillingProductV2Type,
-    BillingV2FeatureType,
-    BillingV2PlanType,
-    BillingV2TierType,
-} from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
 import { convertUsageToAmount, summarizeUsage } from '../billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from '../billingLogic'
@@ -29,6 +15,7 @@ import { billingProductLogic } from './billingProductLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductPricingModal } from './ProductPricingModal'
+import { PlanComparisonModal } from './PlanComparisonModal'
 
 const getCurrentAndUpgradePlans = (
     product: BillingProductV2Type | BillingProductV2AddonType
@@ -50,74 +37,6 @@ export const getTierDescription = (
         : tier.up_to
         ? `${summarizeUsage(product.tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tier.up_to)}`
         : `> ${summarizeUsage(product.tiers?.[i - 1].up_to || null)}`
-}
-
-const convertLargeNumberToWords = (
-    // The number to convert
-    num: number | null,
-    // The previous tier's number
-    previousNum: number | null,
-    // Whether we will be showing multiple tiers (to denote the first tier with 'first')
-    multipleTiers: boolean = false,
-    // The product type (to denote the unit)
-    productType: BillingProductV2Type['type'] | null = null
-): string => {
-    if (num === null && previousNum) {
-        return `${convertLargeNumberToWords(previousNum, null)} +`
-    }
-    if (num === null) {
-        return ''
-    }
-
-    let denominator = 1
-
-    if (num >= 1000000) {
-        denominator = 1000000
-    } else if (num >= 1000) {
-        denominator = 1000
-    }
-
-    return `${previousNum ? `${(previousNum / denominator).toFixed(0)}-` : multipleTiers ? 'First ' : ''}${(
-        num / denominator
-    ).toFixed(0)}${denominator === 1000000 ? ' million' : denominator === 1000 ? 'k' : ''}${
-        !previousNum && multipleTiers ? ` ${productType}/mo` : ''
-    }`
-}
-
-export function PLanFeature({
-    feature,
-    className,
-    timeDenominator,
-}: {
-    feature?: BillingV2FeatureType
-    className?: string
-    timeDenominator?: string
-}): JSX.Element {
-    return (
-        <div className="flex items-center text-xs text-muted">
-            {!feature ? (
-                <>
-                    <IconClose className={`text-danger mr-4 ${className}`} />
-                </>
-            ) : feature.limit ? (
-                <>
-                    <IconWarning className={`text-warning mr-4 ${className}`} />
-                    {feature.name}
-                    {feature.limit &&
-                        `${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${
-                            timeDenominator ? `/${timeDenominator}` : ''
-                        }`}
-                    {feature.note}
-                </>
-            ) : (
-                <>
-                    <IconCheckmark className={`text-success mr-4 ${className}`} />
-                    {feature.name}
-                    {feature.note}
-                </>
-            )}
-        </div>
-    )
 }
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
@@ -225,12 +144,14 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { billing } = useValues(billingLogic)
     const { deactivateProduct } = useActions(billingLogic)
-    const { customLimitUsd, showTierBreakdown, billingGaugeItems, isPricingModalOpen } = useValues(
-        billingProductLogic({ product })
-    )
-    const { setIsEditingBillingLimit, setShowTierBreakdown, toggleIsPricingModalOpen } = useActions(
-        billingProductLogic({ product })
-    )
+    const { customLimitUsd, showTierBreakdown, billingGaugeItems, isPricingModalOpen, isPlanComparisonModalOpen } =
+        useValues(billingProductLogic({ product }))
+    const {
+        setIsEditingBillingLimit,
+        setShowTierBreakdown,
+        toggleIsPricingModalOpen,
+        toggleIsPlanComparisonModalOpen,
+    } = useActions(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
@@ -347,30 +268,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     />
                                 </Tooltip>
                             )}
-                            {!product.subscribed && !product.contact_support ? (
-                                <>
-                                    <LemonButton
-                                        type="secondary"
-                                        disableClientSideRouting
-                                        onClick={() => {
-                                            toggleIsPricingModalOpen()
-                                        }}
-                                    >
-                                        View pricing
-                                    </LemonButton>
-                                    <LemonButton
-                                        to={`/api/billing-v2/activation?products=${product.type}:${upgradeToPlanKey}`}
-                                        type="primary"
-                                        icon={<IconPlus />}
-                                        disableClientSideRouting
-                                        onClick={() => {
-                                            reportBillingUpgradeClicked(product.type)
-                                        }}
-                                    >
-                                        Upgrade
-                                    </LemonButton>
-                                </>
-                            ) : product.contact_support ? (
+                            {product.contact_support ? (
                                 <>
                                     {product.subscribed && <p className="m-0">Need to manage your plan?</p>}
                                     <LemonButton
@@ -381,28 +279,30 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     </LemonButton>
                                 </>
                             ) : (
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                status="stealth"
-                                                fullWidth
-                                                onClick={() => deactivateProduct(product.type)}
-                                            >
-                                                Unsubscribe
-                                            </LemonButton>
-                                            {billing?.billing_period?.interval == 'month' && (
+                                product.subscribed && (
+                                    <More
+                                        overlay={
+                                            <>
                                                 <LemonButton
-                                                    fullWidth
                                                     status="stealth"
-                                                    onClick={() => setIsEditingBillingLimit(true)}
+                                                    fullWidth
+                                                    onClick={() => deactivateProduct(product.type)}
                                                 >
-                                                    Set billing limit
+                                                    Unsubscribe
                                                 </LemonButton>
-                                            )}
-                                        </>
-                                    }
-                                />
+                                                {billing?.billing_period?.interval == 'month' && (
+                                                    <LemonButton
+                                                        fullWidth
+                                                        status="stealth"
+                                                        onClick={() => setIsEditingBillingLimit(true)}
+                                                    >
+                                                        Set billing limit
+                                                    </LemonButton>
+                                                )}
+                                            </>
+                                        }
+                                    />
+                                )
                             )}
                         </div>
                     </div>
@@ -572,22 +472,46 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
                 </div>
                 {showUpgradeCTA && (
-                    <div className="border-t border-border p-8 bg-warning-highlight">
-                        <h4 className="text-warning-dark">You're on the free plan for {product.name}.</h4>
-                        <p className="m-0 max-w-200">
-                            Upgrade to get sweet features such as{' '}
-                            {upgradeFeatures.map((feature, i) => {
-                                return (
-                                    i < 3 && (
-                                        <Tooltip key={feature.key} title={feature.description}>
-                                            <b>{feature.name}, </b>
-                                        </Tooltip>
+                    <div className="border-t border-border p-8 bg-warning-highlight flex justify-between">
+                        <div>
+                            <h4 className="text-warning-dark">You're on the free plan for {product.name}.</h4>
+                            <p className="m-0 max-w-200">
+                                Upgrade to get sweet features such as{' '}
+                                {upgradeFeatures.map((feature, i) => {
+                                    return (
+                                        i < 3 && (
+                                            <Tooltip key={feature.key} title={feature.description}>
+                                                <b>{feature.name}, </b>
+                                            </Tooltip>
+                                        )
                                     )
-                                )
-                            })}
-                            and more{!billing?.has_active_subscription && ', plus upgraded platform features'}.{' '}
-                            <Link>View full plan comparison.</Link>
-                        </p>
+                                })}
+                                and more{!billing?.has_active_subscription && ', plus upgraded platform features'}.
+                            </p>
+                        </div>
+                        <div>
+                            <div className="flex gap-x-2">
+                                <LemonButton type="secondary" onClick={toggleIsPlanComparisonModalOpen}>
+                                    Compare plans
+                                </LemonButton>
+                                <LemonButton
+                                    to={`/api/billing-v2/activation?products=${product.type}:${upgradeToPlanKey}`}
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    disableClientSideRouting
+                                    onClick={() => {
+                                        reportBillingUpgradeClicked(product.type)
+                                    }}
+                                >
+                                    Upgrade
+                                </LemonButton>
+                            </div>
+                        </div>
+                        <PlanComparisonModal
+                            product={product}
+                            modalOpen={isPlanComparisonModalOpen}
+                            onClose={toggleIsPlanComparisonModalOpen}
+                        />
                     </div>
                 )}
                 <BillingLimitInput product={product} />

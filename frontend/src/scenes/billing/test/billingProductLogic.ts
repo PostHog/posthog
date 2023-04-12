@@ -22,6 +22,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         billingLoaded: true,
         setShowTierBreakdown: (showTierBreakdown: boolean) => ({ showTierBreakdown }),
         toggleIsPricingModalOpen: true,
+        toggleIsPlanComparisonModalOpen: true,
     }),
     reducers({
         isEditingBillingLimit: [
@@ -46,6 +47,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             false as boolean,
             {
                 toggleIsPricingModalOpen: (state) => !state,
+            },
+        ],
+        isPlanComparisonModalOpen: [
+            false as boolean,
+            {
+                toggleIsPlanComparisonModalOpen: (state) => !state,
             },
         ],
     }),

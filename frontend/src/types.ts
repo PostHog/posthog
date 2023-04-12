@@ -1144,6 +1144,7 @@ export interface BillingV2Type {
 }
 
 export interface BillingV2PlanType {
+    free_allocation?: number
     features: BillingV2FeatureType[]
     key: string
     name: string
