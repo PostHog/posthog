@@ -60,7 +60,7 @@ export function Group(): JSX.Element {
     } = useValues(groupLogic)
     const { setGroupTab, setGroupEventsQuery } = useActions(groupLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (!groupData) {
         return groupDataLoading ? <SpinnerOverlay /> : <NotFound object="group" />

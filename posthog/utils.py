@@ -53,6 +53,7 @@ from posthog.redis import get_client
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+    from posthog.models import User
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -356,7 +357,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.team import TeamSerializer
-        from posthog.api.user import User, UserSerializer
+        from posthog.api.user import UserSerializer
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
@@ -370,7 +371,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         }
 
         if request.user.pk:
-            user = cast(User, request.user)
+            user = cast("User", request.user)
             user_permissions = UserPermissions(user=user, team=user.team)
             user_serialized = UserSerializer(
                 request.user, context={"request": request, "user_permissions": user_permissions}, many=False
@@ -388,9 +389,26 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     if posthog_distinct_id:
         groups = {}
-        if request.user and request.user.is_authenticated and request.user.organization:
-            groups = {"organization": str(request.user.organization.id)}
-        feature_flags = posthoganalytics.get_all_flags(posthog_distinct_id, only_evaluate_locally=True, groups=groups)
+        group_properties = {}
+        person_properties = {}
+        if request.user and request.user.is_authenticated:
+            user = cast("User", request.user)
+            person_properties["email"] = user.email
+            person_properties["joined_at"] = user.date_joined.isoformat()
+            if user.organization:
+                groups["organization"] = str(user.organization.id)
+                group_properties["organization"] = {
+                    "name": user.organization.name,
+                    "created_at": user.organization.created_at.isoformat(),
+                }
+
+        feature_flags = posthoganalytics.get_all_flags(
+            posthog_distinct_id,
+            only_evaluate_locally=True,
+            person_properties=person_properties,
+            groups=groups,
+            group_properties=group_properties,
+        )
         # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
         posthog_bootstrap["featureFlags"] = feature_flags
 

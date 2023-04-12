@@ -45,7 +45,6 @@ import { Field } from 'lib/forms/Field'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { urls } from 'scenes/urls'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -75,6 +74,9 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
+import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
 export const scene: SceneExport = {
@@ -178,7 +180,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Link>
                             </AlertMessage>
                         )}
-                        <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons. To sidestep this, you can choose to override server properties when requesting the feature flag" />
                         <Row gutter={16} style={{ marginBottom: 32 }}>
                             <Col span={12} className="space-y-4">
                                 <Field
@@ -454,10 +455,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                             })}
                                                             type="secondary"
                                                         >
+                                                            View Recordings
                                                             <LemonTag type="warning" className="uppercase ml-2 mr-2">
                                                                 Beta
                                                             </LemonTag>
-                                                            View Recordings
                                                         </LemonButton>
                                                         <LemonDivider vertical />
                                                     </>
@@ -488,6 +489,16 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
+                                                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
+                                                    <span>
+                                                        <AddToNotebook
+                                                            node={NotebookNodeType.FeatureFlag}
+                                                            properties={{ flag: id }}
+                                                            type="secondary"
+                                                            size="medium"
+                                                        />
+                                                    </span>
+                                                </FlaggedFeature>
                                             </div>
                                         </>
                                     }

@@ -40,7 +40,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonButtonWithSideAction, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { summariseInsight } from 'scenes/insights/utils'
+
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -57,6 +57,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
+import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -72,49 +73,49 @@ export interface InsightTypeMetadata {
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
     [InsightType.TRENDS]: {
         name: 'Trends',
-        description: 'Visualize and break down how actions or events vary over time',
+        description: 'Visualize and break down how actions or events vary over time.',
         icon: InsightsTrendsIcon,
         inMenu: true,
     },
     [InsightType.FUNNELS]: {
         name: 'Funnel',
-        description: 'Discover how many users complete or drop out of a sequence of actions',
+        description: 'Discover how many users complete or drop out of a sequence of actions.',
         icon: InsightsFunnelsIcon,
         inMenu: true,
     },
     [InsightType.RETENTION]: {
         name: 'Retention',
-        description: 'See how many users return on subsequent days after an intial action',
+        description: 'See how many users return on subsequent days after an intial action.',
         icon: InsightsRetentionIcon,
         inMenu: true,
     },
     [InsightType.PATHS]: {
         name: 'Paths',
-        description: 'Trace the journeys users take within your product and where they drop off',
+        description: 'Trace the journeys users take within your product and where they drop off.',
         icon: InsightsPathsIcon,
         inMenu: true,
     },
     [InsightType.STICKINESS]: {
         name: 'Stickiness',
-        description: 'See what keeps users coming back by viewing the interval between repeated actions',
+        description: 'See what keeps users coming back by viewing the interval between repeated actions.',
         icon: InsightsStickinessIcon,
         inMenu: true,
     },
     [InsightType.LIFECYCLE]: {
         name: 'Lifecycle',
-        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
+        description: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
         icon: InsightsLifecycleIcon,
         inMenu: true,
     },
     [InsightType.SQL]: {
         name: 'SQL',
-        description: 'Use PostHog SQL to query your data',
+        description: 'Use HogQL to query your data.',
         icon: InsightSQLIcon,
         inMenu: true,
     },
     [InsightType.JSON]: {
-        name: 'JSON',
-        description: 'Build custom insights with our JSON query language',
+        name: 'Custom',
+        description: 'Save components powered by our JSON query language.',
         icon: InsightSQLIcon,
         inMenu: true,
     },
@@ -294,10 +295,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
-                    overlay: overlayForNewInsightMenu(
-                        dataAttr,
-                        !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
-                    ),
+                    overlay: overlayForNewInsightMenu(dataAttr, !!featureFlags[FEATURE_FLAGS.HOGQL]),
                 },
                 'data-attr': 'saved-insights-new-insight-dropdown',
             }}
@@ -350,6 +348,7 @@ function SavedInsightsGrid(): JSX.Element {
 export function SavedInsights(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const isUsingDataExploration = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+    const isUsingDashboardQueries = !!featureFlags[FEATURE_FLAGS.HOGQL]
 
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
@@ -385,14 +384,13 @@ export function SavedInsights(): JSX.Element {
                             <Link to={urls.insightView(insight.short_id)}>
                                 {name || (
                                     <i>
-                                        {summariseInsight(
+                                        {summarizeInsight(insight.query, insight.filters, {
                                             isUsingDataExploration,
-                                            insight.query,
                                             aggregationLabel,
                                             cohortsById,
                                             mathDefinitions,
-                                            insight.filters
-                                        )}
+                                            isUsingDashboardQueries,
+                                        })}
                                     </i>
                                 )}
                             </Link>

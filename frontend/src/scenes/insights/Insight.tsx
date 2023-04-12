@@ -34,10 +34,12 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         filtersKnown,
         filters,
         isUsingDataExploration,
+        isUsingDashboardQueries,
         erroredQueryId,
         isFilterBasedInsight,
     } = useValues(logic)
     const { reportInsightViewedForRecentInsights, abortAnyRunningQuery, loadResults } = useActions(logic)
+
     // insightDataLogic
     const { query, isQueryBasedInsight, showQueryEditor } = useValues(insightDataLogic(insightProps))
     const { setQuery } = useActions(insightDataLogic(insightProps))
@@ -69,22 +71,27 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         return <InsightSkeleton />
     }
 
+    const actuallyShowQueryEditor =
+        isUsingDashboardQueries &&
+        insightMode === ItemMode.Edit &&
+        ((isQueryBasedInsight && !containsHogQLQuery(query)) || showQueryEditor)
+
     const insightScene = (
         <div className={'insights-page'}>
             <InsightPageHeader insightLogicProps={insightProps} />
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 
-            {isUsingDataExploration ? (
+            {isUsingDataExploration || (isUsingDashboardQueries && isQueryBasedInsight) ? (
                 <>
                     <Query
                         query={query}
                         setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
+                        readOnly={insightMode !== ItemMode.Edit}
                         context={{
                             showOpenEditorButton: false,
-                            showQueryEditor:
-                                insightMode === ItemMode.Edit &&
-                                ((isQueryBasedInsight && !containsHogQLQuery(query)) || showQueryEditor),
+                            showQueryEditor: actuallyShowQueryEditor,
+                            showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
                         }}
                     />
                 </>

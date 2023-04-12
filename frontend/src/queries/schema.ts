@@ -271,8 +271,6 @@ export interface DataTableNode extends Node {
     expandable?: boolean
     /** Link properties via the URL (default: false) */
     propertiesViaUrl?: boolean
-    /** Show warning about live events being buffered max 60 sec (default: false) */
-    showEventsBufferWarning?: boolean
     /** Can the user click on column headers to sort the table? (default: true) */
     allowSorting?: boolean
     /** Show a button to open the current query as a new insight. (default: true) */
@@ -298,6 +296,8 @@ export interface InsightsQueryBase extends Node {
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     /** Groups aggregation */
     aggregation_group_type_index?: number
+    /** Sampling rate */
+    samplingFactor?: number | null
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
@@ -430,8 +430,18 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     response?: TimeToSeeDataSessionsQueryResponse
 }
 
+export interface DatabaseSchemaQueryResponseField {
+    key: string
+    type: string
+    table?: string
+    fields?: string[]
+    chain?: string[]
+}
+export type DatabaseSchemaQueryResponse = Record<string, DatabaseSchemaQueryResponseField[]>
+
 export interface DatabaseSchemaQuery extends DataNode {
     kind: NodeKind.DatabaseSchemaQuery
+    response?: DatabaseSchemaQueryResponse
 }
 
 export interface TimeToSeeDataQuery extends DataNode {
@@ -499,6 +509,10 @@ export interface QueryContext {
     /** used to override the value in the query */
     showOpenEditorButton?: boolean
     showQueryEditor?: boolean
+    /* Adds help and examples to the query editor component */
+    showQueryHelp?: boolean
+    emptyStateHeading?: string
+    emptyStateDetail?: string
 }
 
 interface QueryContextColumn {

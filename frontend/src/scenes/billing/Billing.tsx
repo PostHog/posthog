@@ -245,7 +245,7 @@ export function Billing(): JSX.Element {
     )
 }
 
-const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { billing, billingLoading } = useValues(billingLogic)
     const { updateBillingLimits } = useActions(billingLogic)
     const [tierAmountType, setTierAmountType] = useState<'individual' | 'total'>('individual')
@@ -261,7 +261,8 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             : convertAmountToUsage(customLimitUsd || '', product.tiers)
         : 0
 
-    const productType = { plural: product.type, singular: product.type.slice(0, -1) }
+    const usageKey = product.usage_key ?? product.type ?? ''
+    const productType = { plural: usageKey, singular: usageKey.slice(0, -1) }
 
     const updateBillingLimit = (value: number | undefined): any => {
         const actuallyUpdateLimit = (): void => {
@@ -393,6 +394,12 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
     }
 
+    const contactSupport = product['contact_support']
+
+    if (contactSupport) {
+        return null
+    }
+
     return (
         <div
             className={clsx('flex flex-wrap', {
@@ -444,12 +451,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                             info={
                                                 <>
                                                     Set a billing limit to control your recurring costs.{' '}
-                                                    <b>
-                                                        Your critical data will still be ingested and available in the
-                                                        product
-                                                    </b>
-                                                    . Some features may stop working if your usage greatly exceeds your
-                                                    billing cap.
+                                                    <b>Data will be dropped after exceeding this limit</b>.
                                                 </>
                                             }
                                         >

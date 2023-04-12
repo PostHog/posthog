@@ -1,5 +1,5 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { summariseInsight } from 'scenes/insights/utils'
+
 import {
     AvailableFeature,
     ExporterFormat,
@@ -44,6 +44,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { globalInsightLogic } from './globalInsightLogic'
 import { isInsightVizNode } from '~/queries/utils'
 import { posthog } from 'posthog-js'
+import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
+import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -61,9 +64,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightSaving,
         exporterResourceParams,
         isUsingDataExploration,
+        isUsingDashboardQueries,
         insightRefreshButtonDisabledReason,
     } = useValues(logic)
-    const { saveInsight, setInsightMetadata, saveAs, loadResults } = useActions(logic)
+    const { setInsightMetadata, saveAs, loadResults } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
@@ -84,8 +88,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { featureFlags } = useValues(featureFlagLogic)
     const { globalInsightFilters } = useValues(globalInsightLogic)
     const { setGlobalInsightFilters } = useActions(globalInsightLogic)
-
-    const saveInsightHandler = isUsingDataExploration ? saveQueryBasedInsight : saveInsight
 
     return (
         <>
@@ -111,14 +113,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={summariseInsight(
+                        placeholder={summarizeInsight(query, filters, {
                             isUsingDataExploration,
-                            query,
                             aggregationLabel,
                             cohortsById,
                             mathDefinitions,
-                            filters
-                        )}
+                            isUsingDashboardQueries,
+                        })}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
                         maxLength={400} // Sync with Insight model
@@ -294,6 +295,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         {insightMode !== ItemMode.Edit && insight.short_id && (
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
+
+                        {insightMode !== ItemMode.Edit && insight.short_id && featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
+                            <AddToNotebook
+                                node={NotebookNodeType.Insight}
+                                properties={{ shortId: insight.short_id }}
+                                type="secondary"
+                                size="medium"
+                            />
+                        )}
+
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
                                 <LemonButton
@@ -307,7 +318,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         ) : (
                             <InsightSaveButton
                                 saveAs={saveAs}
-                                saveInsight={saveInsightHandler}
+                                saveInsight={saveQueryBasedInsight}
                                 isSaved={insight.saved}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}

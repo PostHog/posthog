@@ -92,18 +92,18 @@ def run_events_query(
     # prevent accidentally future events from being visible by default
     before = query.before or (now() + timedelta(seconds=5)).isoformat()
     try:
-        timestamp = isoparse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
+        parsed_date = isoparse(before)
     except ValueError:
-        timestamp = relative_date_parse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
-    where_exprs.append(parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=timestamp)}))
+        parsed_date = relative_date_parse(before)
+    where_exprs.append(parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
 
     # limit to the last 24h by default
     after = query.after or "-24h"
     try:
-        timestamp = isoparse(after).strftime("%Y-%m-%d %H:%M:%S.%f")
+        parsed_date = isoparse(after)
     except ValueError:
-        timestamp = relative_date_parse(after).strftime("%Y-%m-%d %H:%M:%S.%f")
-    where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=timestamp)}))
+        parsed_date = relative_date_parse(after)
+    where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
 
     # where & having
     where_list = [expr for expr in where_exprs if not has_aggregation(expr)]

@@ -29,6 +29,8 @@ import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/Coh
 import type { cohortEditLogicType } from './cohortEditLogicType'
 import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
 import { processCohort } from 'lib/utils'
+import { DataTableNode, NodeKind, Node } from '~/queries/schema'
+import { isDataTableNode } from '~/queries/utils'
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
@@ -55,9 +57,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             groupIndex,
             criteriaIndex,
         }),
+        setQuery: (query: Node) => ({ query }),
     }),
 
-    reducers(() => ({
+    reducers(({ props }) => ({
         cohort: [
             NEW_COHORT as CohortType,
             {
@@ -147,6 +150,20 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             null as number | null,
             {
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
+            },
+        ],
+        query: [
+            {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.PersonsNode,
+                    cohort: props.id,
+                },
+                columns: undefined,
+                full: true,
+            } as DataTableNode,
+            {
+                setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
             },
         ],
     })),

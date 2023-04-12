@@ -387,6 +387,7 @@ export function JSBootstrappingSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript} wrap>
             {`// Initialise the posthog library with a distinct ID and feature flags for immediate loading
+// This avoids the delay between the library loading and feature flags becoming available to use.
 
 posthog.init('{project_api_key}', {
     api_host: 'https://app.posthog.com',

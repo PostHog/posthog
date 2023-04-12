@@ -33,13 +33,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import {
-    extractObjectDiffKeys,
-    findInsightFromMountedLogic,
-    getInsightId,
-    getResponseBytes,
-    summariseInsight,
-} from './utils'
+import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId, getResponseBytes } from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -65,6 +59,7 @@ import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
 import { globalInsightLogic } from './globalInsightLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
+import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
@@ -120,7 +115,11 @@ export const insightLogic = kea<insightLogicType>([
     }),
 
     actions({
-        setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
+        setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode, clearInsightQuery?: boolean) => ({
+            filters,
+            insightMode,
+            clearInsightQuery,
+        }),
         setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
         reportInsightViewed: (
@@ -190,9 +189,7 @@ export const insightLogic = kea<insightLogicType>([
                 ),
             {
                 loadInsight: async ({ shortId }) => {
-                    const load_query_insight_query_params = !!values.featureFlags[
-                        FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB
-                    ]
+                    const load_query_insight_query_params = !!values.featureFlags[FEATURE_FLAGS.HOGQL]
                         ? '&include_query_insights=true'
                         : ''
                     const response = await api.get(
@@ -453,6 +450,12 @@ export const insightLogic = kea<insightLogicType>([
             setInsight: (_state, { insight }) => ({
                 ...insight,
             }),
+            setFilters: (state, { clearInsightQuery }) => {
+                return {
+                    ...state,
+                    query: clearInsightQuery ? undefined : state.query,
+                }
+            },
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                 const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
@@ -608,16 +611,29 @@ export const insightLogic = kea<insightLogicType>([
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
         ],
         derivedName: [
-            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions, s.isUsingDataExploration],
-            (insight, aggregationLabel, cohortsById, mathDefinitions, isUsingDataExploration) =>
-                summariseInsight(
+            (s) => [
+                s.insight,
+                s.aggregationLabel,
+                s.cohortsById,
+                s.mathDefinitions,
+                s.isUsingDataExploration,
+                s.isUsingDashboardQueries,
+            ],
+            (
+                insight,
+                aggregationLabel,
+                cohortsById,
+                mathDefinitions,
+                isUsingDataExploration,
+                isUsingDashboardQueries
+            ) =>
+                summarizeInsight(insight.query, insight.filters || {}, {
                     isUsingDataExploration,
-                    insight.query,
                     aggregationLabel,
                     cohortsById,
                     mathDefinitions,
-                    insight.filters || {}
-                ).slice(0, 400),
+                    isUsingDashboardQueries,
+                }).slice(0, 400),
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
@@ -779,10 +795,10 @@ export const insightLogic = kea<insightLogicType>([
                 return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
             },
         ],
-        isUsingDashboardQueryTiles: [
-            (s) => [s.featureFlags, s.isUsingDataExploration],
-            (featureFlags: FeatureFlagsSet, isUsingDataExploration: boolean): boolean => {
-                return isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
+        isUsingDashboardQueries: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => {
+                return !!featureFlags[FEATURE_FLAGS.HOGQL]
             },
         ],
         insightRefreshButtonDisabledReason: [
@@ -1043,7 +1059,7 @@ export const insightLogic = kea<insightLogicType>([
                     description,
                     favorited,
                     filters,
-                    query,
+                    query: !!query ? query : null,
                     deleted,
                     saved: true,
                     dashboards,
