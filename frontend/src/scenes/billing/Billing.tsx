@@ -17,7 +17,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import BillingProduct from './BillingProduct'
-import { BillingProduct as BillingProductTest } from './test/BillingProduct'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Billing as BillingTest } from './test/Billing'
@@ -239,14 +238,8 @@ export function Billing(): JSX.Element {
 
             {products?.map((x) => (
                 <div key={x.type}>
-                    {featureFlags[FEATURE_FLAGS.BILLING_BY_PRODUCTS] === 'test' ? (
-                        <BillingProductTest product={x} />
-                    ) : (
-                        <>
-                            <LemonDivider dashed className="my-2" />
-                            <BillingProduct product={x} />
-                        </>
-                    )}
+                    <LemonDivider dashed className="my-2" />
+                    <BillingProduct product={x} />
                 </div>
             ))}
         </div>

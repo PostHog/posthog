@@ -15,14 +15,16 @@ import { billingProductLogic } from './billingProductLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductPricingModal } from './ProductPricingModal'
+import { PlanComparisonModal } from './PlanComparisonModal'
 
 const getCurrentAndUpgradePlans = (
     product: BillingProductV2Type | BillingProductV2AddonType
-): { currentPlan: BillingV2PlanType; upgradePlan: BillingV2PlanType } => {
+): { currentPlan: BillingV2PlanType; upgradePlan: BillingV2PlanType; downgradePlan: BillingV2PlanType } => {
     const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
     const currentPlan = product.plans?.[currentPlanIndex]
     const upgradePlan = product.plans?.[currentPlanIndex + 1]
-    return { currentPlan, upgradePlan }
+    const downgradePlan = product.plans?.[currentPlanIndex - 1]
+    return { currentPlan, upgradePlan, downgradePlan }
 }
 
 export const getTierDescription = (
@@ -39,7 +41,7 @@ export const getTierDescription = (
 }
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
-    const { billing } = useValues(billingLogic)
+    const { billing, redirectPath } = useValues(billingLogic)
     const { deactivateProduct } = useActions(billingLogic)
     const { isPricingModalOpen } = useValues(billingProductLogic({ product: addon }))
     const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: addon }))
@@ -117,7 +119,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 size="small"
                                 to={`/api/billing-v2/activation?products=${addon.type}:${
                                     getCurrentAndUpgradePlans(addon).upgradePlan?.plan_key
-                                }`}
+                                }${redirectPath && `&redirect_path=${redirectPath}`}`}
                                 disableClientSideRouting
                             >
                                 Add
@@ -141,20 +143,50 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { billing } = useValues(billingLogic)
+    const { billing, redirectPath, isOnboarding } = useValues(billingLogic)
     const { deactivateProduct } = useActions(billingLogic)
-    const { customLimitUsd, showTierBreakdown, billingGaugeItems, isPricingModalOpen } = useValues(
-        billingProductLogic({ product })
-    )
-    const { setIsEditingBillingLimit, setShowTierBreakdown, toggleIsPricingModalOpen } = useActions(
-        billingProductLogic({ product })
-    )
+    const { customLimitUsd, showTierBreakdown, billingGaugeItems, isPricingModalOpen, isPlanComparisonModalOpen } =
+        useValues(billingProductLogic({ product }))
+    const {
+        setIsEditingBillingLimit,
+        setShowTierBreakdown,
+        toggleIsPricingModalOpen,
+        toggleIsPlanComparisonModalOpen,
+    } = useActions(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
-    // This assumes that the first plan is the free plan, and there is only one other plan that is paid
-    // If there are more than two plans for single product in the future we need to make this smarter
-    const upgradeToPlanKey = product.plans?.filter((plan) => !plan.current_plan)[0]?.plan_key
-    const currentPlanKey = product.plans?.find((plan) => plan.current_plan)?.plan_key
+    const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
+    const upgradePlan = getCurrentAndUpgradePlans(product).upgradePlan
+    const currentPlan = getCurrentAndUpgradePlans(product).currentPlan
+    const downgradePlan = getCurrentAndUpgradePlans(product).downgradePlan
+    const additionalFeaturesOnUpgradedPlan = upgradePlan
+        ? upgradePlan?.features?.filter(
+              (feature) =>
+                  !currentPlan?.features?.some((currentPlanFeature) => currentPlanFeature.name === feature.name)
+          )
+        : currentPlan?.features?.filter(
+              (feature) =>
+                  !downgradePlan?.features?.some((downgradePlanFeature) => downgradePlanFeature.name === feature.name)
+          )
+
+    const upgradeToPlanKey = upgradePlan?.plan_key
+    const currentPlanKey = currentPlan?.plan_key
+
+    const getUpgradeAllProductsLink = (): string => {
+        let url = '/api/billing-v2/activation?products='
+        url += `${product.type}:${upgradeToPlanKey},`
+        if (product.addons?.length) {
+            for (const addon of product.addons) {
+                url += `${addon.type}:${addon.plans[0].plan_key},`
+            }
+        }
+        // remove the trailing comma that will be at the end of the url
+        url = url.slice(0, -1)
+        if (redirectPath) {
+            url += `&redirect_path=${redirectPath}`
+        }
+        return url
+    }
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -258,30 +290,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     />
                                 </Tooltip>
                             )}
-                            {!product.subscribed && !product.contact_support ? (
-                                <>
-                                    <LemonButton
-                                        type="secondary"
-                                        disableClientSideRouting
-                                        onClick={() => {
-                                            toggleIsPricingModalOpen()
-                                        }}
-                                    >
-                                        View pricing
-                                    </LemonButton>
-                                    <LemonButton
-                                        to={`/api/billing-v2/activation?products=${product.type}:${upgradeToPlanKey}`}
-                                        type="primary"
-                                        icon={<IconPlus />}
-                                        disableClientSideRouting
-                                        onClick={() => {
-                                            reportBillingUpgradeClicked(product.type)
-                                        }}
-                                    >
-                                        Upgrade
-                                    </LemonButton>
-                                </>
-                            ) : product.contact_support ? (
+                            {product.contact_support ? (
                                 <>
                                     {product.subscribed && <p className="m-0">Need to manage your plan?</p>}
                                     <LemonButton
@@ -292,48 +301,34 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     </LemonButton>
                                 </>
                             ) : (
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                status="stealth"
-                                                fullWidth
-                                                onClick={() => deactivateProduct(product.type)}
-                                            >
-                                                Unsubscribe
-                                            </LemonButton>
-                                            {billing?.billing_period?.interval == 'month' && (
+                                product.subscribed && (
+                                    <More
+                                        overlay={
+                                            <>
                                                 <LemonButton
-                                                    fullWidth
                                                     status="stealth"
-                                                    onClick={() => setIsEditingBillingLimit(true)}
+                                                    fullWidth
+                                                    onClick={() => deactivateProduct(product.type)}
                                                 >
-                                                    Set billing limit
+                                                    Unsubscribe
                                                 </LemonButton>
-                                            )}
-                                        </>
-                                    }
-                                />
+                                                {billing?.billing_period?.interval == 'month' && (
+                                                    <LemonButton
+                                                        fullWidth
+                                                        status="stealth"
+                                                        onClick={() => setIsEditingBillingLimit(true)}
+                                                    >
+                                                        Set billing limit
+                                                    </LemonButton>
+                                                )}
+                                            </>
+                                        }
+                                    />
+                                )
                             )}
                         </div>
                     </div>
                 </div>
-                {/* <div className="p-8 border-b border-border">
-                    <ul className="space-y-2">
-                        <li>
-                            <IconCheckmark className="text-success text-lg" /> A great thing about this product
-                        </li>
-                        <li>
-                            <IconCheckmark className="text-success text-lg" /> Another great thing about this product
-                        </li>
-                        <li>
-                            <IconCheckmark className="text-success text-lg" /> Another great thing about this product
-                        </li>
-                        <li>
-                            <IconCheckmark className="text-success text-lg" /> Another great thing about this product
-                        </li>
-                    </ul>
-                </div> */}
                 <div className="px-8">
                     {product.percentage_usage > 1 ? (
                         <AlertMessage type={'error'}>
@@ -353,71 +348,75 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </p>
                             </>
                         ) : (
-                            <>
-                                {product.tiered ? (
-                                    <>
-                                        {product.subscribed && (
-                                            <LemonButton
-                                                icon={showTierBreakdown ? <IconExpandMore /> : <IconChevronRight />}
-                                                status="stealth"
-                                                onClick={() => setShowTierBreakdown(!showTierBreakdown)}
-                                            />
-                                        )}
-                                        <div className="grow">
-                                            <BillingGauge items={billingGaugeItems} />
-                                        </div>
-                                        {product.current_amount_usd ? (
-                                            <div className="flex justify-end gap-8 flex-wrap items-end">
-                                                <Tooltip
-                                                    title={`The current amount you have been billed for this ${billing?.billing_period?.interval} so far.`}
-                                                    className="flex flex-col items-center"
-                                                >
-                                                    <div className="font-bold text-3xl leading-7">
-                                                        ${product.current_amount_usd}
-                                                    </div>
-                                                    <span className="text-xs text-muted">
-                                                        {capitalizeFirstLetter(billing?.billing_period?.interval || '')}
-                                                        -to-date
-                                                    </span>
-                                                </Tooltip>
-                                                {product.tiers && (
+                            !isOnboarding && (
+                                <>
+                                    {product.tiered ? (
+                                        <>
+                                            {product.subscribed && (
+                                                <LemonButton
+                                                    icon={showTierBreakdown ? <IconExpandMore /> : <IconChevronRight />}
+                                                    status="stealth"
+                                                    onClick={() => setShowTierBreakdown(!showTierBreakdown)}
+                                                />
+                                            )}
+                                            <div className="grow">
+                                                <BillingGauge items={billingGaugeItems} />
+                                            </div>
+                                            {product.current_amount_usd ? (
+                                                <div className="flex justify-end gap-8 flex-wrap items-end">
                                                     <Tooltip
-                                                        title={
-                                                            'This is roughly calculated based on your current bill and the remaining time left in this billing period.'
-                                                        }
-                                                        className="flex flex-col items-center justify-end"
+                                                        title={`The current amount you have been billed for this ${billing?.billing_period?.interval} so far.`}
+                                                        className="flex flex-col items-center"
                                                     >
-                                                        <div className="font-bold text-muted text-lg leading-5">
-                                                            $
-                                                            {product.projected_usage
-                                                                ? convertUsageToAmount(
-                                                                      product.projected_usage,
-                                                                      product.tiers
-                                                                  )
-                                                                : '0.00'}
+                                                        <div className="font-bold text-3xl leading-7">
+                                                            ${product.current_amount_usd}
                                                         </div>
-                                                        <span className="text-xs text-muted">Predicted</span>
+                                                        <span className="text-xs text-muted">
+                                                            {capitalizeFirstLetter(
+                                                                billing?.billing_period?.interval || ''
+                                                            )}
+                                                            -to-date
+                                                        </span>
                                                     </Tooltip>
-                                                )}
-                                            </div>
-                                        ) : null}
-                                    </>
-                                ) : (
-                                    <div className="my-8">
-                                        <Tooltip
-                                            title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
-                                            className="flex flex-col items-center"
-                                        >
-                                            <div className="font-bold text-3xl leading-7">
-                                                ${product.current_amount_usd}
-                                            </div>
-                                            <span className="text-xs text-muted">
-                                                per {billing?.billing_period?.interval || 'period'}
-                                            </span>
-                                        </Tooltip>
-                                    </div>
-                                )}
-                            </>
+                                                    {product.tiers && (
+                                                        <Tooltip
+                                                            title={
+                                                                'This is roughly calculated based on your current bill and the remaining time left in this billing period.'
+                                                            }
+                                                            className="flex flex-col items-center justify-end"
+                                                        >
+                                                            <div className="font-bold text-muted text-lg leading-5">
+                                                                $
+                                                                {product.projected_usage
+                                                                    ? convertUsageToAmount(
+                                                                          product.projected_usage,
+                                                                          product.tiers
+                                                                      )
+                                                                    : '0.00'}
+                                                            </div>
+                                                            <span className="text-xs text-muted">Predicted</span>
+                                                        </Tooltip>
+                                                    )}
+                                                </div>
+                                            ) : null}
+                                        </>
+                                    ) : (
+                                        <div className="my-8">
+                                            <Tooltip
+                                                title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
+                                                className="flex flex-col items-center"
+                                            >
+                                                <div className="font-bold text-3xl leading-7">
+                                                    ${product.current_amount_usd}
+                                                </div>
+                                                <span className="text-xs text-muted">
+                                                    per {billing?.billing_period?.interval || 'period'}
+                                                </span>
+                                            </Tooltip>
+                                        </div>
+                                    )}
+                                </>
+                            )
                         )}
                     </div>
                     {product.price_description ? (
@@ -457,7 +456,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             )}
                         </div>
                     )}
-                    {product.addons?.length > 0 && (
+                    {!isOnboarding && product.addons?.length > 0 && (
                         <div className="pb-8">
                             <h4 className="mb-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
@@ -468,6 +467,72 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
                 </div>
+                {(showUpgradeCTA || (isOnboarding && !product.contact_support)) && (
+                    <div
+                        className={`border-t border-border p-8 flex justify-between ${
+                            product.subscribed ? 'bg-success-highlight' : 'bg-warning-highlight'
+                        }`}
+                    >
+                        <div>
+                            <h4 className={`${product.subscribed ? 'text-success-dark' : 'text-warning-dark'}`}>
+                                You're on the {product.subscribed ? 'paid' : 'free'} plan for {product.name}.
+                            </h4>
+                            <p className="m-0 max-w-200">
+                                {product.subscribed ? 'You now' : 'Upgrade to'} get sweet features such as{' '}
+                                {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
+                                    return (
+                                        i < 3 && (
+                                            <Tooltip key={feature.key} title={feature.description}>
+                                                <b>{feature.name}, </b>
+                                            </Tooltip>
+                                        )
+                                    )
+                                })}
+                                and more{!billing?.has_active_subscription && ', plus upgraded platform features'}.
+                            </p>
+                        </div>
+                        {!product.subscribed && (
+                            <div className="ml-4">
+                                <div className="flex flex-wrap gap-x-2 gap-y-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={toggleIsPlanComparisonModalOpen}
+                                        className="grow"
+                                    >
+                                        Compare plans
+                                    </LemonButton>
+                                    <LemonButton
+                                        to={
+                                            // if we're in onboarding we want to upgrade them to the product and the addons at once
+                                            isOnboarding
+                                                ? getUpgradeAllProductsLink()
+                                                : // otherwise we just want to upgrade them to the product
+                                                  `/api/billing-v2/activation?products=${
+                                                      product.type
+                                                  }:${upgradeToPlanKey}${
+                                                      redirectPath && `&redirect_path=${redirectPath}`
+                                                  }`
+                                        }
+                                        type="primary"
+                                        icon={<IconPlus />}
+                                        disableClientSideRouting
+                                        onClick={() => {
+                                            reportBillingUpgradeClicked(product.type)
+                                        }}
+                                        className="grow"
+                                    >
+                                        Upgrade
+                                    </LemonButton>
+                                </div>
+                            </div>
+                        )}
+                        <PlanComparisonModal
+                            product={product}
+                            modalOpen={isPlanComparisonModalOpen}
+                            onClose={toggleIsPlanComparisonModalOpen}
+                        />
+                    </div>
+                )}
                 <BillingLimitInput product={product} />
             </div>
             <ProductPricingModal

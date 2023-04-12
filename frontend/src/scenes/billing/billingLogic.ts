@@ -12,6 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
 import type { billingLogicType } from './billingLogicType'
 import { forms } from 'kea-forms'
+import { urls } from 'scenes/urls'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -44,6 +45,8 @@ export const billingLogic = kea<billingLogicType>([
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingV2Shown: true,
         registerInstrumentationProps: true,
+        setRedirectPath: true,
+        setIsOnboarding: true,
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -54,6 +57,20 @@ export const billingLogic = kea<billingLogicType>([
             false,
             {
                 setShowLicenseDirectInput: (_, { show }) => show,
+            },
+        ],
+        redirectPath: [
+            '' as string,
+            {
+                setRedirectPath: () => {
+                    return window.location.pathname.includes('/ingestion') ? urls.ingestion() + '/billing' : ''
+                },
+            },
+        ],
+        isOnboarding: [
+            false,
+            {
+                setIsOnboarding: () => window.location.pathname.includes('/ingestion'),
             },
         ],
     }),
@@ -247,6 +264,12 @@ export const billingLogic = kea<billingLogicType>([
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
             }
+            actions.setRedirectPath()
+            actions.setIsOnboarding()
+        },
+        '*': () => {
+            actions.setRedirectPath()
+            actions.setIsOnboarding()
         },
     })),
 ])
