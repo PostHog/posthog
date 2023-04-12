@@ -10,7 +10,7 @@
 # run the migrations, so we need to copy the compiled binary from the Rust
 # image. I'm sure there's a better way to do this, but this works for now.
 
-FROM rust:1.68.2-bullseye AS sqlx-cli-build
+FROM rust:1.68.2-slim-bullseye AS sqlx-cli-build
 
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
