@@ -1144,6 +1144,7 @@ export interface BillingV2Type {
 }
 
 export interface BillingV2PlanType {
+    features: BillingV2FeatureType[]
     key: string
     name: string
     description: string

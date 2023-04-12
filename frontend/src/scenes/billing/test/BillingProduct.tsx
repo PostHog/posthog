@@ -3,10 +3,24 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
-import { IconChevronRight, IconCheckmark, IconExpandMore, IconPlus, IconArticle } from 'lib/lemon-ui/icons'
+import {
+    IconChevronRight,
+    IconCheckmark,
+    IconExpandMore,
+    IconPlus,
+    IconArticle,
+    IconClose,
+    IconWarning,
+} from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
+import {
+    BillingProductV2AddonType,
+    BillingProductV2Type,
+    BillingV2FeatureType,
+    BillingV2PlanType,
+    BillingV2TierType,
+} from '~/types'
 import { convertUsageToAmount, summarizeUsage } from '../billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from '../billingLogic'
@@ -36,6 +50,74 @@ export const getTierDescription = (
         : tier.up_to
         ? `${summarizeUsage(product.tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tier.up_to)}`
         : `> ${summarizeUsage(product.tiers?.[i - 1].up_to || null)}`
+}
+
+const convertLargeNumberToWords = (
+    // The number to convert
+    num: number | null,
+    // The previous tier's number
+    previousNum: number | null,
+    // Whether we will be showing multiple tiers (to denote the first tier with 'first')
+    multipleTiers: boolean = false,
+    // The product type (to denote the unit)
+    productType: BillingProductV2Type['type'] | null = null
+): string => {
+    if (num === null && previousNum) {
+        return `${convertLargeNumberToWords(previousNum, null)} +`
+    }
+    if (num === null) {
+        return ''
+    }
+
+    let denominator = 1
+
+    if (num >= 1000000) {
+        denominator = 1000000
+    } else if (num >= 1000) {
+        denominator = 1000
+    }
+
+    return `${previousNum ? `${(previousNum / denominator).toFixed(0)}-` : multipleTiers ? 'First ' : ''}${(
+        num / denominator
+    ).toFixed(0)}${denominator === 1000000 ? ' million' : denominator === 1000 ? 'k' : ''}${
+        !previousNum && multipleTiers ? ` ${productType}/mo` : ''
+    }`
+}
+
+export function PLanFeature({
+    feature,
+    className,
+    timeDenominator,
+}: {
+    feature?: BillingV2FeatureType
+    className?: string
+    timeDenominator?: string
+}): JSX.Element {
+    return (
+        <div className="flex items-center text-xs text-muted">
+            {!feature ? (
+                <>
+                    <IconClose className={`text-danger mr-4 ${className}`} />
+                </>
+            ) : feature.limit ? (
+                <>
+                    <IconWarning className={`text-warning mr-4 ${className}`} />
+                    {feature.name}
+                    {feature.limit &&
+                        `${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${
+                            timeDenominator ? `/${timeDenominator}` : ''
+                        }`}
+                    {feature.note}
+                </>
+            ) : (
+                <>
+                    <IconCheckmark className={`text-success mr-4 ${className}`} />
+                    {feature.name}
+                    {feature.note}
+                </>
+            )}
+        </div>
+    )
 }
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
@@ -151,10 +233,17 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     )
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
+    const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
     // This assumes that the first plan is the free plan, and there is only one other plan that is paid
     // If there are more than two plans for single product in the future we need to make this smarter
-    const upgradeToPlanKey = product.plans?.filter((plan) => !plan.current_plan)[0]?.plan_key
-    const currentPlanKey = product.plans?.find((plan) => plan.current_plan)?.plan_key
+    const upgradePlan = product.plans?.filter((plan) => !plan.current_plan)[0]
+    const currentPlan = product.plans?.find((plan) => plan.current_plan)
+    const upgradeFeatures = upgradePlan?.features?.filter(
+        (feature) => !currentPlan?.features?.some((currentPlanFeature) => currentPlanFeature.name === feature.name)
+    )
+
+    const upgradeToPlanKey = upgradePlan?.plan_key
+    const currentPlanKey = currentPlan?.plan_key
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -318,22 +407,36 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     </div>
                 </div>
-                {/* <div className="p-8 border-b border-border">
-                    <ul className="space-y-2">
-                        <li>
-                            <IconCheckmark className="text-success text-lg" /> A great thing about this product
-                        </li>
-                        <li>
-                            <IconCheckmark className="text-success text-lg" /> Another great thing about this product
-                        </li>
-                        <li>
-                            <IconCheckmark className="text-success text-lg" /> Another great thing about this product
-                        </li>
-                        <li>
-                            <IconCheckmark className="text-success text-lg" /> Another great thing about this product
-                        </li>
-                    </ul>
-                </div> */}
+                {/* {!product.subscribed && !product.contact_support && product.plans?.length && (
+                    <div className="p-8 border-b border-border">
+                        <div className="flex gap-x-6 justify-center">
+                            {product.plans?.map((plan) => (
+                                <div
+                                    className="border border-border p-6 rounded-lg shadow"
+                                    key={plan.name + plan.plan_key}
+                                >
+                                    <h3>{product.tiered && !plan.tiers ? 'Free' : 'Paid'}</h3>
+                                    <ul>
+                                        {plan.features?.map((feature) => (
+                                            <li key={plan.plan_key + feature.name}>
+                                                <PLanFeature feature={feature} />
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <div className="mt-6">
+                                        <LemonButton
+                                            disabled={plan.current_plan}
+                                            type={plan.current_plan ? 'secondary' : 'primary'}
+                                            icon={!plan.current_plan ? <IconPlus /> : null}
+                                        >
+                                            {plan.current_plan ? 'Current plan' : 'Upgrade'}
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )} */}
                 <div className="px-8">
                     {product.percentage_usage > 1 ? (
                         <AlertMessage type={'error'}>
@@ -468,6 +571,25 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
                 </div>
+                {showUpgradeCTA && (
+                    <div className="border-t border-border p-8 bg-warning-highlight">
+                        <h4 className="text-warning-dark">You're on the free plan for {product.name}.</h4>
+                        <p className="m-0 max-w-200">
+                            Upgrade to get sweet features such as{' '}
+                            {upgradeFeatures.map((feature, i) => {
+                                return (
+                                    i < 3 && (
+                                        <Tooltip key={feature.key} title={feature.description}>
+                                            <b>{feature.name}, </b>
+                                        </Tooltip>
+                                    )
+                                )
+                            })}
+                            and more{!billing?.has_active_subscription && ', plus upgraded platform features'}.{' '}
+                            <Link>View full plan comparison.</Link>
+                        </p>
+                    </div>
+                )}
                 <BillingLimitInput product={product} />
             </div>
             <ProductPricingModal
