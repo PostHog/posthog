@@ -4,7 +4,6 @@ import {
     PerformanceEvent,
     RecordingConsoleLogV2,
     RecordingEventType,
-    RecordingSegment,
     RRWebRecordingConsoleLogPayload,
     SessionRecordingPlayerTab,
 } from '~/types'
