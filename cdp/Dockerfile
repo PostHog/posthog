@@ -38,10 +38,11 @@ COPY ./src/ ./src/
 COPY tsconfig.json .swcrc ./
 RUN pnpm build
 
-# As the CDP server is now built, let’s keep
-# only prod dependencies in the node_module folder
-# as we will copy it to the last image.
-RUN corepack enable && \
+# As the CDP server is now built, let’s keep only prod dependencies in the
+# node_module folder as we will copy it to the last image. We remove all
+# dependencies first to ensure we end up with the smallest possible image.
+RUN rm -rf node_modules && \
+    corepack enable && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
     rm -rf /tmp/pnpm-store
