@@ -221,8 +221,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const logs: RecordingConsoleLogV2[] = []
                 const seenCache = new Set<string>()
 
-                sessionPlayerData.metadata.segments.forEach((segment: RecordingSegment) => {
-                    sessionPlayerData.snapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {
+                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
+                    snapshots.forEach((snapshot: eventWithTime) => {
                         if (
                             snapshot.type === 6 && // RRWeb plugin event type
                             snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME
@@ -245,7 +245,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                             logs.push({
                                 timestamp: snapshot.timestamp,
-                                windowId: segment.windowId,
+                                windowId: windowId,
                                 content,
                                 lines,
                                 level,
@@ -266,8 +266,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // performanceEvents come from the API but we decided to instead store them in the recording data
                 const events: PerformanceEvent[] = [...(performanceEvents || [])]
 
-                sessionPlayerData.metadata.segments.forEach((segment: RecordingSegment) => {
-                    sessionPlayerData.snapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {
+                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
+                    snapshots.forEach((snapshot: eventWithTime) => {
                         if (
                             snapshot.type === 6 && // RRWeb plugin event type
                             snapshot.data.plugin === NETWORK_PLUGIN_NAME
@@ -275,7 +275,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             const properties = snapshot.data.payload as any
                             const data = {
                                 timestamp: snapshot.timestamp,
-                                windowId: segment.windowId,
+                                windowId: windowId,
                             } as Partial<PerformanceEvent>
 
                             Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
