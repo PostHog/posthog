@@ -90,7 +90,7 @@ class BillingManager:
         # Extend the products with accurate usage_limit info
 
         for product in response["products"]:
-            usage_key = product["usage_key"] or None
+            usage_key = product.get("usage_key", None)
             if not usage_key:
                 continue
             usage = response.get("usage_summary", {}).get(usage_key, {})
