@@ -72,7 +72,13 @@ export const billingProductLogic = kea<billingProductLogicType>([
         freeTier: [
             (_s, p) => [p.product],
             (product) => {
-                return (product.subscribed ? product.tiers?.[0]?.up_to : product.free_allocation) || 0
+                return (
+                    (product.subscribed
+                        ? product.tiers?.[0].unit_amount_usd === '0'
+                            ? product.tiers?.[0]?.up_to
+                            : 0
+                        : product.free_allocation) || 0
+                )
             },
         ],
         billingLimitAsUsage: [
@@ -89,12 +95,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (s, p) => [p.product, s.freeTier, s.billingLimitAsUsage],
             (product, freeTier, billingLimitAsUsage) => {
                 return [
-                    {
-                        text: 'Free tier limit',
-                        color: 'success-light',
-                        value: freeTier,
-                        top: true,
-                    },
+                    freeTier
+                        ? {
+                              text: 'Free tier limit',
+                              color: 'success-light',
+                              value: freeTier,
+                              top: true,
+                          }
+                        : undefined,
                     {
                         text: 'Current',
                         color: product.percentage_usage && product.percentage_usage <= 1 ? 'success' : 'danger',
