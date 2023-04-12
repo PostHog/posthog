@@ -10,6 +10,8 @@ class TrendsEventQuery(TrendsEventQueryBase):
         person_id_field = ""
         if self._should_join_distinct_ids:
             person_id_field = f", {self._person_id_alias} as person_id"
+        elif self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+            person_id_field = f", {self.EVENT_TABLE_ALIAS}.person_id as person_id"
 
         _fields = (
             f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp"
