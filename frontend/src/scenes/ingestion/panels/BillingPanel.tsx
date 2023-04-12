@@ -54,7 +54,7 @@ export function BillingPanel(): JSX.Element {
                 </div>
             ) : (
                 <div className="text-left flex flex-col space-y-4">
-                    <h1 className="ingestion-title">Add payment method</h1>
+                    <h1 className="ingestion-title">Subscribe to use all features</h1>
                     <Billing />
 
                     <LemonDivider dashed />

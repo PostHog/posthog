@@ -12,21 +12,18 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { BillingHero } from '../BillingHero'
 import { PageHeader } from 'lib/components/PageHeader'
-import BillingProduct from '../BillingProduct'
-import { BillingProduct as BillingProductTest } from './BillingProduct'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { BillingProduct } from './BillingProduct'
 
 export function BillingPageHeader(): JSX.Element {
     return <PageHeader title="Billing &amp; usage" />
 }
 
 export function Billing(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const cloudOrDev = preflight?.cloud || preflight?.is_debug
+    const isOnboarding = window.location.pathname.includes('ingestion')
 
     useEffect(() => {
         if (billing) {
@@ -60,7 +57,7 @@ export function Billing(): JSX.Element {
         )
         return (
             <div className="space-y-4">
-                <BillingPageHeader />
+                {!isOnboarding && <BillingPageHeader />}
                 <AlertMessage type="error">
                     There was an issue retrieving your current billing information. If this message persists please
                     {supportLink}.
@@ -82,7 +79,7 @@ export function Billing(): JSX.Element {
     return (
         <div ref={ref}>
             <div className="flex justify-between">
-                <BillingPageHeader />
+                {!isOnboarding && <BillingPageHeader />}
                 {billing?.has_active_subscription && (
                     <div>
                         <LemonButton
@@ -115,7 +112,7 @@ export function Billing(): JSX.Element {
                     'items-center': size !== 'small',
                 })}
             >
-                {billing?.billing_period && (
+                {!isOnboarding && billing?.billing_period && (
                     <div className="flex-1">
                         <div className="space-y-2">
                             <p>
@@ -191,14 +188,7 @@ export function Billing(): JSX.Element {
 
             {products?.map((x) => (
                 <div key={x.type}>
-                    {featureFlags[FEATURE_FLAGS.BILLING_BY_PRODUCTS] === 'test' ? (
-                        <BillingProductTest product={x} />
-                    ) : (
-                        <>
-                            <LemonDivider dashed className="my-2" />
-                            <BillingProduct product={x} />
-                        </>
-                    )}
+                    <BillingProduct product={x} />
                 </div>
             ))}
         </div>

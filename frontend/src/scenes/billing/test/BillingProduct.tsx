@@ -153,6 +153,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         toggleIsPlanComparisonModalOpen,
     } = useActions(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    const isOnboarding = window.location.pathname.includes('ingestion')
 
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
     // This assumes that the first plan is the free plan, and there is only one other plan that is paid
@@ -307,36 +308,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     </div>
                 </div>
-                {/* {!product.subscribed && !product.contact_support && product.plans?.length && (
-                    <div className="p-8 border-b border-border">
-                        <div className="flex gap-x-6 justify-center">
-                            {product.plans?.map((plan) => (
-                                <div
-                                    className="border border-border p-6 rounded-lg shadow"
-                                    key={plan.name + plan.plan_key}
-                                >
-                                    <h3>{product.tiered && !plan.tiers ? 'Free' : 'Paid'}</h3>
-                                    <ul>
-                                        {plan.features?.map((feature) => (
-                                            <li key={plan.plan_key + feature.name}>
-                                                <PLanFeature feature={feature} />
-                                            </li>
-                                        ))}
-                                    </ul>
-                                    <div className="mt-6">
-                                        <LemonButton
-                                            disabled={plan.current_plan}
-                                            type={plan.current_plan ? 'secondary' : 'primary'}
-                                            icon={!plan.current_plan ? <IconPlus /> : null}
-                                        >
-                                            {plan.current_plan ? 'Current plan' : 'Upgrade'}
-                                        </LemonButton>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )} */}
                 <div className="px-8">
                     {product.percentage_usage > 1 ? (
                         <AlertMessage type={'error'}>
@@ -356,71 +327,75 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </p>
                             </>
                         ) : (
-                            <>
-                                {product.tiered ? (
-                                    <>
-                                        {product.subscribed && (
-                                            <LemonButton
-                                                icon={showTierBreakdown ? <IconExpandMore /> : <IconChevronRight />}
-                                                status="stealth"
-                                                onClick={() => setShowTierBreakdown(!showTierBreakdown)}
-                                            />
-                                        )}
-                                        <div className="grow">
-                                            <BillingGauge items={billingGaugeItems} />
-                                        </div>
-                                        {product.current_amount_usd ? (
-                                            <div className="flex justify-end gap-8 flex-wrap items-end">
-                                                <Tooltip
-                                                    title={`The current amount you have been billed for this ${billing?.billing_period?.interval} so far.`}
-                                                    className="flex flex-col items-center"
-                                                >
-                                                    <div className="font-bold text-3xl leading-7">
-                                                        ${product.current_amount_usd}
-                                                    </div>
-                                                    <span className="text-xs text-muted">
-                                                        {capitalizeFirstLetter(billing?.billing_period?.interval || '')}
-                                                        -to-date
-                                                    </span>
-                                                </Tooltip>
-                                                {product.tiers && (
+                            !isOnboarding && (
+                                <>
+                                    {product.tiered ? (
+                                        <>
+                                            {product.subscribed && (
+                                                <LemonButton
+                                                    icon={showTierBreakdown ? <IconExpandMore /> : <IconChevronRight />}
+                                                    status="stealth"
+                                                    onClick={() => setShowTierBreakdown(!showTierBreakdown)}
+                                                />
+                                            )}
+                                            <div className="grow">
+                                                <BillingGauge items={billingGaugeItems} />
+                                            </div>
+                                            {product.current_amount_usd ? (
+                                                <div className="flex justify-end gap-8 flex-wrap items-end">
                                                     <Tooltip
-                                                        title={
-                                                            'This is roughly calculated based on your current bill and the remaining time left in this billing period.'
-                                                        }
-                                                        className="flex flex-col items-center justify-end"
+                                                        title={`The current amount you have been billed for this ${billing?.billing_period?.interval} so far.`}
+                                                        className="flex flex-col items-center"
                                                     >
-                                                        <div className="font-bold text-muted text-lg leading-5">
-                                                            $
-                                                            {product.projected_usage
-                                                                ? convertUsageToAmount(
-                                                                      product.projected_usage,
-                                                                      product.tiers
-                                                                  )
-                                                                : '0.00'}
+                                                        <div className="font-bold text-3xl leading-7">
+                                                            ${product.current_amount_usd}
                                                         </div>
-                                                        <span className="text-xs text-muted">Predicted</span>
+                                                        <span className="text-xs text-muted">
+                                                            {capitalizeFirstLetter(
+                                                                billing?.billing_period?.interval || ''
+                                                            )}
+                                                            -to-date
+                                                        </span>
                                                     </Tooltip>
-                                                )}
-                                            </div>
-                                        ) : null}
-                                    </>
-                                ) : (
-                                    <div className="my-8">
-                                        <Tooltip
-                                            title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
-                                            className="flex flex-col items-center"
-                                        >
-                                            <div className="font-bold text-3xl leading-7">
-                                                ${product.current_amount_usd}
-                                            </div>
-                                            <span className="text-xs text-muted">
-                                                per {billing?.billing_period?.interval || 'period'}
-                                            </span>
-                                        </Tooltip>
-                                    </div>
-                                )}
-                            </>
+                                                    {product.tiers && (
+                                                        <Tooltip
+                                                            title={
+                                                                'This is roughly calculated based on your current bill and the remaining time left in this billing period.'
+                                                            }
+                                                            className="flex flex-col items-center justify-end"
+                                                        >
+                                                            <div className="font-bold text-muted text-lg leading-5">
+                                                                $
+                                                                {product.projected_usage
+                                                                    ? convertUsageToAmount(
+                                                                          product.projected_usage,
+                                                                          product.tiers
+                                                                      )
+                                                                    : '0.00'}
+                                                            </div>
+                                                            <span className="text-xs text-muted">Predicted</span>
+                                                        </Tooltip>
+                                                    )}
+                                                </div>
+                                            ) : null}
+                                        </>
+                                    ) : (
+                                        <div className="my-8">
+                                            <Tooltip
+                                                title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
+                                                className="flex flex-col items-center"
+                                            >
+                                                <div className="font-bold text-3xl leading-7">
+                                                    ${product.current_amount_usd}
+                                                </div>
+                                                <span className="text-xs text-muted">
+                                                    per {billing?.billing_period?.interval || 'period'}
+                                                </span>
+                                            </Tooltip>
+                                        </div>
+                                    )}
+                                </>
+                            )
                         )}
                     </div>
                     {product.price_description ? (
@@ -460,7 +435,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             )}
                         </div>
                     )}
-                    {product.addons?.length > 0 && (
+                    {!isOnboarding && product.addons?.length > 0 && (
                         <div className="pb-8">
                             <h4 className="mb-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
@@ -490,8 +465,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             </p>
                         </div>
                         <div>
-                            <div className="flex gap-x-2">
-                                <LemonButton type="secondary" onClick={toggleIsPlanComparisonModalOpen}>
+                            <div className="flex flex-wrap gap-x-2 gap-y-2">
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={toggleIsPlanComparisonModalOpen}
+                                    className="grow"
+                                >
                                     Compare plans
                                 </LemonButton>
                                 <LemonButton
@@ -502,6 +481,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     onClick={() => {
                                         reportBillingUpgradeClicked(product.type)
                                     }}
+                                    className="grow"
                                 >
                                     Upgrade
                                 </LemonButton>
