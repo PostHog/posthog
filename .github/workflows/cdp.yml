@@ -95,7 +95,7 @@ jobs:
             - name: Install test dependencies
               working-directory: cdp
               run: |
-                  pnpm install --frozen-lockfile --dev
+                  pnpm install --frozen-lockfile
 
             - name: Start CDP
               working-directory: cdp
