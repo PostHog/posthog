@@ -148,7 +148,7 @@ function LemonButtonInternal(
         workingButton = (
             <Tooltip title={tooltipContent} placement={tooltipPlacement} getPopupContainer={getTooltipPopupContainer}>
                 {/* If the button is a `button` element and disabled, wrap it in a div so that the tooltip works */}
-                {disabled && ButtonComponent === 'button' ? <div>{workingButton}</div> : workingButton}
+                {disabled ? <div>{workingButton}</div> : workingButton}
             </Tooltip>
         )
     }

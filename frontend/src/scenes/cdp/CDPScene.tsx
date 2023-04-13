@@ -13,6 +13,8 @@ import { useActions, useValues } from 'kea'
 import { CDPSceneLogic } from './CDPSceneLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: CDPScene,
@@ -21,6 +23,7 @@ export const scene: SceneExport = {
 
 export function ConnectionsTab(): JSX.Element {
     const { connections } = useValues(CDPSceneLogic)
+
     return (
         <LemonTable
             dataSource={connections}
@@ -28,7 +31,7 @@ export function ConnectionsTab(): JSX.Element {
                 {
                     title: 'Name',
                     dataIndex: 'name',
-                    render: (_, { name, image_url: image }) => {
+                    render: (_, { name, imageUrl: image }) => {
                         return (
                             <div className="flex items-center">
                                 <div
@@ -91,7 +94,7 @@ export function ConnectionChoice({
         >
             <div className={clsx('transition-all w-full overflow-hidden')}>
                 <FallbackCoverImage
-                    src={connectionChoice?.image_url}
+                    src={connectionChoice?.imageUrl}
                     alt="cover photo"
                     index={index}
                     imageClassName="h-40"
@@ -109,6 +112,8 @@ export function NewConnectionModal(): JSX.Element {
     const { closeNewConnectionModal } = useActions(CDPSceneLogic)
     const { newConnectionModalOpen, connectionChoices } = useValues(CDPSceneLogic)
 
+    const { push } = useActions(router)
+
     return (
         <LemonModal title="New connection" isOpen={newConnectionModalOpen} onClose={closeNewConnectionModal}>
             <div className="CDPScene">
@@ -116,7 +121,7 @@ export function NewConnectionModal(): JSX.Element {
                     {connectionChoices.map((connectionChoice: ConnectionChoiceType, index: number) => (
                         <ConnectionChoice
                             connectionChoice={connectionChoice}
-                            onClick={() => console.log('clicked')}
+                            onClick={() => push(urls.cdpNewConnection(connectionChoice.id))}
                             index={index}
                             key={connectionChoice.id}
                         />

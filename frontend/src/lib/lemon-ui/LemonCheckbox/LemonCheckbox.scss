@@ -54,6 +54,10 @@
         --tick-length: 9;
     }
 
+    .LemonLabel__extra {
+        font-weight: 400;
+    }
+
     &.LemonCheckbox:not(.LemonCheckbox--disabled):hover,
     &.LemonCheckbox:not(.LemonCheckbox--disabled):active {
         label {

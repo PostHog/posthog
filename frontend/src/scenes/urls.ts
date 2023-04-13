@@ -147,5 +147,5 @@ export const urls = {
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
     cdp: (): string => '/cdp',
-    cdpNewConnection: (id: string): string => `/cdp/new/${id}`,
+    cdpNewConnection: (id: string): string => `/cdp/new/${id}`, // TODO change a query param
 }
