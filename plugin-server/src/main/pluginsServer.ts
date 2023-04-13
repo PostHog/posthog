@@ -90,7 +90,7 @@ export async function startPluginsServer(
     // (default 60 seconds) to allow for the person to be created in the
     // meantime.
     let bufferConsumer: Consumer | undefined
-    let stopSessionRecordingEventsConsumer: (() => void) | undefined
+    let sessionRecordingEventsConsumer: Consumer | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
@@ -131,7 +131,7 @@ export async function startPluginsServer(
             onEventHandlerConsumer?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
-            stopSessionRecordingEventsConsumer?.(),
+            sessionRecordingEventsConsumer?.disconnect(),
             schedulerTasksConsumer?.disconnect(),
         ])
 
@@ -433,16 +433,15 @@ export async function startPluginsServer(
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig as KafkaConfig)
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const { stop, isHealthy: isSessionRecordingsHealthy } = await startSessionRecordingEventsConsumer({
+            const { consumer, isHealthy: isSessionRecordingsHealthy } = await startSessionRecordingEventsConsumer({
                 teamManager: teamManager,
                 kafka: kafka,
-                kafkaConfig: serverConfig as KafkaConfig,
                 partitionsConsumedConcurrently: serverConfig.RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY,
                 consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
                 consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             })
-            stopSessionRecordingEventsConsumer = stop
+            sessionRecordingEventsConsumer = consumer
             healthChecks['session-recordings'] = isSessionRecordingsHealthy
         }
 
