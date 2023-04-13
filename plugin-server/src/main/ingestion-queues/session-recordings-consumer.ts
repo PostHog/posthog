@@ -377,7 +377,7 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
                 status.error('⚠️', 'connect_error', { error: error })
                 reject(error)
             } else {
-                status.info('📝', 'librdkafka connected', { error, data })
+                status.info('📝', 'librdkafka connected', { error, brokers: data?.brokers })
                 resolve(data)
             }
         })
