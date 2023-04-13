@@ -72,12 +72,6 @@ export const personsLogic = kea<personsLogicType>({
                 setListFilters: (state, { payload }) => {
                     const newFilters = { ...state, ...payload }
 
-                    if (props.fixedProperties) {
-                        newFilters.properties = newFilters.properties
-                            ? [...newFilters.properties, ...props.fixedProperties]
-                            : props.fixedProperties
-                    }
-
                     if (newFilters.properties?.length === 0) {
                         delete newFilters['properties']
                     }
@@ -339,6 +333,11 @@ export const personsLogic = kea<personsLogicType>({
         afterMount: () => {
             if (props.cohort && typeof props.cohort === 'number') {
                 actions.setListFilters({ cohort: props.cohort })
+                actions.loadPersons()
+            }
+
+            if (props.fixedProperties) {
+                actions.setListFilters({ properties: props.fixedProperties })
                 actions.loadPersons()
             }
         },

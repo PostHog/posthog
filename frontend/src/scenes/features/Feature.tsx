@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -8,12 +8,13 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { featureLogic } from './featureLogic'
 import { Field as KeaField, Form } from 'kea-forms'
 import { slugify } from 'lib/utils'
-import { FeatureType, NewFeatureType, PropertyFilterType, PropertyOperator } from '~/types'
+import { FeatureType, NewFeatureType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import { Persons } from 'scenes/persons/Persons'
-import { IconFlag } from 'lib/lemon-ui/icons'
+import { IconFlag, IconPlus } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useState } from 'react'
 
 export const scene: SceneExport = {
     component: Feature,
@@ -45,6 +46,12 @@ posthog.people.set({
 export function Feature(): JSX.Element {
     const { feature, featureLoading, isFeatureSubmitting, mode } = useValues(featureLogic)
     const { submitFeatureRequest, cancel, setFeatureValue } = useActions(featureLogic)
+
+    const [isModalOpen, setIsModalOpen] = useState(false)
+
+    const toggleModal = (): void => {
+        setIsModalOpen(!isModalOpen)
+    }
 
     return (
         <Form formKey="feature" logic={featureLogic}>
@@ -169,8 +176,62 @@ export function Feature(): JSX.Element {
                             operator: PropertyOperator.IsSet,
                         },
                     ]}
+                    extraSceneActions={[
+                        <LemonButton type="primary" icon={<IconPlus />} onClick={toggleModal}>
+                            Add person
+                        </LemonButton>
+                    ]}
+                    extraColumns={[
+                        {
+                            title: 'Stage',
+                            dataIndex: 'properties',
+                            render: function Render(_, person: PersonType) {
+                                return <span>{person.properties['$feature_enrollment/' + feature.feature_flag.key].toString()}</span>
+                            },
+                        },
+                    ]}
+                    compact={true}
+                    showExportAction={false}
                 />
             )}
+            {'feature_flag' in feature && (
+                <LemonModal
+                    title={"Select person to add"}
+                    isOpen={isModalOpen}
+                    onClose={toggleModal}
+                    width={560}
+                >   
+                    <Persons 
+                        fixedProperties={[
+                            {
+                                key: '$feature_enrollment/' + feature.feature_flag.key,
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.IsNotSet,
+                            },
+                        ]}
+                        compact={true} 
+                        showFilters={false} 
+                        showExportAction={false}
+                        extraColumns={[
+                            {
+                                render: function Render(_, person: PersonType) {
+                                    return (
+                                        <LemonButton
+                                            onClick={() => console.log("HELLO")}
+                                            icon={<IconPlus />}
+                                            size="small"
+                                            type='secondary'
+                                        >
+                                            Add
+                                        </LemonButton>
+                                    )
+                                },
+                            },
+                        ]}
+                    />
+                </LemonModal>
+                )
+            }
         </Form>
     )
 }
