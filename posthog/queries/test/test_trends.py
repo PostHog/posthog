@@ -5974,7 +5974,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         id2 = str(uuid.uuid4())
         _create_event(
             event="sign up",
-            distinct_id=id1,
+            distinct_id="test_breakdown_d1",
             team=self.team,
             properties={"key": "oh", "$group_0": "org:7", "$group_1": "company:10"},
             timestamp="2020-01-02T12:00:00Z",
@@ -5982,7 +5982,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         _create_event(
             event="sign up",
-            distinct_id=id1,
+            distinct_id="test_breakdown_d1",
             team=self.team,
             properties={"key": "uh", "$group_0": "org:5"},
             timestamp="2020-01-02T12:00:01Z",
@@ -5990,7 +5990,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         _create_event(
             event="sign up",
-            distinct_id=id1,
+            distinct_id="test_breakdown_d1",
             team=self.team,
             properties={"key": "uh", "$group_0": "org:6"},
             timestamp="2020-01-02T12:00:02Z",
@@ -5998,14 +5998,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         _create_event(
             event="sign up",
-            distinct_id=id2,
+            distinct_id="test_breakdown_d2",
             team=self.team,
             properties={"key": "uh", "$group_0": "org:6"},
             timestamp="2020-01-02T12:00:02Z",
             person_id=id2,
         )
 
-        create_person_id_override_by_distinct_id(id1, id2, self.team.pk)
+        create_person_id_override_by_distinct_id("test_breakdown_d1", "test_breakdown_d2", self.team.pk)
         response = Trends().run(
             Filter(
                 data={
