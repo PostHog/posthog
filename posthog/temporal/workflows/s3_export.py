@@ -1,6 +1,7 @@
 import datetime as dt
 import json
 from dataclasses import dataclass
+from string import Template
 
 from aiochclient import ChClient
 from aiohttp import ClientSession
@@ -9,46 +10,59 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.workflows.base import CommandableWorkflow
 
-INSERT_INTO_S3_TABLE = "INSERT INTO FUNCTION s3({path}, {file_format})"
+INSERT_INTO_S3_QUERY_TEMPLATE = Template(
+    """
+    INSERT INTO FUNCTION s3({path}, $authentication {file_format})
+    $partition_clause
+    """
+)
 
-INSERT_INTO_S3_TABLE_WITH_AUTH = """
-INSERT INTO FUNCTION s3(
-    {path},
-    {aws_access_key_id},
-    {aws_secret_access_key},
-    {file_format}
-)"""
+SELECT_QUERY_TEMPLATE = Template(
+    """
+    SELECT $fields
+    FROM $table_name
+    WHERE
+        timestamp >= {data_interval_start}
+        AND timestamp < {data_interval_end}
+        AND team_id = {team_id}
+    """
+)
 
-SELECT_QUERY = """
-SELECT *
-FROM events
-WHERE
-    timestamp >= {data_interval_start}
-    AND timestamp < {data_interval_end}
-    AND team_id = {team_id}
-"""
-
-SELECT_COUNT_QUERY = """
-SELECT count(*)
-FROM events
-WHERE
-    timestamp >= {data_interval_start}
-    AND timestamp < {data_interval_end}
-    AND team_id = {team_id}
-"""
+TABLE_PARTITION_KEYS = {
+    "events": {
+        "hour": "toStartOfHour(timestamp)",
+        "day": "toStartOfDay(timestamp)",
+        "week": "toStartOfWeek(timestamp)",
+        "month": "toStartOfMonth(timestamp)",
+    }
+}
 
 
 @dataclass
 class S3InsertInputs:
     """Inputs for ClickHouse INSERT INTO S3 function."""
 
+    bucket_name: str
+    region: str
+    file_name_prefix: str
     team_id: int
-    s3_url: str
-    file_format: str
     data_interval_start: str
     data_interval_end: str
+    file_format: str = "CSV"
+    table_name: str = "events"
+    partition_key: str | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
+
+
+def build_s3_url(bucket: str, region: str, file_name_prefix: str, partition_key: str):
+    """Form a S3 URL given input parameters.
+
+    ClickHouse requires an S3 URL with http scheme.
+    """
+    if partition_key:
+        file_name_prefix += "_{_partition_id}"
+    return f"https://s3.{region}.amazonaws.com/{bucket}/{file_name_prefix}"
 
 
 @activity.defn
@@ -56,18 +70,31 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     """Activity that runs a INSERT INTO query in ClickHouse targetting an S3 table function."""
     activity.logger.info(f"Running S3 export batch {inputs.data_interval_start} - {inputs.data_interval_end}")
 
-    if inputs.aws_access_key_id is not None and inputs.aws_secret_access_key is not None:
-        query = INSERT_INTO_S3_TABLE_WITH_AUTH + SELECT_QUERY
-    else:
-        query = INSERT_INTO_S3_TABLE + SELECT_QUERY
+    if inputs.table_name not in TABLE_PARTITION_KEYS:
+        raise ValueError(f"Unsupported table {inputs.table_name}")
 
-    activity.logger.debug(query)
+    if inputs.partition_key not in TABLE_PARTITION_KEYS[inputs.table_name]:
+        raise ValueError(f"Unsupported partition_key {inputs.partition_key}")
+
+    if inputs.partition_key:
+        partition_clause = f"PARTITION BY {inputs.partition_key}"
+    else:
+        partition_clause = ""
+
+    if inputs.aws_access_key_id is not None and inputs.aws_secret_access_key is not None:
+        auth = "{aws_access_key_id}, {aws_secret_access_key},"
+    else:
+        auth = ""
+
+    query_template = Template(INSERT_INTO_S3_QUERY_TEMPLATE.template + SELECT_QUERY_TEMPLATE.template)
+
+    activity.logger.debug(query_template.template)
 
     async with ClientSession() as s:
         client = ChClient(s)
 
         count = await client.fetchrow(
-            SELECT_COUNT_QUERY,
+            SELECT_QUERY_TEMPLATE.substitute(table_name=inputs.table_name, fields="count(*)"),
             params={
                 "team_id": inputs.team_id,
                 "data_interval_start": inputs.data_interval_start,
@@ -76,14 +103,24 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         )
         count = count[0]
 
+        if count is None or count == 0:
+            activity.logger.info(
+                f"Nothing to export in batch {inputs.data_interval_start} - {inputs.data_interval_end}. Exiting."
+            )
+            return
+
         activity.logger.info(f"Exporting {count} rows to S3")
 
+        s3_url = build_s3_url(inputs.bucket_name, inputs.region, inputs.file_name_prefix, inputs.partition_key)
+
         await client.execute(
-            query,
+            query_template.substitute(
+                table_name=inputs.table_name, fields="*", auth=auth, partition_clause=partition_clause
+            ),
             params={
                 "aws_access_key_id": inputs.aws_access_key_id,
                 "aws_secret_access_key": inputs.aws_secret_access_key,
-                "path": inputs.s3_url,
+                "path": s3_url,
                 "file_format": inputs.file_format,
                 "team_id": inputs.team_id,
                 "data_interval_start": dt.datetime.fromisoformat(inputs.data_interval_start),
@@ -97,7 +134,9 @@ class S3ExportInputs:
     """Inputs for S3 export workflow.
 
     Attributes:
-        s3_url: The S3 URL for the bucket we are exporting to.
+        bucket_name: The S3 bucket we are exporting to.
+        region: The AWS region where the bucket is located.
+        file_name_prefix: A prefix for the file name to be created in S3.
         batch_window_size: The size in seconds of the batch window.
             For example, for one hour batches, this should be 3600.
         team_id: The team_id whose data we are exporting.
@@ -107,10 +146,14 @@ class S3ExportInputs:
             scheduled runs and for backfills.
     """
 
-    s3_url: str
+    bucket_name: str
+    region: str
+    file_name_prefix: str
     batch_window_size: int
     team_id: int
+    table_name: str = "events"
     file_format: str = "CSV"
+    partition_key: str | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     data_interval_end: str | None = None
@@ -144,8 +187,12 @@ class S3ExportWorkflow(CommandableWorkflow):
         data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
 
         insert_inputs = S3InsertInputs(
+            bucket_name=inputs.bucket_name,
+            region=inputs.region,
+            file_name_prefix=inputs.file_name_prefix,
+            partition_key=inputs.partition_key,
+            table_name=inputs.table_name,
             team_id=inputs.team_id,
-            s3_url=inputs.s3_url,
             file_format=inputs.file_format,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
