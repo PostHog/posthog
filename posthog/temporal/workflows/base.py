@@ -4,6 +4,11 @@ from typing import Any
 
 class CommandableWorkflow(ABC):
     @classmethod
+    def get_name(cls) -> bool:
+        """Get this workflow's name."""
+        return getattr(cls, "__temporal_workflow_definition").name
+
+    @classmethod
     def is_named(cls, name: str) -> bool:
         """Check if this workflow's name matches name.
 
@@ -12,7 +17,7 @@ class CommandableWorkflow(ABC):
         avoid having to define it twice. If this changes in the future, we can
         update this method instead of changing every single workflow.
         """
-        return getattr(cls, "__temporal_workflow_definition").name == name
+        return cls.get_name() == name
 
     @staticmethod
     @abstractmethod
