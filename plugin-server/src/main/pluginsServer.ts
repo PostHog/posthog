@@ -6,6 +6,7 @@ import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
+import SegfaultHandler from 'segfault-handler'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig } from '../config/config'
@@ -50,6 +51,8 @@ export async function startPluginsServer(
     capabilities: PluginServerCapabilities | undefined
 ): Promise<Partial<ServerInstance>> {
     const timer = new Date()
+
+    SegfaultHandler.registerHandler('crash.log')
 
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
