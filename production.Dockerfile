@@ -32,6 +32,7 @@ RUN apt-get update && \
     "python3" \
     "libssl-dev" \
     "ca-certificates" \
+    "librdkafka-dev" \
     && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \
