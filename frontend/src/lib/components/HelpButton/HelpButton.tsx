@@ -8,7 +8,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import {
     IconArrowDropDown,
     IconArticle,
-    IconGithub,
     IconHelpOutline,
     IconMail,
     IconQuestionAnswer,
@@ -23,6 +22,8 @@ import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppProm
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { supportLogic } from '../Support/supportLogic'
+import SupportForm from '../Support/SupportForm'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -88,6 +89,7 @@ export function HelpButton({
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { toggleActivationSideBar } = useActions(navigationLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <>
@@ -110,43 +112,16 @@ export function HelpButton({
                             </LemonButton>
                         )}
                         <LemonButton
-                            icon={<IconQuestionAnswer />}
-                            status="stealth"
-                            fullWidth
-                            onClick={() => {
-                                reportHelpButtonUsed(HelpType.Slack)
-                                hideHelp()
-                            }}
-                            to={`https://posthog.com/questions${HELP_UTM_TAGS}`}
-                            targetBlank
-                        >
-                            Ask us a question
-                        </LemonButton>
-                        <LemonButton
-                            icon={<IconGithub />}
-                            status="stealth"
-                            fullWidth
-                            onClick={() => {
-                                reportHelpButtonUsed(HelpType.GitHub)
-                                hideHelp()
-                            }}
-                            to={`https://github.com/PostHog/posthog/issues/new/choose`}
-                            targetBlank
-                        >
-                            Create an issue on GitHub
-                        </LemonButton>
-                        <LemonButton
                             icon={<IconMail />}
                             status="stealth"
                             fullWidth
                             onClick={() => {
-                                reportHelpButtonUsed(HelpType.Email)
+                                reportHelpButtonUsed(HelpType.SupportForm)
+                                openSupportForm()
                                 hideHelp()
                             }}
-                            to={'mailto:hey@posthog.com'}
-                            targetBlank
                         >
-                            Send us an email
+                            Bug / Feedback
                         </LemonButton>
                         {!contactOnly && (
                             <LemonButton
@@ -163,6 +138,19 @@ export function HelpButton({
                                 Read the docs
                             </LemonButton>
                         )}
+                        <LemonButton
+                            icon={<IconQuestionAnswer />}
+                            status="stealth"
+                            fullWidth
+                            onClick={() => {
+                                reportHelpButtonUsed(HelpType.Slack)
+                                hideHelp()
+                            }}
+                            to={`https://posthog.com/questions${HELP_UTM_TAGS}`}
+                            targetBlank
+                        >
+                            Ask us a question
+                        </LemonButton>
                         <LemonButton
                             icon={<IconTrendingUp />}
                             status="stealth"
@@ -219,6 +207,7 @@ export function HelpButton({
                 </div>
             </Popover>
             <HedgehogBuddyWithLogic />
+            <SupportForm />
         </>
     )
 }
