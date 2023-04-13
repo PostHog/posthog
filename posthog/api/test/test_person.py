@@ -582,6 +582,36 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
+    def test_retrieve_person(self):
+        person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+            team=self.team, distinct_ids=["123456789"]
+        )
+
+        response = self.client.get(f"/api/person/{person.id}").json()
+
+        assert response["id"] == person.id
+        assert response["uuid"] == str(person.uuid)
+        assert response["distinct_ids"] == ["123456789"]
+
+    def test_retrieve_person_by_uuid(self):
+        person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+            team=self.team, distinct_ids=["123456789"]
+        )
+
+        response = self.client.get(f"/api/person/{person.uuid}").json()
+
+        assert response["id"] == person.id
+        assert response["uuid"] == str(person.uuid)
+        assert response["distinct_ids"] == ["123456789"]
+
+    def test_retrieve_person_by_distinct_id_with_useful_error(self):
+        response = self.client.get(f"/api/person/NOT_A_UUID").json()
+
+        assert (
+            response["detail"]
+            == "The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id=NOT_A_UUID instead."
+        )
+
     @patch("posthog.api.person.PersonsThrottle.rate", new="6/minute")
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
