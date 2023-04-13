@@ -142,7 +142,8 @@ def get_decide(request: HttpRequest):
                 )
 
             property_overrides = {}
-            if (data.get("geoip_disable") or False) is False:
+
+            if not data.get("geoip_disable"):
                 property_overrides = get_geoip_properties(get_ip_address(request))
 
             all_property_overrides: Dict[str, Union[str, int]] = {

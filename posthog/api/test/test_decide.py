@@ -1467,6 +1467,67 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None})
         self.assertIn("Malformed request data:", detail)
 
+    def test_geoip_disable(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$geoip_country_name": "India"})
+        Person.objects.create(team=self.team, distinct_ids=["other_id"], properties={})
+
+        australia_ip = "13.106.122.3"
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=50,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "$geoip_country_name", "value": "Australia", "type": "person"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "$geoip_country_name", "value": "India", "type": "person"}],
+                        "rollout_percentage": None,
+                    }
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(0):
+            response = self._post_decide(api_version=3, ip=australia_ip)
+            # geoip_disabled_res = self._post_decide(api_version=3, ip=australia_ip, data={"geoip_disable": False})
+            # geoip_enabled_res = self._post_decide(api_version=3, ip=australia_ip, data={"geoip_disable": True})
+
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
+
+        # caching flag definitions in the above mean fewer queries
+        with self.assertNumQueries(0):
+            response = self._post_decide(api_version=2, distinct_id="other_id", ip=australia_ip)
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
+
     @snapshot_postgres_queries
     def test_decide_doesnt_error_out_when_database_is_down(self):
         ALL_TEAM_PARAMS_FOR_DECIDE = {
