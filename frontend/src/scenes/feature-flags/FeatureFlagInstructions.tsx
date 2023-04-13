@@ -10,9 +10,10 @@ import {
     InstructionOption,
     LibraryType,
     LOCAL_EVALUATION_LIBRARIES,
+    PAYLOAD_LIBRARIES,
     LOCAL_EVAL_ANCHOR,
     OPTIONS,
-    PAYLOAD_OPTIONS,
+    PAYLOADS_ANCHOR,
 } from './FeatureFlagCodeOptions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -43,7 +44,6 @@ export function CodeInstructions({
     // const [defaultSelectedOption] = options
     const defaultSelectedOption = options[4]
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
-    const [payloadOption, setPayloadOption] = useState(PAYLOAD_OPTIONS[0])
     const [bootstrapOption, setBootstrapOption] = useState(BOOTSTRAPPING_OPTIONS[0])
     const [showPayloadCode, setShowPayloadCode] = useState(Object.keys(featureFlag?.filters.payloads || {}).length > 0)
     const [showLocalEvalCode, setShowLocalEvalCode] = useState(false)
@@ -61,19 +61,17 @@ export function CodeInstructions({
 
     const { reportFlagsCodeExampleInteraction } = useActions(eventUsageLogic)
     const getDocumentationLink = (): string => {
-        let documentationLink = selectedOption.documentationLink
+        const documentationLink = selectedOption.documentationLink
 
         if (showBootstrapCode) {
-            documentationLink = bootstrapOption.documentationLink
-        } else if (showPayloadCode) {
-            documentationLink = payloadOption.documentationLink
+            return bootstrapOption.documentationLink
         }
 
-        let anchor = ''
+        let anchor = FF_ANCHOR
         if (showLocalEvalCode) {
             anchor = LOCAL_EVAL_ANCHOR
-        } else if (!showPayloadCode && !showBootstrapCode) {
-            anchor = FF_ANCHOR
+        } else if (showPayloadCode) {
+            anchor = PAYLOADS_ANCHOR
         }
 
         return `${documentationLink}${anchor}`
@@ -86,10 +84,9 @@ export function CodeInstructions({
             setSelectedOption(option)
         }
 
-        const payloadOption = PAYLOAD_OPTIONS.find((payloadOption) => payloadOption.value === selectedValue)
-        if (payloadOption) {
-            setPayloadOption(payloadOption)
-        } else {
+        const libHasPayloads = PAYLOAD_LIBRARIES.find((payloadOption) => payloadOption === selectedValue)
+
+        if (!libHasPayloads) {
             setShowPayloadCode(false)
         }
 
@@ -163,8 +160,8 @@ export function CodeInstructions({
                     />
                 </div>
                 <Tooltip
-                    title={`Feature flag payloads are only available in these libraries: ${PAYLOAD_OPTIONS.map(
-                        (payloadOption) => ` ${payloadOption.value}`
+                    title={`Feature flag payloads are only available in these libraries: ${PAYLOAD_LIBRARIES.map(
+                        (payloadOption) => ` ${payloadOption}`
                     )}`}
                 >
                     <div className="flex items-center gap-1">
@@ -176,11 +173,7 @@ export function CodeInstructions({
                             }}
                             data-attr="flags-code-example-payloads-option"
                             checked={showPayloadCode}
-                            disabled={
-                                !PAYLOAD_OPTIONS.map((payloadOption) => payloadOption.value).includes(
-                                    selectedOption.value
-                                )
-                            }
+                            disabled={!PAYLOAD_LIBRARIES.includes(selectedOption.value)}
                         />
                         <IconInfo className="text-xl text-muted-alt shrink-0" />
                     </div>
@@ -221,8 +214,7 @@ export function CodeInstructions({
                                     reportFlagsCodeExampleInteraction('local evaluation')
                                 }}
                                 disabled={
-                                    selectedOption.type !== LibraryType.Server ||
-                                    selectedOption.value === 'API' ||
+                                    !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.value) ||
                                     !!featureFlag?.ensure_experience_continuity
                                 }
                             />
@@ -246,13 +238,20 @@ export function CodeInstructions({
                 />
                 {showPayloadCode && (
                     <>
-                        <h3>Payloads</h3>
-                        <payloadOption.Snippet flagKey={featureFlagKey} groupType={groupType} />
+                        <h3>Payload</h3>
+                        <selectedOption.Snippet
+                            data-attr="feature-flag-instructions-payload-snippet"
+                            flagKey={featureFlagKey}
+                            multivariant={multivariantFlag}
+                            groupType={groupType}
+                            localEvaluation={showLocalEvalCode}
+                            payload={true}
+                        />
                     </>
                 )}
                 {showBootstrapCode && (
                     <>
-                        <h3>Bootstrapping</h3>
+                        <h3>Bootstrap</h3>
                         <bootstrapOption.Snippet flagKey={featureFlagKey} />
                     </>
                 )}

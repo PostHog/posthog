@@ -7,7 +7,7 @@ export function FeatureFlagCodeExample({ featureFlag }: { featureFlag: FeatureFl
             <h3>
                 <b>How to implement</b>
             </h3>
-            <FeatureFlagInstructions featureFlag={featureFlag} featureFlagKey={featureFlag.key || 'my-flag'} />
+            <FeatureFlagInstructions featureFlag={featureFlag} />
         </div>
     )
 }

@@ -10,11 +10,18 @@ export interface FeatureFlagSnippet {
     multivariant?: boolean
     groupType?: GroupType
     localEvaluation?: boolean
+    payload?: boolean
 }
 
-export function NodeJSSnippet({ flagKey, groupType, multivariant, localEvaluation }: FeatureFlagSnippet): JSX.Element {
+export function NodeJSSnippet({
+    flagKey,
+    groupType,
+    multivariant,
+    localEvaluation,
+    payload,
+}: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'await client.'
-    const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
+    const flagFunction = payload ? 'getFeatureFlagPayload' : multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -43,18 +50,23 @@ export function NodeJSSnippet({ flagKey, groupType, multivariant, localEvaluatio
             {${localEvalAddition}}
             )`
         : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
-    const variableName = multivariant ? 'enabledVariant' : 'isMyFlagEnabledForUser'
+
+    const variableName = payload ? 'matchedFlagPayload' : multivariant ? 'enabledVariant' : 'isMyFlagEnabledForUser'
 
     const conditional = multivariant ? `${variableName} === 'example-variant'` : `${variableName}`
+
+    const followUpCode = payload
+        ? ''
+        : `
+
+if (${conditional}) {
+    // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
+}`
 
     return (
         <>
             <CodeSnippet language={Language.JavaScript} wrap>
-                {`const ${variableName} = ${flagSnippet}
-
-if (${conditional}) {
-    // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
-}`}
+                {`const ${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
@@ -159,9 +171,15 @@ if ${conditional} {
     )
 }
 
-export function RubySnippet({ flagKey, groupType, multivariant, localEvaluation }: FeatureFlagSnippet): JSX.Element {
+export function RubySnippet({
+    flagKey,
+    groupType,
+    multivariant,
+    localEvaluation,
+    payload,
+}: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
-    const flagFunction = multivariant ? 'get_feature_flag' : 'is_feature_enabled'
+    const flagFunction = payload ? 'get_feature_flag_payload' : multivariant ? 'get_feature_flag' : 'is_feature_enabled'
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -188,26 +206,36 @@ export function RubySnippet({ flagKey, groupType, multivariant, localEvaluation 
             'user distinct id',${localEvalAddition}
         )`
         : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
-    const variableName = multivariant ? 'enabled_variant' : 'is_my_flag_enabled'
+    const variableName = payload ? 'matched_flag_payload' : multivariant ? 'enabled_variant' : 'is_my_flag_enabled'
 
     const conditional = multivariant ? `${variableName} == 'example-variant'` : `${variableName}`
+
+    const followUpCode = payload
+        ? ''
+        : `
+
+if ${conditional}
+    # Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
+end`
 
     return (
         <>
             <CodeSnippet language={Language.Ruby} wrap>
-                {`${variableName} = ${flagSnippet}
-
-if ${conditional}
-    # Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
-end`}
+                {`${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
 }
 
-export function PythonSnippet({ flagKey, groupType, multivariant, localEvaluation }: FeatureFlagSnippet): JSX.Element {
+export function PythonSnippet({
+    flagKey,
+    groupType,
+    multivariant,
+    localEvaluation,
+    payload,
+}: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
-    const flagFunction = multivariant ? 'get_feature_flag' : 'feature_enabled'
+    const flagFunction = payload ? 'get_feature_flag_payload' : multivariant ? 'get_feature_flag' : 'feature_enabled'
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -234,18 +262,22 @@ export function PythonSnippet({ flagKey, groupType, multivariant, localEvaluatio
             'user distinct id',${localEvalAddition}
         )`
         : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
-    const variableName = multivariant ? 'enabled_variant' : 'is_my_flag_enabled'
+    const variableName = payload ? 'matched_flag_payload' : multivariant ? 'enabled_variant' : 'is_my_flag_enabled'
 
     const conditional = multivariant ? `${variableName} == 'example-variant'` : `${variableName}`
+
+    const followUpCode = payload
+        ? ''
+        : `
+
+if ${conditional}:
+    # Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
+`
 
     return (
         <>
             <CodeSnippet language={Language.Python} wrap>
-                {`${variableName} = ${flagSnippet}
-
-if ${conditional}:
-    # Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
-`}
+                {`${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
@@ -334,7 +366,17 @@ export function APISnippet({ groupType }: FeatureFlagSnippet): JSX.Element {
     )
 }
 
-export function JSSnippet({ flagKey, multivariant }: FeatureFlagSnippet): JSX.Element {
+export function JSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+    if (payload) {
+        return (
+            <>
+                <CodeSnippet language={Language.JavaScript} wrap>
+                    {`posthog.getFeatureFlagPayload('${flagKey ?? ''}')`}
+                </CodeSnippet>
+            </>
+        )
+    }
+
     const clientSuffix = 'posthog.'
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 

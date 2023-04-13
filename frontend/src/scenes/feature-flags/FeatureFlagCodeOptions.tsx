@@ -1,10 +1,4 @@
 import {
-    JSPayloadSnippet,
-    NodeJSPayloadSnippet,
-    PythonPayloadSnippet,
-    RubyPayloadSnippet,
-} from './FeatureFlagPayloadSnippets'
-import {
     UTM_TAGS,
     FeatureFlagSnippet,
     JSSnippet,
@@ -94,43 +88,16 @@ export const OPTIONS: InstructionOption[] = [
         type: LibraryType.Server,
     },
     {
-        value: 'Golang',
+        value: 'Go',
         documentationLink: `${DOC_BASE_URL}integrations/go-integration${UTM_TAGS}`,
         Snippet: GolangSnippet,
         type: LibraryType.Server,
     },
 ]
 
-export const LOCAL_EVALUATION_LIBRARIES: string[] = ['Node.js', 'Python', 'Ruby', 'PHP', 'Golang']
+export const LOCAL_EVALUATION_LIBRARIES: string[] = ['Node.js', 'Python', 'Ruby', 'PHP', 'Go']
 
 export const PAYLOAD_LIBRARIES: string[] = ['JavaScript', 'Node.js', 'Python', 'Ruby']
-
-export const PAYLOAD_OPTIONS: InstructionOption[] = [
-    {
-        value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${PAYLOADS_ANCHOR}`,
-        Snippet: JSPayloadSnippet,
-        type: LibraryType.Client,
-    },
-    {
-        value: 'Node.js',
-        documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${PAYLOADS_ANCHOR}`,
-        Snippet: NodeJSPayloadSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Python',
-        documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${PAYLOADS_ANCHOR}`,
-        Snippet: PythonPayloadSnippet,
-        type: LibraryType.Server,
-    },
-    {
-        value: 'Ruby',
-        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${PAYLOADS_ANCHOR}`,
-        Snippet: RubyPayloadSnippet,
-        type: LibraryType.Server,
-    },
-]
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
     {
