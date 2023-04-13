@@ -17,7 +17,7 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
-        cy.get('.AlertMessage').should('contain', 'There is already an account with this email address.')
+        cy.get('.LemonBanner').should('contain', 'There is already an account with this email address.')
     })
 
     it('Cannot signup without required attributes', () => {

@@ -4,7 +4,7 @@ import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
@@ -75,18 +75,18 @@ export function Billing(): JSX.Element {
         return (
             <div className="space-y-4">
                 <BillingPageHeader />
-                <AlertMessage type="error">
+                <LemonBanner type="error">
                     There was an issue retrieving your current billing information. If this message persists please
                     {supportLink}.
-                </AlertMessage>
+                </LemonBanner>
 
                 {!cloudOrDev ? (
-                    <AlertMessage type="info">
+                    <LemonBanner type="info">
                         Please ensure your instance is able to reach <b>https://billing.posthog.com</b>
                         <br />
                         If this is not possible, please {supportLink} about licensing options for "air-gapped"
                         instances.
-                    </AlertMessage>
+                    </LemonBanner>
                 ) : null}
             </div>
         )
@@ -98,9 +98,9 @@ export function Billing(): JSX.Element {
         <div ref={ref}>
             <BillingPageHeader />
             {billing?.free_trial_until ? (
-                <AlertMessage type="success" className="mb-2">
+                <LemonBanner type="success" className="mb-2">
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
-                </AlertMessage>
+                </LemonBanner>
             ) : null}
             {!billing?.has_active_subscription && cloudOrDev && (
                 <>

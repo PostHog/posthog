@@ -2,7 +2,7 @@ import { LemonSelectOptions, LemonLabel, LemonButton, LemonInput, LemonDivider, 
 import clsx from 'clsx'
 import { useValues, useActions } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconEdit, IconDelete } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useState, useEffect, useMemo } from 'react'
@@ -293,9 +293,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                 {product.tiered && <BillingGauge items={billingGaugeItems} />}
 
                 {product.percentage_usage > 1 ? (
-                    <AlertMessage type={'error'}>
+                    <LemonBanner type={'error'}>
                         You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this product.
-                    </AlertMessage>
+                    </LemonBanner>
                 ) : null}
             </div>
 
@@ -310,9 +310,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                     style={{ width: size === 'medium' ? '20rem' : undefined }}
                 >
                     {product.price_description ? (
-                        <AlertMessage type="info">
+                        <LemonBanner type="info">
                             <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
-                        </AlertMessage>
+                        </LemonBanner>
                     ) : null}
 
                     {product.tiered ? (
