@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchPayload, Kafka } from 'kafkajs'
-import { ClientMetrics, HighLevelProducer as RdKafkaProducer } from 'node-rdkafka'
+import { ClientMetrics, HighLevelProducer as RdKafkaProducer, ProducerGlobalConfig } from 'node-rdkafka'
 import { hostname } from 'os'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
@@ -324,7 +324,7 @@ const consumedMessageSizeBytes = new Histogram({
 // separate file.s
 
 const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
-    const producer = new RdKafkaProducer({
+    const config: ProducerGlobalConfig = {
         'client.id': hostname(),
         'metadata.broker.list': kafkaConfig.KAFKA_HOSTS,
         'security.protocol': kafkaConfig.KAFKA_SECURITY_PROTOCOL
@@ -333,15 +333,6 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
         'sasl.mechanisms': kafkaConfig.KAFKA_SASL_MECHANISM,
         'sasl.username': kafkaConfig.KAFKA_SASL_USER,
         'sasl.password': kafkaConfig.KAFKA_SASL_PASSWORD,
-        'ssl.ca.pem': kafkaConfig.KAFKA_TRUSTED_CERT_B64
-            ? Buffer.from(kafkaConfig.KAFKA_TRUSTED_CERT_B64, 'base64').toString()
-            : undefined,
-        'ssl.key.pem': kafkaConfig.KAFKA_CLIENT_CERT_B64
-            ? Buffer.from(kafkaConfig.KAFKA_CLIENT_CERT_B64, 'base64').toString()
-            : undefined,
-        'ssl.certificate.pem': kafkaConfig.KAFKA_CLIENT_CERT_KEY_B64
-            ? Buffer.from(kafkaConfig.KAFKA_CLIENT_CERT_KEY_B64, 'base64').toString()
-            : undefined,
         // milliseconds to wait before sending a batch. The default is 0, which
         // means that messages are sent as soon as possible. This does not mean
         // that there will only be one message per batch, as the producer will
@@ -353,7 +344,21 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
         'batch.size': 1024 * 1024, // bytes. The default
         'compression.codec': 'snappy',
         dr_cb: true,
-    })
+    }
+
+    if (kafkaConfig.KAFKA_TRUSTED_CERT_B64) {
+        config['ssl.ca.pem'] = Buffer.from(kafkaConfig.KAFKA_TRUSTED_CERT_B64, 'base64').toString()
+    }
+
+    if (kafkaConfig.KAFKA_CLIENT_CERT_B64) {
+        config['ssl.key.pem'] = Buffer.from(kafkaConfig.KAFKA_CLIENT_CERT_B64, 'base64').toString()
+    }
+
+    if (kafkaConfig.KAFKA_CLIENT_CERT_KEY_B64) {
+        config['ssl.certificate.pem'] = Buffer.from(kafkaConfig.KAFKA_CLIENT_CERT_KEY_B64, 'base64').toString()
+    }
+
+    const producer = new RdKafkaProducer(config)
 
     producer.on('event.log', function (log) {
         status.debug('📝', 'librdkafka log', { log: log })
