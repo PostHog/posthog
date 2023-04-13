@@ -334,6 +334,7 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
         'sasl.mechanisms': kafkaConfig.KAFKA_SASL_MECHANISM,
         'sasl.username': kafkaConfig.KAFKA_SASL_USER,
         'sasl.password': kafkaConfig.KAFKA_SASL_PASSWORD,
+        'enable.ssl.certificate.verification': false,
         // milliseconds to wait before sending a batch. The default is 0, which
         // means that messages are sent as soon as possible. This does not mean
         // that there will only be one message per batch, as the producer will
@@ -372,8 +373,13 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
 
     await new Promise((resolve, reject) =>
         producer.connect(undefined, (error, data) => {
-            status.info('🔌', 'Connected to Kafka', { error: error, brokers: data?.brokers })
-            error ? reject(error) : resolve(data)
+            if (error) {
+                status.error('⚠️', 'connect_error', { error: error })
+                reject(error)
+            } else {
+                status.debug('📝', 'librdkafka connected', { error, data })
+                resolve(data)
+            }
         })
     )
 
