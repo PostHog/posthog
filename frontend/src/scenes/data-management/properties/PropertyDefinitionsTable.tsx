@@ -18,8 +18,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { ThirtyDayQueryCountTitle } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: PropertyDefinitionsTable,
@@ -33,7 +31,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -110,13 +107,11 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     onChange={(e) => setFilters({ property: e || '' })}
                     value={filters.property}
                 />
-                {featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS] && (
-                    <LemonSelect
-                        options={propertyTypeOptions}
-                        value={`${filters.type}::${filters.group_type_index ?? ''}`}
-                        onSelect={setPropertyType}
-                    />
-                )}
+                <LemonSelect
+                    options={propertyTypeOptions}
+                    value={`${filters.type}::${filters.group_type_index ?? ''}`}
+                    onSelect={setPropertyType}
+                />
             </div>
 
             <LemonTable

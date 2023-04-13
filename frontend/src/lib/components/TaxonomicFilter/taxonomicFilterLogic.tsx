@@ -40,9 +40,7 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { InlineHogQLEditor } from '~/queries/QueryEditor/InlineHogQLEditor'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
@@ -79,8 +77,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             ['groupTypes', 'aggregationLabel'],
             groupPropertiesModel,
             ['allGroupProperties'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
     },
     actions: () => ({
@@ -150,7 +146,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
                 s.excludedProperties,
-                s.featureFlags,
             ],
             (
                 teamId,
@@ -451,24 +446,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 })),
         ],
         groupAnalyticsTaxonomicGroups: [
-            (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel, s.featureFlags],
-            (groupTypes, teamId, aggregationLabel, featureFlags): TaxonomicFilterGroup[] =>
+            (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
+            (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
                 groupTypes.map((type) => ({
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
                     searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
-                    logic: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
-                        ? undefined
-                        : groupPropertiesModel,
-                    value: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
-                        ? undefined
-                        : `groupProperties_${type.group_type_index}`,
-                    endpoint: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
-                        ? combineUrl(`api/projects/${teamId}/property_definitions`, {
-                              type: 'group',
-                              group_type_index: type.group_type_index,
-                          }).url
-                        : undefined,
+                    endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                        type: 'group',
+                        group_type_index: type.group_type_index,
+                    }).url,
                     valuesEndpoint: (key) =>
                         `api/projects/${teamId}/groups/property_values/?${toParams({
                             key,
