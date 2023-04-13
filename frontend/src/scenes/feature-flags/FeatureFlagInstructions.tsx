@@ -41,8 +41,7 @@ export function CodeInstructions({
     featureFlag?: FeatureFlagType
     dataAttr?: string
 }): JSX.Element {
-    // const [defaultSelectedOption] = options
-    const defaultSelectedOption = options[4]
+    const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
     const [bootstrapOption, setBootstrapOption] = useState(BOOTSTRAPPING_OPTIONS[0])
     const [showPayloadCode, setShowPayloadCode] = useState(Object.keys(featureFlag?.filters.payloads || {}).length > 0)
