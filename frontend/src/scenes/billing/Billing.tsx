@@ -235,12 +235,14 @@ export function Billing(): JSX.Element {
                 </div>
             </div>
 
-            {products?.map((x) => (
-                <div key={x.type}>
-                    <LemonDivider dashed className="my-2" />
-                    <BillingProduct product={x} />
-                </div>
-            ))}
+            {(products || [])
+                .filter((x) => !x.contact_support)
+                .map((x) => (
+                    <div key={x.type}>
+                        <LemonDivider dashed className="my-2" />
+                        <BillingProduct product={x} />
+                    </div>
+                ))}
         </div>
     )
 }
@@ -263,6 +265,27 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 
     const usageKey = product.usage_key ?? product.type ?? ''
     const productType = { plural: usageKey, singular: usageKey.slice(0, -1) }
+
+    useEffect(() => {
+        if (!billingLoading) {
+            setIsEditingBillingLimit(false)
+        }
+    }, [billingLoading])
+
+    useEffect(() => {
+        setBillingLimitInput(
+            parseInt(customLimitUsd || '0') ||
+                (product.tiers
+                    ? parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers))
+                    : 0) ||
+                DEFAULT_BILLING_LIMIT
+        )
+    }, [customLimitUsd])
+
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        700: 'medium',
+    })
 
     const updateBillingLimit = (value: number | undefined): any => {
         const actuallyUpdateLimit = (): void => {
@@ -312,30 +335,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         return actuallyUpdateLimit()
     }
 
-    useEffect(() => {
-        if (!billingLoading) {
-            setIsEditingBillingLimit(false)
-        }
-    }, [billingLoading])
-
-    useEffect(() => {
-        setBillingLimitInput(
-            parseInt(customLimitUsd || '0') ||
-                (product.tiers
-                    ? parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers))
-                    : 0) ||
-                DEFAULT_BILLING_LIMIT
-        )
-    }, [customLimitUsd])
-
-    const { ref, size } = useResizeBreakpoints({
-        0: 'small',
-        700: 'medium',
-    })
-
     const freeTier =
         (billing?.has_active_subscription
-            ? product.tiers?.[0].unit_amount_usd === '0'
+            ? product.tiers?.[0]?.unit_amount_usd === '0'
                 ? product.tiers?.[0]?.up_to
                 : 0
             : product.free_allocation) || 0
@@ -397,12 +399,6 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 
     if (billing?.has_active_subscription) {
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
-    }
-
-    const contactSupport = product['contact_support']
-
-    if (contactSupport) {
-        return null
     }
 
     return (
