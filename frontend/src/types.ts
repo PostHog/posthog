@@ -143,6 +143,7 @@ export interface UserType extends UserBaseType {
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    postgres_id: number
 }
 
 export interface NotificationSettings {
