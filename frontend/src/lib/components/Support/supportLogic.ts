@@ -27,19 +27,15 @@ export const supportLogic = kea<supportLogicType>([
     })),
     forms(({ actions }) => ({
         sendSupportRequest: {
-            defaults: {
-                kind: 'bug', // bug, feedback
-                target_area: '', // session_replay, billing, ...
-                message: '',
-            },
+            defaults: {} as unknown as { kind: string; target_area: string; message: string },
             errors: ({ message, kind, target_area }) => {
                 return {
                     message: !message ? 'Please enter a message' : '',
-                    kind: !kind ? 'Please choose' : '',
-                    target_area: !target_area ? 'Please choose' : '',
+                    kind: !kind ? 'Please choose' : undefined,
+                    target_area: !target_area ? 'Please choose' : undefined,
                 }
             },
-            submit: async ({ kind, target_area, message }: { kind: string; target_area: string; message: string }) => {
+            submit: async ({ kind, target_area, message }) => {
                 actions.submitZendeskTicket(kind, target_area, message)
                 actions.closeSupportForm()
                 actions.resetSendSupportRequest()
