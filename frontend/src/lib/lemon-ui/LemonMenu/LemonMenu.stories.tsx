@@ -77,6 +77,19 @@ WithNestedMenus.args = {
                         { icon: <Splotch color={SplotchColor.Green} />, label: 'Green', active: true },
                     ],
                 },
+                {
+                    label: 'Open matryoshka',
+                    items: [
+                        {
+                            label: 'Open matryoshka',
+                            items: [
+                                {
+                                    label: 'Baby matryoshka!',
+                                },
+                            ],
+                        },
+                    ],
+                },
             ],
             footer: <div className="flex items-center h-10 px-2 rounded bg-mid text-muted">I am a custom footer!</div>,
         },
