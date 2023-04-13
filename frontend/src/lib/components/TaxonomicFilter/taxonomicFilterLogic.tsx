@@ -9,7 +9,6 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
 import {
     ActionType,
     CohortType,
@@ -158,8 +157,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
-                excludedProperties,
-                featureFlags
+                excludedProperties
             ): TaxonomicFilterGroup[] => {
                 return [
                     {
@@ -267,17 +265,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         name: 'Person properties',
                         searchPlaceholder: 'person properties',
                         type: TaxonomicFilterGroupType.PersonProperties,
-                        logic: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
-                            ? undefined
-                            : personPropertiesModel,
-                        value: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
-                            ? undefined
-                            : 'personProperties',
-                        endpoint: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
-                            ? combineUrl(`api/projects/${teamId}/property_definitions`, {
-                                  type: 'person',
-                              }).url
-                            : undefined,
+                        endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                            type: 'person',
+                        }).url,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
                         ...propertyTaxonomicGroupProps(true),
