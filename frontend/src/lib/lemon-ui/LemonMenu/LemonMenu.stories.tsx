@@ -1,10 +1,15 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { LemonMenu as LemonMenuComponent, LemonMenuItems, LemonMenuProps, LemonMenuSection } from './LemonMenu'
+import {
+    LemonMenuOverlay as LemonMenuOverlayComponent,
+    LemonMenuOverlayProps,
+    LemonMenuItems,
+    LemonMenuSection,
+} from './LemonMenu'
 import { Splotch, SplotchColor } from '../Splotch'
 
 export default {
     title: 'Lemon UI/Lemon Menu',
-    component: LemonMenuComponent,
+    component: LemonMenuOverlayComponent,
     argTypes: {
         items: {
             defaultValue: [
@@ -14,9 +19,9 @@ export default {
             ] as LemonMenuItems,
         },
     },
-} as ComponentMeta<typeof LemonMenuComponent>
+} as ComponentMeta<typeof LemonMenuOverlayComponent>
 
-const Template: ComponentStory<typeof LemonMenuComponent> = (props: LemonMenuProps) => {
+const Template: ComponentStory<typeof LemonMenuOverlayComponent> = (props: LemonMenuOverlayProps) => {
     return (
         <div className="Popover">
             <div
@@ -27,7 +32,7 @@ const Template: ComponentStory<typeof LemonMenuComponent> = (props: LemonMenuPro
                     width: 'fit-content',
                 }}
             >
-                <LemonMenuComponent {...props} />
+                <LemonMenuOverlayComponent {...props} />
             </div>
         </div>
     )
@@ -36,8 +41,8 @@ const Template: ComponentStory<typeof LemonMenuComponent> = (props: LemonMenuPro
 export const Flat = Template.bind({})
 Flat.args = {}
 
-export const WithSections = Template.bind({})
-WithSections.args = {
+export const SectionedItems = Template.bind({})
+SectionedItems.args = {
     items: [
         {
             title: 'Reptiles',
@@ -63,8 +68,8 @@ WithSections.args = {
     ] as LemonMenuSection[],
 }
 
-export const WithNestedMenus = Template.bind({})
-WithNestedMenus.args = {
+export const NestedMenu = Template.bind({})
+NestedMenu.args = {
     items: [
         {
             items: [

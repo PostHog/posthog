@@ -1,8 +1,9 @@
 import React, { FunctionComponent, useMemo } from 'react'
-import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from '../LemonButton'
+import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { TooltipProps } from '../Tooltip'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { LemonDivider } from '../LemonDivider'
+import { LemonDropdown, LemonDropdownProps } from '../Dropdown'
 
 export interface LemonMenuItemBase
     extends Pick<
@@ -11,28 +12,53 @@ export interface LemonMenuItemBase
     > {
     label: string | JSX.Element
 }
-interface LemonMenuItemNode extends LemonMenuItemBase {
+export interface LemonMenuItemNode extends LemonMenuItemBase {
     items: LemonMenuItemLeaf[]
 }
-interface LemonMenuItemLeaf extends LemonMenuItemBase {
+export interface LemonMenuItemLeaf extends LemonMenuItemBase {
     onClick: () => void
 }
 export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemNode
 
 export interface LemonMenuSection {
-    title?: string
+    title?: string | React.ReactNode
     items: LemonMenuItem[]
     footer?: string | React.ReactNode
 }
 
-export type LemonMenuItems = LemonMenuItemLeaf[] | LemonMenuSection[]
+export type LemonMenuItems = (LemonMenuItem | LemonMenuSection)[]
 
-export interface LemonMenuProps {
+export interface LemonMenuProps
+    extends Pick<
+            LemonDropdownProps,
+            | 'placement'
+            | 'fallbackPlacements'
+            | 'actionable'
+            | 'sameWidth'
+            | 'maxContentWidth'
+            | 'visible'
+            | 'className'
+        >,
+        LemonMenuOverlayProps {
+    children: React.ReactElement
+}
+
+export function LemonMenu({ items, tooltipPlacement, ...dropdownProps }: LemonMenuProps): JSX.Element {
+    return (
+        <LemonDropdown
+            overlay={<LemonMenuOverlay items={items} tooltipPlacement={tooltipPlacement} />}
+            closeOnClickInside
+            {...dropdownProps}
+        />
+    )
+}
+
+export interface LemonMenuOverlayProps {
     items: LemonMenuItems
     tooltipPlacement?: TooltipProps['placement']
 }
 
-export function LemonMenu({ items, tooltipPlacement }: LemonMenuProps): JSX.Element {
+export function LemonMenuOverlay({ items, tooltipPlacement }: LemonMenuOverlayProps): JSX.Element {
     const sections = useMemo(() => standardizeIntoSections(items), [items])
 
     return (
@@ -70,31 +96,30 @@ interface LemonMenuItemButtonProps {
 
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
     React.forwardRef(({ item, tooltipPlacement }, ref): JSX.Element => {
-        const commonProps: Partial<LemonButtonProps> & React.RefAttributes<HTMLButtonElement> = {
-            ref,
-            children: item.label,
-            tooltipPlacement,
-            status: 'stealth',
-            fullWidth: true,
-            ...item,
-        }
+        const button = (
+            <LemonButton
+                ref={ref}
+                tooltipPlacement={tooltipPlacement}
+                status="stealth"
+                fullWidth
+                role="menuitem"
+                {...item}
+            >
+                {item.label}
+            </LemonButton>
+        )
+
         return 'items' in item ? (
-            <LemonButtonWithDropdown
-                dropdown={{
-                    overlay: <LemonMenu items={item.items} tooltipPlacement={tooltipPlacement} />,
-                    placement: 'right-start',
-                    actionable: true,
-                    closeParentPopoverOnClickInside: true,
-                }}
-                {...commonProps}
-            />
+            <LemonMenu items={item.items} tooltipPlacement={tooltipPlacement} placement="right-start" actionable>
+                {button}
+            </LemonMenu>
         ) : (
-            <LemonButton {...commonProps} />
+            button
         )
     })
 LemonMenuItemButton.displayName = 'LemonMenuItemButton'
 
-function standardizeIntoSections(sectionsAndItems: LemonMenuSection[] | LemonMenuItemLeaf[]): LemonMenuSection[] {
+function standardizeIntoSections(sectionsAndItems: (LemonMenuItem | LemonMenuSection)[]): LemonMenuSection[] {
     const sections: LemonMenuSection[] = []
     let implicitSection: LemonMenuSection = { items: [] }
     for (const sectionOrItem of sectionsAndItems) {

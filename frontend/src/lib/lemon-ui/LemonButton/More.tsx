@@ -27,6 +27,7 @@ export function More({
                 placement,
                 actionable: true,
                 overlay,
+                closeOnClickInside: true,
             }}
             size="small"
             className={className}
