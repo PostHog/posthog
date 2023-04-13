@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -15,6 +15,7 @@ import { IconFlag, IconPlus } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useState } from 'react'
+import { Row } from 'antd'
 
 export const scene: SceneExport = {
     component: Feature,
@@ -160,39 +161,59 @@ export function Feature(): JSX.Element {
                     </KeaField>
                 </div>
                 {feature.stage !== 'general-availability' && (
-                    <div className="w-1/2 max-w-160">
-                        <FeatureInstructions feature={feature} />
+                    <div className="border rounded p-3 w-1/2 max-w-160">
+                        <Row justify="space-between" align="middle">
+                            <b>Integrate feature previews</b>
+                            <LemonSelect
+                                value={'manual'}
+                                onChange={(e) => {}}
+                                options={[
+                                    {
+                                        label: 'Manual',
+                                        value: 'manual',
+                                    },
+                                    {
+                                        label: 'Widget',
+                                        value: 'widget',
+                                    },
+                                ]}
+                            />
+                        </Row>
+                        <div>
+                            <FeatureInstructions feature={feature} />
+                        </div>
                     </div>
                 )}
             </div>
             <LemonDivider className="my-4" />
             <h3 className="text-xl font-semibold my-4">Persons</h3>
             {'feature_flag' in feature && (
-                <Persons
-                    fixedProperties={[
-                        {
-                            key: '$feature_enrollment/' + feature.feature_flag.key,
-                            type: PropertyFilterType.Person,
-                            operator: PropertyOperator.IsSet,
-                        },
-                    ]}
-                    extraSceneActions={[
-                        <LemonButton type="primary" icon={<IconPlus />} onClick={toggleModal}>
-                            Add person
-                        </LemonButton>
-                    ]}
-                    extraColumns={[
-                        {
-                            title: 'Stage',
-                            dataIndex: 'properties',
-                            render: function Render(_, person: PersonType) {
-                                return <span>{person.properties['$feature_enrollment/' + feature.feature_flag.key].toString()}</span>
+
+                    <Persons
+                        fixedProperties={[
+                            {
+                                key: '$feature_enrollment/' + feature.feature_flag.key,
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.IsSet,
                             },
-                        },
-                    ]}
-                    compact={true}
-                    showExportAction={false}
-                />
+                        ]}
+                        extraSceneActions={[
+                            <LemonButton type="primary" icon={<IconPlus />} onClick={toggleModal}>
+                                Add person
+                            </LemonButton>
+                        ]}
+                        extraColumns={[
+                            {
+                                title: 'Stage',
+                                dataIndex: 'properties',
+                                render: function Render(_, person: PersonType) {
+                                    return <span>{person.properties['$feature_enrollment/' + feature.feature_flag.key].toString()}</span>
+                                },
+                            },
+                        ]}
+                        compact={true}
+                        showExportAction={false}
+                    />
             )}
             {'feature_flag' in feature && (
                 <LemonModal

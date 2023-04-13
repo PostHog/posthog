@@ -45,7 +45,7 @@ export function Features(): JSX.Element {
                                     <Link to={urls.feature(feature.id)}>
                                         <div className="row-name">{feature.name}</div>
                                     </Link>
-                                    <div className="row-description">{feature.description}</div>
+                                    {feature.description && <div className="row-description">{feature.description}</div>}
                                 </>
                             )
                         },
