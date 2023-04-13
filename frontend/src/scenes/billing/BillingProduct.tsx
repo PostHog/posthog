@@ -167,12 +167,6 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
     }
 
-    const contactSupport = product['contact_support']
-
-    if (contactSupport) {
-        return null
-    }
-
     return (
         <div
             className={clsx('flex flex-wrap', {
