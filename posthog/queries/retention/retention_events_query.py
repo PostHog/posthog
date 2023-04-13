@@ -202,8 +202,8 @@ class RetentionEventsQuery(EventQuery):
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
-            self._should_join_persons = False
+        if self._person_on_events_mode == PersonOnEventsMode.DISABLED:
+            self._should_join_persons = True
 
     def _get_entity_query(self, entity: Entity):
         prepend = self._event_query_type
