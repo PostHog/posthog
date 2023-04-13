@@ -64,4 +64,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Feedback]: () => import('./feedback/Feedback'),
     [Scene.Issues]: () => import('./issues/Issues'),
     [Scene.CDP]: () => import('./cdp/CDPScene'),
+    [Scene.CDPNewConnection]: () => import('./cdp/NewConnection'),
 }

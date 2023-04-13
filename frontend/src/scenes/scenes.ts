@@ -375,4 +375,5 @@ export const routes: Record<string, Scene> = {
     [urls.feedback() + '/*']: Scene.Feedback,
     [urls.issues()]: Scene.Issues,
     [urls.cdp()]: Scene.CDP,
+    [urls.cdpNewConnection(':id')]: Scene.CDPNewConnection,
 }

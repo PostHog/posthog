@@ -17,7 +17,6 @@ import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 export const scene: SceneExport = {
     component: CDPScene,
     logic: CDPSceneLogic,
-    // paramsToProps: ({ params: { pluginConfigId } }) => ({ pluginConfigId: parseInt(pluginConfigId) ?? 0 }),
 }
 
 export function ConnectionsTab(): JSX.Element {
