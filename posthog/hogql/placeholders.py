@@ -1,6 +1,7 @@
 from typing import Dict
 
 from posthog.hogql import ast
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.visitor import CloningVisitor
 
 
@@ -16,7 +17,9 @@ class ReplacePlaceholders(CloningVisitor):
     def visit_placeholder(self, node):
         if node.field in self.placeholders:
             return self.placeholders[node.field]
-        raise ValueError(f"Placeholder '{node.field}' not found in provided dict: {', '.join(list(self.placeholders))}")
+        raise HogQLException(
+            f"Placeholder '{node.field}' not found in provided dict: {', '.join(list(self.placeholders))}"
+        )
 
 
 def assert_no_placeholders(node: ast.Expr):
@@ -25,4 +28,4 @@ def assert_no_placeholders(node: ast.Expr):
 
 class AssertNoPlaceholders(CloningVisitor):
     def visit_placeholder(self, node):
-        raise ValueError(f"Placeholder '{node.field}' not allowed in this context")
+        raise HogQLException(f"Placeholder '{node.field}' not allowed in this context")

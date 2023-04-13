@@ -333,58 +333,63 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         700: 'medium',
     })
 
-    const freeTier = (billing?.has_active_subscription ? product.tiers?.[0]?.up_to : product.free_allocation) || 0
+    const freeTier =
+        (billing?.has_active_subscription
+            ? product.tiers?.[0].unit_amount_usd === '0'
+                ? product.tiers?.[0]?.up_to
+                : 0
+            : product.free_allocation) || 0
 
-    const billingGaugeItems: BillingGaugeProps['items'] = useMemo(
-        () =>
-            [
-                {
-                    tooltip: (
-                        <>
-                            <b>Free tier limit</b>
-                        </>
-                    ),
-                    color: 'success-light',
-                    value: freeTier,
-                    top: true,
-                },
-                {
-                    tooltip: (
-                        <>
-                            <b>Current</b>
-                        </>
-                    ),
-                    color: product.percentage_usage <= 1 ? 'success' : 'danger',
-                    value: product.current_usage || 0,
-                    top: false,
-                },
-                product.projected_usage && product.projected_usage > (product.current_usage || 0)
-                    ? {
-                          tooltip: (
-                              <>
-                                  <b>Projected</b>
-                              </>
-                          ),
-                          color: 'border',
-                          value: product.projected_usage || 0,
-                          top: false,
-                      }
-                    : undefined,
-                billingLimitAsUsage
-                    ? {
-                          tooltip: (
-                              <>
-                                  <b>Billing limit</b>
-                              </>
-                          ),
-                          color: 'primary-alt-light',
-                          top: true,
-                          value: billingLimitAsUsage || 0,
-                      }
-                    : (undefined as any),
-            ].filter(Boolean),
-        [product, billingLimitAsUsage, customLimitUsd]
-    )
+    const billingGaugeItems: BillingGaugeProps['items'] = useMemo(() => {
+        return [
+            freeTier
+                ? {
+                      tooltip: (
+                          <>
+                              <b>Free tier limit</b>
+                          </>
+                      ),
+                      color: 'success-light',
+                      value: freeTier,
+                      top: true,
+                  }
+                : undefined,
+            {
+                tooltip: (
+                    <>
+                        <b>Current</b>
+                    </>
+                ),
+                color: product.percentage_usage <= 1 ? 'success' : 'danger',
+                value: product.current_usage || 0,
+                top: false,
+            },
+            product.projected_usage && product.projected_usage > (product.current_usage || 0)
+                ? {
+                      tooltip: (
+                          <>
+                              <b>Projected</b>
+                          </>
+                      ),
+                      color: 'border',
+                      value: product.projected_usage || 0,
+                      top: false,
+                  }
+                : undefined,
+            billingLimitAsUsage
+                ? {
+                      tooltip: (
+                          <>
+                              <b>Billing limit</b>
+                          </>
+                      ),
+                      color: 'primary-alt-light',
+                      top: true,
+                      value: billingLimitAsUsage || 0,
+                  }
+                : (undefined as any),
+        ].filter(Boolean)
+    }, [product, billingLimitAsUsage, customLimitUsd])
 
     const tierDisplayOptions: LemonSelectOptions<string> = [
         { label: `Per ${productType.singular}`, value: 'individual' },
@@ -439,10 +444,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                         Predicted bill
                                     </LemonLabel>
                                     <div className="font-bold text-muted text-2xl">
-                                        $
-                                        {product.projected_usage
-                                            ? convertUsageToAmount(product.projected_usage, product.tiers)
-                                            : '0.00'}
+                                        ${product.projected_amount_usd || '0.00'}
                                     </div>
                                 </div>
                                 {billing?.billing_period?.interval == 'month' && (

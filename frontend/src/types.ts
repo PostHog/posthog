@@ -558,6 +558,10 @@ export interface RRWebRecordingConsoleLogPayload {
     trace: string[]
 }
 
+export interface RRWebRecordingNetworkPayload {
+    [key: number]: any
+}
+
 export interface RecordingConsoleLogBase {
     parsedPayload: string
     hash?: string // md5() on parsedPayload. Used for deduping console logs.
@@ -972,7 +976,7 @@ export interface RecentPerformancePageView extends PerformancePageView {
 
 export interface PerformanceEvent {
     uuid: string
-    timestamp: string
+    timestamp: string | number
     distinct_id: string
     session_id: string
     window_id: string
@@ -1067,6 +1071,7 @@ export interface BillingProductV2Type {
     tiers?: BillingV2TierType[]
     tiered: boolean
     current_usage?: number
+    projected_amount_usd?: string
     projected_usage?: number
     percentage_usage: number
     current_amount_usd?: string
