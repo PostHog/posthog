@@ -1,0 +1,14 @@
+.CDPScene {
+    .NewConnectionGrid {
+        max-width: 780px;
+        grid-template-columns: repeat(2, 1fr);
+        column-gap: 0.5em;
+        row-gap: 0.5em;
+        display: grid;
+    }
+
+    .ConnectionTypeGridItem {
+        width: 240px;
+        height: 210px;
+    }
+}
