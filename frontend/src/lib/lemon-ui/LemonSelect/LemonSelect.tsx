@@ -7,16 +7,9 @@ import './LemonSelect.scss'
 import clsx from 'clsx'
 import { TooltipProps } from '../Tooltip'
 import { TooltipPlacement } from 'antd/lib/tooltip'
+import { LemonMenuItemBase } from '../LemonMenu/LemonMenu'
 
-interface LemonSelectOptionBase {
-    label: string | JSX.Element
-    icon?: React.ReactElement
-    sideIcon?: React.ReactElement
-    /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
-    disabledReason?: string
-    tooltip?: string | JSX.Element
-    'data-attr'?: string
-}
+type LemonSelectOptionBase = Omit<LemonMenuItemBase, 'active' | 'status'> // Select handles active state internally
 
 export interface LemonSelectOptionLeaf<T> extends LemonSelectOptionBase {
     value: T

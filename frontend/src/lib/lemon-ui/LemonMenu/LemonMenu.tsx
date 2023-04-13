@@ -92,7 +92,7 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
             <LemonButton {...commonProps} />
         )
     })
-LemonMenuItemButton.displayName = 'LemonMenuItemRow'
+LemonMenuItemButton.displayName = 'LemonMenuItemButton'
 
 function standardizeIntoSections(sectionsAndItems: LemonMenuSection[] | LemonMenuItemLeaf[]): LemonMenuSection[] {
     const sections: LemonMenuSection[] = []
