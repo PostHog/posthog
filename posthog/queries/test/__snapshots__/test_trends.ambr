@@ -616,11 +616,11 @@
          person_id
   FROM events
   WHERE team_id = 2
-    AND distinct_id IN ('6378d042-def7-4014-afc4-118020e4bb2e',
-                        '3ab8ff2b-9f4c-40d1-b774-1803da2b7072')
+    AND distinct_id IN ('f5101120-7329-4f8d-ad4d-b4735eff7bf0',
+                        '5c4cb9b8-021b-4971-8939-bb5b23f772ad')
   GROUP BY distinct_id,
            person_id
-  ORDER BY if(distinct_id = '6378d042-def7-4014-afc4-118020e4bb2e', -1, 0)
+  ORDER BY if(distinct_id = 'f5101120-7329-4f8d-ad4d-b4735eff7bf0', -1, 0)
   '
 ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.1
