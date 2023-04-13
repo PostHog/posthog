@@ -4929,7 +4929,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "key_2", "value": "value_2", "type": "person"}]}],
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        # try different versions
+        cohort1.calculate_people_ch(pending_version=1)
         cohort2.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
