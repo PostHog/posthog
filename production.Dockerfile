@@ -31,6 +31,7 @@ RUN apt-get update && \
     "gcc" \
     "python3" \
     "libssl-dev" \
+    "ca-certificates" \
     && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \
