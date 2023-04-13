@@ -59,7 +59,6 @@ class UserSerializer(serializers.ModelSerializer):
     is_impersonated = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
-    postgres_id = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
@@ -96,12 +95,8 @@ class UserSerializer(serializers.ModelSerializer):
             "events_column_config",
             "is_2fa_enabled",
             "has_social_auth",
-            "postgres_id",
         ]
         extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
-
-    def get_postgres_id(self, instance: User) -> int:  # user for support ticket Django admin link
-        return instance.id
 
     def get_has_password(self, instance: User) -> bool:
         return instance.has_usable_password()

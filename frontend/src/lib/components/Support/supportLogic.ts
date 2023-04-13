@@ -21,8 +21,9 @@ function getDjangoAdminLink(user: UserType | null): string {
     if (!user) {
         return ''
     }
-    const link = `${window.location.origin}/admin/posthog/user/${user.postgres_id}/change/`
-    return `\nAdmin link: ${link}`
+    const link = `${window.location.origin}/admin/posthog/user/?q=${user.email}`
+    console.log(`\nAdmin link: ${link} (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`)
+    return `\nAdmin link: ${link} (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`
 }
 
 export const supportLogic = kea<supportLogicType>([
