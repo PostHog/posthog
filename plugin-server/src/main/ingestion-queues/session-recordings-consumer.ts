@@ -4,6 +4,7 @@ import { ClientMetrics, HighLevelProducer as RdKafkaProducer, ProducerGlobalConf
 import { hostname } from 'os'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
+import { RDKAFKA_LOG_LEVEL_MAPPING } from '../../config/constants'
 import {
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
     KAFKA_PERFORMANCE_EVENTS,
@@ -344,7 +345,7 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
         'batch.size': 1024 * 1024, // bytes. The default
         'compression.codec': 'snappy',
         dr_cb: true,
-        log_level: 7,
+        log_level: RDKAFKA_LOG_LEVEL_MAPPING[kafkaConfig.KAFKAJS_LOG_LEVEL],
     }
 
     if (kafkaConfig.KAFKA_TRUSTED_CERT_B64) {
