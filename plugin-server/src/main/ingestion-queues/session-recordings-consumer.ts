@@ -115,7 +115,7 @@ export const startSessionRecordingEventsConsumer = async ({
 export const eachBatch =
     ({ producer, teamManager, groupId }: { producer: RdKafkaProducer; teamManager: TeamManager; groupId: string }) =>
     async ({ batch, heartbeat }: Pick<EachBatchPayload, 'batch' | 'heartbeat'>) => {
-        status.debug('🔁', 'Processing batch', { size: batch.messages.length })
+        status.info('🔁', 'Processing batch', { size: batch.messages.length })
 
         consumerBatchSize
             .labels({
@@ -158,7 +158,7 @@ export const eachBatch =
                 continue
             }
 
-            status.debug('⬆️', 'processing_session_recording', { uuid: messagePayload.uuid })
+            status.info('⬆️', 'processing_session_recording', { uuid: messagePayload.uuid })
 
             consumedMessageSizeBytes
                 .labels({
@@ -302,7 +302,7 @@ export const eachBatch =
             .labels({ partition: batch.partition, topic: batch.topic, groupId })
             .set(Number.parseInt(lastBatchMessage.timestamp))
 
-        status.debug('✅', 'Processed batch', { size: batch.messages.length })
+        status.info('✅', 'Processed batch', { size: batch.messages.length })
     }
 
 const consumerBatchSize = new Histogram({
@@ -364,7 +364,7 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
     const producer = new RdKafkaProducer(config)
 
     producer.on('event.log', function (log) {
-        status.debug('📝', 'librdkafka log', { log: log })
+        status.info('📝', 'librdkafka log', { log: log })
     })
 
     producer.on('event.error', function (err) {
@@ -377,7 +377,7 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
                 status.error('⚠️', 'connect_error', { error: error })
                 reject(error)
             } else {
-                status.debug('📝', 'librdkafka connected', { error, data })
+                status.info('📝', 'librdkafka connected', { error, data })
                 resolve(data)
             }
         })
@@ -392,14 +392,14 @@ const produce = async (
     value: Buffer | null,
     key: Buffer | null
 ): Promise<number | null | undefined> => {
-    status.debug('📤', 'Producing message', { topic: topic })
+    status.info('📤', 'Producing message', { topic: topic })
     return await new Promise((resolve, reject) =>
         producer.produce(topic, null, value, key, Date.now(), (error: any, offset: number | null | undefined) => {
             if (error) {
                 status.error('⚠️', 'produce_error', { error: error, topic: topic })
                 reject(error)
             } else {
-                status.debug('📤', 'Produced message', { topic: topic, offset: offset })
+                status.info('📤', 'Produced message', { topic: topic, offset: offset })
                 resolve(offset)
             }
         })
@@ -407,10 +407,10 @@ const produce = async (
 }
 
 const disconnectProducer = async (producer: RdKafkaProducer) => {
-    status.debug('🔌', 'Disconnecting producer')
+    status.info('🔌', 'Disconnecting producer')
     return await new Promise<ClientMetrics>((resolve, reject) =>
         producer.disconnect((error: any, data: ClientMetrics) => {
-            status.debug('🔌', 'Disconnected producer')
+            status.info('🔌', 'Disconnected producer')
             if (error) {
                 reject(error)
             } else {
