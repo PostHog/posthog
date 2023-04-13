@@ -2,7 +2,7 @@ import { useValues, useActions, BindLogic } from 'kea'
 import { PersonsTable } from './PersonsTable'
 import { Popconfirm } from 'antd'
 import { personsLogic } from './personsLogic'
-import { CohortType } from '~/types'
+import { CohortType, PersonPropertyFilter } from '~/types'
 import { PersonsSearch } from './PersonsSearch'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -12,11 +12,15 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 
 interface PersonsProps {
     cohort?: CohortType['id']
+    fixedProperties?: PersonPropertyFilter[]
 }
 
-export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
+export function Persons({ cohort, fixedProperties }: PersonsProps = {}): JSX.Element {
     return (
-        <BindLogic logic={personsLogic} props={{ cohort: cohort, syncWithUrl: !cohort }}>
+        <BindLogic
+            logic={personsLogic}
+            props={{ cohort: cohort, syncWithUrl: !cohort && !fixedProperties, fixedProperties }}
+        >
             <PersonsScene />
         </BindLogic>
     )

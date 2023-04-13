@@ -2,7 +2,15 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import type { personsLogicType } from './personsLogicType'
-import { Breadcrumb, CohortType, ExporterFormat, PersonListParams, PersonsTabType, PersonType } from '~/types'
+import {
+    PersonPropertyFilter,
+    Breadcrumb,
+    CohortType,
+    ExporterFormat,
+    PersonListParams,
+    PersonsTabType,
+    PersonType,
+} from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,14 +30,22 @@ export interface PersonLogicProps {
     cohort?: number | 'new'
     syncWithUrl?: boolean
     urlId?: string
+    fixedProperties?: PersonPropertyFilter[]
 }
 
 export const personsLogic = kea<personsLogicType>({
     props: {} as PersonLogicProps,
     key: (props) => {
-        if (!props.cohort && !props.syncWithUrl) {
-            throw new Error(`personsLogic must be initialized with props.cohort or props.syncWithUrl`)
+        if (!props.fixedProperties && !props.cohort && !props.syncWithUrl) {
+            throw new Error(
+                `personsLogic must be initialized with props.cohort or props.syncWithUrl or props.fixedProperties`
+            )
         }
+
+        if (props.fixedProperties) {
+            return JSON.stringify(props.fixedProperties)
+        }
+
         return props.cohort ? `cohort_${props.cohort}` : 'scene'
     },
     path: (key) => ['scenes', 'persons', 'personsLogic', key],
@@ -49,12 +65,19 @@ export const personsLogic = kea<personsLogicType>({
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         setDistinctId: (distinctId: string) => ({ distinctId }),
     },
-    reducers: {
+    reducers: ({ props }) => ({
         listFilters: [
             {} as PersonListParams,
             {
                 setListFilters: (state, { payload }) => {
                     const newFilters = { ...state, ...payload }
+
+                    if (props.fixedProperties) {
+                        newFilters.properties = newFilters.properties
+                            ? [...newFilters.properties, ...props.fixedProperties]
+                            : props.fixedProperties
+                    }
+
                     if (newFilters.properties?.length === 0) {
                         delete newFilters['properties']
                     }
@@ -95,7 +118,7 @@ export const personsLogic = kea<personsLogicType>({
                 setDistinctId: (_, { distinctId }) => distinctId,
             },
         ],
-    },
+    }),
     selectors: () => ({
         apiDocsURL: [
             () => [(_, props) => props.cohort],
