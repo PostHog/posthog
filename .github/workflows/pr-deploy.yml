@@ -60,6 +60,7 @@ jobs:
                   export BRANCH_NAME=${{ github.head_ref }}
                   export RELEASE_NAME=posthog
                   export NAMESPACE=pr-$PR_NUM-${BRANCH_NAME//\//-}
+                  export NAMESPACE=${NAMESPACE:0:38}
                   export HOSTNAME=$NAMESPACE
                   export TAILNET_NAME=hedgehog-kitefin
                   export TS_AUTHKEY=${{ secrets.TAILSCALE_SERVICE_AUTHKEY }}

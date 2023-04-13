@@ -3,6 +3,7 @@ from typing import Literal, cast
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database import create_hogql_database
+from posthog.hogql.errors import HogQLException, NotImplementedException, SyntaxException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -12,7 +13,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 def translate_hogql(query: str, context: HogQLContext, dialect: Literal["hogql", "clickhouse"] = "clickhouse") -> str:
     """Translate a HogQL expression into a Clickhouse expression. Raises if any placeholders found."""
     if query == "":
-        raise ValueError("Empty query")
+        raise HogQLException("Empty query")
 
     try:
         # Create a fake query that selects from "events" to have fields to select from.
@@ -27,8 +28,5 @@ def translate_hogql(query: str, context: HogQLContext, dialect: Literal["hogql",
             prepare_ast_for_printing(select_query, context=context, dialect=dialect, stack=[select_query]),
         )
         return print_prepared_ast(prepared_ast.select[0], context=context, dialect=dialect, stack=[select_query])
-
-    except SyntaxError as err:
-        raise ValueError(f"SyntaxError: {err.msg}")
-    except NotImplementedError as err:
-        raise ValueError(f"NotImplementedError: {err}")
+    except (NotImplementedException, SyntaxException):
+        raise

@@ -236,12 +236,14 @@ export function Billing(): JSX.Element {
                 </div>
             </div>
 
-            {products?.map((x) => (
-                <div key={x.type}>
-                    <LemonDivider dashed className="my-2" />
-                    <BillingProduct product={x} />
-                </div>
-            ))}
+            {(products || [])
+                .filter((x) => !x.contact_support)
+                .map((x) => (
+                    <div key={x.type}>
+                        <LemonDivider dashed className="my-2" />
+                        <BillingProduct product={x} />
+                    </div>
+                ))}
         </div>
     )
 }

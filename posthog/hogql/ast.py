@@ -14,6 +14,7 @@ from posthog.hogql.database import (
     VirtualTable,
     LazyTable,
 )
+from posthog.hogql.errors import HogQLException, NotImplementedException
 
 # NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
 
@@ -32,12 +33,12 @@ class AST(BaseModel):
             return visit(self)
         if hasattr(visitor, "visit_unknown"):
             return visitor.visit_unknown(self)
-        raise ValueError(f"Visitor has no method {method_name}")
+        raise NotImplementedException(f"Visitor has no method {method_name}")
 
 
 class Ref(AST):
     def get_child(self, name: str) -> "Ref":
-        raise NotImplementedError("Ref.get_child not overridden")
+        raise NotImplementedException("Ref.get_child not overridden")
 
     def has_child(self, name: str) -> bool:
         return self.get_child(name) is not None
@@ -67,7 +68,7 @@ class FieldAliasRef(Ref):
 
 class BaseTableRef(Ref):
     def resolve_database_table(self) -> Table:
-        raise NotImplementedError("BaseTableRef.resolve_database_table not overridden")
+        raise NotImplementedException("BaseTableRef.resolve_database_table not overridden")
 
     def has_child(self, name: str) -> bool:
         return self.resolve_database_table().has_field(name)
@@ -86,7 +87,7 @@ class BaseTableRef(Ref):
             if isinstance(field, VirtualTable):
                 return VirtualTableRef(table=self, field=name, virtual_table=field)
             return FieldRef(name=name, table=self)
-        raise ValueError(f"Field not found: {name}")
+        raise HogQLException(f"Field not found: {name}")
 
 
 class TableRef(BaseTableRef):
@@ -159,7 +160,7 @@ class SelectQueryRef(Ref):
             return AsteriskRef(table=self)
         if name in self.columns:
             return FieldRef(name=name, table=self)
-        raise ValueError(f"Column not found: {name}")
+        raise HogQLException(f"Column not found: {name}")
 
     def has_child(self, name: str) -> bool:
         return name in self.columns
@@ -190,7 +191,7 @@ class SelectQueryAliasRef(Ref):
             return AsteriskRef(table=self)
         if self.ref.has_child(name):
             return FieldRef(name=name, table=self)
-        raise ValueError(f"Field {name} not found on query with alias {self.name}")
+        raise HogQLException(f"Field {name} not found on query with alias {self.name}")
 
     def has_child(self, name: str) -> bool:
         return self.ref.has_child(name)
@@ -231,10 +232,10 @@ class FieldRef(Ref):
     def get_child(self, name: str) -> Ref:
         database_field = self.resolve_database_field()
         if database_field is None:
-            raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
+            raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertyRef(chain=[name], parent=self)
-        raise ValueError(
+        raise HogQLException(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
 

@@ -89,16 +89,15 @@ class BillingManager:
         # Extend the products with accurate usage_limit info
 
         for product in response["products"]:
-            usage = response.get("usage_summary", {}).get(product["type"], {})
+            usage_key = product.get("usage_key", None)
+            if not usage_key:
+                continue
+            usage = response.get("usage_summary", {}).get(usage_key, {})
             usage_limit = usage.get("limit")
             current_usage = usage.get("usage") or 0
 
-            if (
-                organization
-                and organization.usage
-                and organization.usage.get(product["type"], {}).get("todays_usage", None)
-            ):
-                todays_usage = organization.usage[product["type"]]["todays_usage"]
+            if organization and organization.usage and organization.usage.get(usage_key, {}).get("todays_usage", None):
+                todays_usage = organization.usage[usage_key]["todays_usage"]
                 current_usage = current_usage + todays_usage
 
             product["current_usage"] = current_usage

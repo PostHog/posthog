@@ -2,6 +2,8 @@ from typing import Any, Callable, Dict, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Extra
 
+from posthog.hogql.errors import HogQLException, NotImplementedException
+
 
 class DatabaseField(BaseModel):
     """Base class for a field in a database table."""
@@ -43,13 +45,13 @@ class Table(BaseModel):
     def get_field(self, name: str) -> DatabaseField:
         if self.has_field(name):
             return getattr(self, name)
-        raise ValueError(f'Field "{name}" not found on table {self.__class__.__name__}')
+        raise HogQLException(f'Field "{name}" not found on table {self.__class__.__name__}')
 
     def clickhouse_table(self):
-        raise NotImplementedError("Table.clickhouse_table not overridden")
+        raise NotImplementedException("Table.clickhouse_table not overridden")
 
     def hogql_table(self):
-        raise NotImplementedError("Table.hogql_table not overridden")
+        raise NotImplementedException("Table.hogql_table not overridden")
 
     def avoid_asterisk_fields(self) -> List[str]:
         return []
@@ -70,7 +72,7 @@ class Table(BaseModel):
             ):
                 pass  # ignore virtual tables for now
             else:
-                raise ValueError(f"Unknown field type {type(database_field).__name__} for asterisk")
+                raise HogQLException(f"Unknown field type {type(database_field).__name__} for asterisk")
         return asterisk
 
 
@@ -88,7 +90,7 @@ class LazyTable(Table):
         extra = Extra.forbid
 
     def lazy_select(self, requested_fields: Dict[str, Any]) -> Any:
-        raise NotImplementedError("LazyTable.lazy_select not overridden")
+        raise NotImplementedException("LazyTable.lazy_select not overridden")
 
 
 class VirtualTable(Table):
@@ -107,7 +109,7 @@ def select_from_persons_table(requested_fields: Dict[str, Any]):
     from posthog.hogql import ast
 
     if not requested_fields:
-        raise ValueError("No fields requested from persons table.")
+        raise HogQLException("No fields requested from persons table.")
 
     fields_to_select: List[ast.Expr] = []
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
@@ -135,7 +137,7 @@ def join_with_persons_table(from_table: str, to_table: str, requested_fields: Di
     from posthog.hogql import ast
 
     if not requested_fields:
-        raise ValueError("No fields requested from persons table.")
+        raise HogQLException("No fields requested from persons table.")
     join_expr = ast.JoinExpr(table=select_from_persons_table(requested_fields))
     join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table
@@ -212,7 +214,7 @@ def join_with_person_distinct_ids_table(from_table: str, to_table: str, requeste
     from posthog.hogql import ast
 
     if not requested_fields:
-        raise ValueError("No fields requested from person_distinct_ids.")
+        raise HogQLException("No fields requested from person_distinct_ids.")
     join_expr = ast.JoinExpr(table=select_from_person_distinct_ids_table(requested_fields))
     join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table
@@ -407,7 +409,7 @@ class Database(BaseModel):
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None
         except ZoneInfoNotFoundError:
-            raise ValueError(f"Unknown timezone: '{str(timezone)}'")
+            raise HogQLException(f"Unknown timezone: '{str(timezone)}'")
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
@@ -418,7 +420,7 @@ class Database(BaseModel):
     def get_table(self, table_name: str) -> Table:
         if self.has_table(table_name):
             return getattr(self, table_name)
-        raise ValueError(f'Table "{table_name}" not found in database')
+        raise HogQLException(f'Table "{table_name}" not found in database')
 
 
 def create_hogql_database(team_id: Optional[int]) -> Database:

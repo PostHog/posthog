@@ -1,6 +1,7 @@
 from typing import Optional
 
 from posthog.hogql import ast
+from posthog.hogql.errors import HogQLException
 
 
 def clone_expr(self: ast.Expr, clear_refs=False) -> ast.Expr:
@@ -19,7 +20,7 @@ class TraversingVisitor(Visitor):
     """Visitor that traverses the AST tree without returning anything"""
 
     def visit_expr(self, node: ast.Expr):
-        raise ValueError("Can not visit generic Expr node")
+        raise HogQLException("Can not visit generic Expr node")
 
     def visit_macro(self, node: ast.Macro):
         pass
@@ -175,7 +176,7 @@ class CloningVisitor(Visitor):
         self.clear_refs = clear_refs
 
     def visit_expr(self, node: ast.Expr):
-        raise ValueError("Can not visit generic Expr node")
+        raise HogQLException("Can not visit generic Expr node")
 
     def visit_macro(self, node: ast.Macro):
         return ast.Macro(

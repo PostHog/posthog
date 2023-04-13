@@ -14,6 +14,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database import Table, create_hogql_database
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
     escape_clickhouse_string,
@@ -32,7 +33,7 @@ from posthog.utils import PersonOnEventsMode
 def team_id_guard_for_table(table_ref: Union[ast.TableRef, ast.TableAliasRef], context: HogQLContext) -> ast.Expr:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
     if not context.team_id:
-        raise ValueError("context.team_id not found")
+        raise HogQLException("context.team_id not found")
 
     return ast.CompareOperation(
         op=ast.CompareOperationType.Eq,
@@ -111,13 +112,13 @@ class _Printer(Visitor):
 
         if len(self.stack) == 0 and self.dialect == "clickhouse" and self.settings:
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectUnionQuery):
-                raise ValueError("Settings can only be applied to SELECT queries")
+                raise HogQLException("Settings can only be applied to SELECT queries")
             settings = []
             for key, value in self.settings:
                 if not isinstance(value, (int, float, str)):
-                    raise ValueError(f"Setting {key} must be a string, int, or float")
+                    raise HogQLException(f"Setting {key} must be a string, int, or float")
                 if not re.match(r"^[a-zA-Z0-9_]+$", key):
-                    raise ValueError(f"Setting {key} is not supported")
+                    raise HogQLException(f"Setting {key} is not supported")
                 if isinstance(value, int) or isinstance(value, float):
                     settings.append(f"{key}={value}")
                 else:
@@ -136,9 +137,9 @@ class _Printer(Visitor):
     def visit_select_query(self, node: ast.SelectQuery):
         if self.dialect == "clickhouse":
             if not self.context.enable_select_queries:
-                raise ValueError("Full SELECT queries are disabled if context.enable_select_queries is False")
+                raise HogQLException("Full SELECT queries are disabled if context.enable_select_queries is False")
             if not self.context.team_id:
-                raise ValueError("Full SELECT queries are disabled if context.team_id is not set")
+                raise HogQLException("Full SELECT queries are disabled if context.team_id is not set")
 
         # if we are the first parsed node in the tree, or a child of a SelectUnionQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectUnionQuery)
@@ -151,7 +152,7 @@ class _Printer(Visitor):
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
             if next_join.ref is None:
-                raise ValueError("Printing queries with a FROM clause is not permitted before ref resolution")
+                raise HogQLException("Printing queries with a FROM clause is not permitted before ref resolution")
 
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
@@ -168,7 +169,7 @@ class _Printer(Visitor):
                 else:
                     where = ast.And(exprs=[extra_where, where])
             else:
-                raise ValueError(f"Invalid where of type {type(extra_where).__name__} returned by join_expr")
+                raise HogQLException(f"Invalid where of type {type(extra_where).__name__} returned by join_expr")
 
             next_join = next_join.next_join
 
@@ -228,9 +229,9 @@ class _Printer(Visitor):
         if isinstance(node.ref, ast.TableAliasRef):
             table_ref = node.ref.table_ref
             if table_ref is None:
-                raise ValueError(f"Table alias {node.ref.name} does not resolve!")
+                raise HogQLException(f"Table alias {node.ref.name} does not resolve!")
             if not isinstance(table_ref, ast.TableRef):
-                raise ValueError(f"Table alias {node.ref.name} does not resolve to a table!")
+                raise HogQLException(f"Table alias {node.ref.name} does not resolve to a table!")
 
             if self.dialect == "clickhouse":
                 table_name = table_ref.table.clickhouse_table()
@@ -269,7 +270,7 @@ class _Printer(Visitor):
             join_strings.append(self._print_identifier(node.ref.table.hogql_table()))
 
         else:
-            raise ValueError("Only selecting from a table or a subquery is supported")
+            raise HogQLException("Only selecting from a table or a subquery is supported")
 
         if node.table_final:
             join_strings.append("FINAL")
@@ -296,7 +297,7 @@ class _Printer(Visitor):
         elif node.op == ast.BinaryOperationType.Mod:
             return f"modulo({self.visit(node.left)}, {self.visit(node.right)})"
         else:
-            raise ValueError(f"Unknown BinaryOperationType {node.op}")
+            raise HogQLException(f"Unknown BinaryOperationType {node.op}")
 
     def visit_and(self, node: ast.And):
         return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
@@ -365,7 +366,7 @@ class _Printer(Visitor):
         elif node.op == ast.CompareOperationType.NotRegex:
             return f"not(match({left}, {right}))"
         else:
-            raise ValueError(f"Unknown CompareOperationType: {type(node.op).__name__}")
+            raise HogQLException(f"Unknown CompareOperationType: {type(node.op).__name__}")
 
     def visit_constant(self, node: ast.Constant):
         if self.dialect == "clickhouse" and (
@@ -381,7 +382,7 @@ class _Printer(Visitor):
     def visit_field(self, node: ast.Field):
         original_field = ".".join([self._print_identifier(identifier) for identifier in node.chain])
         if node.ref is None:
-            raise ValueError(f"Field {original_field} has no ref")
+            raise HogQLException(f"Field {original_field} has no ref")
 
         if self.dialect == "hogql":
             if node.chain == ["*"]:
@@ -392,27 +393,27 @@ class _Printer(Visitor):
         if node.ref is not None:
             return self.visit(node.ref)
         else:
-            raise ValueError(f"Unknown Ref, can not print {type(node.ref).__name__}")
+            raise HogQLException(f"Unknown Ref, can not print {type(node.ref).__name__}")
 
     def visit_call(self, node: ast.Call):
         if node.name in HOGQL_AGGREGATIONS:
             required_arg_count = HOGQL_AGGREGATIONS[node.name]
 
             if isinstance(required_arg_count, int) and required_arg_count != len(node.args):
-                raise ValueError(
+                raise HogQLException(
                     f"Aggregation '{node.name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
                 )
             if isinstance(required_arg_count, tuple) and (
                 len(node.args) < required_arg_count[0] or len(node.args) > required_arg_count[1]
             ):
-                raise ValueError(
+                raise HogQLException(
                     f"Aggregation '{node.name}' requires between {required_arg_count[0]} and {required_arg_count[1]} arguments, found {len(node.args)}"
                 )
 
             # check that we're not running inside another aggregate
             for stack_node in self.stack:
                 if stack_node != node and isinstance(stack_node, ast.Call) and stack_node.name in HOGQL_AGGREGATIONS:
-                    raise ValueError(
+                    raise HogQLException(
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
                     )
 
@@ -428,13 +429,15 @@ class _Printer(Visitor):
 
             if min_args is not None and len(args) < min_args:
                 if min_args == max_args:
-                    raise ValueError(f"Function '{node.name}' expects {min_args} arguments. Passed {len(args)}.")
-                raise ValueError(f"Function '{node.name}' expects at least {min_args} arguments. Passed {len(args)}.")
+                    raise HogQLException(f"Function '{node.name}' expects {min_args} arguments. Passed {len(args)}.")
+                raise HogQLException(
+                    f"Function '{node.name}' expects at least {min_args} arguments. Passed {len(args)}."
+                )
 
             if max_args is not None and len(args) > max_args:
                 if min_args == max_args:
-                    raise ValueError(f"Function '{node.name}' expects {max_args} arguments. Passed {len(args)}.")
-                raise ValueError(
+                    raise HogQLException(f"Function '{node.name}' expects {max_args} arguments. Passed {len(args)}.")
+                raise HogQLException(
                     f"Function '{node.name}' expects at most least {max_args} arguments. Passed {len(args)}."
                 )
 
@@ -445,10 +448,10 @@ class _Printer(Visitor):
             else:
                 return f"{node.name}({', '.join(args)})"
         else:
-            raise ValueError(f"Unsupported function call '{node.name}(...)'")
+            raise HogQLException(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
-        raise ValueError(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
+        raise HogQLException(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
 
     def visit_alias(self, node: ast.Alias):
         inside = self.visit(node.expr)
@@ -482,7 +485,7 @@ class _Printer(Visitor):
         ):
             resolved_field = ref.resolve_database_field()
             if resolved_field is None:
-                raise ValueError(f'Can\'t resolve field "{ref.name}" on table.')
+                raise HogQLException(f'Can\'t resolve field "{ref.name}" on table.')
             if isinstance(resolved_field, Table):
                 if isinstance(ref.table, ast.VirtualTableRef):
                     return self.visit(ast.AsteriskRef(table=ast.TableRef(table=resolved_field)))
@@ -525,7 +528,7 @@ class _Printer(Visitor):
                     field_sql = "person_props"
 
         else:
-            raise ValueError(f"Unknown FieldRef table type: {type(ref.table).__name__}")
+            raise HogQLException(f"Unknown FieldRef table type: {type(ref.table).__name__}")
 
         return field_sql
 
@@ -549,7 +552,7 @@ class _Printer(Visitor):
             else:
                 table_name = table.table.hogql_table()
             if field is None:
-                raise ValueError(f"Can't resolve field {field_ref.name} on table {table_name}")
+                raise HogQLException(f"Can't resolve field {field_ref.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
             materialized_column = self._get_materialized_column(table_name, ref.chain[0], field_name)
@@ -614,16 +617,16 @@ class _Printer(Visitor):
         return "*"
 
     def visit_lazy_join_ref(self, ref: ast.LazyJoinRef):
-        raise ValueError("Unexpected ast.LazyJoinRef. Make sure LazyJoinResolver has run on the AST.")
+        raise HogQLException("Unexpected ast.LazyJoinRef. Make sure LazyJoinResolver has run on the AST.")
 
     def visit_lazy_table_ref(self, ref: ast.LazyJoinRef):
-        raise ValueError("Unexpected ast.LazyTableRef. Make sure LazyJoinResolver has run on the AST.")
+        raise HogQLException("Unexpected ast.LazyTableRef. Make sure LazyJoinResolver has run on the AST.")
 
     def visit_field_traverser_ref(self, ref: ast.FieldTraverserRef):
-        raise ValueError("Unexpected ast.FieldTraverserRef. This should have been resolved.")
+        raise HogQLException("Unexpected ast.FieldTraverserRef. This should have been resolved.")
 
     def visit_unknown(self, node: ast.AST):
-        raise ValueError(f"Unknown AST node {type(node).__name__}")
+        raise HogQLException(f"Unknown AST node {type(node).__name__}")
 
     def _last_select(self) -> Optional[ast.SelectQuery]:
         """Find the last SELECT query in the stack."""

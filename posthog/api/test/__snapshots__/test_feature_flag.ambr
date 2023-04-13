@@ -80,65 +80,41 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.1
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.2
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.4
@@ -150,25 +126,17 @@
      FROM person
      WHERE team_id = 2
        AND id in
-         (SELECT person_id
+         (SELECT DISTINCT person_id
           FROM cohortpeople
           WHERE team_id = 2
             AND cohort_id = 2
-          GROUP BY person_id,
-                   cohort_id,
-                   team_id,
-                   version
-          HAVING sum(sign) > 0)
+            AND version = 0 )
        AND id in
-         (SELECT person_id
+         (SELECT DISTINCT person_id
           FROM cohortpeople
           WHERE team_id = 2
             AND cohort_id = 2
-          GROUP BY person_id,
-                   cohort_id,
-                   team_id,
-                   version
-          HAVING sum(sign) > 0)
+            AND version = 0 )
      GROUP BY id
      HAVING max(is_deleted) = 0)
   '
@@ -226,65 +194,41 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.5
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.6
@@ -301,15 +245,11 @@
           WHERE cohort_id = 2
             AND team_id = 2)
        AND id in
-         (SELECT person_id
+         (SELECT DISTINCT person_id
           FROM cohortpeople
           WHERE team_id = 2
             AND cohort_id = 2
-          GROUP BY person_id,
-                   cohort_id,
-                   team_id,
-                   version
-          HAVING sum(sign) > 0)
+            AND version = 0 )
      GROUP BY id
      HAVING max(is_deleted) = 0)
   '
@@ -349,33 +289,21 @@
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.2
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.3
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.4
@@ -386,15 +314,11 @@
     (SELECT id
      FROM person
      INNER JOIN
-       (SELECT person_id
+       (SELECT DISTINCT person_id
         FROM cohortpeople
         WHERE team_id = 2
           AND cohort_id = 2
-        GROUP BY person_id,
-                 cohort_id,
-                 team_id,
-                 version
-        HAVING sum(sign) > 0
+          AND version = 0
         ORDER BY person_id) cohort_persons ON cohort_persons.person_id = person.id
      WHERE team_id = 2
      GROUP BY id

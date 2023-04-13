@@ -1,11 +1,18 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchPayload, Kafka } from 'kafkajs'
+import { ClientMetrics, HighLevelProducer as RdKafkaProducer, ProducerGlobalConfig } from 'node-rdkafka'
+import { hostname } from 'os'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
-import { KAFKA_SESSION_RECORDING_EVENTS, KAFKA_SESSION_RECORDING_EVENTS_DLQ } from '../../config/kafka-topics'
-import { PipelineEvent, RawEventMessage, Team } from '../../types'
-import { DependencyUnavailableError } from '../../utils/db/error'
-import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
+import { RDKAFKA_LOG_LEVEL_MAPPING } from '../../config/constants'
+import {
+    KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
+    KAFKA_PERFORMANCE_EVENTS,
+    KAFKA_SESSION_RECORDING_EVENTS,
+    KAFKA_SESSION_RECORDING_EVENTS_DLQ,
+} from '../../config/kafka-topics'
+import { KafkaSecurityProtocol, PipelineEvent, RawEventMessage, Team } from '../../types'
+import { KafkaConfig } from '../../utils/db/hub'
 import { status } from '../../utils/status'
 import { createPerformanceEvent, createSessionRecordingEvent } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -17,10 +24,18 @@ export const startSessionRecordingEventsConsumer = async ({
     teamManager,
     kafka,
     partitionsConsumedConcurrently = 5,
+    kafkaConfig,
+    consumerMaxBytes,
+    consumerMaxBytesPerPartition,
+    consumerMaxWaitMs,
 }: {
     teamManager: TeamManager
     kafka: Kafka
     partitionsConsumedConcurrently: number
+    kafkaConfig: KafkaConfig
+    consumerMaxBytes: number
+    consumerMaxBytesPerPartition: number
+    consumerMaxWaitMs: number
 }) => {
     /*
         For Session Recordings we need to prepare the data for ClickHouse.
@@ -35,25 +50,29 @@ export const startSessionRecordingEventsConsumer = async ({
     // band calls to the `flush` method via the KAFKA_FLUSH_FREQUENCY_MS option.
     // This ensures that we can handle Kafka Producer errors within the body of
     // the Kafka consumer handler.
-    const producer = kafka.producer()
-    await producer.connect()
-    const producerWrapper = new KafkaProducerWrapper(producer, undefined, { KAFKA_FLUSH_FREQUENCY_MS: 0 } as any)
-
     const groupId = 'session-recordings'
     const sessionTimeout = 30000
-    const consumer = kafka.consumer({ groupId: groupId, sessionTimeout: sessionTimeout })
-    setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting session recordings consumer')
 
+    const producer = await createKafkaProducer(kafkaConfig)
+    const consumer = kafka.consumer({
+        groupId: groupId,
+        sessionTimeout: sessionTimeout,
+        maxBytes: consumerMaxBytes,
+        maxBytesPerPartition: consumerMaxBytesPerPartition,
+        maxWaitTimeInMs: consumerMaxWaitMs,
+    })
+    setupEventHandlers(consumer)
     await consumer.connect()
     await consumer.subscribe({ topic: KAFKA_SESSION_RECORDING_EVENTS })
+
     await consumer.run({
         partitionsConsumedConcurrently,
         eachBatch: async (payload) => {
             return await instrumentEachBatch(
                 KAFKA_SESSION_RECORDING_EVENTS,
-                eachBatch({ producer: producerWrapper, teamManager, groupId }),
+                eachBatch({ producer: producer, teamManager, groupId }),
                 payload
             )
         },
@@ -76,28 +95,27 @@ export const startSessionRecordingEventsConsumer = async ({
         // currently rebalancing.
         try {
             const { state } = await consumer.describeGroup()
-
+            status.warn('🔥', 'Consumer group state', { state })
             return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
         } catch (error) {
+            status.error('🔥', 'Failed to describe consumer group', { error: error.message })
             return false
         }
     }
 
-    return { consumer, isHealthy }
+    const stop = async () => {
+        status.info('🔁', 'Stopping session recordings consumer')
+        await Promise.all([consumer.disconnect(), disconnectProducer(producer)])
+        status.info('🔁', 'Stopped session recordings consumer')
+    }
+
+    return { consumer, isHealthy, stop }
 }
 
 export const eachBatch =
-    ({
-        producer,
-        teamManager,
-        groupId,
-    }: {
-        producer: KafkaProducerWrapper
-        teamManager: TeamManager
-        groupId: string
-    }) =>
+    ({ producer, teamManager, groupId }: { producer: RdKafkaProducer; teamManager: TeamManager; groupId: string }) =>
     async ({ batch, heartbeat }: Pick<EachBatchPayload, 'batch' | 'heartbeat'>) => {
-        status.debug('🔁', 'Processing batch', { size: batch.messages.length })
+        status.info('🔁', 'Processing batch', { size: batch.messages.length })
 
         consumerBatchSize
             .labels({
@@ -106,6 +124,8 @@ export const eachBatch =
             })
             .observe(batch.messages.length)
 
+        const pendingMessages: Promise<number | null | undefined>[] = []
+
         for (const message of batch.messages) {
             if (!message.value) {
                 status.warn('⚠️', 'invalid_message', {
@@ -113,7 +133,7 @@ export const eachBatch =
                     partition: batch.partition,
                     offset: message.offset,
                 })
-                await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
+                pendingMessages.push(produce(producer, KAFKA_SESSION_RECORDING_EVENTS_DLQ, message.value, message.key))
                 continue
             }
 
@@ -134,11 +154,11 @@ export const eachBatch =
                     partition: batch.partition,
                     offset: message.offset,
                 })
-                await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
+                pendingMessages.push(produce(producer, KAFKA_SESSION_RECORDING_EVENTS_DLQ, message.value, message.key))
                 continue
             }
 
-            status.debug('⬆️', 'processing_session_recording', { uuid: messagePayload.uuid })
+            status.info('⬆️', 'processing_session_recording', { uuid: messagePayload.uuid })
 
             consumedMessageSizeBytes
                 .labels({
@@ -189,24 +209,38 @@ export const eachBatch =
             if (team.session_recording_opt_in) {
                 try {
                     if (event.event === '$snapshot') {
-                        await createSessionRecordingEvent(
+                        const clickHouseRecord = createSessionRecordingEvent(
                             messagePayload.uuid,
                             team.id,
                             messagePayload.distinct_id,
                             parseEventTimestamp(event as PluginEvent),
                             event.ip,
-                            event.properties || {},
-                            producer
+                            event.properties || {}
+                        )
+
+                        pendingMessages.push(
+                            produce(
+                                producer,
+                                KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
+                                Buffer.from(JSON.stringify(clickHouseRecord)),
+                                message.key
+                            )
                         )
                     } else if (event.event === '$performance_event') {
-                        await createPerformanceEvent(
+                        const clickHouseRecord = createPerformanceEvent(
                             messagePayload.uuid,
                             team.id,
                             messagePayload.distinct_id,
-                            event.properties || {},
-                            event.ip,
-                            parseEventTimestamp(event as PluginEvent),
-                            producer
+                            event.properties || {}
+                        )
+
+                        pendingMessages.push(
+                            produce(
+                                producer,
+                                KAFKA_PERFORMANCE_EVENTS,
+                                Buffer.from(JSON.stringify(clickHouseRecord)),
+                                message.key
+                            )
                         )
                     } else {
                         status.warn('⚠️', 'invalid_message', {
@@ -227,25 +261,6 @@ export const eachBatch =
                         eventId: event.uuid,
                         error: error,
                     })
-
-                    if (error instanceof DependencyUnavailableError) {
-                        // If it's an error that is transient, we want to
-                        // initiate the KafkaJS retry logic, which kicks in when
-                        // we throw.
-                        throw error
-                    }
-
-                    // On non-retriable errors, e.g. perhaps the produced message
-                    // was too large, push the original message to the DLQ. This
-                    // message should be as the original so we _should_ be able to
-                    // produce it successfully.
-                    // TODO: it is not guaranteed that only this message is the one
-                    // that failed to be produced. We will already be in the
-                    // situation with the existing implementation so I will leave as
-                    // is for now. An improvement would be to keep track of the
-                    // messages that we failed to produce and send them all to the
-                    // DLQ.
-                    await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
                 }
             } else {
                 eventDroppedCounter
@@ -267,22 +282,19 @@ export const eachBatch =
             // We want to make sure that we have flushed the previous batch
             // before we complete the batch handling, such that we do not commit
             // messages if Kafka production fails for a retriable reason.
-            await producer.flush()
+            await flushProducer(producer)
+            // Make sure that none of the messages failed to be produced. If
+            // there were then this will throw an error.
+            await Promise.all(pendingMessages)
         } catch (error) {
             status.error('⚠️', 'flush_error', { error: error, topic: batch.topic, partition: batch.partition })
 
-            if (error instanceof DependencyUnavailableError) {
+            // If we get a retriable Kafka error, throw and let KafkaJS
+            // handle it, otherwise we continue
+
+            if (error?.isRetriable) {
                 throw error
             }
-
-            // NOTE: for errors coming from `flush` we don't have much by the
-            // way of options at the moment for e.g. DLQing these messages as we
-            // don't know which they were.
-            // TODO: handle DLQ/retrying on flush errors. At the moment we don't
-            // know which messages failed as a result of this flush error. For
-            // now I am going to just going to rely on the producer wrapper
-            // having sent a Sentry exception, but we should ideally send these
-            // to the DLQ.
         }
 
         const lastBatchMessage = batch.messages[batch.messages.length - 1]
@@ -290,7 +302,7 @@ export const eachBatch =
             .labels({ partition: batch.partition, topic: batch.topic, groupId })
             .set(Number.parseInt(lastBatchMessage.timestamp))
 
-        status.debug('✅', 'Processed batch', { size: batch.messages.length })
+        status.info('✅', 'Processed batch', { size: batch.messages.length })
     }
 
 const consumerBatchSize = new Histogram({
@@ -306,3 +318,110 @@ const consumedMessageSizeBytes = new Histogram({
     labelNames: ['topic', 'groupId', 'messageType'],
     buckets: exponentialBuckets(1, 8, 4).map((bucket) => bucket * 1024),
 })
+
+// Kafka production related functions using node-rdkafka.
+// TODO: when we roll out the rdkafka library to other workloads, we should
+// likely reuse these functions, and in which case we should move them to a
+// separate file.s
+
+const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
+    const config: ProducerGlobalConfig = {
+        'client.id': hostname(),
+        'metadata.broker.list': kafkaConfig.KAFKA_HOSTS,
+        'security.protocol': kafkaConfig.KAFKA_SECURITY_PROTOCOL
+            ? (kafkaConfig.KAFKA_SECURITY_PROTOCOL.toLowerCase() as Lowercase<KafkaSecurityProtocol>)
+            : 'plaintext',
+        'sasl.mechanisms': kafkaConfig.KAFKA_SASL_MECHANISM,
+        'sasl.username': kafkaConfig.KAFKA_SASL_USER,
+        'sasl.password': kafkaConfig.KAFKA_SASL_PASSWORD,
+        'enable.ssl.certificate.verification': false,
+        // milliseconds to wait before sending a batch. The default is 0, which
+        // means that messages are sent as soon as possible. This does not mean
+        // that there will only be one message per batch, as the producer will
+        // attempt to fill batches up to the batch size while the number of
+        // Kafka inflight requests is saturated, by default 5 inflight requests.
+        'linger.ms': 20,
+        // The default is 16kb. 1024kb also seems quite small for our use case
+        // but at least larger than the default.
+        'batch.size': 1024 * 1024, // bytes. The default
+        'compression.codec': 'snappy',
+        dr_cb: true,
+        log_level: RDKAFKA_LOG_LEVEL_MAPPING[kafkaConfig.KAFKAJS_LOG_LEVEL],
+    }
+
+    if (kafkaConfig.KAFKA_TRUSTED_CERT_B64) {
+        config['ssl.ca.pem'] = Buffer.from(kafkaConfig.KAFKA_TRUSTED_CERT_B64, 'base64').toString()
+    }
+
+    if (kafkaConfig.KAFKA_CLIENT_CERT_B64) {
+        config['ssl.key.pem'] = Buffer.from(kafkaConfig.KAFKA_CLIENT_CERT_B64, 'base64').toString()
+    }
+
+    if (kafkaConfig.KAFKA_CLIENT_CERT_KEY_B64) {
+        config['ssl.certificate.pem'] = Buffer.from(kafkaConfig.KAFKA_CLIENT_CERT_KEY_B64, 'base64').toString()
+    }
+
+    const producer = new RdKafkaProducer(config)
+
+    producer.on('event.log', function (log) {
+        status.info('📝', 'librdkafka log', { log: log })
+    })
+
+    producer.on('event.error', function (err) {
+        status.error('📝', 'librdkafka error', { log: err })
+    })
+
+    await new Promise((resolve, reject) =>
+        producer.connect(undefined, (error, data) => {
+            if (error) {
+                status.error('⚠️', 'connect_error', { error: error })
+                reject(error)
+            } else {
+                status.info('📝', 'librdkafka connected', { error, brokers: data?.brokers })
+                resolve(data)
+            }
+        })
+    )
+
+    return producer
+}
+
+const produce = async (
+    producer: RdKafkaProducer,
+    topic: string,
+    value: Buffer | null,
+    key: Buffer | null
+): Promise<number | null | undefined> => {
+    status.info('📤', 'Producing message', { topic: topic })
+    return await new Promise((resolve, reject) =>
+        producer.produce(topic, null, value, key, Date.now(), (error: any, offset: number | null | undefined) => {
+            if (error) {
+                status.error('⚠️', 'produce_error', { error: error, topic: topic })
+                reject(error)
+            } else {
+                status.info('📤', 'Produced message', { topic: topic, offset: offset })
+                resolve(offset)
+            }
+        })
+    )
+}
+
+const disconnectProducer = async (producer: RdKafkaProducer) => {
+    status.info('🔌', 'Disconnecting producer')
+    return await new Promise<ClientMetrics>((resolve, reject) =>
+        producer.disconnect((error: any, data: ClientMetrics) => {
+            status.info('🔌', 'Disconnected producer')
+            if (error) {
+                reject(error)
+            } else {
+                resolve(data)
+            }
+        })
+    )
+}
+
+const flushProducer = async (producer: RdKafkaProducer) => {
+    return await new Promise((resolve, reject) =>
+        producer.flush(10000, (error) => (error ? reject(error) : resolve(null)))
+    )
+}

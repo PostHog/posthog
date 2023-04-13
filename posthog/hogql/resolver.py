@@ -3,6 +3,7 @@ from typing import List, Optional
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserRef
 from posthog.hogql.database import Database
+from posthog.hogql.errors import ResolverException
 from posthog.hogql.visitor import TraversingVisitor
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
@@ -10,10 +11,6 @@ from posthog.hogql.visitor import TraversingVisitor
 
 def resolve_refs(node: ast.Expr, database: Database, scope: Optional[ast.SelectQueryRef] = None):
     Resolver(scope=scope, database=database).visit(node)
-
-
-class ResolverException(ValueError):
-    pass
 
 
 class Resolver(TraversingVisitor):
@@ -177,7 +174,7 @@ class Resolver(TraversingVisitor):
         if node.ref is not None:
             return
         if len(node.chain) == 0:
-            raise Exception("Invalid field access with empty chain")
+            raise ResolverException("Invalid field access with empty chain")
 
         # Only look for fields in the last SELECT scope, instead of all previous scopes.
         # That's because ClickHouse does not support subqueries accessing "x.event". This is forbidden:

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from posthog.constants import AUTOCAPTURE_EVENT, PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.constants import HOGQL_AGGREGATIONS
+from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
 from posthog.models import Action, ActionStep, Cohort, Property, Team
@@ -65,11 +66,13 @@ def property_to_expr(
             if len(property.values) == 1:
                 return property_to_expr(property.values[0], team)
             return ast.Or(exprs=[property_to_expr(p, team) for p in property.values])
-        raise NotImplementedError(f'PropertyGroup of unknown type "{property.type}"')
+        raise NotImplementedException(f'PropertyGroup of unknown type "{property.type}"')
     elif isinstance(property, BaseModel):
         property = Property(**property.dict())
     else:
-        raise NotImplementedError(f"property_to_expr with property of type {type(property).__name__} not implemented")
+        raise NotImplementedException(
+            f"property_to_expr with property of type {type(property).__name__} not implemented"
+        )
 
     if property.type == "hogql":
         return parse_expr(property.key)
@@ -130,7 +133,7 @@ def property_to_expr(
         elif operator == PropertyOperator.gte:
             op = ast.CompareOperationType.GtE
         else:
-            raise NotImplementedError(f"PropertyOperator {operator} not implemented")
+            raise NotImplementedException(f"PropertyOperator {operator} not implemented")
 
         return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=value))
 
@@ -157,7 +160,7 @@ def property_to_expr(
 
         if property.key == "selector" or property.key == "tag_name":
             if operator != PropertyOperator.exact and operator != PropertyOperator.is_not:
-                raise NotImplementedError(
+                raise NotImplementedException(
                     f"property_to_expr for element {property.key} only supports exact and is_not operators, not {operator}"
                 )
             expr = selector_to_expr(str(value)) if property.key == "selector" else tag_name_to_expr(str(value))
@@ -171,7 +174,7 @@ def property_to_expr(
         if property.key == "text":
             return element_chain_key_filter("text", str(value), operator)
 
-        raise NotImplementedError(f"property_to_expr for type element not implemented for key {property.key}")
+        raise NotImplementedException(f"property_to_expr for type element not implemented for key {property.key}")
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
@@ -188,7 +191,7 @@ def property_to_expr(
     # "behavioral",
     # "session",
 
-    raise NotImplementedError(f"property_to_expr not implemented for filter type {type(property).__name__}")
+    raise NotImplementedException(f"property_to_expr not implemented for filter type {type(property).__name__}")
 
 
 def action_to_expr(action: Action) -> ast.Expr:
@@ -247,7 +250,7 @@ def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
     elif operator == PropertyOperator.exact or operator == PropertyOperator.is_not:
         value = re.escape(escaped)
     else:
-        raise NotImplementedError(f"element_href_to_expr not implemented for operator {operator}")
+        raise NotImplementedException(f"element_href_to_expr not implemented for operator {operator}")
     optional_flag = (
         "(?i)" if operator == PropertyOperator.icontains or operator == PropertyOperator.not_icontains else ""
     )

@@ -78,6 +78,7 @@ export function InsightContainer({
         supportsDisplay,
         isUsingSessionAnalysis,
         insightFilter,
+        samplingFactor,
         insightDataLoading,
         erroredQueryId,
         timedOutQueryId,
@@ -211,11 +212,18 @@ export function InsightContainer({
                         })}
                     >
                         {/*Don't add more than two columns in this row.*/}
-                        {!disableLastComputation && (
-                            <div>
-                                <ComputationTimeWithRefresh />
+                        {(!disableLastComputation || !!samplingFactor) && (
+                            <div className="flex items-center">
+                                {!disableLastComputation && <ComputationTimeWithRefresh />}
+                                {!!samplingFactor ? (
+                                    <span className="text-muted-alt">
+                                        {!disableLastComputation && <span className="mx-1">•</span>}
+                                        Results calculated from {samplingFactor * 100}% of users
+                                    </span>
+                                ) : null}
                             </div>
                         )}
+
                         <div>
                             {isFunnels ? <FunnelCanvasLabelDataExploration /> : null}
                             {isPaths ? <PathCanvasLabel /> : null}
