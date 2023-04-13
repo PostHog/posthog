@@ -334,7 +334,6 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
         'sasl.mechanisms': kafkaConfig.KAFKA_SASL_MECHANISM,
         'sasl.username': kafkaConfig.KAFKA_SASL_USER,
         'sasl.password': kafkaConfig.KAFKA_SASL_PASSWORD,
-        'enable.ssl.certificate.verification': false,
         // milliseconds to wait before sending a batch. The default is 0, which
         // means that messages are sent as soon as possible. This does not mean
         // that there will only be one message per batch, as the producer will
