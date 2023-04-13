@@ -141,6 +141,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 actions.setSceneState(insightId, insightMode, subscriptionId)
             }
 
+            const isUsingDataExploration = !!values.insightLogicRef?.logic.values.isUsingDataExploration
+
             // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz
             const filters: Partial<FilterType> | null =
                 Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
@@ -174,7 +176,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             overrideFilter: true,
                         }
                     )
-                    values.insightLogicRef?.logic.actions.loadResults()
+                    if (!isUsingDataExploration) {
+                        values.insightLogicRef?.logic.actions.loadResults()
+                    }
+
                     eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
                 } else if (filters) {
                     values.insightLogicRef?.logic.actions.setFilters(cleanFilters(filters || {}))
