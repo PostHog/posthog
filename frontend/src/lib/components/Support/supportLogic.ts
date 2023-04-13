@@ -1,21 +1,22 @@
-import { kea } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
+import { forms } from 'kea-forms'
 
-export const supportLogic = kea<supportLogicType>({
-    path: () => ['lib', 'components', 'support', 'supportLogic'],
-    connect: () => ({
+export const supportLogic = kea<supportLogicType>([
+    path(['lib', 'components', 'support', 'supportLogic']),
+    connect(() => ({
         values: [userLogic, ['user']],
-    }),
-    actions: () => ({
+    })),
+    actions(() => ({
         closeSupportForm: () => true,
         openSupportForm: () => true,
         submitZendeskTicket: (kind: string, target_area: string, message: string) => ({ kind, target_area, message }),
-    }),
-    reducers: () => ({
+    })),
+    reducers(() => ({
         isSupportFormOpen: [
             false,
             {
@@ -23,29 +24,29 @@ export const supportLogic = kea<supportLogicType>({
                 closeSupportForm: () => false,
             },
         ],
-    }),
-    forms: ({ actions }) => ({
+    })),
+    forms(({ actions }) => ({
         sendSupportRequest: {
             defaults: {
-                kind: undefined as string | undefined, // bug, feedback, question
-                target_area: undefined as string | undefined, // session_replay, billing, ...
+                kind: 'bug', // bug, feedback
+                target_area: '', // session_replay, billing, ...
                 message: '',
             },
             errors: ({ message, kind, target_area }) => {
                 return {
-                    message: !message ? 'Please enter a message' : null,
-                    kind: !kind ? 'Please choose' : null,
-                    target_area: !target_area ? 'Please choose' : null,
+                    message: !message ? 'Please enter a message' : '',
+                    kind: !kind ? 'Please choose' : '',
+                    target_area: !target_area ? 'Please choose' : '',
                 }
             },
             submit: async ({ kind, target_area, message }: { kind: string; target_area: string; message: string }) => {
                 actions.submitZendeskTicket(kind, target_area, message)
                 actions.closeSupportForm()
-                // TODO: reset values to empty
+                actions.resetSendSupportRequest()
             },
         },
-    }),
-    listeners: ({}) => ({
+    })),
+    listeners(({}) => ({
         submitZendeskTicket: async ({ kind, target_area, message }) => {
             const name = userLogic.values.user?.first_name
             const email = userLogic.values.user?.email
@@ -87,5 +88,5 @@ export const supportLogic = kea<supportLogicType>({
                     console.log(err)
                 })
         },
-    }),
-})
+    })),
+])

@@ -24,7 +24,7 @@ export default function SupportForm(): JSX.Element {
         <LemonModal
             isOpen={isSupportFormOpen}
             onClose={closeSupportForm}
-            title={'Bug / Feedback / Question'}
+            title={'Bug / Feedback'}
             description="Submit a request to our helpdesk"
             footer={
                 <div className="flex-1 flex items-center justify-between">
@@ -49,7 +49,7 @@ export default function SupportForm(): JSX.Element {
                 <Field name="kind" label="What kind of request is this?">
                     <LemonSelect
                         fullWidth
-                        options={['bug', 'feedback', 'question'].map((key) => ({
+                        options={['bug', 'feedback'].map((key) => ({
                             value: key,
                             label: capitalizeFirstLetter(key),
                         }))}
