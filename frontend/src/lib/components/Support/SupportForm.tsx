@@ -15,8 +15,12 @@ export default function SupportForm(): JSX.Element {
         analytics: 'Analytics',
         apps: 'Apps',
         billing: 'Billing',
+        cohorts: 'Cohorts',
+        data_management: 'Data Management',
+        ingestion: 'Events Ingestion',
+        experiments: 'Experiments',
         feature_flags: 'Feature Flags',
-        ingestion: 'Ingestion',
+        login: 'Login / Sign up / Invites',
         session_reply: 'Session Replay',
     }
 
