@@ -41,6 +41,7 @@ export enum ActivityScope {
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
+    CONNECTION = 'Connection',
 }
 
 export interface ActivityLogItem {

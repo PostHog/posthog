@@ -10,16 +10,18 @@ import clsx from 'clsx'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ConnectionChoiceType } from './types'
 import { useActions, useValues } from 'kea'
-import { cdpSceneLogic } from './CDPSceneLogic'
+import { CDPSceneLogic } from './CDPSceneLogic'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 
 export const scene: SceneExport = {
     component: CDPScene,
-    logic: cdpSceneLogic,
+    logic: CDPSceneLogic,
     // paramsToProps: ({ params: { pluginConfigId } }) => ({ pluginConfigId: parseInt(pluginConfigId) ?? 0 }),
 }
 
 export function ConnectionsTab(): JSX.Element {
-    const { connections } = useValues(cdpSceneLogic)
+    const { connections } = useValues(CDPSceneLogic)
     return (
         <LemonTable
             dataSource={connections}
@@ -105,8 +107,8 @@ export function ConnectionChoice({
 }
 
 export function NewConnectionModal(): JSX.Element {
-    const { closeNewConnectionModal } = useActions(cdpSceneLogic)
-    const { newConnectionModalOpen, connectionChoices } = useValues(cdpSceneLogic)
+    const { closeNewConnectionModal } = useActions(CDPSceneLogic)
+    const { newConnectionModalOpen, connectionChoices } = useValues(CDPSceneLogic)
 
     return (
         <LemonModal title="New connection" isOpen={newConnectionModalOpen} onClose={closeNewConnectionModal}>
@@ -126,9 +128,14 @@ export function NewConnectionModal(): JSX.Element {
     )
 }
 
+export function CDPActivityLog(): JSX.Element {
+    return <ActivityLog scope={ActivityScope.CONNECTION} />
+}
+
 export function CDPScene(): JSX.Element {
     // TODO: add logic to control the tabs
-    const { openNewConnectionModal } = useActions(cdpSceneLogic)
+    const { openNewConnectionModal, setTab } = useActions(CDPSceneLogic)
+    const { activeTab } = useValues(CDPSceneLogic)
     return (
         <>
             <PageHeader
@@ -155,11 +162,11 @@ export function CDPScene(): JSX.Element {
                     {
                         key: 'history',
                         label: 'History',
-                        content: <div>History</div>,
+                        content: <CDPActivityLog />,
                     },
                 ]}
-                activeKey={'connections'}
-                onChange={console.log} // TODO
+                activeKey={activeTab}
+                onChange={setTab}
             />
             <NewConnectionModal />
         </>

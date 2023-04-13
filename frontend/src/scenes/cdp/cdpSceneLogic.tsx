@@ -1,7 +1,5 @@
 import { actions, kea, path, reducers } from 'kea'
-import { ConnectionChoiceType, ConnectionType } from './types'
-
-import type { cdpSceneLogicType } from './CDPSceneLogicType'
+import { CDPTabsType, ConnectionChoiceType, ConnectionType } from './types'
 
 const mockConnections: ConnectionType[] = [
     {
@@ -37,11 +35,12 @@ const mockConnectionChoices: ConnectionChoiceType[] = [
     },
 ]
 
-export const cdpSceneLogic = kea<cdpSceneLogicType>([
+export const CDPSceneLogic = kea<CDPSceneLogicType>([
     path(['scenes', 'cdp', 'cdpSceneLogic']),
     actions({
         openNewConnectionModal: true,
         closeNewConnectionModal: true,
+        setTab: (tab: CDPTabsType) => ({ tab }),
     }),
     reducers({
         newConnectionModalOpen: [
@@ -53,5 +52,11 @@ export const cdpSceneLogic = kea<cdpSceneLogicType>([
         ],
         connections: [mockConnections as ConnectionType[], {}],
         connectionChoices: [mockConnectionChoices as ConnectionChoiceType[], {}],
+        activeTab: [
+            'connections' as CDPTabsType,
+            {
+                setTab: (_, { tab }) => tab,
+            },
+        ],
     }),
 ])

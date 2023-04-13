@@ -13,3 +13,5 @@ export type ConnectionType = {
     successRate: string
     image_url: string
 }
+
+export type CDPTabsType = 'connections' | 'history'
