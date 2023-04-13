@@ -133,8 +133,8 @@ class PathEventQuery(EventQuery):
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._person_on_events_mode == PersonOnEventsMode.DISABLED:
-            self._should_join_persons = True
+        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
+            self._should_join_persons = False
 
     def _get_grouping_fields(self) -> Tuple[List[str], Dict[str, Any]]:
         _fields = []
