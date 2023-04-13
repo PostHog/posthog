@@ -344,6 +344,7 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
         'batch.size': 1024 * 1024, // bytes. The default
         'compression.codec': 'snappy',
         dr_cb: true,
+        log_level: 7,
     }
 
     if (kafkaConfig.KAFKA_TRUSTED_CERT_B64) {
@@ -362,6 +363,10 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
 
     producer.on('event.log', function (log) {
         status.debug('📝', 'librdkafka log', { log: log })
+    })
+
+    producer.on('event.error', function (err) {
+        status.error('📝', 'librdkafka error', { log: err })
     })
 
     await new Promise((resolve, reject) =>
