@@ -47,7 +47,7 @@ WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(new_ve
 # Version filtering is not necessary as only positive rows of the latest version will be selected by sum(sign) > 0
 
 GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID = """
-SELECT DISTINCT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %({prepend}_cohort_id_{index})s AND version = %(version)s
+SELECT DISTINCT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %({prepend}_cohort_id_{index})s AND version = %({prepend}_version_{index})s
 """
 
 GET_COHORTS_BY_PERSON_UUID = """

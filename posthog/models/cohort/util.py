@@ -71,7 +71,7 @@ def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> Tupl
 
 def format_precalculated_cohort_query(cohort: Cohort, index: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
     filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
-    return (filter_query, {f"{prepend}_cohort_id_{index}": cohort.pk, "version": cohort.version})
+    return (filter_query, {f"{prepend}_cohort_id_{index}": cohort.pk, f"{prepend}_version_{index}": cohort.version})
 
 
 def get_count_operator(count_operator: Optional[str]) -> str:

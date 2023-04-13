@@ -1,8 +1,7 @@
 import { useEffect } from 'react'
-import { billingLogic } from './billingLogic'
-import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
+import { billingLogic } from '../billingLogic'
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { SceneExport } from 'scenes/sceneTypes'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -11,29 +10,17 @@ import clsx from 'clsx'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { PlanTable } from './PlanTable'
-import { BillingHero } from './BillingHero'
+import { BillingHero } from '../BillingHero'
 import { PageHeader } from 'lib/components/PageHeader'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import BillingProduct from './BillingProduct'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { Billing as BillingTest } from './test/Billing'
-import { Field, Form } from 'kea-forms'
-
-export const scene: SceneExport = {
-    component: Billing,
-    logic: billingLogic,
-}
+import { BillingProduct } from './BillingProduct'
+import { IconPlus } from 'lib/lemon-ui/icons'
 
 export function BillingPageHeader(): JSX.Element {
     return <PageHeader title="Billing &amp; usage" />
 }
 
 export function Billing(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
+    const { billing, billingLoading, redirectPath, isOnboarding } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const cloudOrDev = preflight?.cloud || preflight?.is_debug
@@ -48,10 +35,6 @@ export function Billing(): JSX.Element {
         0: 'small',
         1000: 'medium',
     })
-
-    if (featureFlags[FEATURE_FLAGS.BILLING_BY_PRODUCTS] === 'test') {
-        return <BillingTest />
-    }
 
     if (!billing && billingLoading) {
         return (
@@ -74,12 +57,11 @@ export function Billing(): JSX.Element {
         )
         return (
             <div className="space-y-4">
-                <BillingPageHeader />
+                {!isOnboarding && <BillingPageHeader />}
                 <AlertMessage type="error">
                     There was an issue retrieving your current billing information. If this message persists please
                     {supportLink}.
                 </AlertMessage>
-
                 {!cloudOrDev ? (
                     <AlertMessage type="info">
                         Please ensure your instance is able to reach <b>https://billing.posthog.com</b>
@@ -93,10 +75,55 @@ export function Billing(): JSX.Element {
     }
 
     const products = billing?.products
+    const getUpgradeAllProductsLink = (): string => {
+        if (!products) {
+            return ''
+        }
+        let url = '/api/billing-v2/activation?products='
+        for (const product of products) {
+            if (product.subscribed || product.contact_support) {
+                continue
+            }
+            const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
+            const upgradePlanKey = product.plans?.[currentPlanIndex + 1]?.plan_key
+            if (!upgradePlanKey) {
+                continue
+            }
+            url += `${product.type}:${upgradePlanKey},`
+            if (product.addons?.length) {
+                for (const addon of product.addons) {
+                    url += `${addon.type}:${addon.plans[0].plan_key},`
+                }
+            }
+        }
+        // remove the trailing comma that will be at the end of the url
+        url = url.slice(0, -1)
+        if (redirectPath) {
+            url += `&redirect_path=${redirectPath}`
+        }
+        return url
+    }
 
     return (
         <div ref={ref}>
-            <BillingPageHeader />
+            {!isOnboarding && (
+                <div className="flex justify-between">
+                    <BillingPageHeader />
+                    {billing?.has_active_subscription && (
+                        <div>
+                            <LemonButton
+                                type="primary"
+                                htmlType="submit"
+                                to={billing.stripe_portal_url}
+                                disableClientSideRouting
+                                center
+                            >
+                                Manage card details
+                            </LemonButton>
+                        </div>
+                    )}
+                </div>
+            )}
             {billing?.free_trial_until ? (
                 <AlertMessage type="success" className="mb-2">
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
@@ -107,15 +134,6 @@ export function Billing(): JSX.Element {
                     <div className="my-8">
                         <BillingHero />
                     </div>
-                    <div className="mb-18 flex justify-center">
-                        <PlanTable
-                            redirectPath={
-                                router.values.location.pathname.includes('/ingestion')
-                                    ? urls.ingestion() + '/billing'
-                                    : ''
-                            }
-                        />
-                    </div>
                 </>
             )}
             <div
@@ -124,8 +142,8 @@ export function Billing(): JSX.Element {
                     'items-center': size !== 'small',
                 })}
             >
-                <div className="flex-1">
-                    {billing?.billing_period ? (
+                {!isOnboarding && billing?.billing_period && (
+                    <div className="flex-1">
                         <div className="space-y-2">
                             <p>
                                 Your current {billing?.has_active_subscription ? 'billing period' : 'cycle'} is from{' '}
@@ -164,14 +182,8 @@ export function Billing(): JSX.Element {
                                     : 'cycle. Your free allocation will reset at the end of the cycle.'}
                             </p>
                         </div>
-                    ) : (
-                        <>
-                            <div>
-                                <h1 className="font-bold">Current usage</h1>
-                            </div>
-                        </>
-                    )}
-                </div>
+                    </div>
+                )}
 
                 <div
                     className={clsx('space-y-2', {
@@ -180,41 +192,6 @@ export function Billing(): JSX.Element {
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ width: size === 'medium' ? '20rem' : undefined }}
                 >
-                    {billing?.has_active_subscription ? (
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            to={billing.stripe_portal_url}
-                            disableClientSideRouting
-                            fullWidth
-                            center
-                        >
-                            Manage subscription
-                        </LemonButton>
-                    ) : showLicenseDirectInput ? (
-                        <>
-                            <Form
-                                logic={billingLogic}
-                                formKey="activateLicense"
-                                enableFormOnSubmit
-                                className="space-y-4"
-                            >
-                                <Field name="license" label={'Activate license key'}>
-                                    <LemonInput fullWidth autoFocus />
-                                </Field>
-
-                                <LemonButton
-                                    type="primary"
-                                    htmlType="submit"
-                                    loading={isActivateLicenseSubmitting}
-                                    fullWidth
-                                    center
-                                >
-                                    Activate license key
-                                </LemonButton>
-                            </Form>
-                        </>
-                    ) : null}
                     {!cloudOrDev && billing?.license?.plan ? (
                         <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
                             <div className="text-center font-bold">
@@ -236,14 +213,26 @@ export function Billing(): JSX.Element {
                 </div>
             </div>
 
-            {(products || [])
-                .filter((x) => !x.contact_support)
-                .map((x) => (
-                    <div key={x.type}>
-                        <LemonDivider dashed className="my-2" />
-                        <BillingProduct product={x} />
-                    </div>
-                ))}
+            <div className="flex justify-between">
+                <h2>Products</h2>
+                {isOnboarding && (
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        to={getUpgradeAllProductsLink()}
+                        disableClientSideRouting
+                    >
+                        Upgrade All
+                    </LemonButton>
+                )}
+            </div>
+            <LemonDivider className="mt-2 mb-8" />
+
+            {products?.map((x) => (
+                <div key={x.type}>
+                    <BillingProduct product={x} />
+                </div>
+            ))}
         </div>
     )
 }
