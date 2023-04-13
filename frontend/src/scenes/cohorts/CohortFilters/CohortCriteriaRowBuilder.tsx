@@ -7,7 +7,7 @@ import { IconCopy, IconDelete } from 'lib/lemon-ui/icons'
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 import clsx from 'clsx'
 import { Field as KeaField } from 'kea-forms'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useActions } from 'kea'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
@@ -67,9 +67,9 @@ export function CohortCriteriaRowBuilder({
                             >
                                 {kids}
                                 {error && (
-                                    <AlertMessage className="my-2" type="error">
+                                    <LemonBanner className="my-2" type="error">
                                         {error}
-                                    </AlertMessage>
+                                    </LemonBanner>
                                 )}
                             </div>
                         </>

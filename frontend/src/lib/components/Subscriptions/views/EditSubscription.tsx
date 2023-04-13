@@ -9,7 +9,7 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { subscriptionLogic } from '../subscriptionLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
     bysetposOptions,
@@ -143,7 +143,7 @@ export function EditSubscription({
                         ) : null}
 
                         {siteUrlMisconfigured && (
-                            <AlertMessage type="warning">
+                            <LemonBanner type="warning">
                                 <>
                                     Your <code>SITE_URL</code> environment variable seems misconfigured. Your{' '}
                                     <code>SITE_URL</code> is set to{' '}
@@ -165,7 +165,7 @@ export function EditSubscription({
                                         Learn more <IconOpenInNew />
                                     </a>
                                 </>
-                            </AlertMessage>
+                            </LemonBanner>
                         )}
 
                         <Field name={'title'} label={'Name'}>
@@ -179,7 +179,7 @@ export function EditSubscription({
                         {subscription.target_type === 'email' ? (
                             <>
                                 {emailDisabled && (
-                                    <AlertMessage type="error">
+                                    <LemonBanner type="error">
                                         <>
                                             Email subscriptions are not currently possible as this PostHog instance
                                             isn't{' '}
@@ -193,7 +193,7 @@ export function EditSubscription({
                                             </a>
                                             .
                                         </>
-                                    </AlertMessage>
+                                    </LemonBanner>
                                 )}
 
                                 <Field
@@ -226,7 +226,7 @@ export function EditSubscription({
                                 {slackDisabled ? (
                                     <>
                                         {addToSlackButtonUrl() ? (
-                                            <AlertMessage type="info">
+                                            <LemonBanner type="info">
                                                 <div className="flex justify-between gap-2">
                                                     <span>
                                                         Slack is not yet configured for this project. Add PostHog to
@@ -248,9 +248,9 @@ export function EditSubscription({
                                                         />
                                                     </a>
                                                 </div>
-                                            </AlertMessage>
+                                            </LemonBanner>
                                         ) : (
-                                            <AlertMessage type="error">
+                                            <LemonBanner type="error">
                                                 <>
                                                     Slack is not yet configured for this project. You can configure it
                                                     at{' '}
@@ -260,7 +260,7 @@ export function EditSubscription({
                                                     </Link>
                                                     .
                                                 </>
-                                            </AlertMessage>
+                                            </LemonBanner>
                                         )}
                                     </>
                                 ) : (
@@ -297,7 +297,7 @@ export function EditSubscription({
 
                                         {showSlackMembershipWarning ? (
                                             <Field name={'memberOfSlackChannel'}>
-                                                <AlertMessage type="info">
+                                                <LemonBanner type="info">
                                                     <div className="flex gap-2 items-center">
                                                         <span>
                                                             The PostHog Slack App is not in this channel. Please add it
@@ -319,7 +319,7 @@ export function EditSubscription({
                                                             Check again
                                                         </LemonButton>
                                                     </div>
-                                                </AlertMessage>
+                                                </LemonBanner>
                                             </Field>
                                         ) : null}
                                     </>
