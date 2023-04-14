@@ -1013,18 +1013,11 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        e.person_id AS person_id,
                         if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
@@ -1039,7 +1032,8 @@
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
                    AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-                 ORDER BY pdi.person_id,
+                   AND notEmpty(e.person_id)
+                 ORDER BY e.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -1102,18 +1096,11 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        e.person_id AS person_id,
                         if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_0
@@ -1128,7 +1115,8 @@
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-                 ORDER BY pdi.person_id,
+                   AND notEmpty(e.person_id)
+                 ORDER BY e.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -1191,18 +1179,11 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        e.person_id AS person_id,
                         if(e.event = '$screen', replaceRegexpAll(JSONExtractRaw(properties, '$screen_name'), '^"|"$', ''), if(e.event = '$pageview', if(length(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) > 1, replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')), e.event)) AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT group_key,
                            argMax(group_properties, _timestamp) AS group_properties_1
@@ -1217,7 +1198,8 @@
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'industry'), '^"|"$', '')))
-                 ORDER BY pdi.person_id,
+                   AND notEmpty(e.person_id)
+                 ORDER BY e.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
