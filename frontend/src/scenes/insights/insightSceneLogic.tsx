@@ -210,10 +210,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 } else if (filters && !isUsingDataExploration) {
                     values.insightLogicRef?.logic.actions.setFilters(cleanFilters(filters || {}))
                 }
-
-                if (isUsingDataExploration && q) {
-                    values.insightDataLogicRef?.logic.actions.setQuery(q)
-                }
             }
 
             // show a warning toast if opened `/edit#filters={...}`

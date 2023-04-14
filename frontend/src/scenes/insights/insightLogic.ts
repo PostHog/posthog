@@ -1171,7 +1171,7 @@ export const insightLogic = kea<insightLogicType>([
                 (Object.keys(props.cachedInsight?.filters || {}).length > 0 ||
                     Object.keys(props.cachedInsight?.query || {}).length > 0)
 
-            if (!isCachedWithResultAndFilters) {
+            if (!isCachedWithResultAndFilters || !!values.isUsingDataExploration) {
                 if (hasDashboardItemId) {
                     const insight = findInsightFromMountedLogic(
                         props.dashboardItemId as string | InsightShortId,
@@ -1188,7 +1188,7 @@ export const insightLogic = kea<insightLogicType>([
                     }
                 }
                 if (!props.doNotLoad) {
-                    if (props.cachedInsight?.filters && !props.cachedInsight?.query) {
+                    if (props.cachedInsight?.filters && !props.cachedInsight?.query && !values.isUsingDataExploration) {
                         actions.loadResults()
                     } else if (hasDashboardItemId) {
                         actions.loadInsight(props.dashboardItemId as InsightShortId)
