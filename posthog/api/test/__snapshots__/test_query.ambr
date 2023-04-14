@@ -7,7 +7,7 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 69), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 68), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -23,7 +23,7 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 69), equals(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), 'test_val3'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 68), equals(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), 'test_val3'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -39,7 +39,7 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 69), ilike(replaceRegexpAll(JSONExtractRaw(events.properties, 'path'), '^"|"$', ''), '%/%'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 68), ilike(replaceRegexpAll(JSONExtractRaw(events.properties, 'path'), '^"|"$', ''), '%/%'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -55,7 +55,7 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 70), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 69), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -71,7 +71,7 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 70), equals(events.mat_key, 'test_val3'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 69), equals(events.mat_key, 'test_val3'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -87,7 +87,7 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 70), ilike(events.mat_path, '%/%'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 69), ilike(events.mat_path, '%/%'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -101,7 +101,7 @@
          events.distinct_id,
          replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', '')
   FROM events
-  WHERE equals(events.team_id, 71)
+  WHERE equals(events.team_id, 70)
   ORDER BY toTimezone(events.timestamp, 'UTC') ASC
   LIMIT 100 SETTINGS readonly=1,
                      max_execution_time=60
@@ -114,7 +114,7 @@
          events.distinct_id,
          events.mat_key
   FROM events
-  WHERE equals(events.team_id, 72)
+  WHERE equals(events.team_id, 71)
   ORDER BY toTimezone(events.timestamp, 'UTC') ASC
   LIMIT 100 SETTINGS readonly=1,
                      max_execution_time=60
@@ -129,7 +129,7 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 73), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 72), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -145,7 +145,7 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 73), equals('a%sd', 'foo'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 72), equals('a%sd', 'foo'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -161,7 +161,7 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 73), equals('a%sd', 'a%sd'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 72), equals('a%sd', 'a%sd'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -177,7 +177,7 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 73), equals(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), 'test_val2'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 72), equals(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), 'test_val2'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -193,7 +193,7 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 74), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 73), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -209,7 +209,7 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 74), equals('a%sd', 'foo'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 73), equals('a%sd', 'foo'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -225,7 +225,7 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 74), equals('a%sd', 'a%sd'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 73), equals('a%sd', 'a%sd'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -241,7 +241,7 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 74), equals(events.mat_key, 'test_val2'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 73), equals(events.mat_key, 'test_val2'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -261,17 +261,17 @@
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
             person_distinct_id2.distinct_id
      FROM person_distinct_id2
-     WHERE equals(person_distinct_id2.team_id, 78)
+     WHERE equals(person_distinct_id2.team_id, 77)
      GROUP BY person_distinct_id2.distinct_id
      HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   INNER JOIN
     (SELECT argMax(replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''), person.version) AS properties___email,
             person.id
      FROM person
-     WHERE equals(person.team_id, 78)
+     WHERE equals(person.team_id, 77)
      GROUP BY person.id
      HAVING equals(argMax(person.is_deleted, person.version), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
-  WHERE and(equals(events.team_id, 78), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 77), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -291,17 +291,17 @@
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
             person_distinct_id2.distinct_id
      FROM person_distinct_id2
-     WHERE equals(person_distinct_id2.team_id, 79)
+     WHERE equals(person_distinct_id2.team_id, 78)
      GROUP BY person_distinct_id2.distinct_id
      HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   INNER JOIN
     (SELECT argMax(person.pmat_email, person.version) AS properties___email,
             person.id
      FROM person
-     WHERE equals(person.team_id, 79)
+     WHERE equals(person.team_id, 78)
      GROUP BY person.id
      HAVING equals(argMax(person.is_deleted, person.version), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
-  WHERE and(equals(events.team_id, 79), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 78), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -314,7 +314,7 @@
   SELECT replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''),
          count()
   FROM events
-  WHERE and(equals(events.team_id, 80), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 79), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   GROUP BY replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', '')
   ORDER BY count() DESC
   LIMIT 101
@@ -328,7 +328,7 @@
   SELECT replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''),
          count()
   FROM events
-  WHERE and(equals(events.team_id, 80), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 79), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   GROUP BY replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', '')
   HAVING and(greater(count(), 1))
   ORDER BY count() DESC
@@ -343,7 +343,7 @@
   SELECT events.mat_key,
          count()
   FROM events
-  WHERE and(equals(events.team_id, 81), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 80), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   GROUP BY events.mat_key
   ORDER BY count() DESC
   LIMIT 101
@@ -357,7 +357,7 @@
   SELECT events.mat_key,
          count()
   FROM events
-  WHERE and(equals(events.team_id, 81), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 80), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   GROUP BY events.mat_key
   HAVING and(greater(count(), 1))
   ORDER BY count() DESC
@@ -373,7 +373,7 @@
          events.distinct_id,
          events.distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 82), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 81), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -388,7 +388,7 @@
          events.distinct_id,
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 83), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 82), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', '') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -401,7 +401,7 @@
   SELECT tuple(events.uuid, events.event, events.properties, toTimezone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimezone(events.created_at, 'UTC')),
          events.event
   FROM events
-  WHERE and(equals(events.team_id, 83), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 82), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   ORDER BY tuple(events.uuid, events.event, events.properties, toTimezone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimezone(events.created_at, 'UTC')) ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=1,
@@ -414,7 +414,7 @@
   SELECT count(),
          events.event
   FROM events
-  WHERE and(equals(events.team_id, 83), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 82), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   GROUP BY events.event
   ORDER BY count() DESC
   LIMIT 101
@@ -428,7 +428,7 @@
   SELECT count(),
          events.event
   FROM events
-  WHERE and(equals(events.team_id, 83), or(equals(events.event, 'sign up'), like(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), '%val2')), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
+  WHERE and(equals(events.team_id, 82), or(equals(events.event, 'sign up'), like(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), '%val2')), less(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-10 12:14:05', 'UTC')), greater(toTimezone(events.timestamp, 'UTC'), toDateTime('2020-01-09 12:00:00', 'UTC')))
   GROUP BY events.event
   ORDER BY count() DESC, events.event ASC
   LIMIT 101
