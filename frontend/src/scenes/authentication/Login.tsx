@@ -13,6 +13,8 @@ import { Field } from 'lib/forms/Field'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import RegionSelect from './RegionSelect'
+import SupportForm from 'lib/components/Support/SupportForm'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -49,6 +51,7 @@ export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
     const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
+    const { openSupportLoggedOutForm } = useActions(supportLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
@@ -142,6 +145,16 @@ export function Login(): JSX.Element {
                         </Link>
                     </div>
                 )}
+                <div className="font-bold text-center">
+                    <Link
+                        onClick={() => {
+                            openSupportLoggedOutForm(null, null, 'bug', 'login')
+                        }}
+                    >
+                        Bug Report Form
+                    </Link>
+                    <SupportForm loggedIn={false} />
+                </div>
                 <SocialLoginButtons caption="Or log in with" topDivider />
             </div>
         </BridgePage>

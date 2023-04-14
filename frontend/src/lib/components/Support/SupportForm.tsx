@@ -7,8 +7,9 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { Field } from 'lib/forms/Field'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
-export default function SupportForm(): JSX.Element {
+export default function SupportForm({ loggedIn = true }: { loggedIn: boolean }): JSX.Element {
     const { isSupportFormOpen } = useValues(supportLogic)
     const { closeSupportForm } = useActions(supportLogic)
 
@@ -33,11 +34,21 @@ export default function SupportForm(): JSX.Element {
         >
             <Form
                 logic={supportLogic}
-                formKey="sendSupportRequest"
+                formKey={loggedIn ? 'sendSupportRequest' : 'sendSupportLoggedOutRequest'}
                 id="support-modal-form"
                 enableFormOnSubmit
                 className="space-y-4"
             >
+                {!loggedIn && (
+                    <>
+                        <Field name="name" label="First Name">
+                            <LemonInput data-attr="first_name" placeholder="Jane" />
+                        </Field>
+                        <Field name="email" label="Email">
+                            <LemonInput data-attr="email" placeholder="your@email.com" />
+                        </Field>
+                    </>
+                )}
                 <Field name="kind" label="What kind of request is this?">
                     <LemonSelect
                         fullWidth

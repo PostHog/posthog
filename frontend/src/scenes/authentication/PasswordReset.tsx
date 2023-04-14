@@ -13,6 +13,8 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { IconCheckCircleOutline, IconErrorOutline } from 'lib/lemon-ui/icons'
+import SupportForm from 'lib/components/Support/SupportForm'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 
 export const scene: SceneExport = {
     component: PasswordReset,
@@ -86,6 +88,7 @@ function EmailUnavailable(): JSX.Element {
 
 function ResetForm(): JSX.Element {
     const { isRequestPasswordResetSubmitting } = useValues(passwordResetLogic)
+    const { openSupportLoggedOutForm } = useActions(supportLogic)
 
     return (
         <Form logic={passwordResetLogic} formKey={'requestPasswordReset'} className="space-y-4" enableFormOnSubmit>
@@ -112,6 +115,17 @@ function ResetForm(): JSX.Element {
             >
                 Continue
             </LemonButton>
+            <LemonDivider dashed className="my-4" />
+            <div className="font-bold text-center">
+                <Link
+                    onClick={() => {
+                        openSupportLoggedOutForm(null, null, 'bug', 'login')
+                    }}
+                >
+                    Bug Report Form
+                </Link>
+                <SupportForm loggedIn={false} />
+            </div>
         </Form>
     )
 }

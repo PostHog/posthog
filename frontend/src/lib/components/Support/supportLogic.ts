@@ -1,11 +1,11 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
-import { uuid } from 'lib/utils'
-import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
 import { UserType } from '~/types'
+import { uuid } from 'lib/utils'
+import posthog from 'posthog-js'
 
 function getSessionReplayLink(): string {
     const LOOK_BACK = 30
@@ -37,12 +37,13 @@ export const TargetAreaToName = {
     ingestion: 'Events Ingestion',
     experiments: 'Experiments',
     feature_flags: 'Feature Flags',
-    login: 'Login / Sign up / Invites',
+    login: 'Login',
+    signup: 'Sign up / Invites',
     session_reply: 'Session Replay',
 }
+
 export type supportTicketTargetArea = keyof typeof TargetAreaToName | null
 export type supportTicketKind = 'bug' | 'feedback' | null
-
 export const URLPathToTargetArea: Record<string, supportTicketTargetArea> = {
     insights: 'analytics',
     recordings: 'session_reply',
@@ -72,11 +73,26 @@ export const supportLogic = kea<supportLogicType>([
     })),
     actions(() => ({
         closeSupportForm: () => true,
+        // TODO: can these be combined reasonably?
         openSupportForm: (kind: supportTicketKind = null, target_area: supportTicketTargetArea = null) => ({
             kind,
             target_area,
         }),
-        submitZendeskTicket: (kind: supportTicketKind, target_area: supportTicketTargetArea, message: string) => ({
+        openSupportLoggedOutForm: (
+            name: string | null = null,
+            email: string | null = null,
+            kind: supportTicketKind = null,
+            target_area: supportTicketTargetArea = null
+        ) => ({ name, email, kind, target_area }),
+        submitZendeskTicket: (
+            name: string,
+            email: string,
+            kind: supportTicketKind,
+            target_area: supportTicketTargetArea,
+            message: string
+        ) => ({
+            name,
+            email,
             kind,
             target_area,
             message,
@@ -87,6 +103,7 @@ export const supportLogic = kea<supportLogicType>([
             false,
             {
                 openSupportForm: () => true,
+                openSupportLoggedOutForm: () => true,
                 closeSupportForm: () => false,
             },
         ],
@@ -106,9 +123,34 @@ export const supportLogic = kea<supportLogicType>([
                 }
             },
             submit: async ({ kind, target_area, message }) => {
-                actions.submitZendeskTicket(kind, target_area, message)
+                const name = userLogic.values.user?.first_name
+                const email = userLogic.values.user?.email
+                actions.submitZendeskTicket(name || '', email || '', kind, target_area, message)
                 actions.closeSupportForm()
                 actions.resetSendSupportRequest()
+            },
+        },
+        sendSupportLoggedOutRequest: {
+            defaults: {} as unknown as {
+                name: string
+                email: string
+                kind: supportTicketKind
+                target_area: supportTicketTargetArea
+                message: string
+            },
+            errors: ({ name, email, message, kind, target_area }) => {
+                return {
+                    name: !name ? 'Please enter your name' : '', // TODO: make name optional, but pre-fill it if user filled it in the form or remove it completely
+                    email: !email ? 'Please enter your email' : '',
+                    message: !message ? 'Please enter a message' : '',
+                    kind: !kind ? 'Please choose' : undefined,
+                    target_area: !target_area ? 'Please choose' : undefined,
+                }
+            },
+            submit: async ({ name, email, kind, target_area, message }) => {
+                actions.submitZendeskTicket(name || '', email || '', kind, target_area, message)
+                actions.closeSupportForm()
+                actions.resetSendSupportLoggedOutRequest()
             },
         },
     })),
@@ -120,10 +162,17 @@ export const supportLogic = kea<supportLogicType>([
                 message: '',
             })
         },
-        submitZendeskTicket: async ({ kind, target_area, message }) => {
-            const name = userLogic.values.user?.first_name
-            const email = userLogic.values.user?.email
-
+        openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
+            console.log(`in open support form ${email}`)
+            actions.resetSendSupportLoggedOutRequest({
+                name: name ? name : '',
+                email: email ? email : '',
+                kind: kind ? kind : null,
+                target_area: target_area ? target_area : null,
+                message: '',
+            })
+        },
+        submitZendeskTicket: async ({ name, email, kind, target_area, message }) => {
             const zendesk_ticket_uuid = uuid()
             const payload = {
                 request: {

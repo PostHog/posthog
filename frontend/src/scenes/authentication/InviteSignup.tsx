@@ -17,6 +17,8 @@ import clsx from 'clsx'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import SupportForm from 'lib/components/Support/SupportForm'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -31,6 +33,38 @@ interface ErrorMessage {
     actions: JSX.Element
 }
 
+function SupportModalLink({
+    name,
+    email,
+    target,
+}: {
+    name?: string
+    email?: string
+    target?: 'signup' | 'login'
+}): JSX.Element {
+    const { openSupportLoggedOutForm } = useActions(supportLogic)
+    return (
+        <>
+            {/*  TOOD: for some reason LemonButton works fine but Link doesn't on this page */}
+            <Link
+                onClick={() => {
+                    openSupportLoggedOutForm(name, email, null, target ?? null)
+                }}
+            >
+                Contact Us
+            </Link>
+            <LemonButton
+                onClick={() => {
+                    openSupportLoggedOutForm(name, email, null, target ?? null)
+                }}
+            >
+                Contact Us
+            </LemonButton>
+            <SupportForm loggedIn={false} />
+        </>
+    )
+}
+
 function HelperLinks(): JSX.Element {
     return (
         <div className="font-bold text-center">
@@ -38,7 +72,7 @@ function HelperLinks(): JSX.Element {
             <span className="mx-2">|</span>
             <Link to={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`}>PostHog Website</Link>
             <span className="mx-2">|</span>
-            <Link to={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`}>Contact Us</Link>
+            <SupportModalLink target="signup" />
         </div>
     )
 }
@@ -178,6 +212,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                         </LemonButton>
                     )}
                 </div>
+                <SupportModalLink name={user?.first_name} email={user?.email} target="signup" />
             </div>
         </BridgePage>
     )
@@ -213,6 +248,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
                 <PureField label="Email">
                     <LemonInput type="email" disabled value={invite?.target_email} />
+                    {/* todo: use the email */}
                 </PureField>
                 <Field
                     name="password"
@@ -243,6 +279,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                         invite?.first_name ? 'Your name was provided in the invite, feel free to change it.' : undefined
                     }
                 >
+                    {/* todo re-use the name */}
                     <LemonInput data-attr="first_name" placeholder="Jane" />
                 </Field>
 
@@ -294,6 +331,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 topDivider
                 redirectQueryParams={invite ? { invite_id: invite.id } : undefined}
             />
+            <SupportModalLink name={invite.first_name} email={invite.target_email} />
         </BridgePage>
     )
 }
