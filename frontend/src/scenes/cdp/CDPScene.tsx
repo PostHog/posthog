@@ -121,7 +121,7 @@ export function NewConnectionModal(): JSX.Element {
                     {connectionChoices.map((connectionChoice: ConnectionChoiceType, index: number) => (
                         <ConnectionChoice
                             connectionChoice={connectionChoice}
-                            onClick={() => push(urls.cdpNewConnection(connectionChoice.id))}
+                            onClick={() => push(urls.cdpNewConnection(connectionChoice.id))} // TODO: change this to a link
                             index={index}
                             key={connectionChoice.id}
                         />

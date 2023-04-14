@@ -1,6 +1,6 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { DEFAULT_FILE_NAME, NewConnectionLogic } from './NewConnectionLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportFrequencyType, BatchExportTabsType, FileFormatType } from './types'
@@ -186,7 +186,7 @@ export function ConnectionSettings(): JSX.Element {
                         <LemonInput />
                     </Field>
                     <p className="text-sm text-gray-500 my-4">
-                        File name preview: <code style={{ color: '#0BA90A' }}>{fileNamePreview}</code>
+                        Preview: <code style={{ color: '#0BA90A' }}>{fileNamePreview}</code>
                     </p>
                     <div />
                 </div>
@@ -202,7 +202,8 @@ export function ConnectionSettings(): JSX.Element {
 }
 
 export function NewConnection(): JSX.Element {
-    const { connectionChoice } = useValues(NewConnectionLogic)
+    const { connectionChoice, activeTab } = useValues(NewConnectionLogic)
+    const { setTab } = useActions(NewConnectionLogic)
     return (
         <>
             <PageHeader title={connectionChoice.name} />
@@ -211,7 +212,7 @@ export function NewConnection(): JSX.Element {
                     {
                         key: 'sync-history',
                         label: 'Sync History',
-                        content: <ConnectionSettings />,
+                        content: <div>Sync history</div>,
                     },
                     {
                         key: 'activity-log',
@@ -221,13 +222,12 @@ export function NewConnection(): JSX.Element {
                     {
                         key: 'settings',
                         label: 'Settings',
-                        content: <div>Settings</div>,
+                        content: <ConnectionSettings />,
                     },
                 ]}
-                activeKey={'sync-history'}
+                activeKey={activeTab}
                 onChange={function (key: BatchExportTabsType): void {
-                    console.log(key)
-                    throw new Error('Function not implemented.')
+                    setTab(key)
                 }}
             />
         </>

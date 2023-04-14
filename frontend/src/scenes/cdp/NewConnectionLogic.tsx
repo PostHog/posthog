@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { NewConnectionLogicType } from './NewConnectionLogicType'
 import { BatchExportSettingsType, ConnectionChoiceType } from './types'
@@ -7,6 +7,9 @@ import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import { teamLogic } from 'scenes/teamLogic'
 import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
+
+import { urls } from 'scenes/urls'
+import { Breadcrumb } from '~/types'
 
 interface NewConnectionLogicProps {
     id: string
@@ -37,8 +40,17 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
     }),
     props({} as NewConnectionLogicProps),
     key((props) => props.id ?? 'default'),
+    actions({
+        setTab: (tab: BatchExportTabsType) => ({ tab }),
+    }),
     reducers({
         connectionChoices: [mockConnectionChoices as ConnectionChoiceType[], {}],
+        activeTab: [
+            'settings' as BatchExportTabsType,
+            {
+                setTab: (_, { tab }) => tab,
+            },
+        ],
     }),
     loaders({
         connectionChoices: [
@@ -94,13 +106,22 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
                 return fileNamePreview
             },
         ],
+        breadcrumbs: [
+            (s) => [s.connectionChoice],
+            (): Breadcrumb[] => [
+                {
+                    name: 'CDP',
+                    path: urls.cdp(),
+                },
+                // ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),
+            ],
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadConnectionChoice()
     }),
     listeners(({ actions, values }) => ({
         loadConnectionChoiceSuccess: () => {
-            debugger
             actions.setConnectionSettingsValues({
                 name: values.connectionSettings.name || values?.connectionChoice?.name,
             })
