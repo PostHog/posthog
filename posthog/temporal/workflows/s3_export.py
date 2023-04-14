@@ -8,7 +8,7 @@ from aiohttp import ClientSession
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.temporal.workflows.base import CommandableWorkflow
+from posthog.temporal.workflows.base import PostHogWorkflow
 
 INSERT_INTO_S3_QUERY_TEMPLATE = Template(
     """
@@ -160,7 +160,7 @@ class S3ExportInputs:
 
 
 @workflow.defn(name="s3-export")
-class S3ExportWorkflow(CommandableWorkflow):
+class S3ExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into S3.
 
     This Workflow is intended to be executed both manually and by a Temporal Schedule.

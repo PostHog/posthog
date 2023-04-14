@@ -2,7 +2,9 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 
-class CommandableWorkflow(ABC):
+class PostHogWorkflow(ABC):
+    """Base class for Temporal Workflows that can be executed in PostHog."""
+
     @classmethod
     def get_name(cls) -> bool:
         """Get this workflow's name."""
