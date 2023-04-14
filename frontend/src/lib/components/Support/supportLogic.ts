@@ -20,8 +20,8 @@ export const TargetAreaToName = {
     login: 'Login / Sign up / Invites',
     session_reply: 'Session Replay',
 }
-export type supportTicketTargetArea = keyof typeof TargetAreaToName
-export type supportTicketKind = 'bug' | 'feedback'
+export type supportTicketTargetArea = keyof typeof TargetAreaToName | null
+export type supportTicketKind = 'bug' | 'feedback' | null
 
 export const supportLogic = kea<supportLogicType>([
     path(['lib', 'components', 'support', 'supportLogic']),
@@ -70,8 +70,8 @@ export const supportLogic = kea<supportLogicType>([
     listeners(({ actions }) => ({
         openSupportForm: async ({ kind, target_area }) => {
             actions.resetSendSupportRequest({
-                kind: kind ? kind : undefined,
-                target_area: target_area ? target_area : undefined,
+                kind: kind ? kind : null,
+                target_area: target_area ? target_area : null,
                 message: '',
             })
         },
