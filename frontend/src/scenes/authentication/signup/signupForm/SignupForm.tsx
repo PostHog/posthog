@@ -5,7 +5,7 @@ import { signupLogic } from './signupLogic'
 import { userLogic } from '../../../userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from '@posthog/lemon-ui'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconArrowLeft } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { SignupPanel1 } from './panels/SignupPanel1'
@@ -41,9 +41,9 @@ export function SignupForm(): JSX.Element | null {
                     : 'Tell us a bit about yourself'}
             </h2>
             {!isSignupPanel2Submitting && signupPanel2ManualErrors?.generic && (
-                <AlertMessage type="error">
+                <LemonBanner type="error">
                     {signupPanel2ManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}
-                </AlertMessage>
+                </LemonBanner>
             )}
             {panel === 0 ? (
                 <SignupPanel1 />

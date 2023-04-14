@@ -46,7 +46,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { UserActivityIndicator } from '../../UserActivityIndicator/UserActivityIndicator'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
@@ -416,7 +416,7 @@ function InsightMeta({
 }
 
 function VizComponentFallback(): JSX.Element {
-    return <AlertMessage type="warning">Unknown insight display type</AlertMessage>
+    return <LemonBanner type="warning">Unknown insight display type</LemonBanner>
 }
 
 export interface InsightVizProps

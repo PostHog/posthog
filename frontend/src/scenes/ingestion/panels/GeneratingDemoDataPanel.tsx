@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { CardContainer } from '../CardContainer'
@@ -19,10 +19,10 @@ export function GeneratingDemoDataPanel(): JSX.Element {
                         Your demo data is on the way! This can take up to one minute - we'll redirect you when your demo
                         data is ready.
                     </p>
-                    <AlertMessage type="info" className="my-6">
+                    <LemonBanner type="info" className="my-6">
                         We're using a demo project. Your other <b>{currentOrganization?.name}</b> projects won't be
                         affected.
-                    </AlertMessage>
+                    </LemonBanner>
                 </div>
             </div>
         </CardContainer>

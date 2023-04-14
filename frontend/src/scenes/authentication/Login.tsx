@@ -10,7 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import RegionSelect from './RegionSelect'
 
@@ -73,11 +73,11 @@ export function Login(): JSX.Element {
             <div className="space-y-2">
                 <h2>Log in</h2>
                 {generalError && (
-                    <AlertMessage type="error">
+                    <LemonBanner type="error">
                         {generalError.detail ||
                             ERROR_MESSAGES[generalError.code] ||
                             'Could not complete your login. Please try again.'}
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
                 <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
                     <RegionSelect />
