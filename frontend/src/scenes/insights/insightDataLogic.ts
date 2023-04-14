@@ -71,7 +71,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
     selectors({
         query: [
             (s) => [s.insight, s.internalQuery],
-            (insight, internalQuery) => internalQuery || insight.query || queryFromKind(NodeKind.TrendsQuery),
+            (insight, internalQuery) =>
+                internalQuery ||
+                insight.query ||
+                queryFromFilters(insight.filters) ||
+                queryFromKind(NodeKind.TrendsQuery),
         ],
 
         isQueryBasedInsight: [
