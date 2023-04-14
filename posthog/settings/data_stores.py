@@ -32,8 +32,10 @@ else:
 
 if DATABASE_URL:
     DATABASES = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=0)}
+
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
 elif os.getenv("POSTHOG_DB_NAME"):
     DATABASES = {
         "default": {
@@ -77,6 +79,26 @@ else:
     raise ImproperlyConfigured(
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
+
+if os.getenv("POSTHOG_POSTGRES_READ_HOST"):
+    DATABASES["replica"] = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql_psycopg2",
+            "NAME": get_from_env("POSTHOG_DB_NAME"),
+            "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
+            "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
+            "HOST": os.getenv("POSTHOG_POSTGRES_READ_HOST", "localhost"),
+            "PORT": os.getenv("POSTHOG_POSTGRES_PORT", "5432"),
+            "CONN_MAX_AGE": 0,
+            "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
+            "SSL_OPTIONS": {
+                "sslmode": os.getenv("POSTHOG_POSTGRES_SSL_MODE", None),
+                "sslrootcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CA", None),
+                "sslcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
+                "sslkey": os.getenv("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
+            },
+        }
+    }
 
 if JOB_QUEUE_GRAPHILE_URL:
     DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
