@@ -3,7 +3,7 @@ import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { TooltipProps } from '../Tooltip'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { LemonDivider } from '../LemonDivider'
-import { LemonDropdown, LemonDropdownProps } from '../Dropdown'
+import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 
 export interface LemonMenuItemBase
     extends Pick<

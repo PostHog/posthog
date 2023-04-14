@@ -5,7 +5,7 @@ import { Link } from '../Link'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
 import './LemonButton.scss'
-import { LemonDropdown, LemonDropdownProps } from '../Dropdown'
+import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { PopoverPlacementContext } from '../Popover'
 
 export type LemonButtonDropdown = Omit<LemonDropdownProps, 'children'>
@@ -99,10 +99,10 @@ function LemonButtonInternal(
 
     if (popopverPlacement) {
         if (!children) {
-            if (!icon) {
+            if (icon === undefined) {
                 icon = popopverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
             }
-        } else if (!sideIcon) {
+        } else if (sideIcon === undefined) {
             sideIcon = popopverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
         }
     }

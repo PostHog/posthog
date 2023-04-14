@@ -1198,7 +1198,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         propertyFilters={group?.properties}
                                         logicalRowDivider
                                         addButton={
-                                            <LemonButton icon={<IconPlusMini />} noPadding>
+                                            <LemonButton icon={<IconPlusMini />} sideIcon={null} noPadding>
                                                 Add condition
                                             </LemonButton>
                                         }

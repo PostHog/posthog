@@ -70,7 +70,7 @@ export function CorrelationConfig(): JSX.Element {
                             onChange={(excludedEvents) => handleChange(undefined, excludedEvents)}
                             selectedEvents={funnelCorrelationConfig.excluded_event_names || []}
                             addElement={
-                                <LemonButton size="small" type="secondary" icon={<IconPlus />}>
+                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
                                     Add exclusion
                                 </LemonButton>
                             }
