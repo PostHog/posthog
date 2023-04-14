@@ -96,9 +96,7 @@ export function SecondaryMetrics({
                 return (
                     <div>
                         {item.results?.[idx].result ? (
-                            item.results[idx].insightType === InsightType.FUNNELS ? (
-                                <>{((item.results[idx].result as number) * 100).toFixed(1)}%</>
-                            ) : (
+                            (<>{(item.results[idx].result * 100).toFixed(1)}%</>)(
                                 <>{humanFriendlyNumber(item.results[idx].result as number)}</>
                             )
                         ) : (
