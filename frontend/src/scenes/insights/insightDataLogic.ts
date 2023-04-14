@@ -32,7 +32,7 @@ const defaultQuery = (insightProps: InsightLogicProps): Node | null => {
         ? query
         : !!filters && !!Object.keys(filters).length
         ? queryFromFilters(filters)
-        : queryFromKind(NodeKind.TrendsQuery)
+        : null
 }
 
 export const insightDataLogic = kea<insightDataLogicType>([
