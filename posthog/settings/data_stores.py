@@ -1,5 +1,4 @@
 import os
-from typing import Dict, Any
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -22,7 +21,7 @@ SQLCOMMENTER_WITH_FRAMEWORK = False
 JOB_QUEUE_GRAPHILE_URL = os.getenv("JOB_QUEUE_GRAPHILE_URL")
 
 
-def postgres_config(host: str) -> Dict[str, Any]:
+def postgres_config(host: str) -> dict:
     """Generate the config map we need for a postgres database.
 
     Generally all our postgres databases will need the same config - replicas are identical other than host.
@@ -31,7 +30,7 @@ def postgres_config(host: str) -> Dict[str, Any]:
         host (str): The host to connect to
 
     Returns:
-        Dict[str, Any]: The config, to be set in django DATABASES
+        dict: The config, to be set in django DATABASES
     """
 
     return {
