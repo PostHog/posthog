@@ -92,7 +92,6 @@ export function ConnectionSettings(): JSX.Element {
                     <LemonInput />
                 </Field>
             </div>
-            {JSON.stringify(connectionSettings)}
             <LemonDivider className="my-6" />
             <div className="space-y-4">
                 <h2>Export Schedule</h2>
