@@ -1,8 +1,14 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { NewConnectionLogicType } from './NewConnectionLogicType'
-import { BatchExportSettingsType, ConnectionChoiceType } from './types'
-import { mockConnectionChoices } from './mocks'
+import {
+    BatchExportConnectionType,
+    BatchExportSettingsType,
+    BatchExportTabsType,
+    ConnectionChoiceType,
+    ExportRunType,
+} from './types'
+import { mockConnectionChoices, mockExportRuns } from './mocks'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import { teamLogic } from 'scenes/teamLogic'
@@ -44,9 +50,21 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
         setTab: (tab: BatchExportTabsType) => ({ tab }),
     }),
     reducers({
+        connection: [
+            {
+                id: '123',
+                name: 'Test Connection',
+                status: 'active',
+                connection_type_id: 's3',
+                successRate: '100%',
+                imageUrl: 'https://posthog.com/static/brand/favicon.png',
+                settings: {},
+            } as BatchExportConnectionType,
+            {},
+        ],
         connectionChoices: [mockConnectionChoices as ConnectionChoiceType[], {}],
         activeTab: [
-            'settings' as BatchExportTabsType,
+            'sync-history' as BatchExportTabsType,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -56,9 +74,18 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
         connectionChoices: [
             undefined as ConnectionChoiceType[] | undefined,
             {
-                loadConnectionChoice: async () => {
+                loadConnectionChoices: async () => {
                     const connectionChoices = await Promise.resolve(mockConnectionChoices)
                     return connectionChoices
+                },
+            },
+        ],
+        exportRuns: [
+            undefined as ExportRunType[] | undefined,
+            {
+                loadExportRuns: async () => {
+                    const exportRuns = await Promise.resolve(mockExportRuns)
+                    return exportRuns
                 },
             },
         ],
@@ -118,10 +145,11 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        actions.loadConnectionChoice()
+        actions.loadConnectionChoices()
+        actions.loadExportRuns()
     }),
     listeners(({ actions, values }) => ({
-        loadConnectionChoiceSuccess: () => {
+        loadConnectionChoicesSuccess: () => {
             actions.setConnectionSettingsValues({
                 name: values.connectionSettings.name || values?.connectionChoice?.name,
             })

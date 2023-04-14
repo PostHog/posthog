@@ -9,6 +9,9 @@ import { Field } from 'lib/forms/Field'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { DatePicker } from 'antd'
 import { shortTimeZone } from 'lib/utils'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ExportOverviewTab } from './ExportOverview'
 
 export const scene: SceneExport = {
     component: NewConnection,
@@ -102,7 +105,7 @@ export function ConnectionSettings(): JSX.Element {
                     <>
                         <Field
                             name={'firstExport'}
-                            label={`First export at (${shortTimeZone(timezone)})`}
+                            label={`First export at (${shortTimeZone(timezone)})`} // TODO: add timezone tooltip similar to the created at column
                             className="max-w-60"
                         >
                             <DatePicker showTime />
@@ -202,7 +205,7 @@ export function ConnectionSettings(): JSX.Element {
 }
 
 export function NewConnection(): JSX.Element {
-    const { connectionChoice, activeTab } = useValues(NewConnectionLogic)
+    const { connectionChoice, activeTab, connection } = useValues(NewConnectionLogic)
     const { setTab } = useActions(NewConnectionLogic)
     return (
         <>
@@ -212,12 +215,12 @@ export function NewConnection(): JSX.Element {
                     {
                         key: 'sync-history',
                         label: 'Sync History',
-                        content: <div>Sync history</div>,
+                        content: <ExportOverviewTab />,
                     },
                     {
                         key: 'activity-log',
                         label: 'Activity Log',
-                        content: <div>Activity Log</div>,
+                        content: <ActivityLog scope={ActivityScope.CONNECTION} id={connection?.id} />,
                     },
                     {
                         key: 'settings',
