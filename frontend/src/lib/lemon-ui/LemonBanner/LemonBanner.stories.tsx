@@ -1,19 +1,19 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { AlertMessage, AlertMessageProps } from './AlertMessage'
+import { LemonBanner, LemonBannerProps } from './LemonBanner'
 
 export default {
-    title: 'Lemon UI/Alert Message',
-    component: AlertMessage,
+    title: 'Lemon UI/Lemon Banner',
+    component: LemonBanner,
     parameters: {
         actions: {
             // See https://github.com/storybookjs/addon-smart-knobs/issues/63#issuecomment-995798227
             argTypesRegex: null,
         },
     },
-} as ComponentMeta<typeof AlertMessage>
+} as ComponentMeta<typeof LemonBanner>
 
-const Template: ComponentStory<typeof AlertMessage> = (props: AlertMessageProps) => {
-    return <AlertMessage {...props} />
+const Template: ComponentStory<typeof LemonBanner> = (props: LemonBannerProps) => {
+    return <LemonBanner {...props} />
 }
 
 export const Info = Template.bind({})

@@ -321,14 +321,14 @@ const produce = async (
     value: Buffer | null,
     key: Buffer | null
 ): Promise<number | null | undefined> => {
-    status.info('📤', 'Producing message', { topic: topic })
+    status.debug('📤', 'Producing message', { topic: topic })
     return await new Promise((resolve, reject) =>
         producer.produce(topic, null, value, key, Date.now(), (error: any, offset: number | null | undefined) => {
             if (error) {
                 status.error('⚠️', 'produce_error', { error: error, topic: topic })
                 reject(error)
             } else {
-                status.info('📤', 'Produced message', { topic: topic, offset: offset })
+                status.debug('📤', 'Produced message', { topic: topic, offset: offset })
                 resolve(offset)
             }
         })

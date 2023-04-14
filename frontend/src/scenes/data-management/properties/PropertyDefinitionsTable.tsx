@@ -16,7 +16,7 @@ import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ThirtyDayQueryCountTitle } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -96,9 +96,9 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 filters.type === 'event' &&
                 !propertyDefinitionsLoading && (
                     <div className="mb-4">
-                        <AlertMessage type="warning">
+                        <LemonBanner type="warning">
                             We haven't been able to get usage and volume data yet. Please check back later.
-                        </AlertMessage>
+                        </LemonBanner>
                     </div>
                 )
             )}

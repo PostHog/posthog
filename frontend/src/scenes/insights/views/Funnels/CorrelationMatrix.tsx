@@ -16,7 +16,7 @@ import {
     IconTrendingFlat,
     IconTrendingFlatDown,
 } from 'lib/lemon-ui/icons'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import clsx from 'clsx'
 import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
@@ -228,10 +228,10 @@ export function CorrelationMatrix(): JSX.Element {
                         </div>
                     </>
                 ) : (
-                    <AlertMessage type="error">
+                    <LemonBanner type="error">
                         We could not load the details for this correlation value. Please recreate your funnel and try
                         again.
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
             </div>
         </Modal>

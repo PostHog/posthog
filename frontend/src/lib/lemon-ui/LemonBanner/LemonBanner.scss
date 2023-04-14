@@ -1,4 +1,4 @@
-.AlertMessage {
+.LemonBanner {
     border-radius: var(--radius);
     padding: 0.5rem 0.75rem;
     color: var(--primary-alt);
@@ -9,21 +9,21 @@
     gap: 0.5rem;
     min-height: 3rem;
 
-    &.AlertMessage--info {
+    &.LemonBanner--info {
         background-color: var(--primary-alt-highlight);
     }
 
-    &.AlertMessage--warning {
+    &.LemonBanner--warning {
         background-color: var(--warning-highlight);
         color: var(--warning-dark);
     }
 
-    &.AlertMessage--error {
+    &.LemonBanner--error {
         background-color: var(--danger-highlight);
         color: var(--danger);
     }
 
-    &.AlertMessage--success {
+    &.LemonBanner--success {
         background-color: var(--success-highlight);
         color: var(--success-dark);
     }

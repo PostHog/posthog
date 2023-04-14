@@ -2,7 +2,7 @@ import { LemonSelectOptions, LemonButton, LemonTable, LemonTag, Link } from '@po
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconChevronRight, IconCheckmark, IconExpandMore, IconPlus, IconArticle } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -331,10 +331,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 </div>
                 <div className="px-8">
                     {product.percentage_usage > 1 ? (
-                        <AlertMessage type={'error'}>
+                        <LemonBanner type={'error'}>
                             You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this
                             product.
-                        </AlertMessage>
+                        </LemonBanner>
                     ) : null}
                     <div className="flex w-full items-center gap-x-8">
                         {product.contact_support && !product.subscribed ? (
@@ -414,9 +414,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         )}
                     </div>
                     {product.price_description ? (
-                        <AlertMessage type="info">
+                        <LemonBanner type="info">
                             <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
-                        </AlertMessage>
+                        </LemonBanner>
                     ) : null}
                     {/* Table with tiers */}
                     {showTierBreakdown && (

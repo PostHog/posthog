@@ -1,24 +1,24 @@
-import './AlertMessage.scss'
+import './LemonBanner.scss'
 import { IconClose, IconInfo, IconWarning } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton/LemonButton'
 
-export type AlertMessageAction = SideAction & Pick<LemonButtonPropsBase, 'children'>
+export type LemonBannerAction = SideAction & Pick<LemonButtonPropsBase, 'children'>
 
-export interface AlertMessageProps {
+export interface LemonBannerProps {
     type: 'info' | 'warning' | 'error' | 'success'
     /** If onClose is provided, a close button will be shown and this callback will be fired when it's clicked. */
     onClose?: () => void
     children: React.ReactNode
-    action?: AlertMessageAction
+    action?: LemonBannerAction
     className?: string
 }
 
 /** Generic alert message. */
-export function AlertMessage({ type, onClose, children, action, className }: AlertMessageProps): JSX.Element {
+export function LemonBanner({ type, onClose, children, action, className }: LemonBannerProps): JSX.Element {
     return (
-        <div className={clsx('AlertMessage', `AlertMessage--${type}`, className)}>
+        <div className={clsx('LemonBanner', `LemonBanner--${type}`, className)}>
             {type === 'warning' || type === 'error' ? <IconWarning /> : <IconInfo />}
             <div className="flex-1">{children}</div>
             {action && <LemonButton type="secondary" {...action} />}
