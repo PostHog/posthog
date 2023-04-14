@@ -106,13 +106,4 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
             })
         },
     })),
-    // selectors({
-    //     connectionChoice: [
-    //         (s) => [s.connectionChoices],
-    //         (connectionChoices, connectionChoiceId): ConnectionChoiceType | undefined => {
-    //             debugger
-    //             return connectionChoices.find((connectionChoice) => connectionChoice.id === connectionChoiceId)
-    //         },
-    //     ],
-    // }),
 ])
