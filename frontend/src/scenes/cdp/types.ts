@@ -1,3 +1,5 @@
+import { Dayjs } from 'lib/dayjs'
+
 export type ConnectionChoiceType = {
     id: string
     name: string
@@ -15,19 +17,20 @@ export type ConnectionType = {
 }
 
 export type BatchExportSettings = {
-    id: string
+    id?: string
     name: string
     frequency: BatchExportFrequencyType
-    startAt: string
-    endAt: string
-    backfillOnFirstRun: boolean
-    sourceTable: string
+    firstExport: Dayjs
+    stopAtSpecificDate: false
+    stopAt: Dayjs | undefined
+    backfillRecords: boolean
+    backfillFrom: Dayjs | undefined
     AWSAccessKeyID: string
     AWSSecretAccessKey: string
     AWSRegion: string
     AWSBucket: string
-    AWSKeyPrefix: string
     fileFormat: FileFormatType
+    fileName: string
 }
 
 export type CDPTabsType = 'connections' | 'history'

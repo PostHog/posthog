@@ -12,6 +12,24 @@ interface NewConnectionLogicProps {
     id: string
 }
 
+const defaultCreator = (values: NewConnectionLogicType['values']): BatchExportSettings => ({
+    name: '',
+    frequency: '12',
+    firstExport: dayjsUtcToTimezone(new Date().toISOString(), values.timezone).add(1, 'day').startOf('day') as any,
+    stopAtSpecificDate: false,
+    stopAt: undefined,
+    backfillRecords: false,
+    backfillFrom: undefined,
+    AWSAccessKeyID: '' as string,
+    AWSSecretAccessKey: '' as string,
+    AWSRegion: '' as string,
+    AWSBucket: '' as string,
+    fileFormat: 'csv' as any,
+    fileName: DEFAULT_FILE_NAME as any,
+})
+
+export const DEFAULT_FILE_NAME = 'posthog-events/{year}/{month}/{day}/{hour}:{minute}:{second}/{partitionId}.csv'
+
 export const NewConnectionLogic = kea<NewConnectionLogicType>([
     path(['scenes', 'cdp', 'NewConnectionLogic']),
     connect({
@@ -35,27 +53,10 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
     }),
     forms(({ values }) => ({
         connectionSettings: {
-            defaults: {
-                frequency: '12' as BatchExportSettings['frequency'],
-                firstExport: dayjsUtcToTimezone(new Date().toISOString(), values.timezone).add(1, 'day').startOf('day'),
-                sourceTable: 'events',
-                fileFormat: 'csv',
-                runUntil: 'forever',
-                fileName: 'posthog-events/{year}/{month}/{day}/{hour}:{minute}:{second}/{partitionId}.csv',
-                // backfillFrom: dayjsUtcToTimezone(0, values.timezone),
-            },
+            defaults: defaultCreator(values),
             validate: (values: BatchExportSettings) => {
                 return {
-                    // TODO: update these
                     name: values.name ? undefined : 'Name is required',
-                    frequency: values.frequency ? undefined : 'Frequency is required',
-                    startAt: values.startAt ? undefined : 'Start at is required',
-                    sourceTable: values.sourceTable ? undefined : 'Source table is required',
-                    AWSAccessKeyID: values.AWSAccessKeyID ? undefined : 'AWS Access Key ID is required',
-                    AWSSecretAccessKey: values.AWSSecretAccessKey ? undefined : 'AWS Secret Access Key is required',
-                    AWSRegion: values.AWSRegion ? undefined : 'AWS Region is required',
-                    AWSBucket: values.AWSBucket ? undefined : 'AWS Bucket is required',
-                    fileFormat: values.fileFormat ? undefined : 'File format is required',
                 }
             },
         },

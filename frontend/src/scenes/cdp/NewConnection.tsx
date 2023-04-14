@@ -1,5 +1,5 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { NewConnectionLogic } from './NewConnectionLogic'
+import { DEFAULT_FILE_NAME, NewConnectionLogic } from './NewConnectionLogic'
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -166,9 +166,6 @@ export function ConnectionSettings(): JSX.Element {
                     <Field name={'AWSBucket'} label="S3 bucket name">
                         <LemonInput />
                     </Field>
-                    <Field name={'AWSKeyPrefix'} label="S3 prefix" showOptional>
-                        <LemonInput />
-                    </Field>
                 </div>
                 <div className="my-6" />
             </div>
@@ -183,15 +180,12 @@ export function ConnectionSettings(): JSX.Element {
                     <p>
                         You can include the partition key and components of the timestamp. For example:
                         <br />
-                        <code style={{ color: '#0BA90A' }}>
-                            posthog-events/{'{'}year{'}'}/{'{'}month{'}'}/{'{'}day{'}'}/{'{'}hour{'}'}:{'{'}minute
-                            {'}'}:{'{'}second{'}'}/{'{'}partitionId{'}'}
-                        </code>
+                        <code>{DEFAULT_FILE_NAME}</code>
                     </p>
                     <Field name={'fileName'}>
                         <LemonInput />
                     </Field>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-gray-500 my-4">
                         File name preview: <code style={{ color: '#0BA90A' }}>{fileNamePreview}</code>
                     </p>
                     <div />
