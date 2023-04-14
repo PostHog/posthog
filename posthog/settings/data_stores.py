@@ -1,4 +1,5 @@
 import os
+from typing import Dict, Any
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -20,6 +21,35 @@ SQLCOMMENTER_WITH_FRAMEWORK = False
 
 JOB_QUEUE_GRAPHILE_URL = os.getenv("JOB_QUEUE_GRAPHILE_URL")
 
+def postgres_config(host: str) -> Dict[str, Any]:
+    """Generate the config map we need for a postgres database.
+
+    Generally all our postgres databases will need the same config - replicas are identical other than host.
+
+    Parameters:
+        host (str): The host to connect to
+
+    Returns:
+        Dict[str, Any]: The config, to be set in django DATABASES
+    """
+
+    return {
+        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "NAME": get_from_env("POSTHOG_DB_NAME"),
+        "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
+        "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
+        "HOST": host,
+        "PORT": os.getenv("POSTHOG_POSTGRES_PORT", "5432"),
+        "CONN_MAX_AGE": 0,
+        "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
+        "SSL_OPTIONS": {
+            "sslmode": os.getenv("POSTHOG_POSTGRES_SSL_MODE", None),
+            "sslrootcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CA", None),
+            "sslcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
+            "sslkey": os.getenv("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
+        },
+    }
+
 if TEST or DEBUG:
     PG_HOST = os.getenv("PGHOST", "localhost")
     PG_USER = os.getenv("PGUSER", "posthog")
@@ -38,22 +68,7 @@ if DATABASE_URL:
 
 elif os.getenv("POSTHOG_DB_NAME"):
     DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql_psycopg2",
-            "NAME": get_from_env("POSTHOG_DB_NAME"),
-            "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
-            "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
-            "HOST": os.getenv("POSTHOG_POSTGRES_HOST", "localhost"),
-            "PORT": os.getenv("POSTHOG_POSTGRES_PORT", "5432"),
-            "CONN_MAX_AGE": 0,
-            "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
-            "SSL_OPTIONS": {
-                "sslmode": os.getenv("POSTHOG_POSTGRES_SSL_MODE", None),
-                "sslrootcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CA", None),
-                "sslcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
-                "sslkey": os.getenv("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
-            },
-        }
+        "default": postgres_config(os.getenv("POSTHOG_POSTGRES_HOST", "localhost"))
     }
 
     ssl_configurations = []
@@ -80,25 +95,11 @@ else:
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
 
+# Configure the database which will be used as a read replica.
+# This should have all the same config as our main writer DB, just use a different host.
+# Our database router will point here.
 if os.getenv("POSTHOG_POSTGRES_READ_HOST"):
-    DATABASES["replica"] = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql_psycopg2",
-            "NAME": get_from_env("POSTHOG_DB_NAME"),
-            "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
-            "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
-            "HOST": os.getenv("POSTHOG_POSTGRES_READ_HOST", "localhost"),
-            "PORT": os.getenv("POSTHOG_POSTGRES_PORT", "5432"),
-            "CONN_MAX_AGE": 0,
-            "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
-            "SSL_OPTIONS": {
-                "sslmode": os.getenv("POSTHOG_POSTGRES_SSL_MODE", None),
-                "sslrootcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CA", None),
-                "sslcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
-                "sslkey": os.getenv("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
-            },
-        }
-    }
+    DATABASES["replica"] = postgres_config(os.getenv("POSTHOG_POSTGRES_READ_HOST", "localhost"))
 
 if JOB_QUEUE_GRAPHILE_URL:
     DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
