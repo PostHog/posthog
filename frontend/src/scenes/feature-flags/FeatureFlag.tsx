@@ -38,6 +38,7 @@ import {
     Resource,
     FeatureFlagType,
     SessionRecordingsTabs,
+    FeatureFlagGroupType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -78,6 +79,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import clsx from 'clsx'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -1020,6 +1022,87 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
             (property) => property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
         )
     }
+
+    const renderReleaseCondition = (group: FeatureFlagGroupType, index: number): JSX.Element => {
+        if (group.feature_preview) {
+            return (
+                <Row justify="space-between" align="middle">
+                    <LemonTag type={'primary'}>
+                        <div className="text-sm ">Connected to feature preview</div>
+                    </LemonTag>
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => router.actions.push('/features/' + group.feature_preview)}
+                    >
+                        Manage
+                    </LemonButton>
+                </Row>
+            )
+        }
+
+        if (readOnly) {
+            return (
+                <LemonTag
+                    type={
+                        featureFlag.filters.groups.length == 1
+                            ? group.rollout_percentage == null || group.rollout_percentage == 100
+                                ? 'highlight'
+                                : group.rollout_percentage == 0
+                                ? 'caution'
+                                : 'none'
+                            : 'none'
+                    }
+                >
+                    <div className="text-sm ">
+                        Rolled out to <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
+                        <b>{aggregationTargetName}</b> in this set.{' '}
+                    </div>
+                </LemonTag>
+            )
+        }
+
+        return (
+            <div className="feature-flag-form-row">
+                <div className="centered">
+                    Roll out to{' '}
+                    <InputNumber
+                        style={{ width: 100, marginLeft: 8, marginRight: 8 }}
+                        onChange={(value): void => {
+                            updateConditionSet(index, value as number)
+                        }}
+                        value={group.rollout_percentage != null ? group.rollout_percentage : 100}
+                        min={0}
+                        max={100}
+                        addonAfter="%"
+                    />{' '}
+                    of <b>{aggregationTargetName}</b> in this set.{' '}
+                    {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
+                        <>
+                            Will match approximately{' '}
+                            {affectedUsers[index] !== undefined ? (
+                                <b>
+                                    {`${
+                                        computeBlastRadiusPercentage(group.rollout_percentage, index).toPrecision(2) * 1
+                                        // Multiplying by 1 removes trailing zeros after the decimal
+                                        // point added by toPrecision
+                                    }% `}
+                                </b>
+                            ) : (
+                                <Spinner className="mr-1" />
+                            )}{' '}
+                            {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
+                                ? `(${humanFriendlyNumber(
+                                      Math.floor((affectedUsers[index] * (group.rollout_percentage ?? 100)) / 100)
+                                  )} / ${humanFriendlyNumber(totalUsers)})`
+                                : ''}{' '}
+                            of total {aggregationTargetName}.
+                        </>
+                    )}
+                </div>
+            </div>
+        )
+    }
+
     return (
         <>
             <div className="feature-flag-form-row">
@@ -1072,11 +1155,19 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                     </div>
                 )}
             </div>
-            <Row gutter={16}>
+            <Row className="FeatureConditionCard" gutter={16}>
                 {featureFlag.filters.groups.map((group, index) => (
                     <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
                         {index > 0 && <div className="condition-set-separator">OR</div>}
-                        <div className="mb-4 border rounded p-4">
+                        <div
+                            className={clsx(
+                                'mb-4',
+                                'border',
+                                'rounded',
+                                'p-4',
+                                group.feature_preview && 'FeatureConditionCard--border--highlight'
+                            )}
+                        >
                             <Row align="middle" justify="space-between">
                                 <Row align="middle">
                                     <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
@@ -1108,7 +1199,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                             noPadding
                                             onClick={() => duplicateConditionSet(index)}
                                         />
-                                        {featureFlag.filters.groups.length > 1 && (
+                                        {!group.feature_preview && featureFlag.filters.groups.length > 1 && (
                                             <LemonButton
                                                 icon={<IconDelete />}
                                                 status="muted"
@@ -1230,71 +1321,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                             {(!readOnly || (readOnly && group.properties?.length > 0)) && (
                                 <LemonDivider className="my-3" />
                             )}
-                            {readOnly ? (
-                                <LemonTag
-                                    type={
-                                        featureFlag.filters.groups.length == 1
-                                            ? group.rollout_percentage == null || group.rollout_percentage == 100
-                                                ? 'highlight'
-                                                : group.rollout_percentage == 0
-                                                ? 'caution'
-                                                : 'none'
-                                            : 'none'
-                                    }
-                                >
-                                    <div className="text-sm ">
-                                        Rolled out to{' '}
-                                        <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
-                                        <b>{aggregationTargetName}</b> in this set.{' '}
-                                    </div>
-                                </LemonTag>
-                            ) : (
-                                <div className="feature-flag-form-row">
-                                    <div className="centered">
-                                        Roll out to{' '}
-                                        <InputNumber
-                                            style={{ width: 100, marginLeft: 8, marginRight: 8 }}
-                                            onChange={(value): void => {
-                                                updateConditionSet(index, value as number)
-                                            }}
-                                            value={group.rollout_percentage != null ? group.rollout_percentage : 100}
-                                            min={0}
-                                            max={100}
-                                            addonAfter="%"
-                                        />{' '}
-                                        of <b>{aggregationTargetName}</b> in this set.{' '}
-                                        {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
-                                            <>
-                                                Will match approximately{' '}
-                                                {affectedUsers[index] !== undefined ? (
-                                                    <b>
-                                                        {`${
-                                                            computeBlastRadiusPercentage(
-                                                                group.rollout_percentage,
-                                                                index
-                                                            ).toPrecision(2) * 1
-                                                            // Multiplying by 1 removes trailing zeros after the decimal
-                                                            // point added by toPrecision
-                                                        }% `}
-                                                    </b>
-                                                ) : (
-                                                    <Spinner className="mr-1" />
-                                                )}{' '}
-                                                {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
-                                                    ? `(${humanFriendlyNumber(
-                                                          Math.floor(
-                                                              (affectedUsers[index] *
-                                                                  (group.rollout_percentage ?? 100)) /
-                                                                  100
-                                                          )
-                                                      )} / ${humanFriendlyNumber(totalUsers)})`
-                                                    : ''}{' '}
-                                                of total {aggregationTargetName}.
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
+                            {renderReleaseCondition(group, index)}
                             {nonEmptyVariants.length > 0 && (
                                 <>
                                     <LemonDivider className="my-3" />

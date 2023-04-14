@@ -5,6 +5,7 @@ import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton/LemonButton'
 import './LemonTag.scss'
 
 export type LemonTagPropsType =
+    | 'primary'
     | 'highlight'
     | 'warning'
     | 'danger'

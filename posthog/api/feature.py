@@ -72,7 +72,7 @@ class FeatureSerializerCreateOnly(FeatureSerializer):
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         feature_flag_key = validated_data.pop("feature_flag_key")
-        validated_data["feature_flag_id"] = FeatureFlag.objects.create(
+        feature_flag = FeatureFlag.objects.create(
             team_id=self.context["team_id"],
             key=feature_flag_key,
             name=f"Feature Flag for Feature {validated_data['name']}",
@@ -94,8 +94,30 @@ class FeatureSerializerCreateOnly(FeatureSerializer):
                 "payloads": {},
                 "multivariate": None,
             },
-        ).id
-        return super().create(validated_data)
+        )
+        validated_data["feature_flag_id"] = feature_flag.id
+
+        feature: Feature = super().create(validated_data)
+        feature_flag.filters = {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": f"$feature_enrollment/{feature_flag_key}",
+                            "type": "person",
+                            "value": ["true"],
+                            "operator": "exact",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                    "feature_preview": str(feature.pk),
+                }
+            ],
+            "payloads": {},
+            "multivariate": None,
+        }
+        feature_flag.save()
+        return feature
 
 
 class FeatureViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):  # TODO: Use ForbidDestroyModel

@@ -11,7 +11,7 @@ import type { featureLogicType } from './featureLogicType'
 const NEW_FEATURE: NewFeatureType = {
     name: '',
     description: '',
-    stage: 'concept',
+    stage: 'alpha',
     image_url: '',
     documentation_url: '',
     feature_flag_key: '',

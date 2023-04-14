@@ -1933,6 +1933,7 @@ export interface FeatureFlagGroupType {
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number
+    feature_preview?: string
 }
 
 export interface MultivariateFlagVariant {

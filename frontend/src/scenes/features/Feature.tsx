@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -15,7 +15,6 @@ import { IconFlag, IconPlus } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useState } from 'react'
-import { Row } from 'antd'
 
 export const scene: SceneExport = {
     component: Feature,
@@ -25,20 +24,39 @@ export const scene: SceneExport = {
     }),
 }
 
-function FeatureInstructions({ feature }: { feature: FeatureType | NewFeatureType }): JSX.Element {
+function FeatureEnrollInstructions({ feature }: { feature: FeatureType | NewFeatureType }): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript} wrap>
-            {`// Opt a user into the feature
-posthog.people.set({
-    "$feature_enrollment/${'feature_flag_key' in feature ? feature.feature_flag_key : feature.feature_flag.key}": "${
-                feature.stage
-            }"
-})
+            {`posthog.updateFeaturePreviewEnrollment("${
+                'feature_flag_key' in feature ? feature.feature_flag_key : feature.feature_flag.key
+            }", true)
+`}
+        </CodeSnippet>
+    )
+}
 
-// Opt a user out
-posthog.people.set({
-    "$feature_enrollment/${'feature_flag_key' in feature ? feature.feature_flag_key : feature.feature_flag.key}": false
-})
+function FeatureUnenrollInstructions({ feature }: { feature: FeatureType | NewFeatureType }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.JavaScript} wrap>
+            {`posthog.updateFeaturePreviewEnrollment("${
+                'feature_flag_key' in feature ? feature.feature_flag_key : feature.feature_flag.key
+            }", false)
+`}
+        </CodeSnippet>
+    )
+}
+
+function RetrievePreviewsInstructions({ feature }: { feature: FeatureType | NewFeatureType }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.JavaScript} wrap>
+            {`posthog.getFeaturePreviews()
+
+// Example response:
+// {
+//     name: '${feature.name}',
+//     stage: '${feature.stage}',
+//     flagKey: '${'feature_flag_key' in feature ? feature.feature_flag_key : feature.feature_flag.key}',
+// }
 `}
         </CodeSnippet>
     )
@@ -137,7 +155,7 @@ export function Feature(): JSX.Element {
                             />
                         </Field>
                     )}
-                    <KeaField name="stage" label={<h4 className="font-semibold">Stage</h4>}>
+                    <KeaField name="Stage" label={<h4 className="font-semibold">Stage</h4>}>
                         {({ value, onChange }) => (
                             <LemonSelect
                                 value={value}
@@ -159,28 +177,36 @@ export function Feature(): JSX.Element {
                             />
                         )}
                     </KeaField>
+                    <Field name="description" label="Description" showOptional>
+                        <LemonTextArea
+                            className="ph-ignore-input"
+                            placeholder="Help your users understand the feature"
+                        />
+                    </Field>
+                    <Field name="documentation_url" label="Documentation URL" showOptional>
+                        <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+                    </Field>
                 </div>
                 {feature.stage !== 'general-availability' && (
                     <div className="border rounded p-3 w-1/2 max-w-160">
-                        <Row justify="space-between" align="middle">
+                        <span>
                             <b>Integrate feature previews</b>
-                            <LemonSelect
-                                value={'manual'}
-                                onChange={(e) => {}}
-                                options={[
-                                    {
-                                        label: 'Manual',
-                                        value: 'manual',
-                                    },
-                                    {
-                                        label: 'Widget',
-                                        value: 'widget',
-                                    },
-                                ]}
-                            />
-                        </Row>
+                        </span>
+                        <LemonDivider className="my-4" />
+
+                        <b>Opt user in</b>
                         <div>
-                            <FeatureInstructions feature={feature} />
+                            <FeatureEnrollInstructions feature={feature} />
+                        </div>
+
+                        <b>Opt user out</b>
+                        <div>
+                            <FeatureUnenrollInstructions feature={feature} />
+                        </div>
+
+                        <b>Retrieve Previews</b>
+                        <div>
+                            <RetrievePreviewsInstructions feature={feature} />
                         </div>
                     </div>
                 )}
@@ -188,41 +214,46 @@ export function Feature(): JSX.Element {
             <LemonDivider className="my-4" />
             <h3 className="text-xl font-semibold my-4">Persons</h3>
             {'feature_flag' in feature && (
-
-                    <Persons
-                        fixedProperties={[
-                            {
-                                key: '$feature_enrollment/' + feature.feature_flag.key,
-                                type: PropertyFilterType.Person,
-                                operator: PropertyOperator.IsSet,
+                <Persons
+                    fixedProperties={[
+                        {
+                            key: '$feature_enrollment/' + feature.feature_flag.key,
+                            type: PropertyFilterType.Person,
+                            operator: PropertyOperator.IsSet,
+                        },
+                    ]}
+                    extraSceneActions={[
+                        <LemonButton
+                            key={'$feature_enrollment/' + feature.feature_flag.key}
+                            type="primary"
+                            icon={<IconPlus />}
+                            onClick={toggleModal}
+                        >
+                            Add person
+                        </LemonButton>,
+                    ]}
+                    extraColumns={[
+                        {
+                            title: 'Stage',
+                            dataIndex: 'properties',
+                            render: function Render(_, person: PersonType) {
+                                return (
+                                    <span>
+                                        {person.properties[
+                                            '$feature_enrollment/' + feature.feature_flag.key
+                                        ].toString()}
+                                    </span>
+                                )
                             },
-                        ]}
-                        extraSceneActions={[
-                            <LemonButton type="primary" icon={<IconPlus />} onClick={toggleModal}>
-                                Add person
-                            </LemonButton>
-                        ]}
-                        extraColumns={[
-                            {
-                                title: 'Stage',
-                                dataIndex: 'properties',
-                                render: function Render(_, person: PersonType) {
-                                    return <span>{person.properties['$feature_enrollment/' + feature.feature_flag.key].toString()}</span>
-                                },
-                            },
-                        ]}
-                        compact={true}
-                        showExportAction={false}
-                    />
+                        },
+                    ]}
+                    compact={true}
+                    showExportAction={false}
+                />
             )}
             {'feature_flag' in feature && (
-                <LemonModal
-                    title={"Select person to add"}
-                    isOpen={isModalOpen}
-                    onClose={toggleModal}
-                    width={560}
-                >   
-                    <Persons 
+                <LemonModal title={'Select person to add'} isOpen={isModalOpen} onClose={toggleModal} width={560}>
+                    <Persons
                         fixedProperties={[
                             {
                                 key: '$feature_enrollment/' + feature.feature_flag.key,
@@ -230,18 +261,18 @@ export function Feature(): JSX.Element {
                                 operator: PropertyOperator.IsNotSet,
                             },
                         ]}
-                        compact={true} 
-                        showFilters={false} 
+                        compact={true}
+                        showFilters={false}
                         showExportAction={false}
                         extraColumns={[
                             {
-                                render: function Render(_, person: PersonType) {
+                                render: function Render() {
                                     return (
                                         <LemonButton
-                                            onClick={() => console.log("HELLO")}
+                                            onClick={() => console.log('HELLO')}
                                             icon={<IconPlus />}
                                             size="small"
-                                            type='secondary'
+                                            type="secondary"
                                         >
                                             Add
                                         </LemonButton>
@@ -251,8 +282,7 @@ export function Feature(): JSX.Element {
                         ]}
                     />
                 </LemonModal>
-                )
-            }
+            )}
         </Form>
     )
 }

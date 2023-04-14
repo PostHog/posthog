@@ -59,3 +59,9 @@
         white-space: pre-wrap;
     }
 }
+
+.FeatureConditionCard {
+    .FeatureConditionCard--border--highlight {
+        border-color: var(--primary);
+    }
+}
