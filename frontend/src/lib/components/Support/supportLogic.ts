@@ -6,6 +6,23 @@ import { userLogic } from 'scenes/userLogic'
 import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
 
+export const TargetAreaToName = {
+    analytics: 'Analytics',
+    app_performance: 'App Performance',
+    apps: 'Apps',
+    billing: 'Billing',
+    cohorts: 'Cohorts',
+    data_management: 'Data Management',
+    data_integrity: 'Data Integrity',
+    ingestion: 'Events Ingestion',
+    experiments: 'Experiments',
+    feature_flags: 'Feature Flags',
+    login: 'Login / Sign up / Invites',
+    session_reply: 'Session Replay',
+}
+export type supportTicketTargetArea = keyof typeof TargetAreaToName
+export type supportTicketKind = 'bug' | 'feedback'
+
 export const supportLogic = kea<supportLogicType>([
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
@@ -13,8 +30,12 @@ export const supportLogic = kea<supportLogicType>([
     })),
     actions(() => ({
         closeSupportForm: () => true,
-        openSupportForm: () => true,
-        submitZendeskTicket: (kind: string, target_area: string, message: string) => ({ kind, target_area, message }),
+        openSupportForm: (kind?: supportTicketKind, target_area?: supportTicketTargetArea) => ({ kind, target_area }),
+        submitZendeskTicket: (kind: supportTicketKind, target_area: supportTicketTargetArea, message: string) => ({
+            kind,
+            target_area,
+            message,
+        }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -27,7 +48,11 @@ export const supportLogic = kea<supportLogicType>([
     })),
     forms(({ actions }) => ({
         sendSupportRequest: {
-            defaults: {} as unknown as { kind: string; target_area: string; message: string },
+            defaults: {} as unknown as {
+                kind: supportTicketKind
+                target_area: supportTicketTargetArea
+                message: string
+            },
             errors: ({ message, kind, target_area }) => {
                 return {
                     message: !message ? 'Please enter a message' : '',
@@ -42,7 +67,14 @@ export const supportLogic = kea<supportLogicType>([
             },
         },
     })),
-    listeners(({}) => ({
+    listeners(({ actions }) => ({
+        openSupportForm: async ({ kind, target_area }) => {
+            actions.resetSendSupportRequest({
+                kind: kind ? kind : undefined,
+                target_area: target_area ? target_area : undefined,
+                message: '',
+            })
+        },
         submitZendeskTicket: async ({ kind, target_area, message }) => {
             const name = userLogic.values.user?.first_name
             const email = userLogic.values.user?.email

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { billingLogic } from './billingLogic'
-import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -21,6 +21,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Billing as BillingTest } from './test/Billing'
 import { Field, Form } from 'kea-forms'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -37,6 +38,7 @@ export function Billing(): JSX.Element {
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const cloudOrDev = preflight?.cloud || preflight?.is_debug
+    const { openSupportForm } = useActions(supportLogic)
 
     useEffect(() => {
         if (billing) {
@@ -63,29 +65,24 @@ export function Billing(): JSX.Element {
     }
 
     if (!billing && !billingLoading) {
-        const supportLink = (
-            <Link
-                target="blank"
-                to="https://posthog.com/support?utm_medium=in-product&utm_campaign=billing-service-unreachable"
-            >
-                {' '}
-                contact support{' '}
-            </Link>
-        )
         return (
             <div className="space-y-4">
                 <BillingPageHeader />
                 <LemonBanner type="error">
                     There was an issue retrieving your current billing information. If this message persists please
-                    {supportLink}.
+                    <LemonButton
+                        onClick={() => {
+                            openSupportForm('bug', 'billing')
+                        }}
+                    >
+                        Submit a bug report
+                    </LemonButton>
                 </LemonBanner>
 
                 {!cloudOrDev ? (
                     <LemonBanner type="info">
-                        Please ensure your instance is able to reach <b>https://billing.posthog.com</b>
-                        <br />
-                        If this is not possible, please {supportLink} about licensing options for "air-gapped"
-                        instances.
+                        There was an issue retrieving your current billing information. If this message persists please
+                        contact <a href="mailto:sales@posthog.com">sales@posthog.com</a>.
                     </LemonBanner>
                 ) : null}
             </div>
