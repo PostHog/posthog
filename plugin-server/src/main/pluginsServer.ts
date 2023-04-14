@@ -430,14 +430,11 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingIngestion) {
-            const kafka = hub?.kafka ?? createKafkaClient(serverConfig as KafkaConfig)
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
             const { stop, isHealthy: isSessionRecordingsHealthy } = await startSessionRecordingEventsConsumer({
                 teamManager: teamManager,
-                kafka: kafka,
                 kafkaConfig: serverConfig as KafkaConfig,
-                partitionsConsumedConcurrently: serverConfig.RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY,
                 consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
                 consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
