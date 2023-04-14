@@ -65,7 +65,7 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
         connectionChoice: [
             (s) => [s.connectionChoices, (_, props) => props.id],
             (connectionChoices, connectionChoiceId): ConnectionChoiceType | undefined => {
-                return connectionChoices.find((connectionChoice) => connectionChoice.id === connectionChoiceId)
+                return connectionChoices?.find((connectionChoice) => connectionChoice.id === connectionChoiceId)
             },
         ],
         fileNamePreview: [
@@ -100,8 +100,9 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadConnectionChoiceSuccess: () => {
+            debugger
             actions.setConnectionSettingsValues({
-                name: values.connectionSettings.name ?? values.connectionChoice.name,
+                name: values.connectionSettings.name || values?.connectionChoice?.name,
             })
         },
     })),
