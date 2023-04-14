@@ -120,6 +120,10 @@ export const startSessionRecordingEventsConsumer = async ({
 
 const eachMessage =
     (groupId: string, teamManager: TeamManager, producer: RdKafkaProducer) => async (message: Message) => {
+        // TODO: handle DLQ
+        // TODO: handle offset store as per
+        // https://github.com/confluentinc/librdkafka/blob/master/INTRODUCTION.md#at-least-once-processing
+        // TODO: handle prom metrics
         if (!message.value) {
             status.warn('⚠️', 'invalid_message', {
                 reason: 'empty',
