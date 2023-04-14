@@ -21,6 +21,7 @@ SQLCOMMENTER_WITH_FRAMEWORK = False
 
 JOB_QUEUE_GRAPHILE_URL = os.getenv("JOB_QUEUE_GRAPHILE_URL")
 
+
 def postgres_config(host: str) -> Dict[str, Any]:
     """Generate the config map we need for a postgres database.
 
@@ -50,6 +51,7 @@ def postgres_config(host: str) -> Dict[str, Any]:
         },
     }
 
+
 if TEST or DEBUG:
     PG_HOST = os.getenv("PGHOST", "localhost")
     PG_USER = os.getenv("PGUSER", "posthog")
@@ -67,9 +69,7 @@ if DATABASE_URL:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
 elif os.getenv("POSTHOG_DB_NAME"):
-    DATABASES = {
-        "default": postgres_config(os.getenv("POSTHOG_POSTGRES_HOST", "localhost"))
-    }
+    DATABASES = {"default": postgres_config(os.getenv("POSTHOG_POSTGRES_HOST", "localhost"))}
 
     ssl_configurations = []
     for ssl_option, value in DATABASES["default"]["SSL_OPTIONS"].items():
