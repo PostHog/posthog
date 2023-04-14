@@ -98,8 +98,9 @@ else:
 # Configure the database which will be used as a read replica.
 # This should have all the same config as our main writer DB, just use a different host.
 # Our database router will point here.
-if os.getenv("POSTHOG_POSTGRES_READ_HOST"):
-    DATABASES["replica"] = postgres_config(os.getenv("POSTHOG_POSTGRES_READ_HOST"))
+read_host = os.getenv("POSTHOG_POSTGRES_READ_HOST")
+if read_host:
+    DATABASES["replica"] = postgres_config(read_host)
 
 if JOB_QUEUE_GRAPHILE_URL:
     DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
