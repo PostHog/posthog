@@ -51,7 +51,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** An embedded table has no border around it and no background. This way it blends better into other components. */
     embedded?: boolean
     /** Whether inner table borders should be shown. **/
-    bordered?: boolean
+    borderedRows?: boolean
     loading?: boolean
     pagination?: PaginationAuto | PaginationManual
     expandable?: ExpandableConfig<T>
@@ -80,6 +80,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     className?: string
     style?: React.CSSProperties
     'data-attr'?: string
+    display?: 'stealth' | 'default'
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -94,7 +95,7 @@ export function LemonTable<T extends Record<string, any>>({
     size,
     inset = false,
     embedded = false,
-    bordered = true,
+    borderedRows = true,
     loading,
     pagination,
     expandable,
@@ -111,6 +112,7 @@ export function LemonTable<T extends Record<string, any>>({
     className,
     style,
     'data-attr': dataAttr,
+    display = 'default',
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -206,7 +208,8 @@ export function LemonTable<T extends Record<string, any>>({
                 inset && 'LemonTable--inset',
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
-                !bordered && 'LemonTable--borderless',
+                !borderedRows && 'LemonTable--borderlessRows',
+                display === 'stealth' && 'LemonTable--stealth',
                 ...scrollableClassNames,
                 className
             )}

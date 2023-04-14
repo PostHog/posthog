@@ -68,116 +68,122 @@ export interface LemonButtonProps extends LemonButtonPropsBase {
 }
 
 /** Styled button. */
-function LemonButtonInternal(
-    {
-        children,
-        active = false,
-        className,
-        disabled,
-        disabledReason,
-        loading,
-        type = 'tertiary',
-        status = 'primary',
-        icon,
-        sideIcon,
-        fullWidth,
-        center,
-        size,
-        tooltip,
-        tooltipPlacement,
-        htmlType = 'button',
-        noPadding,
-        to,
-        targetBlank,
-        disableClientSideRouting,
-        getTooltipPopupContainer,
-        ...buttonProps
-    }: LemonButtonProps,
-    ref: React.Ref<HTMLElement>
-): JSX.Element {
-    const popopverPlacement = useContext(PopoverPlacementContext)
+export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAttributes<HTMLElement>> =
+    React.forwardRef(
+        (
+            {
+                children,
+                active = false,
+                className,
+                disabled,
+                disabledReason,
+                loading,
+                type = 'tertiary',
+                status = 'primary',
+                icon,
+                sideIcon,
+                fullWidth,
+                center,
+                size,
+                tooltip,
+                tooltipPlacement,
+                htmlType = 'button',
+                noPadding,
+                to,
+                targetBlank,
+                disableClientSideRouting,
+                getTooltipPopupContainer,
+                ...buttonProps
+            },
+            ref
+        ): JSX.Element => {
+            const popopverPlacement = useContext(PopoverPlacementContext)
 
-    if (popopverPlacement) {
-        if (!children) {
-            if (icon === undefined) {
-                icon = popopverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+            if (popopverPlacement) {
+                if (!children) {
+                    if (icon === undefined) {
+                        icon = popopverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+                    }
+                } else if (sideIcon === undefined) {
+                    sideIcon = popopverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+                }
             }
-        } else if (sideIcon === undefined) {
-            sideIcon = popopverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
-        }
-    }
-    if (loading) {
-        icon = <Spinner monocolor />
-    }
-    let tooltipContent: TooltipProps['title']
-    if (disabledReason) {
-        disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
-        if (tooltipContent) {
-            tooltipContent = (
-                <>
-                    {tooltip}
-                    <div className="mt-1 italic">{disabledReason}</div>
-                </>
+            if (loading) {
+                icon = <Spinner monocolor />
+            }
+            let tooltipContent: TooltipProps['title']
+            if (disabledReason) {
+                disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
+                if (tooltipContent) {
+                    tooltipContent = (
+                        <>
+                            {tooltip}
+                            <div className="mt-1 italic">{disabledReason}</div>
+                        </>
+                    )
+                } else {
+                    tooltipContent = <span className="italic">{disabledReason}</span>
+                }
+            } else {
+                tooltipContent = tooltip
+            }
+
+            const ButtonComponent = to ? Link : 'button'
+
+            const linkOnlyProps = to ? { disableClientSideRouting } : {}
+
+            if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
+                buttonProps['aria-label'] = tooltip
+            }
+
+            let workingButton = (
+                <ButtonComponent
+                    type={htmlType}
+                    ref={ref as any}
+                    className={clsx(
+                        'LemonButton',
+                        `LemonButton--${type}`,
+                        `LemonButton--status-${status}`,
+                        noPadding && `LemonButton--no-padding`,
+                        size && `LemonButton--${size}`,
+                        disabled && 'LemonButton--disabled',
+                        active && 'LemonButton--active',
+                        fullWidth && 'LemonButton--full-width',
+                        center && 'LemonButton--centered',
+                        !children && 'LemonButton--no-content',
+                        !!icon && `LemonButton--has-icon`,
+                        !!sideIcon && `LemonButton--has-side-icon`,
+                        className
+                    )}
+                    disabled={disabled || loading}
+                    to={disabled ? undefined : to}
+                    target={targetBlank ? '_blank' : undefined}
+                    {...linkOnlyProps}
+                    {...buttonProps}
+                >
+                    {icon ? <span className="LemonButton__icon">{icon}</span> : null}
+                    {children ? <span className="LemonButton__content flex items-center">{children}</span> : null}
+                    {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
+                </ButtonComponent>
             )
-        } else {
-            tooltipContent = <span className="italic">{disabledReason}</span>
+
+            if (tooltipContent) {
+                workingButton = (
+                    <Tooltip
+                        title={tooltipContent}
+                        placement={tooltipPlacement}
+                        getPopupContainer={getTooltipPopupContainer}
+                    >
+                        {/* If the button is a `button` element and disabled, wrap it in a div so that the tooltip works */}
+                        {disabled && ButtonComponent === 'button' ? <div>{workingButton}</div> : workingButton}
+                    </Tooltip>
+                )
+            }
+
+            return workingButton
         }
-    } else {
-        tooltipContent = tooltip
-    }
-
-    const ButtonComponent = to ? Link : 'button'
-
-    const linkOnlyProps = to ? { disableClientSideRouting } : {}
-
-    if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
-        buttonProps['aria-label'] = tooltip
-    }
-
-    let workingButton = (
-        <ButtonComponent
-            type={htmlType}
-            ref={ref as any}
-            className={clsx(
-                'LemonButton',
-                `LemonButton--${type}`,
-                `LemonButton--status-${status}`,
-                noPadding && `LemonButton--no-padding`,
-                size && `LemonButton--${size}`,
-                disabled && 'LemonButton--disabled',
-                active && 'LemonButton--active',
-                fullWidth && 'LemonButton--full-width',
-                center && 'LemonButton--centered',
-                !children && 'LemonButton--no-content',
-                !!icon && `LemonButton--has-icon`,
-                !!sideIcon && `LemonButton--has-side-icon`,
-                className
-            )}
-            disabled={disabled || loading}
-            to={disabled ? undefined : to}
-            target={targetBlank ? '_blank' : undefined}
-            {...linkOnlyProps}
-            {...buttonProps}
-        >
-            {icon ? <span className="LemonButton__icon">{icon}</span> : null}
-            {children ? <span className="LemonButton__content flex items-center">{children}</span> : null}
-            {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
-        </ButtonComponent>
     )
-
-    if (tooltipContent) {
-        workingButton = (
-            <Tooltip title={tooltipContent} placement={tooltipPlacement} getPopupContainer={getTooltipPopupContainer}>
-                {/* If the button is a `button` element and disabled, wrap it in a div so that the tooltip works */}
-                {disabled && ButtonComponent === 'button' ? <div>{workingButton}</div> : workingButton}
-            </Tooltip>
-        )
-    }
-
-    return workingButton
-}
-
-export const LemonButton = React.forwardRef(LemonButtonInternal)
+LemonButton.displayName = 'LemonButton'
 
 export type SideAction = Pick<
     LemonButtonProps,
@@ -243,13 +249,13 @@ export interface LemonButtonWithDropdownProps extends LemonButtonPropsBase {
  * The difference vs. plain `LemonButton` is dropdown visibility being controlled internally, which is more convenient.
  * @deprecated In almost all cases you should use the newer `LemonMenu` with a `LemonButton` child.
  */
-export function LemonButtonWithDropdown({
-    dropdown: dropdownProps,
-    ...buttonProps
-}: LemonButtonWithDropdownProps): JSX.Element {
+export const LemonButtonWithDropdown: React.FunctionComponent<
+    LemonButtonWithDropdownProps & React.RefAttributes<HTMLButtonElement>
+> = React.forwardRef(({ dropdown: dropdownProps, ...buttonProps }, ref): JSX.Element => {
     return (
         <LemonDropdown {...dropdownProps}>
-            <LemonButton {...buttonProps} />
+            <LemonButton ref={ref} {...buttonProps} />
         </LemonDropdown>
     )
-}
+})
+LemonButtonWithDropdown.displayName = 'LemonButtonWithDropdown'

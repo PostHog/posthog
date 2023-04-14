@@ -28,8 +28,6 @@ export interface LemonSelectOptionNode<T> extends LemonSelectOptionBase {
 
 export type LemonSelectOption<T> = LemonSelectOptionLeaf<T> | LemonSelectOptionNode<T>
 
-export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<T>[]
-
 export interface LemonSelectSection<T> {
     title?: string | React.ReactNode
     options: LemonSelectOption<T>[]
@@ -38,6 +36,8 @@ export interface LemonSelectSection<T> {
 
 type OnChange<T> = (newValue: T | null) => void
 type OnSelect<T> = (newValue: T) => void
+export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<T>[]
+
 export interface LemonSelectProps<T>
     extends Pick<
         LemonButtonWithDropdownProps,
@@ -57,7 +57,7 @@ export interface LemonSelectProps<T>
     allowClear?: boolean
     className?: string
     placeholder?: string
-    size?: 'small' | undefined
+    size?: 'small' | 'medium'
     popover?: {
         className?: string
         ref?: React.MutableRefObject<HTMLDivElement | null>

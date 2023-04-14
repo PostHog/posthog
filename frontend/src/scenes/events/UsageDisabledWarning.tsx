@@ -1,8 +1,8 @@
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export function UsageDisabledWarning(): JSX.Element {
     return (
-        <AlertMessage type="info">
+        <LemonBanner type="info">
             <div className="text-base mb-1">Event usage information is not enabled for your instance.</div>
             <p className="font-normal">
                 You will still see the list of events and properties, but usage information will be unavailable. If you
@@ -11,6 +11,6 @@ export function UsageDisabledWarning(): JSX.Element {
                 variable <b>may increase load considerably in your infrastructure</b>, particularly if you have a large
                 volume of events.
             </p>
-        </AlertMessage>
+        </LemonBanner>
     )
 }

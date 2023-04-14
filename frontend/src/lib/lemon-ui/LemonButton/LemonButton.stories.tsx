@@ -12,7 +12,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { Link } from '@posthog/lemon-ui'
-import { AlertMessage } from '../AlertMessage'
+import { LemonBanner } from '../LemonBanner'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import clsx from 'clsx'
 
@@ -238,12 +238,12 @@ export const WithSideAction = (): JSX.Element => {
 export const AsLinks = (): JSX.Element => {
     return (
         <div className="space-y-2">
-            <AlertMessage type="info">
+            <LemonBanner type="info">
                 <b>Reminder</b> - if you just want a link, use the{' '}
                 <Link to={'/?path=/docs/lemon-ui-link'} disableClientSideRouting>
                     Link component
                 </Link>
-            </AlertMessage>
+            </LemonBanner>
 
             <p>
                 Buttons can act as links via the <b>to</b> prop. If this is an internal endpoint it will be routed

@@ -45,7 +45,7 @@ import { Field } from 'lib/forms/Field'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { router } from 'kea-router'
@@ -172,13 +172,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         />
                         <LemonDivider />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
-                            <AlertMessage type="warning">
+                            <LemonBanner type="warning">
                                 This feature flag is linked to an experiment. It's recommended to only make changes to
                                 this flag{' '}
                                 <Link to={urls.experiment(featureFlag.experiment_set[0])}>
                                     using the experiment creation screen.
                                 </Link>
-                            </AlertMessage>
+                            </LemonBanner>
                         )}
                         <Row gutter={16} style={{ marginBottom: 32 }}>
                             <Col span={12} className="space-y-4">
@@ -1121,7 +1121,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                             </Row>
                             <LemonDivider className="my-3" />
                             {!readOnly && hasNonInstantProperty(group.properties) && (
-                                <AlertMessage type="info" className="mt-3 mb-3">
+                                <LemonBanner type="info" className="mt-3 mb-3">
                                     These properties aren't immediately available on first page load for unidentified
                                     persons. This feature flag requires that at least one event is sent prior to
                                     becoming available to your product or website.{' '}
@@ -1132,7 +1132,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         {' '}
                                         Learn more about how to make feature flags available instantly.
                                     </a>
-                                </AlertMessage>
+                                </LemonBanner>
                             )}
 
                             {readOnly ? (

@@ -147,6 +147,7 @@ export const FEATURE_FLAGS = {
     HOGQL: 'hogql', // owner: #team-product-analytics
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
     ARUBUG: 'arubug', // owner: #team-arubug
+    BILLING_BY_PRODUCTS: 'billing-by-products', // owner: @raquelmsmith
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
