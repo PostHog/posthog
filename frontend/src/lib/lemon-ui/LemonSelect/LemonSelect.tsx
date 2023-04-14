@@ -13,6 +13,7 @@ import {
     LemonMenuItemNode,
     LemonMenuItems,
     LemonMenuSection,
+    isLemonMenuSection,
 } from '../LemonMenu/LemonMenu'
 
 type LemonSelectOptionBase = Omit<LemonMenuItemBase, 'active' | 'status'> // Select handles active state internally
@@ -111,6 +112,7 @@ export function LemonSelect<T>({
             actionable
             className={popover?.className}
             maxContentWidth={dropdownMaxContentWidth}
+            activeItemIndex={items.flatMap((i) => (isLemonMenuSection(i) ? i.items : i)).findIndex((i) => i.active)}
         >
             <LemonButton
                 className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}

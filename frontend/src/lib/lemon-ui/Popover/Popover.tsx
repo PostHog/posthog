@@ -1,13 +1,5 @@
 import './Popover.scss'
-import React, {
-    MouseEventHandler,
-    MutableRefObject,
-    ReactElement,
-    useContext,
-    useEffect,
-    useLayoutEffect,
-    useRef,
-} from 'react'
+import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef } from 'react'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import clsx from 'clsx'
 import {
@@ -21,16 +13,20 @@ import {
     size,
     arrow,
     FloatingPortal,
+    UseFloatingReturn,
+    useMergeRefs,
 } from '@floating-ui/react'
 import { CSSTransition } from 'react-transition-group'
+import { useEventListener } from 'lib/hooks/useEventListener'
 
 export interface PopoverProps {
     ref?: React.MutableRefObject<HTMLDivElement | null> | React.Ref<HTMLDivElement> | null
-    visible?: boolean
+    visible: boolean
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
+    onVisibilityChange?: (visible: boolean) => void
     /** Popover trigger element. If you pass one <Component/> child, it will get the `ref` prop automatically. */
-    children?: React.ReactChild | ((props: { ref: MutableRefObject<HTMLElement | null> }) => JSX.Element)
+    children?: React.ReactChild
     /** External reference element not passed as a direct child */
     referenceElement?: HTMLElement
     /** Content of the overlay. */
@@ -50,6 +46,7 @@ export interface PopoverProps {
      * Works also with strings, matching classnames or ids, for antd legacy components that don't support refs
      * **/
     additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
+    referenceRef?: UseFloatingReturn['refs']['reference']
     style?: React.CSSProperties
     getPopupContainer?: () => HTMLElement
     /** Whether to show an arrow pointing to a reference element */
@@ -71,6 +68,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         visible,
         onClickOutside,
         onClickInside,
+        onVisibilityChange,
         placement = 'bottom-start',
         fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
         className,
@@ -79,6 +77,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         sameWidth = false,
         maxContentWidth = false,
         additionalRefs = [],
+        referenceRef: extraReferenceRef,
         style,
         getPopupContainer,
         showArrow = false,
@@ -120,6 +119,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             ...(middleware ?? []),
         ],
     })
+    const mergedReferenceRef = useMergeRefs([referenceRef, extraReferenceRef || null]) as React.RefCallback<HTMLElement>
 
     const arrowStaticSide = {
         top: 'bottom',
@@ -142,6 +142,16 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         }
     }, [referenceElement])
 
+    useEventListener(
+        'keydown',
+        (event) => {
+            if (event.key === 'Escape') {
+                onClickOutside?.(event as Event)
+            }
+        },
+        referenceElement
+    )
+
     useOutsideClickHandler(
         [floatingRef, referenceRef, ...additionalRefs],
         (event) => {
@@ -153,16 +163,16 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     )
 
     useEffect(() => {
+        onVisibilityChange?.(visible)
+    }, [visible])
+
+    useEffect(() => {
         if (visible && referenceRef?.current && floatingRef?.current) {
             return autoUpdate(referenceRef.current, floatingRef.current, update)
         }
     }, [visible, referenceRef?.current, floatingRef?.current, ...additionalRefs])
 
-    const clonedChildren = children
-        ? typeof children === 'function'
-            ? children({ ref: referenceRef as React.MutableRefObject<HTMLElement | null> })
-            : React.cloneElement(children as ReactElement, { ref: referenceRef })
-        : null
+    const clonedChildren = children ? React.cloneElement(children as ReactElement, { ref: mergedReferenceRef }) : null
 
     const isAttached = clonedChildren || referenceElement
     const top = isAttached ? y ?? 0 : undefined

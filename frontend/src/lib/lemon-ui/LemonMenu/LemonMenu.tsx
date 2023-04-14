@@ -4,6 +4,7 @@ import { TooltipProps } from '../Tooltip'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { LemonDivider } from '../LemonDivider'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
+import { useKeyboardNavigation } from './useKeyboardNavigation'
 
 export interface LemonMenuItemBase
     extends Pick<
@@ -40,14 +41,29 @@ export interface LemonMenuProps
             | 'className'
         >,
         LemonMenuOverlayProps {
+    /** Must support `ref` and `onKeyDown` for keyboard navigation. */
     children: React.ReactElement
+    /** Optional index of the active (e.g. selected) item. This improves the keyboard navigation experience. */
+    activeItemIndex?: number
 }
 
-export function LemonMenu({ items, tooltipPlacement, ...dropdownProps }: LemonMenuProps): JSX.Element {
+export function LemonMenu({ items, activeItemIndex, tooltipPlacement, ...dropdownProps }: LemonMenuProps): JSX.Element {
+    const { referenceRef, itemsRef } = useKeyboardNavigation<HTMLElement, HTMLButtonElement>(
+        items.flatMap((item) => (isLemonMenuSection(item) ? item.items : item)).length,
+        activeItemIndex
+    )
+
     return (
         <LemonDropdown
-            overlay={<LemonMenuOverlay items={items} tooltipPlacement={tooltipPlacement} />}
+            overlay={<LemonMenuOverlay items={items} tooltipPlacement={tooltipPlacement} itemsRef={itemsRef} />}
             closeOnClickInside
+            referenceRef={referenceRef}
+            onVisibilityChange={(visible) => {
+                console.log('visible', visible)
+                if (!visible) {
+                    referenceRef.current?.focus()
+                }
+            }}
             {...dropdownProps}
         />
     )
@@ -56,11 +72,13 @@ export function LemonMenu({ items, tooltipPlacement, ...dropdownProps }: LemonMe
 export interface LemonMenuOverlayProps {
     items: LemonMenuItems
     tooltipPlacement?: TooltipProps['placement']
+    itemsRef?: React.RefObject<React.RefObject<HTMLButtonElement>[]>
 }
 
-export function LemonMenuOverlay({ items, tooltipPlacement }: LemonMenuOverlayProps): JSX.Element {
+export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMenuOverlayProps): JSX.Element {
     const sections = useMemo(() => standardizeIntoSections(items), [items])
 
+    let rollingItemIndex = 0
     return (
         <ul>
             {sections.map((section, i) => (
@@ -76,7 +94,11 @@ export function LemonMenuOverlay({ items, tooltipPlacement }: LemonMenuOverlayPr
                         <ul className="space-y-px">
                             {section.items.map((item, index) => (
                                 <li key={index}>
-                                    <LemonMenuItemButton item={item} tooltipPlacement={tooltipPlacement} />
+                                    <LemonMenuItemButton
+                                        item={item}
+                                        tooltipPlacement={tooltipPlacement}
+                                        ref={itemsRef?.current?.[rollingItemIndex++]}
+                                    />
                                 </li>
                             ))}
                         </ul>
@@ -140,6 +162,6 @@ function standardizeIntoSections(sectionsAndItems: (LemonMenuItem | LemonMenuSec
     return sections
 }
 
-function isLemonMenuSection(candidate: LemonMenuSection | LemonMenuItem): candidate is LemonMenuSection {
+export function isLemonMenuSection(candidate: LemonMenuSection | LemonMenuItem): candidate is LemonMenuSection {
     return candidate && 'items' in candidate && !('label' in candidate)
 }

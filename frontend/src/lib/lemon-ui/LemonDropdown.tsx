@@ -1,7 +1,8 @@
 import React, { MouseEventHandler, useContext, useState } from 'react'
 import { Popover, PopoverLevelContext, PopoverProps } from './Popover'
 
-export interface LemonDropdownProps extends Omit<PopoverProps, 'children'> {
+export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'visible'> {
+    visible?: boolean
     closeOnClickInside?: boolean
     children: React.ReactElement<
         Record<string, any> & {
@@ -15,7 +16,7 @@ export interface LemonDropdownProps extends Omit<PopoverProps, 'children'> {
 /** A wrapper that provides a dropdown for any element supporting `onClick`. Built on top of Popover. */
 export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.RefAttributes<HTMLDivElement>> =
     React.forwardRef<HTMLDivElement, LemonDropdownProps>(
-        ({ visible, onClickOutside, onClickInside, closeOnClickInside, children, ...popoverProps }) => {
+        ({ visible, onClickOutside, onClickInside, closeOnClickInside, children, ...popoverProps }, ref) => {
             const popoverLevel = useContext(PopoverLevelContext)
             const [localVisible, setLocalVisible] = useState(false)
 
@@ -23,6 +24,7 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
 
             return (
                 <Popover
+                    ref={ref}
                     onClickOutside={(e) => {
                         setLocalVisible(false)
                         onClickOutside?.(e)
