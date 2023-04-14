@@ -32,7 +32,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             logic,
             unmount,
         }),
-        setInsightDataLogicRef: (logic: BuiltLogic<insightDatLogicType> | null, unmount: null | (() => void)) => ({
+        setInsightDataLogicRef: (logic: BuiltLogic<insightDataLogicType> | null, unmount: null | (() => void)) => ({
             logic,
             unmount,
         }),
