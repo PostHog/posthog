@@ -7,6 +7,7 @@ import {
     KafkaConsumer as RdKafkaConsumer,
     Message,
     ProducerGlobalConfig,
+    LibrdKafkaError,
 } from 'node-rdkafka'
 import { hostname } from 'os'
 import { exponentialBuckets, Histogram } from 'prom-client'
@@ -16,6 +17,7 @@ import {
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
     KAFKA_PERFORMANCE_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS,
+    KAFKA_SESSION_RECORDING_EVENTS_DLQ,
 } from '../../config/kafka-topics'
 import { KafkaSecurityProtocol, PipelineEvent, RawEventMessage, Team } from '../../types'
 import { KafkaConfig } from '../../utils/db/hub'
@@ -23,7 +25,7 @@ import { status } from '../../utils/status'
 import { createPerformanceEvent, createSessionRecordingEvent } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
-import { eventDroppedCounter } from './metrics'
+import { eventDroppedCounter, latestOffsetTimestampGauge } from './metrics'
 
 export const startSessionRecordingEventsConsumer = async ({
     teamManager,
@@ -90,10 +92,55 @@ export const startSessionRecordingEventsConsumer = async ({
     })
 
     consumer.on('data', eachMessage(groupId, teamManager, producer))
-    consumer.subscribe([KAFKA_SESSION_RECORDING_EVENTS, KAFKA_PERFORMANCE_EVENTS])
-    consumer.consume()
+    consumer.subscribe([KAFKA_SESSION_RECORDING_EVENTS])
+
+    const eachMessageWithContext = eachMessage(groupId, teamManager, producer)
+
+    // Start consuming in a loop, fetching a batch of a max of 500 messages then
+    // processing these with eachMessage, and finally calling
+    // consumer.offsetsStore
+    const startConsuming = async () => {
+        while (true) {
+            const messages = await new Promise<Message[]>((resolve, reject) => {
+                consumer.consume(500, (error: LibrdKafkaError, messages: Message[]) => {
+                    if (error) {
+                        reject(error)
+                    } else {
+                        resolve(messages)
+                    }
+                })
+            })
+
+            await Promise.all(messages.map((message: Message) => eachMessageWithContext(message)))
+
+            // Get the offsets for the last message for each partition, from
+            // messages
+            const offsets = messages.reduce((acc, message) => {
+                if (!message.partition || !message.offset) {
+                    return acc
+                }
+                const partition = message.partition.toString()
+                const offset = message.offset.toString()
+                if (!acc[partition] || acc[partition] < offset) {
+                    acc[partition] = offset
+                }
+                return acc
+            }, {} as Record<string, string>)
+
+            const topicPartitionOffsets = Object.entries(offsets).map(([partition, offset]) => ({
+                topic: KAFKA_SESSION_RECORDING_EVENTS,
+                partition: parseInt(partition, 10),
+                offset: parseInt(offset, 10),
+            }))
+
+            consumer.offsetsStore(topicPartitionOffsets)
+        }
+    }
+
+    void startConsuming()
 
     const isHealthy = async () => {
+        // TODO: add health check implementation
         return true
     }
 
@@ -120,15 +167,21 @@ export const startSessionRecordingEventsConsumer = async ({
 
 const eachMessage =
     (groupId: string, teamManager: TeamManager, producer: RdKafkaProducer) => async (message: Message) => {
-        // TODO: handle DLQ
         // TODO: handle offset store as per
         // https://github.com/confluentinc/librdkafka/blob/master/INTRODUCTION.md#at-least-once-processing
         // TODO: handle prom metrics
-        if (!message.value) {
+        if (!message.value || !message.timestamp) {
             status.warn('⚠️', 'invalid_message', {
                 reason: 'empty',
                 offset: message.offset,
+                partition: message.partition,
             })
+            await produce(
+                producer,
+                KAFKA_SESSION_RECORDING_EVENTS_DLQ,
+                message.value,
+                message.key ? Buffer.from(message.key) : null
+            )
             return
         }
 
@@ -147,7 +200,14 @@ const eachMessage =
                 reason: 'invalid_json',
                 error: error,
                 offset: message.offset,
+                partition: message.partition,
             })
+            await produce(
+                producer,
+                KAFKA_SESSION_RECORDING_EVENTS_DLQ,
+                message.value,
+                message.key ? Buffer.from(message.key) : null
+            )
             return
         }
 
@@ -158,7 +218,7 @@ const eachMessage =
                 groupId,
                 messageType: event.event,
             })
-            .observe(message.value.length)
+            .observe(message.size)
 
         if (messagePayload.team_id == null && !messagePayload.token) {
             eventDroppedCounter
@@ -170,6 +230,7 @@ const eachMessage =
             status.warn('⚠️', 'invalid_message', {
                 reason: 'no_token',
                 offset: message.offset,
+                partition: message.partition,
             })
             return
         }
@@ -192,6 +253,7 @@ const eachMessage =
             status.warn('⚠️', 'invalid_message', {
                 reason: 'team_not_found',
                 offset: message.offset,
+                partition: message.partition,
             })
             return
         }
@@ -233,6 +295,7 @@ const eachMessage =
                         reason: 'invalid_event_type',
                         type: event.event,
                         offset: message.offset,
+                        partition: message.partition,
                     })
                     eventDroppedCounter
                         .labels({
@@ -255,6 +318,8 @@ const eachMessage =
                 })
                 .inc()
         }
+
+        latestOffsetTimestampGauge.labels({ topic: message.topic, groupId }).set(1234)
     }
 
 const consumerBatchSize = new Histogram({
