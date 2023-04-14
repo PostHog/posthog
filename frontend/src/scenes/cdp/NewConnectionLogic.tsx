@@ -1,7 +1,7 @@
 import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { NewConnectionLogicType } from './NewConnectionLogicType'
-import { BatchExportSettings, ConnectionChoiceType } from './types'
+import { BatchExportSettingsType, ConnectionChoiceType } from './types'
 import { mockConnectionChoices } from './mocks'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
@@ -12,7 +12,7 @@ interface NewConnectionLogicProps {
     id: string
 }
 
-const defaultCreator = (values: NewConnectionLogicType['values']): BatchExportSettings => ({
+const defaultCreator = (values: NewConnectionLogicType['values']): BatchExportSettingsType => ({
     name: '',
     frequency: '12',
     firstExport: dayjsUtcToTimezone(new Date().toISOString(), values.timezone).add(1, 'day').startOf('day') as any,
@@ -54,7 +54,7 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
     forms(({ values }) => ({
         connectionSettings: {
             defaults: defaultCreator(values),
-            validate: (values: BatchExportSettings) => {
+            validate: (values: BatchExportSettingsType) => {
                 return {
                     name: values.name ? undefined : 'Name is required',
                 }

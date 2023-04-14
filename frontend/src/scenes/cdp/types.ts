@@ -1,22 +1,26 @@
 import { Dayjs } from 'lib/dayjs'
 
+// A better name for the following would be
+export type ConnectionDestinationType = 'Event streaming' | 'Batch export'
+
 export type ConnectionChoiceType = {
     id: string
     name: string
     imageUrl: string
-    type: 'Event streaming' | 'Batch export'
+    type: ConnectionDestinationType
 }
 
-export type ConnectionType = {
+export type BatchExportConnectionType = {
     id: string
     name: string
     status: string
-    type: 'Event streaming' | 'Batch export'
+    type: ConnectionDestinationType
     successRate: string
     imageUrl: string
+    settings: BatchExportSettingsType
 }
 
-export type BatchExportSettings = {
+export type BatchExportSettingsType = {
     id?: string
     name: string
     frequency: BatchExportFrequencyType
