@@ -67,3 +67,10 @@ export type ExportRunType = {
     filters?: string
     row_count?: number
 }
+
+export enum ChangeExportRunStatusEnum {
+    Pause = 'Pause',
+    Resume = 'Resume',
+    Restart = 'Restart',
+    Delete = 'Delete',
+}

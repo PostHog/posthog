@@ -1,11 +1,14 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagPropsType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { ExportRunType } from './types'
+import { ChangeExportRunStatusEnum, ExportRunType } from './types'
 import { NewConnectionLogic } from './NewConnectionLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export enum BatchExportStatus {
     Running = 'Running',
@@ -46,6 +49,7 @@ export function StatusToTagType(status: ExportRunType['status']): LemonTagPropsT
 
 export function ExportOverviewTab(): JSX.Element {
     const { exportRuns, exportRunsLoading } = useValues(NewConnectionLogic)
+    const { changeExportRunStatus } = useActions(NewConnectionLogic)
     // const { historicalExports, historicalExportsLoading, pluginConfig, interfaceJobsProps, hasRunningExports } =
     // useValues(appMetricsSceneLogic)
     // const { openHistoricalExportModal, loadHistoricalExports } = useActions(appMetricsSceneLogic)
@@ -119,7 +123,7 @@ export function ExportOverviewTab(): JSX.Element {
                     },
                     {
                         title: 'Created by',
-                        render: function Render(_: any, exportRun: ExportRunType) {
+                        render: function Render(_, exportRun: ExportRunType) {
                             if (exportRun.export_schedule_id) {
                                 return <div>Scheduler</div>
                             } else {
@@ -137,7 +141,96 @@ export function ExportOverviewTab(): JSX.Element {
                             }
                         },
                     },
-                    {},
+                    {
+                        width: 0,
+                        render: function Render(_, exportRun: ExportRunType) {
+                            return (
+                                <More
+                                    overlay={
+                                        <div>
+                                            {(exportRun.status === BatchExportStatus.Running ||
+                                                exportRun.status === BatchExportStatus.Starting) && (
+                                                <LemonButton
+                                                    status="stealth"
+                                                    fullWidth
+                                                    onClick={() => {
+                                                        changeExportRunStatus({
+                                                            id: exportRun.id,
+                                                            action: ChangeExportRunStatusEnum.Pause,
+                                                        })
+                                                    }}
+                                                >
+                                                    Pause
+                                                </LemonButton>
+                                            )}
+                                            {exportRun.status === BatchExportStatus.Paused && (
+                                                <LemonButton
+                                                    status="stealth"
+                                                    fullWidth
+                                                    onClick={() => {
+                                                        changeExportRunStatus({
+                                                            id: exportRun.id,
+                                                            action: ChangeExportRunStatusEnum.Resume,
+                                                        })
+                                                    }}
+                                                >
+                                                    Resume
+                                                </LemonButton>
+                                            )}
+                                            <LemonButton
+                                                status="danger"
+                                                fullWidth
+                                                onClick={() => {
+                                                    if (exportRun.status === BatchExportStatus.Running) {
+                                                        LemonDialog.open({
+                                                            title: `Cancel and restart job created at ${exportRun.created_at}`,
+                                                            description: 'This action cannot be undone.',
+                                                            primaryButton: {
+                                                                status: 'danger',
+                                                                children: 'Restart',
+                                                                onClick: () => {
+                                                                    changeExportRunStatus({
+                                                                        id: exportRun.id,
+                                                                        action: ChangeExportRunStatusEnum.Restart,
+                                                                    })
+                                                                },
+                                                            },
+                                                        })
+                                                    }
+                                                }}
+                                            >
+                                                Restart
+                                            </LemonButton>
+                                            <LemonDivider />
+                                            <LemonButton
+                                                type="primary"
+                                                status="danger"
+                                                fullWidth
+                                                onClick={() => {
+                                                    LemonDialog.open({
+                                                        title: `Delete job created at ${exportRun.created_at}`,
+                                                        description: 'This action cannot be undone.',
+                                                        primaryButton: {
+                                                            status: 'danger',
+                                                            children: 'Delete',
+                                                            onClick: () => {
+                                                                changeExportRunStatus({
+                                                                    id: exportRun.id,
+                                                                    action: ChangeExportRunStatusEnum.Delete,
+                                                                })
+                                                            },
+                                                        },
+                                                    })
+                                                }}
+                                            >
+                                                Delete
+                                            </LemonButton>
+                                        </div>
+                                    }
+                                />
+                            )
+                        },
+                    },
                     // {
                     //     title: 'Progress',
                     //     width: 130,

@@ -5,6 +5,7 @@ import {
     BatchExportConnectionType,
     BatchExportSettingsType,
     BatchExportTabsType,
+    ChangeExportRunStatusEnum,
     ConnectionChoiceType,
     ExportRunType,
 } from './types'
@@ -100,6 +101,11 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
             [] as ExportRunType[] | undefined,
             {
                 loadExportRuns: async () => {
+                    const exportRuns = await Promise.resolve(mockExportRuns)
+                    return exportRuns
+                },
+                changeExportRunStatus: async ({ id, action }: { id: string; action: ChangeExportRunStatusEnum }) => {
+                    console.log('changeExportRunStatus', id, action)
                     const exportRuns = await Promise.resolve(mockExportRuns)
                     return exportRuns
                 },
