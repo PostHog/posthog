@@ -4,6 +4,7 @@ import { AppMetricsGraph } from 'scenes/apps/AppMetricsGraph'
 import { AppMetricsTab } from 'scenes/apps/appMetricsSceneLogic'
 import { ErrorsOverview, MetricsOverview } from 'scenes/apps/MetricsTab'
 
+// TODO: delete this and just use HistoricalExport
 export function ExportRun({ exportRun }: { exportRun: ExportRunType }): JSX.Element {
     return (
         <div className="mt-4 mb-4 mr-8">

@@ -9,7 +9,7 @@ import {
     ConnectionChoiceType,
     ExportRunType,
 } from './types'
-import { mockConnectionChoices, mockConnectionSettings, mockExportRuns } from './mocks'
+import { mockConnectionChoices, mockExportRuns } from './mocks'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import { teamLogic } from 'scenes/teamLogic'
@@ -92,7 +92,7 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
             undefined as BatchExportSettingsType | undefined,
             {
                 loadConnectionSettings: async () => {
-                    const connectionSettings = await Promise.resolve(mockConnectionSettings)
+                    const connectionSettings = await Promise.resolve(undefined)
                     return connectionSettings
                 },
             },

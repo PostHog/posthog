@@ -108,7 +108,11 @@ export function ExportOverviewTab(): JSX.Element {
                     {
                         title: 'Event count',
                         render: function Render(_, exportRun: ExportRunType) {
-                            return exportRun.delivered_rows ?? <div className="text-muted">—</div>
+                            return (
+                                exportRun.metrics?.totals.successes + exportRun.metrics?.totals.successes_on_retry || (
+                                    <div className="text-muted">—</div>
+                                )
+                            )
                         },
                     },
                     {
