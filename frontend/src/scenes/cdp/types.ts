@@ -2,7 +2,6 @@ import { Dayjs } from 'lib/dayjs'
 import { AppErrorSummary, AppMetrics } from 'scenes/apps/appMetricsSceneLogic'
 import { UserBasicType } from '~/types'
 
-// A better name for the following would be
 export type ConnectionDestinationType = 'Event streaming' | 'Batch export'
 
 export type ConnectionChoiceType = {
