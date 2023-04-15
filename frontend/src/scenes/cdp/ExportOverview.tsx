@@ -248,6 +248,7 @@ export function ExportOverviewTab(): JSX.Element {
                 expandable={{
                     expandedRowRender: function Render(exportRun: ExportRunType) {
                         console.log(exportRun)
+                        // TODO: change the above to use HistoricalExport
                         return <ExportRun exportRun={exportRun} />
                     },
                 }}
