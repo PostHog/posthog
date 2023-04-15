@@ -32,6 +32,7 @@ export enum AppMetricsTab {
     ScheduledTask = 'scheduledTask',
     HistoricalExports = 'historical_exports',
     History = 'history',
+    BatchExport = 'batchExport',
 }
 
 export type TabWithMetrics =
@@ -40,6 +41,7 @@ export type TabWithMetrics =
     | AppMetricsTab.ExportEvents
     | AppMetricsTab.ScheduledTask
     | AppMetricsTab.HistoricalExports
+    | AppMetricsTab.BatchExport
 
 export interface HistoricalExportInfo {
     job_id: string

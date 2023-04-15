@@ -1,4 +1,5 @@
 import { Dayjs } from 'lib/dayjs'
+import { AppErrorSummary, AppMetrics } from 'scenes/apps/appMetricsSceneLogic'
 import { UserBasicType } from '~/types'
 
 // A better name for the following would be
@@ -65,8 +66,13 @@ export type ExportRunType = {
     export_schedule_id: string | null
     created_by: UserBasicType | null // null if created by a schedule, otherwise by a user
     filters?: string
-    row_count?: number
+
+    metrics?: AppMetrics
+    errors?: Array<AppErrorSummary>
+
     progress?: number
+    duration?: number // in seconds
+    failure_reason?: string
 }
 
 export enum ChangeExportRunStatusEnum {

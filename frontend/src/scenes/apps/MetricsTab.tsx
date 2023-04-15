@@ -27,6 +27,7 @@ export interface MetricsOverviewProps {
 export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
     const { appMetricsResponse, appMetricsResponseLoading, dateFrom } = useValues(appMetricsSceneLogic)
     const { setDateFrom } = useActions(appMetricsSceneLogic)
+    const { openErrorDetailsModal } = useActions(appMetricsSceneLogic)
 
     return (
         <div className="space-y-8">
@@ -64,6 +65,7 @@ export function MetricsTab({ tab }: MetricsTabProps): JSX.Element {
                     errors={appMetricsResponse?.errors || []}
                     loading={appMetricsResponseLoading}
                     showExtendedEmptyState
+                    openErrorDetailsModal={openErrorDetailsModal}
                 />
             </div>
         </div>
@@ -142,15 +144,15 @@ export function ErrorsOverview({
     category,
     jobId,
     showExtendedEmptyState,
+    openErrorDetailsModal,
 }: {
     errors: Array<AppErrorSummary>
     loading?: boolean
     category: string
     jobId?: string
     showExtendedEmptyState?: boolean
+    openErrorDetailsModal: (errorType: string, category: string, jobId?: string) => void
 }): JSX.Element {
-    const { openErrorDetailsModal } = useActions(appMetricsSceneLogic)
-
     return (
         <LemonTable
             dataSource={errors}

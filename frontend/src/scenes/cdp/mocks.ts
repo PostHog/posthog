@@ -52,8 +52,32 @@ export const mockExportRuns: ExportRunType[] = [
         completed_at: '2021-05-10T13:00:00Z',
         created_by: mockBasicUser,
         export_schedule_id: null,
-        row_count: 100,
         filters: '2021-05-10T11:00:00Z to 2021-05-10T12:00:00Z',
+        duration: 1000,
+        metrics: {
+            dates: [
+                '2020-10-14T00:00:00.000Z',
+                '2020-10-14T01:00:00.000Z',
+                '2020-10-14T02:00:00.000Z',
+                '2020-10-14T03:00:00.000Z',
+                '2020-10-14T04:00:00.000Z',
+            ],
+            successes: [101, 100, 0, 0, 0],
+            successes_on_retry: [0, 0, 100, 0, 0],
+            failures: [0, 0, 0, 0, 103],
+            totals: {
+                successes: 101,
+                successes_on_retry: 100,
+                failures: 103,
+            },
+        },
+        errors: [
+            {
+                error_type: 'invalid_credentials',
+                count: 103,
+                last_seen: '2020-10-14T00:00:00.000Z',
+            },
+        ],
     },
     {
         id: '2',
@@ -82,6 +106,8 @@ export const mockExportRuns: ExportRunType[] = [
         created_by: mockBasicUser,
         export_schedule_id: null,
         filters: '2021-05-10T11:00:00Z to 2021-05-10T12:00:00Z',
+        duration: 1000,
+        failure_reason: 'Something went wrong',
     },
     {
         id: '5',
@@ -100,6 +126,7 @@ export const mockExportRuns: ExportRunType[] = [
         created_by: mockBasicUser,
         export_schedule_id: null,
         filters: '2021-05-10T11:00:00Z to 2021-05-10T12:00:00Z',
+        failed_rows: 10,
     },
     {
         id: '6',

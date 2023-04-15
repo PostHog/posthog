@@ -10,6 +10,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Progress } from 'antd'
+import { ExportRun } from './ExportRun'
 
 export enum BatchExportStatus {
     Running = 'Running',
@@ -107,7 +108,7 @@ export function ExportOverviewTab(): JSX.Element {
                     {
                         title: 'Event count',
                         render: function Render(_, exportRun: ExportRunType) {
-                            return exportRun.row_count ?? <div className="text-muted">—</div>
+                            return exportRun.delivered_rows ?? <div className="text-muted">—</div>
                         },
                     },
                     {
@@ -244,14 +245,12 @@ export function ExportOverviewTab(): JSX.Element {
                         },
                     },
                 ]}
-                // expandable={{
-                //     expandedRowRender: function Render(historicalExport: HistoricalExportInfo) {
-                //         if (!pluginConfig) {
-                //             return
-                //         }
-                //         return <HistoricalExport pluginConfigId={pluginConfig.id} jobId={historicalExport.job_id} />
-                //     },
-                // }}
+                expandable={{
+                    expandedRowRender: function Render(exportRun: ExportRunType) {
+                        console.log(exportRun)
+                        return <ExportRun exportRun={exportRun} />
+                    },
+                }}
                 useURLForSorting={false}
                 noSortingCancellation
                 emptyState={
