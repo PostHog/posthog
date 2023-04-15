@@ -114,6 +114,10 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
                     name: values.name ? undefined : 'Name is required',
                 }
             },
+            submit: async (values: BatchExportSettingsType) => {
+                console.log('submitting', values)
+                // TODO: don't send the placeholder AWSSecretAccessKey unless it's been changed
+            },
         },
     })),
     selectors({
@@ -145,7 +149,6 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
                 })
 
                 fileNamePreview = fileNamePreview?.replace('{partitionId}', partitionId)
-
                 return fileNamePreview
             },
         ],
@@ -167,7 +170,6 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
             })
         },
         loadConnectionSettingsSuccess: ({ connectionSettings }) => {
-            debugger
             actions.setEditingSecret(!connectionSettings?.AWSSecretAccessKey)
         },
     })),
