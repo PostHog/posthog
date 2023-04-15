@@ -14,6 +14,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
+import { compareFilters } from './utils/compareFilters'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
@@ -33,7 +34,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['insight', 'isUsingDataExploration', 'isUsingDashboardQueries'],
+            ['insight', 'isUsingDataExploration', 'isUsingDashboardQueries', 'savedInsight'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             ['dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
@@ -98,9 +99,17 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         queryChanged: [
-            (s) => [s.query, s.insight],
-            (query, insight) => {
-                return !objectsEqual(query, insight.query)
+            (s) => [s.isQueryBasedInsight, s.query, s.insight, s.savedInsight],
+            (isQueryBasedInsight, query, insight, savedInsight) => {
+                if (isQueryBasedInsight) {
+                    // for query based insights
+                    return !objectsEqual(query, insight.query)
+                } else {
+                    // for other insights
+                    const savedFilters = savedInsight.filters || {}
+                    const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
+                    return !compareFilters(currentFilters, savedFilters)
+                }
             },
         ],
     }),
