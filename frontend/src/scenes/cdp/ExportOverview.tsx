@@ -1,11 +1,48 @@
 import { useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonTag, LemonTagPropsType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ExportRunType } from './types'
 import { NewConnectionLogic } from './NewConnectionLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+
+export enum BatchExportStatus {
+    Running = 'Running',
+    Cancelled = 'Cancelled',
+    Completed = 'Completed',
+    ContinuedAsNew = 'ContinuedAsNew',
+    Failed = 'Failed',
+    Terminated = 'Terminated',
+    TimedOut = 'TimedOut',
+    Starting = 'Starting',
+    Paused = 'Paused',
+}
+
+export function StatusToTagType(status: ExportRunType['status']): LemonTagPropsType {
+    switch (status) {
+        case BatchExportStatus.Running:
+            return 'highlight'
+        case BatchExportStatus.Cancelled:
+            return 'warning'
+        case BatchExportStatus.Completed:
+            return 'success'
+        case BatchExportStatus.ContinuedAsNew:
+            return 'highlight' // TODO: understand what this does and choose a more appropriate color
+        case BatchExportStatus.Failed:
+            return 'danger'
+        case BatchExportStatus.Terminated:
+            return 'danger'
+        case BatchExportStatus.TimedOut:
+            return 'danger'
+        case BatchExportStatus.Starting:
+            return 'highlight'
+        case BatchExportStatus.Paused:
+            return 'purple'
+        default:
+            return 'default'
+    }
+}
 
 export function ExportOverviewTab(): JSX.Element {
     const { exportRuns, exportRunsLoading } = useValues(NewConnectionLogic)
@@ -54,7 +91,7 @@ export function ExportOverviewTab(): JSX.Element {
                         render: function RenderCreatedAt(created_at) {
                             return created_at ? (
                                 <div className="whitespace-nowrap">
-                                    <TZLabel time={created_at} />
+                                    <TZLabel time={created_at} formatDate="MMM D, YYYY" formatTime="HH:mm" />
                                 </div>
                             ) : (
                                 <span className="text-muted">—</span>
@@ -65,7 +102,7 @@ export function ExportOverviewTab(): JSX.Element {
                     {
                         title: 'Event count',
                         render: function Render(_, exportRun: ExportRunType) {
-                            return exportRun.row_count
+                            return exportRun.row_count ?? <div className="text-muted">—</div>
                         },
                     },
                     {
@@ -77,7 +114,7 @@ export function ExportOverviewTab(): JSX.Element {
                     {
                         title: 'Status',
                         render: function Render(_, exportRun: ExportRunType) {
-                            return <LemonTag>{exportRun.status}</LemonTag>
+                            return <LemonTag type={StatusToTagType(exportRun.status)}>{exportRun.status}</LemonTag>
                         },
                     },
                     {
@@ -100,6 +137,7 @@ export function ExportOverviewTab(): JSX.Element {
                             }
                         },
                     },
+                    {},
                     // {
                     //     title: 'Progress',
                     //     width: 130,
@@ -138,11 +176,12 @@ export function ExportOverviewTab(): JSX.Element {
                 emptyState={
                     <div className="">
                         <b>Nothing has been exported yet!</b>
-                        {/* {interfaceJobsProps && (
+                        {
                             <p className="m-0">
-                                Use "Start new export" button above to export historical data in a given time range.
+                                Use "Start manual export" or create a schedule within "Settings" to export your data to
+                                a destination.
                             </p>
-                        )} */}
+                        }
                     </div>
                 }
             />

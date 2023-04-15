@@ -1,20 +1,22 @@
 import { mockBasicUser } from '~/test/mocks'
-import { ConnectionChoiceType, ConnectionType, ExportRunType } from './types'
+import { BatchExportConnectionType, BatchExportStatus, ConnectionChoiceType, ExportRunType } from './types'
 
-export const mockConnections: ConnectionType[] = [
+export const mockConnections: BatchExportConnectionType[] = [
     {
         id: '1',
         name: 'Webhook export',
         status: 'Streaming',
-        type: 'Event streaming',
+        connection_type_id: 'webhook-export',
         successRate: '100%',
         imageUrl: 'https://a.slack-edge.com/80588/img/services/outgoing-webhook_512.png',
+        settings: {},
     },
     {
         id: '2',
         name: 'S3 export',
         status: 'Scheduled every hour',
-        type: 'Batch export',
+        connection_type_id: 's3-export',
+        settings: {},
         successRate: '100%',
         imageUrl: 'https://raw.githubusercontent.com/PostHog/s3-export-plugin/main/logo.png',
     },
@@ -35,11 +37,10 @@ export const mockConnectionChoices: ConnectionChoiceType[] = [
     },
 ]
 
-// one mock of each type of status: 'Running' | 'Cancelled' | 'Completed' | 'ContinuedAsNew' | 'Failed' | 'Terminated' | 'TimedOut'
 export const mockExportRuns: ExportRunType[] = [
     {
         id: '1',
-        status: 'Completed',
+        status: BatchExportStatus.Completed,
         created_at: '2021-05-10T12:00:00Z',
         completed_at: '2021-05-10T13:00:00Z',
         created_by: mockBasicUser,
@@ -49,50 +50,56 @@ export const mockExportRuns: ExportRunType[] = [
     },
     {
         id: '2',
-        status: 'Starting',
+        status: BatchExportStatus.Starting,
         created_at: '2021-06-10T12:00:00Z',
         completed_at: '2021-06-10T13:00:00Z',
         created_by: null,
         export_schedule_id: '1',
+        filters: '2021-05-10T11:00:00Z to 2021-05-10T12:00:00Z',
     },
     {
         id: '3',
-        status: 'Running',
+        status: BatchExportStatus.Running,
         created_at: '2021-07-10T12:00:00Z',
         completed_at: '2021-07-10T13:00:00Z',
         created_by: mockBasicUser,
         export_schedule_id: null,
+        filters: '2021-05-10T11:00:00Z to 2021-05-10T12:00:00Z',
     },
     {
         id: '4',
-        status: 'Failed',
+        status: BatchExportStatus.Failed,
         created_at: '2021-08-10T12:00:00Z',
         completed_at: '2021-08-10T13:00:00Z',
         created_by: mockBasicUser,
         export_schedule_id: null,
+        filters: '2021-05-10T11:00:00Z to 2021-05-10T12:00:00Z',
     },
     {
         id: '5',
-        status: 'Paused',
+        status: BatchExportStatus.Paused,
         created_at: '2021-09-10T12:00:00Z',
         completed_at: '2021-09-10T13:00:00Z',
         created_by: mockBasicUser,
         export_schedule_id: null,
+        filters: '2021-05-10T11:00:00Z to 2021-05-10T12:00:00Z',
     },
     {
         id: '6',
-        status: 'Terminated',
+        status: BatchExportStatus.Terminated,
         created_at: '2021-10-10T12:00:00Z',
         completed_at: '2021-10-10T13:00:00Z',
         created_by: mockBasicUser,
         export_schedule_id: null,
+        filters: '2021-05-10T11:00:00Z to 2021-05-10T12:00:00Z',
     },
     {
         id: '6',
-        status: 'TimedOut',
+        status: BatchExportStatus.TimedOut,
         created_at: '2021-10-10T12:00:00Z',
         completed_at: '2021-10-10T13:00:00Z',
         created_by: mockBasicUser,
         export_schedule_id: null,
+        filters: '2021-05-10T11:00:00Z to 2021-05-10T12:00:00Z',
     },
 ]

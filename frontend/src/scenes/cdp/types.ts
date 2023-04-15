@@ -46,18 +46,21 @@ export type BatchExportFrequencyType = 'none' | '1' | '6' | '12' | 'daily' | 'we
 
 export type FileFormatType = 'csv'
 
+export enum BatchExportStatus {
+    Running = 'Running',
+    Cancelled = 'Cancelled',
+    Completed = 'Completed',
+    ContinuedAsNew = 'ContinuedAsNew',
+    Failed = 'Failed',
+    Terminated = 'Terminated',
+    TimedOut = 'TimedOut',
+    Starting = 'Starting',
+    Paused = 'Paused',
+}
+
 export type ExportRunType = {
     id: string
-    status:
-        | 'Running'
-        | 'Cancelled'
-        | 'Completed'
-        | 'ContinuedAsNew'
-        | 'Failed'
-        | 'Terminated'
-        | 'TimedOut'
-        | 'Starting'
-        | 'Paused'
+    status: BatchExportStatus
     created_at: string
     completed_at: string
     export_schedule_id: string | null

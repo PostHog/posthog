@@ -4,6 +4,8 @@ import { CDPTabsType, ConnectionChoiceType, ConnectionType } from './types'
 import type { CDPSceneLogicType } from './CDPSceneLogicType'
 import { mockConnectionChoices, mockConnections } from './mocks'
 
+import type { CDPSceneLogicType } from './cdpSceneLogicType'
+
 export const CDPSceneLogic = kea<CDPSceneLogicType>([
     path(['scenes', 'cdp', 'cdpSceneLogic']),
     actions({

@@ -81,7 +81,7 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
             },
         ],
         exportRuns: [
-            undefined as ExportRunType[] | undefined,
+            [] as ExportRunType[] | undefined,
             {
                 loadExportRuns: async () => {
                     const exportRuns = await Promise.resolve(mockExportRuns)
