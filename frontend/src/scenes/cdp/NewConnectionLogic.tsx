@@ -8,7 +8,7 @@ import {
     ConnectionChoiceType,
     ExportRunType,
 } from './types'
-import { mockConnectionChoices, mockExportRuns } from './mocks'
+import { mockConnectionChoices, mockConnectionSettings, mockExportRuns } from './mocks'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import { teamLogic } from 'scenes/teamLogic'
@@ -48,6 +48,7 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
     key((props) => props.id ?? 'default'),
     actions({
         setTab: (tab: BatchExportTabsType) => ({ tab }),
+        setEditingSecret: (editingSecret: boolean) => ({ editingSecret }),
     }),
     reducers({
         connection: [
@@ -69,6 +70,12 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
                 setTab: (_, { tab }) => tab,
             },
         ],
+        editingSecret: [
+            true as boolean,
+            {
+                setEditingSecret: (_, { editingSecret }) => editingSecret,
+            },
+        ],
     }),
     loaders({
         connectionChoices: [
@@ -77,6 +84,15 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
                 loadConnectionChoices: async () => {
                     const connectionChoices = await Promise.resolve(mockConnectionChoices)
                     return connectionChoices
+                },
+            },
+        ],
+        connectionSettings: [
+            undefined as BatchExportSettingsType | undefined,
+            {
+                loadConnectionSettings: async () => {
+                    const connectionSettings = await Promise.resolve(mockConnectionSettings)
+                    return connectionSettings
                 },
             },
         ],
@@ -125,10 +141,10 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
                 let fileNamePreview = connectionSettings.fileName
 
                 date_components.forEach(([component, format]) => {
-                    fileNamePreview = fileNamePreview.replace(`{${component}}`, now.format(format))
+                    fileNamePreview = fileNamePreview?.replace(`{${component}}`, now.format(format))
                 })
 
-                fileNamePreview = fileNamePreview.replace('{partitionId}', partitionId)
+                fileNamePreview = fileNamePreview?.replace('{partitionId}', partitionId)
 
                 return fileNamePreview
             },
@@ -144,15 +160,20 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
             ],
         ],
     }),
-    afterMount(({ actions }) => {
-        actions.loadConnectionChoices()
-        actions.loadExportRuns()
-    }),
     listeners(({ actions, values }) => ({
         loadConnectionChoicesSuccess: () => {
             actions.setConnectionSettingsValues({
                 name: values.connectionSettings.name || values?.connectionChoice?.name,
             })
         },
+        loadConnectionSettingsSuccess: ({ connectionSettings }) => {
+            debugger
+            actions.setEditingSecret(!connectionSettings?.AWSSecretAccessKey)
+        },
     })),
+    afterMount(({ actions }) => {
+        actions.loadConnectionChoices()
+        actions.loadExportRuns()
+        actions.loadConnectionSettings()
+    }),
 ])

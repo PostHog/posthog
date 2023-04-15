@@ -12,6 +12,7 @@ import { shortTimeZone } from 'lib/utils'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ExportOverviewTab } from './ExportOverview'
+import { EditOutlined } from '@ant-design/icons'
 
 export const scene: SceneExport = {
     component: NewConnection,
@@ -19,73 +20,73 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }) => ({ id: id }),
 }
 
-export function ConnectionSettings(): JSX.Element {
-    const frequencyOptions: { label: string; value: BatchExportFrequencyType; noun: string }[] = [
-        {
-            label: 'None',
-            value: 'none',
-            noun: 'nothing',
-        },
-        {
-            label: 'Every 1 hour',
-            value: '1',
-            noun: 'the first hour',
-        },
-        {
-            label: 'Every 6 hours',
-            value: '6',
-            noun: 'the first 6 hours',
-        },
-        {
-            label: 'Every 12 hours',
-            value: '12',
-            noun: 'the first 12 hours',
-        },
-        {
-            label: 'Daily',
-            value: 'daily',
-            noun: 'the first day',
-        },
-        {
-            label: 'Weekly',
-            value: 'weekly',
-            noun: 'the first week',
-        },
-        {
-            label: 'Monthly',
-            value: 'monthly',
-            noun: 'the first month',
-        },
-    ]
+const frequencyOptions: { label: string; value: BatchExportFrequencyType; noun: string }[] = [
+    {
+        label: 'None',
+        value: 'none',
+        noun: 'nothing',
+    },
+    {
+        label: 'Every 1 hour',
+        value: '1',
+        noun: 'the first hour',
+    },
+    {
+        label: 'Every 6 hours',
+        value: '6',
+        noun: 'the first 6 hours',
+    },
+    {
+        label: 'Every 12 hours',
+        value: '12',
+        noun: 'the first 12 hours',
+    },
+    {
+        label: 'Daily',
+        value: 'daily',
+        noun: 'the first day',
+    },
+    {
+        label: 'Weekly',
+        value: 'weekly',
+        noun: 'the first week',
+    },
+    {
+        label: 'Monthly',
+        value: 'monthly',
+        noun: 'the first month',
+    },
+]
 
-    const fileFormatOptions: { label: string; value: FileFormatType }[] = [
-        {
-            label: 'CSV',
-            value: 'csv',
-        },
-    ]
+const fileFormatOptions: { label: string; value: FileFormatType }[] = [
+    {
+        label: 'CSV',
+        value: 'csv',
+    },
+]
 
-    const generateDescription = (interval: Exclude<BatchExportFrequencyType, 'none'>): string => {
-        const intervals: Record<
-            Exclude<BatchExportFrequencyType, 'none'>,
-            {
-                period: string
-                frequency: string
-            }
-        > = {
-            '1': { period: '1-hour', frequency: 'hourly' },
-            '6': { period: '6-hour', frequency: 'every 6 hours' },
-            '12': { period: '12-hour', frequency: 'every 12 hours' },
-            daily: { period: '24-hour', frequency: 'daily' },
-            weekly: { period: '1-week', frequency: 'weekly' },
-            monthly: { period: '1-month', frequency: 'monthly' },
+const generateDescription = (interval: Exclude<BatchExportFrequencyType, 'none'>): string => {
+    const intervals: Record<
+        Exclude<BatchExportFrequencyType, 'none'>,
+        {
+            period: string
+            frequency: string
         }
-
-        return `The job is set to export ${intervals[interval].period} data segments ${intervals[interval].frequency}. This means only the first ${intervals[interval].period} period's data is included in the first run. To conduct an additional one-time export of all existing historical data during this first execution, enable this option.`
+    > = {
+        '1': { period: '1-hour', frequency: 'hourly' },
+        '6': { period: '6-hour', frequency: 'every 6 hours' },
+        '12': { period: '12-hour', frequency: 'every 12 hours' },
+        daily: { period: '24-hour', frequency: 'daily' },
+        weekly: { period: '1-week', frequency: 'weekly' },
+        monthly: { period: '1-month', frequency: 'monthly' },
     }
 
-    const { connectionSettings } = useValues(NewConnectionLogic)
-    const { timezone, fileNamePreview } = useValues(NewConnectionLogic)
+    return `The job is set to export ${intervals[interval].period} data segments ${intervals[interval].frequency}. This means only the first ${intervals[interval].period} period's data is included in the first run. To conduct an additional one-time export of all existing historical data during this first execution, enable this option.`
+}
+
+export function ConnectionSettings(): JSX.Element {
+    const { connectionSettings, editingSecret, timezone, fileNamePreview } = useValues(NewConnectionLogic)
+    const { setEditingSecret } = useActions(NewConnectionLogic)
 
     return (
         <Form logic={NewConnectionLogic} formKey={'connectionSettings'} className="max-w-200 border rounded p-6">
@@ -151,13 +152,25 @@ export function ConnectionSettings(): JSX.Element {
             <LemonDivider className="my-6" />
             <div className="space-y-4">
                 <h2>Destination</h2>
+
                 <div className="space-y-4">
                     <h3>Credentials</h3>
                     <Field name={'AWSAccessKeyID'} label="AWS access key ID">
                         <LemonInput />
                     </Field>
                     <Field name={'AWSSecretAccessKey'} label="AWS secret access key">
-                        <LemonInput />
+                        {!editingSecret && connectionSettings?.AWSSecretAccessKey ? (
+                            <LemonButton
+                                icon={<EditOutlined />}
+                                onClick={() => {
+                                    setEditingSecret(true)
+                                }}
+                            >
+                                Reset secret key
+                            </LemonButton>
+                        ) : (
+                            <LemonInput />
+                        )}
                     </Field>
                 </div>
                 <div className="my-6" />
@@ -209,7 +222,7 @@ export function NewConnection(): JSX.Element {
     const { setTab } = useActions(NewConnectionLogic)
     return (
         <>
-            <PageHeader title={connectionChoice.name} />
+            <PageHeader title={connectionChoice?.name || 'undefined'} />
             <LemonTabs
                 tabs={[
                     {
@@ -219,7 +232,7 @@ export function NewConnection(): JSX.Element {
                     },
                     {
                         key: 'activity-log',
-                        label: 'Activity Log',
+                        label: 'History',
                         content: <ActivityLog scope={ActivityScope.CONNECTION} id={connection?.id} />,
                     },
                     {

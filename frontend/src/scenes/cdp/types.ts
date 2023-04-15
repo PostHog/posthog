@@ -22,7 +22,6 @@ export type BatchExportConnectionType = {
 }
 
 export type BatchExportSettingsType = {
-    id?: string
     name: string
     frequency: BatchExportFrequencyType
     firstExport: Dayjs

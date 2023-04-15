@@ -1,5 +1,12 @@
 import { mockBasicUser } from '~/test/mocks'
-import { BatchExportConnectionType, BatchExportStatus, ConnectionChoiceType, ExportRunType } from './types'
+import {
+    BatchExportConnectionType,
+    BatchExportSettingsType,
+    BatchExportStatus,
+    ConnectionChoiceType,
+    ExportRunType,
+} from './types'
+import { dayjs } from 'lib/dayjs'
 
 export const mockConnections: BatchExportConnectionType[] = [
     {
@@ -103,3 +110,19 @@ export const mockExportRuns: ExportRunType[] = [
         filters: '2021-05-10T11:00:00Z to 2021-05-10T12:00:00Z',
     },
 ]
+
+export const mockConnectionSettings: BatchExportSettingsType = {
+    name: '',
+    frequency: '6',
+    firstExport: dayjs(),
+    stopAtSpecificDate: false,
+    stopAt: undefined,
+    backfillRecords: false,
+    backfillFrom: undefined,
+    AWSAccessKeyID: '',
+    AWSSecretAccessKey: 'test',
+    AWSRegion: '',
+    AWSBucket: '',
+    fileFormat: 'csv',
+    fileName: '',
+}
