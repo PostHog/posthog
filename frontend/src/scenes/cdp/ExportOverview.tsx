@@ -9,6 +9,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { Progress } from 'antd'
 
 export enum BatchExportStatus {
     Running = 'Running',
@@ -76,7 +77,7 @@ export function ExportOverviewTab(): JSX.Element {
                 <LemonButton type="secondary">
                     {' '}
                     {/*</div>onClick={openHistoricalExportModal} disabled={!interfaceJobsProps}> */}
-                    Re-run all failed jobs
+                    Re-run all failed runs
                 </LemonButton>
                 <LemonButton type="primary">
                     {' '}
@@ -118,7 +119,17 @@ export function ExportOverviewTab(): JSX.Element {
                     {
                         title: 'Status',
                         render: function Render(_, exportRun: ExportRunType) {
-                            return <LemonTag type={StatusToTagType(exportRun.status)}>{exportRun.status}</LemonTag>
+                            return (
+                                <>
+                                    {exportRun.status === BatchExportStatus.Running ? (
+                                        <Progress percent={Math.floor((exportRun.progress || 0) * 100)} />
+                                    ) : (
+                                        <LemonTag type={StatusToTagType(exportRun.status)} className="uppercase">
+                                            {exportRun.status}
+                                        </LemonTag>
+                                    )}
+                                </>
+                            )
                         },
                     },
                     {
@@ -183,8 +194,9 @@ export function ExportOverviewTab(): JSX.Element {
                                                 onClick={() => {
                                                     if (exportRun.status === BatchExportStatus.Running) {
                                                         LemonDialog.open({
-                                                            title: `Cancel and restart job created at ${exportRun.created_at}`,
-                                                            description: 'This action cannot be undone.',
+                                                            title: `Restart run created at ${exportRun.created_at}`,
+                                                            description:
+                                                                'This will cancel the existing run. This action cannot be undone.',
                                                             primaryButton: {
                                                                 status: 'danger',
                                                                 children: 'Restart',
@@ -208,7 +220,7 @@ export function ExportOverviewTab(): JSX.Element {
                                                 fullWidth
                                                 onClick={() => {
                                                     LemonDialog.open({
-                                                        title: `Delete job created at ${exportRun.created_at}`,
+                                                        title: `Delete run created at ${exportRun.created_at}`,
                                                         description: 'This action cannot be undone.',
                                                         primaryButton: {
                                                             status: 'danger',
@@ -231,30 +243,6 @@ export function ExportOverviewTab(): JSX.Element {
                             )
                         },
                     },
-                    // {
-                    //     title: 'Progress',
-                    //     width: 130,
-                    //     render: function RenderProgress(_, historicalExport: HistoricalExportInfo) {
-                    //         switch (historicalExport.status) {
-                    //             case 'success':
-                    //                 return (
-                    //                     <LemonTag type="success" className="uppercase">
-                    //                         Success
-                    //                     </LemonTag>
-                    //                 )
-                    //             case 'fail':
-                    //                 return (
-                    //                     <LemonTag type="danger" className="uppercase">
-                    //                         Failed
-                    //                     </LemonTag>
-                    //                 )
-                    //             case 'not_finished':
-                    //                 return <Progress percent={Math.floor((historicalExport.progress || 0) * 100)} />
-                    //         }
-                    //     },
-                    //     align: 'right',
-                    // },
-                    // createdAtColumn() as LemonTableColumn<HistoricalExportInfo, any>,
                 ]}
                 // expandable={{
                 //     expandedRowRender: function Render(historicalExport: HistoricalExportInfo) {

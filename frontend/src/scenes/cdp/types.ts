@@ -66,6 +66,7 @@ export type ExportRunType = {
     created_by: UserBasicType | null // null if created by a schedule, otherwise by a user
     filters?: string
     row_count?: number
+    progress?: number
 }
 
 export enum ChangeExportRunStatusEnum {

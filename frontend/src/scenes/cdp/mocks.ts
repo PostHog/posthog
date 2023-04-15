@@ -72,6 +72,7 @@ export const mockExportRuns: ExportRunType[] = [
         created_by: mockBasicUser,
         export_schedule_id: null,
         filters: '2021-05-10T11:00:00Z to 2021-05-10T12:00:00Z',
+        progress: 0.5,
     },
     {
         id: '4',
