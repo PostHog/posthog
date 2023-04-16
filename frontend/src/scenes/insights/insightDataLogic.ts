@@ -49,9 +49,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
     })),
 
     actions({
-        setQuery: (query: Node) => ({ query }),
+        setQuery: (query: Node | null) => ({ query }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         toggleQueryEditorPanel: true,
+        cancelChanges: true,
     }),
 
     reducers({
@@ -156,6 +157,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
             )
 
             actions.insightLogicSaveInsight(redirectToViewMode)
+        },
+        cancelChanges: () => {
+            const savedFilters = values.savedInsight.filters
+            actions.setQuery(savedFilters ? queryFromFilters(savedFilters) : null)
         },
     })),
     propsChanged(({ actions, props, values }) => {
