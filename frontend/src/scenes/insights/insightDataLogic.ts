@@ -109,6 +109,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     const savedFilters =
                         savedInsight.filters ||
                         queryNodeToFilter(insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS])
+
+                    // TODO: Ignore filter_test_accounts for now, but should compare against default
+                    delete currentFilters.filter_test_accounts
+                    delete savedFilters.filter_test_accounts
+
                     return !compareFilters(currentFilters, savedFilters)
                 }
             },
