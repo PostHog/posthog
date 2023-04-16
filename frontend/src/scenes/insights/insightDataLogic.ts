@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { FilterType, InsightLogicProps } from '~/types'
+import { FilterType, InsightLogicProps, InsightType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { DataNode, InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 
@@ -9,7 +9,7 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { isInsightVizNode } from '~/queries/utils'
 import { cleanFilters } from './utils/cleanFilters'
-import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
+import { insightTypeToDefaultQuery, nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
@@ -102,12 +102,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (s) => [s.isQueryBasedInsight, s.query, s.insight, s.savedInsight],
             (isQueryBasedInsight, query, insight, savedInsight) => {
                 if (isQueryBasedInsight) {
-                    // for query based insights
                     return !objectsEqual(query, insight.query)
                 } else {
-                    // for other insights
-                    const savedFilters = savedInsight.filters || {}
-                    const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
+                    const currentFilters = cleanFilters(queryNodeToFilter((query as InsightVizNode).source))
+                    const savedFilters =
+                        savedInsight.filters ||
+                        cleanFilters(
+                            queryNodeToFilter(insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS])
+                        )
                     return !compareFilters(currentFilters, savedFilters)
                 }
             },
