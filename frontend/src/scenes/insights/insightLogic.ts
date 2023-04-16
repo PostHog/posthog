@@ -160,7 +160,7 @@ export const insightLogic = kea<insightLogicType>([
         }),
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
-        cancelChanges: (goToViewMode?: boolean) => ({ goToViewMode }),
+        cancelChanges: true,
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
@@ -1157,12 +1157,8 @@ export const insightLogic = kea<insightLogicType>([
             }
             actions.setFilters(newFilters)
         },
-        cancelChanges: ({ goToViewMode }) => {
+        cancelChanges: () => {
             actions.setFilters(values.savedInsight.filters || {})
-            if (goToViewMode) {
-                insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
-                eventUsageLogic.actions.reportInsightsTabReset()
-            }
         },
     })),
     events(({ props, values, actions }) => ({
