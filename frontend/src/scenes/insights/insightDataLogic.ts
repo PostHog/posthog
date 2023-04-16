@@ -105,12 +105,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 if (isQueryBasedInsight) {
                     return !objectsEqual(query, insight.query)
                 } else {
-                    const currentFilters = cleanFilters(queryNodeToFilter((query as InsightVizNode).source))
+                    const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
                     const savedFilters =
                         savedInsight.filters ||
-                        cleanFilters(
-                            queryNodeToFilter(insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS])
-                        )
+                        queryNodeToFilter(insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS])
                     return !compareFilters(currentFilters, savedFilters)
                 }
             },
@@ -119,7 +117,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     listeners(({ actions, values }) => ({
         setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
-            if (overrideFilter && query == null) {
+            if (overrideFilter && query === null) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
             } else if (query) {
                 actions.setQuery(query)
