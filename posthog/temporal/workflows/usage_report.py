@@ -218,8 +218,17 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     return user
 
 
+class ReportInputs:
+    org_id: str
+    report: Dict[str, Any]
+    capture_event_name: str
+    at_date: Optional[datetime] = None
+
+
 @activity.defn
-def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
+async def send_report_to_billing_service(inputs: ReportInputs) -> None:
+    org_id, report = inputs.org_id, inputs.report
+
     if not settings.EE_AVAILABLE:
         return
 
@@ -388,9 +397,14 @@ def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
 
 
 @activity.defn
-def capture_report(
-    capture_event_name: str, org_id: str, full_report_dict: Dict[str, Any], at_date: Optional[datetime] = None
-) -> None:
+async def capture_report(inputs: ReportInputs) -> None:
+    capture_event_name, org_id, full_report_dict, at_date = (
+        inputs.capture_event_name,
+        inputs.org_id,
+        inputs.report,
+        inputs.at_date,
+    )
+
     pha_client = Client("sTMFPsFhdP1Ssg")
     try:
         capture_event(pha_client, capture_event_name, org_id, full_report_dict, timestamp=at_date)
@@ -581,10 +595,17 @@ class SendAllOrgUsageReportsWorkflow(CommandableWorkflow):
 
             # First capture the events to PostHog
             if not skip_capture_event:
-                capture_report.delay(capture_event_name, org_id, full_report_dict, at_date)
+                await workflow.execute_activity(
+                    capture_report,
+                    ReportInputs(
+                        capture_event_name=capture_event_name, org_id=org_id, report=full_report_dict, at_date=at_date
+                    ),
+                )
 
             # Then capture the events to Billing
             if has_non_zero_usage(full_report):
-                send_report_to_billing_service.delay(org_id, full_report_dict)
-        return all_reports
+                await workflow.execute_activity(
+                    send_report_to_billing_service, ReportInputs(org_id=org_id, report=full_report_dict)
+                )
         workflow.logger.info("Done 🎉")
+        return all_reports
