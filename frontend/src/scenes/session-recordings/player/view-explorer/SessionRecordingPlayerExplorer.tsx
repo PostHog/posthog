@@ -1,8 +1,8 @@
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { useState } from 'react'
 import './SessionRecordingPlayerExplorer.scss'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export type SessionRecordingPlayerExplorerProps = {
     html: string
@@ -39,13 +39,13 @@ export function SessionRecordingPlayerExplorer({
                     </LemonButton>
                 </div>
                 {!noticeHidden && (
-                    <AlertMessage type="info" onClose={() => setNoticeHidden(true)}>
+                    <LemonBanner type="info" onClose={() => setNoticeHidden(true)}>
                         This is a snapshot of the screen that was recorded. It may not be 100% accurate, but should be
                         close enough to help you debug.
                         <br />
                         You can interact with the content below but most things won't work as it is only a snapshot of
                         your app. Use your Browser Developer Tools to inspect the content.
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
             </div>
 
