@@ -6,7 +6,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
  * @private
  */
 export function useSliderPositioning<C extends HTMLElement, S extends HTMLElement>(
-    currentValue: string | number,
+    currentValue: string | number | null | undefined,
     transitionMs: number
 ): {
     containerRef: React.RefObject<C>
