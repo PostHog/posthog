@@ -82,6 +82,7 @@ export class SessionManager {
             const baseKey = `${config.s3.sessionRecordingFolder}/team_id/${this.teamId}/session_id/${this.sessionId}`
             const dataKey = `${baseKey}/data/${this.flushBuffer.createdAt.getTime()}` // TODO: Change to be based on events times
             const fileStream = createReadStream(this.flushBuffer.file)
+            // TODO: Compress that file
 
             await s3Client.send(
                 new PutObjectCommand({

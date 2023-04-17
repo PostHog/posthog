@@ -42,7 +42,7 @@ export class OffsetManager {
     public async removeOffsets(topic: string, partition: number, offsets: number[]): Promise<number | null> {
         // TRICKY - We want to find the newest offset from the ones being removed that is
         // older than the oldest in the list
-        // e.g. [3, 4, 8, 10, ] -> removing [3,8] should end up with [4,10] and commit 3
+        // e.g. [3, 4, 8, 10] -> removing [3,8] should end up with [4,10] and commit 3
         // e.g. [3, 4, 8, 10 ] -> removing [10] should end up with [3,4,8] and commit nothing
 
         if (!offsets.length) {
