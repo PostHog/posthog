@@ -30,7 +30,10 @@ export const supportLogic = kea<supportLogicType>([
     })),
     actions(() => ({
         closeSupportForm: () => true,
-        openSupportForm: (kind?: supportTicketKind, target_area?: supportTicketTargetArea) => ({ kind, target_area }),
+        openSupportForm: (kind: supportTicketKind = null, target_area: supportTicketTargetArea = null) => ({
+            kind,
+            target_area,
+        }),
         submitZendeskTicket: (kind: supportTicketKind, target_area: supportTicketTargetArea, message: string) => ({
             kind,
             target_area,
@@ -70,8 +73,8 @@ export const supportLogic = kea<supportLogicType>([
     listeners(({ actions }) => ({
         openSupportForm: async ({ kind, target_area }) => {
             actions.resetSendSupportRequest({
-                kind: kind ? kind : null,
-                target_area: target_area ? target_area : null,
+                kind,
+                target_area,
                 message: '',
             })
         },

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { billingLogic } from './billingLogic'
-import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -69,20 +69,21 @@ export function Billing(): JSX.Element {
             <div className="space-y-4">
                 <BillingPageHeader />
                 <LemonBanner type="error">
-                    There was an issue retrieving your current billing information. If this message persists please
-                    <LemonButton
+                    There was an issue retrieving your current billing information. If this message persists please{' '}
+                    <Link
                         onClick={() => {
                             openSupportForm('bug', 'billing')
                         }}
                     >
-                        Submit a bug report
-                    </LemonButton>
+                        submit a bug report
+                    </Link>
+                    .
                 </LemonBanner>
 
                 {!cloudOrDev ? (
                     <LemonBanner type="info">
                         There was an issue retrieving your current billing information. If this message persists please
-                        contact <a href="mailto:sales@posthog.com">sales@posthog.com</a>.
+                        contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link>.
                     </LemonBanner>
                 ) : null}
             </div>
