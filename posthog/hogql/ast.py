@@ -267,7 +267,7 @@ class Alias(Expr):
     expr: Expr
 
 
-class BinaryOperationType(str, Enum):
+class BinaryOperationOp(str, Enum):
     Add = "+"
     Sub = "-"
     Mult = "*"
@@ -278,7 +278,7 @@ class BinaryOperationType(str, Enum):
 class BinaryOperation(Expr):
     left: Expr
     right: Expr
-    op: BinaryOperationType
+    op: BinaryOperationOp
 
 
 class And(Expr):
@@ -297,7 +297,7 @@ class Or(Expr):
     exprs: List[Expr]
 
 
-class CompareOperationType(str, Enum):
+class CompareOperationOp(str, Enum):
     Eq = "=="
     NotEq = "!="
     Gt = ">"
@@ -317,7 +317,7 @@ class CompareOperationType(str, Enum):
 class CompareOperation(Expr):
     left: Expr
     right: Expr
-    op: CompareOperationType
+    op: CompareOperationOp
     type: Optional[ConstantType]
 
 

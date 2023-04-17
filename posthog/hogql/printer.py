@@ -36,7 +36,7 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
         raise HogQLException("context.team_id not found")
 
     return ast.CompareOperation(
-        op=ast.CompareOperationType.Eq,
+        op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
         right=ast.Constant(value=context.team_id),
         type=ast.ConstantType(data_type="bool"),
@@ -287,18 +287,18 @@ class _Printer(Visitor):
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
     def visit_binary_operation(self, node: ast.BinaryOperation):
-        if node.op == ast.BinaryOperationType.Add:
+        if node.op == ast.BinaryOperationOp.Add:
             return f"plus({self.visit(node.left)}, {self.visit(node.right)})"
-        elif node.op == ast.BinaryOperationType.Sub:
+        elif node.op == ast.BinaryOperationOp.Sub:
             return f"minus({self.visit(node.left)}, {self.visit(node.right)})"
-        elif node.op == ast.BinaryOperationType.Mult:
+        elif node.op == ast.BinaryOperationOp.Mult:
             return f"multiply({self.visit(node.left)}, {self.visit(node.right)})"
-        elif node.op == ast.BinaryOperationType.Div:
+        elif node.op == ast.BinaryOperationOp.Div:
             return f"divide({self.visit(node.left)}, {self.visit(node.right)})"
-        elif node.op == ast.BinaryOperationType.Mod:
+        elif node.op == ast.BinaryOperationOp.Mod:
             return f"modulo({self.visit(node.left)}, {self.visit(node.right)})"
         else:
-            raise HogQLException(f"Unknown BinaryOperationType {node.op}")
+            raise HogQLException(f"Unknown BinaryOperationOp {node.op}")
 
     def visit_and(self, node: ast.And):
         return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
@@ -332,42 +332,42 @@ class _Printer(Visitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         left = self.visit(node.left)
         right = self.visit(node.right)
-        if node.op == ast.CompareOperationType.Eq:
+        if node.op == ast.CompareOperationOp.Eq:
             if isinstance(node.right, ast.Constant) and node.right.value is None:
                 return f"isNull({left})"
             else:
                 return f"equals({left}, {right})"
-        elif node.op == ast.CompareOperationType.NotEq:
+        elif node.op == ast.CompareOperationOp.NotEq:
             if isinstance(node.right, ast.Constant) and node.right.value is None:
                 return f"isNotNull({left})"
             else:
                 return f"notEquals({left}, {right})"
-        elif node.op == ast.CompareOperationType.Gt:
+        elif node.op == ast.CompareOperationOp.Gt:
             return f"greater({left}, {right})"
-        elif node.op == ast.CompareOperationType.GtE:
+        elif node.op == ast.CompareOperationOp.GtE:
             return f"greaterOrEquals({left}, {right})"
-        elif node.op == ast.CompareOperationType.Lt:
+        elif node.op == ast.CompareOperationOp.Lt:
             return f"less({left}, {right})"
-        elif node.op == ast.CompareOperationType.LtE:
+        elif node.op == ast.CompareOperationOp.LtE:
             return f"lessOrEquals({left}, {right})"
-        elif node.op == ast.CompareOperationType.Like:
+        elif node.op == ast.CompareOperationOp.Like:
             return f"like({left}, {right})"
-        elif node.op == ast.CompareOperationType.ILike:
+        elif node.op == ast.CompareOperationOp.ILike:
             return f"ilike({left}, {right})"
-        elif node.op == ast.CompareOperationType.NotLike:
+        elif node.op == ast.CompareOperationOp.NotLike:
             return f"not(like({left}, {right}))"
-        elif node.op == ast.CompareOperationType.NotILike:
+        elif node.op == ast.CompareOperationOp.NotILike:
             return f"not(ilike({left}, {right}))"
-        elif node.op == ast.CompareOperationType.In:
+        elif node.op == ast.CompareOperationOp.In:
             return f"in({left}, {right})"
-        elif node.op == ast.CompareOperationType.NotIn:
+        elif node.op == ast.CompareOperationOp.NotIn:
             return f"not(in({left}, {right}))"
-        elif node.op == ast.CompareOperationType.Regex:
+        elif node.op == ast.CompareOperationOp.Regex:
             return f"match({left}, {right})"
-        elif node.op == ast.CompareOperationType.NotRegex:
+        elif node.op == ast.CompareOperationOp.NotRegex:
             return f"not(match({left}, {right}))"
         else:
-            raise HogQLException(f"Unknown CompareOperationType: {type(node.op).__name__}")
+            raise HogQLException(f"Unknown CompareOperationOp: {type(node.op).__name__}")
 
     def visit_constant(self, node: ast.Constant):
         if self.dialect == "clickhouse" and (
