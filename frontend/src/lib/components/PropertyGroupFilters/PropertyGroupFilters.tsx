@@ -114,12 +114,7 @@ export function PropertyGroupFilters({
                                                 <PropertyFilters
                                                     orFiltering={true}
                                                     addButton={
-                                                        <LemonButton
-                                                            type="tertiary"
-                                                            noPadding
-                                                            icon={<IconPlusMini />}
-                                                            sideIcon={null}
-                                                        >
+                                                        <LemonButton type="tertiary" noPadding icon={<IconPlusMini />}>
                                                             Add filter
                                                         </LemonButton>
                                                     }
@@ -156,7 +151,6 @@ export function PropertyGroupFilters({
                 type="secondary"
                 onClick={() => addFilterGroup()}
                 icon={<IconPlusMini color="var(--primary)" />}
-                sideIcon={null}
             >
                 Add filter group
             </LemonButton>

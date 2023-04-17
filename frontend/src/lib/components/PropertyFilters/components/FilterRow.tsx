@@ -95,7 +95,6 @@ export const FilterRow = React.memo(function FilterRow({
                                 type="secondary"
                                 size="small"
                                 icon={<IconPlus />}
-                                sideIcon={null}
                             >
                                 {label}
                             </LemonButton>
