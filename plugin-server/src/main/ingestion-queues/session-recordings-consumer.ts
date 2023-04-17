@@ -8,6 +8,8 @@ import {
     LibrdKafkaError,
     Message,
     ProducerGlobalConfig,
+    TopicPartition,
+    TopicPartitionOffset,
 } from 'node-rdkafka'
 import { hostname } from 'os'
 import { exponentialBuckets, Histogram } from 'prom-client'
@@ -90,22 +92,25 @@ export const startSessionRecordingEventsConsumer = async ({
         'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
         'fetch.message.max.bytes': consumerMaxBytes,
         'fetch.wait.max.ms': consumerMaxWaitMs,
+        'enable.partition.eof': true,
     })
+
+    instrumentConsumerMetrics(consumer, groupId)
 
     consumer.subscribe([KAFKA_SESSION_RECORDING_EVENTS])
 
     const eachMessageWithContext = eachMessage(groupId, teamManager, producer)
 
-    let isRunning = true
+    let isMainLoopRunning = true
 
-    // Start consuming in a loop, fetching a batch of a max of 500 messages then
-    // processing these with eachMessage, and finally calling
-    // consumer.offsetsStore. This will not actually commit offsets on the
-    // brokers, but rather just store the offsets locally such that when commit
-    // is called, either manually of via auto-commit, these are the values that
-    // will be used.
     const startConsuming = async () => {
-        while (isRunning) {
+        // Start consuming in a loop, fetching a batch of a max of 500 messages then
+        // processing these with eachMessage, and finally calling
+        // consumer.offsetsStore. This will not actually commit offsets on the
+        // brokers, but rather just store the offsets locally such that when commit
+        // is called, either manually of via auto-commit, these are the values that
+        // will be used.
+        while (isMainLoopRunning) {
             const messages = await consumeMessages(consumer, fetchBatchSize)
 
             consumerBatchSize.labels({ topic: KAFKA_SESSION_RECORDING_EVENTS, groupId }).observe(messages.length)
@@ -139,7 +144,12 @@ export const startSessionRecordingEventsConsumer = async ({
 
         // First we signal to the mainLoop that we should be stopping. The main
         // loop should complete one loop, flush the producer, and store it's offsets.
-        isRunning = false
+        isMainLoopRunning = false
+
+        // We might as well pause the consumer to stop it fetching messages from
+        // the brokers in the background. Not 100% necessary but saves on some
+        // unnecessary work.
+        consumer.pause(consumer.assignments())
 
         // Wait for the main loop to finish, but only give it 10 seconds
         await Promise.race([mainLoop, new Promise((resolve) => setTimeout(resolve, 10000))])
@@ -311,10 +321,6 @@ const eachMessage =
                 })
                 .inc()
         }
-
-        latestOffsetTimestampGauge
-            .labels({ topic: message.topic, partition: message.partition, groupId })
-            .set(message.timestamp)
     }
 
 const consumerBatchSize = new Histogram({
@@ -437,6 +443,60 @@ const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
                 resolve(consumer)
             }
         })
+    })
+}
+
+const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: string) => {
+    // For each message consumed, we record the latest timestamp processed for
+    // each partition assigned to this consumer group member. This consumer
+    // should only provide metrics for the partitions that are assigned to it,
+    // so we need to make sure we don't publish any metrics for other
+    // partitions, otherwise we can end up with ghost readings.
+    //
+    // We also need to conside the case where we have a partition that
+    // has reached EOF, in which case we want to record the current time
+    // as opposed to the timestamp of the current message (as in this
+    // case, no such message exists).
+    //
+    // Further, we are not guaranteed to have messages from all of the
+    // partitions assigned to this consumer group member, event if there
+    // are partitions with messages to be consumed. This is because
+    // librdkafka will only fetch messages from a partition if there is
+    // space in the internal partition queue. If the queue is full, it
+    // will not fetch any more messages from the given partition.
+    //
+    // Note that we don't try to align the timestamps with the actual broker
+    // committed offsets. The discrepancy is hopefully in most cases quite
+    // small.
+    //
+    // TODO: add other relevant metrics here
+    // TODO: expose the internal librdkafka metrics as well.
+    consumer.on('rebalance', (error: LibrdKafkaError, assignments: TopicPartition[]) => {
+        if (error) {
+            status.error('⚠️', 'rebalance_error', { error: error })
+        } else {
+            status.info('📝', 'librdkafka rebalance', { assignments: assignments })
+        }
+
+        latestOffsetTimestampGauge.reset()
+    })
+
+    consumer.on('partition.eof', (topicPartitionOffset: TopicPartitionOffset) => {
+        latestOffsetTimestampGauge
+            .labels({
+                topic: topicPartitionOffset.topic,
+                partition: topicPartitionOffset.partition.toString(),
+                groupId,
+            })
+            .set(Date.now())
+    })
+
+    consumer.on('data', (message) => {
+        if (message.timestamp) {
+            latestOffsetTimestampGauge
+                .labels({ topic: message.topic, partition: message.partition, groupId })
+                .set(message.timestamp)
+        }
     })
 }
 
