@@ -5,6 +5,26 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
+import { UserType } from '~/types'
+
+function getSessionReplayLink(): string {
+    const LOOK_BACK = 30
+    const recordingStartTime = Math.max(
+        Math.floor((new Date().getTime() - (posthog?.sessionManager?._sessionStartTimestamp || 0)) / 1000) - LOOK_BACK,
+        0
+    )
+    const link = `${window.location.origin}/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
+    return `\nSession replay: ${link}`
+}
+
+function getDjangoAdminLink(user: UserType | null): string {
+    if (!user) {
+        return ''
+    }
+    const link = `${window.location.origin}/admin/posthog/user/?q=${user.email}`
+    console.log(`\nAdmin link: ${link} (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`)
+    return `\nAdmin link: ${link} (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`
+}
 
 export const supportLogic = kea<supportLogicType>([
     path(['lib', 'components', 'support', 'supportLogic']),
@@ -58,7 +78,9 @@ export const supportLogic = kea<supportLogicType>([
                             `\n\n-----` +
                             `\nKind: ${kind}` +
                             `\nTarget area: ${target_area}` +
-                            `\nInternal link: http://go/ticketByUUID/${zendesk_ticket_uuid}`,
+                            `\nInternal link: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
+                            getSessionReplayLink() +
+                            getDjangoAdminLink(userLogic.values.user),
                     },
                 },
             }
