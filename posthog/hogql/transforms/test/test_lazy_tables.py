@@ -33,7 +33,7 @@ class TestLazyJoins(BaseTest):
             f"ON equals(events.distinct_id, events__pdi.distinct_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535"
         )
         self.assertEqual(printed, expected)
-
+        
     def test_resolve_lazy_tables_two_levels(self):
         printed = self._print_select("select event, pdi.person.id from events")
         expected = (

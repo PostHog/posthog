@@ -507,8 +507,8 @@ class _Printer(Visitor):
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
-
             else:
+                # this errors because resolved_field is of type ast.Alias and not a field - what's the best way to solve?
                 field_sql = self._print_identifier(resolved_field.name)
                 if self.context.within_non_hogql_query and ref_with_name_in_scope == ref:
                     # Do not prepend table name in non-hogql context. We don't know what it actually is.
