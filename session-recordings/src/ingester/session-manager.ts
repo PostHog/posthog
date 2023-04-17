@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 import { s3Client } from '../utils/s3'
 import { IncomingRecordingMessage } from '../types'
 import { config } from '../config'
-import { convertToPersitedMessage } from './utils'
+import { convertToPersistedMessage } from './utils'
 import { writeFileSync, mkdirSync, createReadStream } from 'fs'
 import { appendFile, rm } from 'fs/promises'
 import { counterS3FilesWritten } from '../utils/metrics'
@@ -131,7 +131,7 @@ export class SessionManager {
      * Full messages (all chunks) are added to the buffer directly
      */
     private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
-        const content = JSON.stringify(convertToPersitedMessage(message)) + '\n'
+        const content = JSON.stringify(convertToPersistedMessage(message)) + '\n'
         this.buffer.count += 1
         this.buffer.size += Buffer.byteLength(content)
         this.buffer.offsets.push(message.metadata.offset)
