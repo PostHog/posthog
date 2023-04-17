@@ -7,7 +7,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
 import { defaultEntityFilterOnFlag, featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { FeatureFlagInstructions, FeatureFlagPayloadInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import {
@@ -289,23 +288,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     )}
                                 </Field>
                             </Col>
-                            {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                                <Col span={12}>
-                                    <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                                </Col>
-                            )}
                         </Row>
                         <LemonDivider />
                         <FeatureFlagRollout />
                         <LemonDivider />
                         <FeatureFlagReleaseConditions />
-                        {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                            <>
-                                <LemonDivider />
-                                <FeatureFlagCodeExample featureFlag={featureFlag} />
-                                <LemonDivider />
-                            </>
-                        )}
+                        <LemonDivider />
+                        <FeatureFlagCodeExample featureFlag={featureFlag} />
+                        <LemonDivider />
                         {isNewFeatureFlag && (
                             <>
                                 <div>
@@ -520,19 +510,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <Col span={11} className="pl-4">
                                                 <RecentFeatureFlagInsights />
                                                 <div className="my-4" />
-                                                {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                                                    <FeatureFlagInstructions
-                                                        featureFlagKey={featureFlag.key || 'my-flag'}
-                                                    />
-                                                )}
                                             </Col>
                                         </Row>
-                                        {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                                            <>
-                                                <LemonDivider className="mb-4" />
-                                                <FeatureFlagCodeExample featureFlag={featureFlag} />
-                                            </>
-                                        )}
+                                        <LemonDivider className="mb-4" />
+                                        <FeatureFlagCodeExample featureFlag={featureFlag} />
                                     </Tabs.TabPane>
                                     {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
                                         <Tabs.TabPane
@@ -670,7 +651,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
     const { hasAvailableFeature } = useValues(userLogic)
     const { upgradeLink } = useValues(billingLogic)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
         <>
@@ -854,11 +834,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     </Field>
                                 </Group>
                             </Col>
-                            {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                                <Col span={12}>
-                                    <FeatureFlagPayloadInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                                </Col>
-                            )}
                         </Row>
                     )}
                 </div>

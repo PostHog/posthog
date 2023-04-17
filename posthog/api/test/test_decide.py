@@ -38,13 +38,20 @@ class TestDecide(BaseTest, QueryMatchingTest):
         api_version=1,
         distinct_id="example_id",
         groups={},
+        geoip_disable=False,
         ip="127.0.0.1",
     ):
         return self.client.post(
             f"/decide/?v={api_version}",
             {
                 "data": self._dict_to_b64(
-                    data or {"token": self.team.api_token, "distinct_id": distinct_id, "groups": groups}
+                    data
+                    or {
+                        "token": self.team.api_token,
+                        "distinct_id": distinct_id,
+                        "groups": groups,
+                        "geoip_disable": geoip_disable,
+                    },
                 )
             },
             HTTP_ORIGIN=origin,
@@ -1466,6 +1473,71 @@ class TestDecide(BaseTest, QueryMatchingTest):
         detail = response_data.pop("detail")
         self.assertEqual(response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None})
         self.assertIn("Malformed request data:", detail)
+
+    def test_geoip_disable(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$geoip_country_name": "India"})
+
+        australia_ip = "13.106.122.3"
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Beta feature 1",
+            key="australia-feature",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "$geoip_country_name", "value": "Australia", "type": "person"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Beta feature 2",
+            key="india-feature",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "$geoip_country_name", "value": "India", "type": "person"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        with self.assertNumQueries(4):
+            geoip_not_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable=False)
+            geoip_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable=True)
+
+            # person has geoip_country_name set to India, but australia-feature is true, because geoip resolution of current IP is enabled
+            self.assertEqual(
+                geoip_not_disabled_res.json()["featureFlags"], {"australia-feature": True, "india-feature": False}
+            )
+            # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
+            self.assertEqual(
+                geoip_disabled_res.json()["featureFlags"], {"australia-feature": False, "india-feature": True}
+            )
+
+        # test for falsy/truthy values
+        geoip_not_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable="0")
+        geoip_disabled_res = self._post_decide(api_version=3, ip=australia_ip, geoip_disable="yes")
+
+        # person has geoip_country_name set to India, but australia-feature is true, because geoip resolution of current IP is enabled
+        self.assertEqual(
+            geoip_not_disabled_res.json()["featureFlags"], {"australia-feature": True, "india-feature": False}
+        )
+        # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
+        self.assertEqual(geoip_disabled_res.json()["featureFlags"], {"australia-feature": False, "india-feature": True})
 
     @snapshot_postgres_queries
     def test_decide_doesnt_error_out_when_database_is_down(self):
