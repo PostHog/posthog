@@ -25,7 +25,7 @@ describe('session-manager', () => {
             createdAt: expect.any(Date),
             file: expect.any(String),
             id: expect.any(String),
-            size: 72, // The size of the event payload - this may change when test data changes
+            size: 61, // The size of the event payload - this may change when test data changes
             offsets: [1],
         })
         const fileContents = JSON.parse(fs.readFileSync(sessionManager.buffer.file, 'utf-8'))

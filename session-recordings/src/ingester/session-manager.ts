@@ -1,5 +1,4 @@
 import path from 'path'
-import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { randomUUID } from 'crypto'
 import { s3Client } from '../utils/s3'
 import { IncomingRecordingMessage } from '../types'
@@ -9,6 +8,8 @@ import { writeFileSync, mkdirSync, createReadStream } from 'fs'
 import { appendFile, rm } from 'fs/promises'
 import { counterS3FilesWritten } from '../utils/metrics'
 import { createLogger } from '../utils/logger'
+import * as zlib from 'zlib'
+import { Upload } from '@aws-sdk/lib-storage'
 
 // The buffer is a list of messages grouped
 type SessionBuffer = {
@@ -81,19 +82,25 @@ export class SessionManager {
         try {
             const baseKey = `${config.s3.sessionRecordingFolder}/team_id/${this.teamId}/session_id/${this.sessionId}`
             const dataKey = `${baseKey}/data/${this.flushBuffer.createdAt.getTime()}` // TODO: Change to be based on events times
-            const fileStream = createReadStream(this.flushBuffer.file)
-            // TODO: Compress that file
 
-            await s3Client.send(
-                new PutObjectCommand({
+            // TODO should only compress over some threshold? Depends how many uncompressed files we see below c200kb
+            const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
+
+            const parallelUploads3 = new Upload({
+                client: s3Client,
+                params: {
                     Bucket: config.s3.bucket,
                     Key: dataKey,
                     Body: fileStream,
-                })
-            )
+                },
+                // queueSize: 4, // optional concurrency configuration
+                // partSize: 1024 * 1024 * 5, // optional size of each part, in bytes, at least 5MB
+                // leavePartsOnError: false, // optional manually handle dropped parts
+            })
+            await parallelUploads3.done()
 
             counterS3FilesWritten.add(1, {
-                bytes: this.flushBuffer.size,
+                bytes: this.flushBuffer.size, // since the file is compressed this is wrong, and we don't know the compressed size 🤔
             })
 
             // TODO: Increment file count and size metric

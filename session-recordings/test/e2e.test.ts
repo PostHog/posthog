@@ -4,6 +4,8 @@ import http from 'http'
 import { v4 as uuidv4 } from 'uuid'
 
 import { config } from '../src/config'
+import { ListObjectsCommand } from '@aws-sdk/client-s3'
+import { s3Client } from '../src/utils/s3'
 
 declare module 'vitest' {
     export interface TestContext {
@@ -52,6 +54,13 @@ describe.concurrent('e2e', () => {
         const sessionRecording = await waitForSessionRecording(teamId, sessionId, eventUuid)
 
         expect(sessionRecording.events.length).toBe(1)
+
+        // use aws v3 to read the file from s3
+        const command = new ListObjectsCommand({
+            Bucket: config.s3.bucket,
+        })
+        const result = await s3Client.send(command)
+        expect(result).toBe({}) // TODO need to fix the e2e tests
     })
 
     it('handles chunked events', async ({ producer }) => {
@@ -189,7 +198,7 @@ describe.concurrent('e2e', () => {
         const sessionId = uuidv4()
         const windowId = uuidv4()
 
-        const messages = Array.from(new Array(30).keys()).map((_) => {
+        const messages = Array.from(new Array(30).keys()).map(() => {
             const eventUuid = uuidv4()
             return {
                 partition: 0,
@@ -219,7 +228,7 @@ describe.concurrent('e2e', () => {
             sessionId,
             messages.slice(-1)[0].headers.eventId.toString()
         )
-        expect(sessionRecording.events.map((event) => event.uuid)).toStrictEqual(
+        expect(sessionRecording.events.map((event: any) => event.uuid)).toStrictEqual(
             messages.map((message) => message.headers.eventId.toString())
         )
     })
@@ -278,7 +287,7 @@ describe.concurrent('e2e', () => {
         })
 
         const sessionRecording = await waitForSessionRecording(teamId, sessionId, secondEventUuid)
-        expect(sessionRecording.events.map((event) => event.uuid)).toStrictEqual([firstEventUuid, secondEventUuid])
+        expect(sessionRecording.events.map((event: any) => event.uuid)).toStrictEqual([firstEventUuid, secondEventUuid])
     })
 
     // TODO: add this test and handle it
@@ -313,7 +322,7 @@ const getSessionRecording = async (teamId: string, sessionId: string): Promise<{
     })
 }
 
-const waitForSessionRecording = async (teamId: string, sessionId: string, eventUuid: string) => {
+const waitForSessionRecording = async (teamId: string, sessionId: string, eventUuid: string): Promise<any> => {
     while (true) {
         const recording = await getSessionRecording(teamId, sessionId)
         if (recording.events.map((event) => event.uuid).includes(eventUuid)) {
