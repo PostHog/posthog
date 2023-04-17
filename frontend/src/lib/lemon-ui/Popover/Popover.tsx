@@ -46,7 +46,8 @@ export interface PopoverProps {
      * **/
     additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
     referenceRef?: UseFloatingReturn['refs']['reference']
-    style?: React.CSSProperties
+    style?: React.CSSProperties /** Whether the parent popover should be closed as well on click. Useful for menus  */
+    closeParentPopoverOnClickInside?: boolean
     getPopupContainer?: () => HTMLElement
     /** Whether to show an arrow pointing to a reference element */
     showArrow?: boolean
@@ -54,6 +55,8 @@ export interface PopoverProps {
 
 export const PopoverLevelContext = React.createContext<number>(0)
 export const PopoverPlacementContext = React.createContext<Placement | null>(null)
+
+let nestedPopoverReceivedClick = false
 
 /** This is a custom popover control that uses `floating-ui` to position DOM nodes.
  *
@@ -75,6 +78,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         sameWidth = false,
         maxContentWidth = false,
         additionalRefs = [],
+        closeParentPopoverOnClickInside = false,
         referenceRef: extraReferenceRef,
         style,
         getPopupContainer,
@@ -153,9 +157,13 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     useOutsideClickHandler(
         [floatingRef, referenceRef, ...additionalRefs],
         (event) => {
-            if (visible) {
-                onClickOutside?.(event)
-            }
+            // Delay by a tick to allow other Popovers to detect inside clicks.
+            // If a nested popover has handled the click, don't do anything
+            setTimeout(() => {
+                if (visible && !nestedPopoverReceivedClick) {
+                    onClickOutside?.(event)
+                }
+            }, 1)
         },
         [visible]
     )
@@ -165,6 +173,17 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             return autoUpdate(referenceRef.current, floatingRef.current, update)
         }
     }, [visible, referenceRef?.current, floatingRef?.current, ...additionalRefs])
+
+    const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
+        onClickInside?.(e)
+        // If we are not the top level popover, set a flag so that other popovers know that.
+        if (popoverLevel > 0 && !closeParentPopoverOnClickInside) {
+            nestedPopoverReceivedClick = true
+            setTimeout(() => {
+                nestedPopoverReceivedClick = false
+            }, 1)
+        }
+    }
 
     const clonedChildren = children ? React.cloneElement(children as ReactElement, { ref: mergedReferenceRef }) : null
 
@@ -192,7 +211,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                             ref={floating}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ position: strategy, top, left, ...style }}
-                            onClick={onClickInside}
+                            onClick={_onClickInside}
                             aria-level={popoverLevel + 1}
                         >
                             <div className="Popover__box">
