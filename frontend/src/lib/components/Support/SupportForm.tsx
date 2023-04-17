@@ -31,7 +31,7 @@ export default function SupportForm(): JSX.Element {
             isOpen={isSupportFormOpen}
             onClose={closeSupportForm}
             title={'Bug / Feedback'}
-            description="Submit a request to our helpdesk"
+            description="We're using aggregate bug reports for prioritization and won't get back to everyone individually."
             footer={
                 <div className="flex-1 flex items-center justify-between">
                     <div className="flex items-center gap-2">
