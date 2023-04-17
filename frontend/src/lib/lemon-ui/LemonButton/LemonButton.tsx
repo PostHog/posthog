@@ -41,7 +41,12 @@ export interface LemonButtonPropsBase
     /** External URL to link to. */
     className?: string
 
+    /** Icon displayed on the left. */
     icon?: React.ReactElement | null
+    /**
+     * Icon displayed on the right.
+     * If the button opens a dropdown, this icon will be a dropdown arrow by default. Set `sideIcon={null}` to disable.
+     */
     sideIcon?: React.ReactElement | null
     htmlType?: 'button' | 'submit' | 'reset'
     loading?: boolean
