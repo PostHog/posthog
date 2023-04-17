@@ -352,11 +352,7 @@ export function PropertiesTable({
                         <>
                             {filtered || searchTerm ? (
                                 <span className="flex gap-2">
-<<<<<<< HEAD
-                                    No properties found
-=======
                                     <span>No properties found</span>
->>>>>>> master
                                     <LemonButton
                                         noPadding
                                         onClick={() => {
