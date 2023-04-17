@@ -1,12 +1,41 @@
-from typing import List, Optional, Literal, cast
+from datetime import date, datetime
+from typing import List, Optional, Any
+from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType
+from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.database import Database
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.visitor import TraversingVisitor
+from posthog.models.utils import UUIDT
+
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
+
+
+def resolve_constant_data_type(constant: Any) -> ConstantDataType:
+    if constant is None:
+        return "unknown"
+    if isinstance(constant, bool):
+        return "bool"
+    if isinstance(constant, int):
+        return "int"
+    if isinstance(constant, float):
+        return "float"
+    if isinstance(constant, str):
+        return "str"
+    if isinstance(constant, list):
+        return "array"
+    if isinstance(constant, tuple):
+        return "tuple"
+    if isinstance(constant, datetime) or type(constant).__name__ == "FakeDatetime":
+        return "datetime"
+    if isinstance(constant, date) or type(constant).__name__ == "FakeDate":
+        return "date"
+    if isinstance(constant, UUID) or isinstance(constant, UUIDT):
+        return "uuid"
+    raise ResolverException(f"Unsupported constant type: {type(constant)}")
 
 
 def resolve_types(node: ast.Expr, database: Database, scope: Optional[ast.SelectQueryType] = None):
@@ -225,34 +254,21 @@ class Resolver(TraversingVisitor):
         if node.type is not None:
             return
 
-        if isinstance(node.value, str):
-            datatype = "str"
-        elif isinstance(node.value, bool):
-            datatype = "bool"
-        elif isinstance(node.value, int):
-            datatype = "int"
-        elif isinstance(node.value, float):
-            datatype = "float"
-        elif node.value is None:
-            datatype = "unknown"
-        else:
-            raise ResolverException(f"Unsupported constant type: {type(node.value)}")
-
-        node.type = ast.ConstantType(type=cast(Literal["int", "float", "str", "bool", "unknown"], datatype))
+        node.type = ast.ConstantType(data_type=resolve_constant_data_type(node.value))
 
     def visit_and(self, node: ast.And):
         for expr in node.exprs:
             self.visit(expr)
-        node.type = ast.ConstantType(type="bool")
+        node.type = ast.ConstantType(data_type="bool")
 
     def visit_or(self, node: ast.Or):
         for expr in node.exprs:
             self.visit(expr)
-        node.type = ast.ConstantType(type="bool")
+        node.type = ast.ConstantType(data_type="bool")
 
     def visit_not(self, node: ast.Not):
         self.visit(node.expr)
-        node.type = ast.ConstantType(type="bool")
+        node.type = ast.ConstantType(data_type="bool")
 
 
 def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:

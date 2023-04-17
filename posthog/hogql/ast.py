@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
 
+from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.database import (
     DatabaseField,
     FieldTraverser,
@@ -208,7 +209,7 @@ class CallType(Type):
 
 
 class ConstantType(Type):
-    type: Literal["int", "float", "str", "bool", "unknown"]
+    data_type: ConstantDataType
 
 
 class AsteriskType(Type):

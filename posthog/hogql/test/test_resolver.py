@@ -1,3 +1,8 @@
+from datetime import timezone, datetime, date
+from uuid import UUID
+
+from freezegun import freeze_time
+
 from posthog.hogql import ast
 from posthog.hogql.database import create_hogql_database
 from posthog.hogql.parser import parse_select
@@ -33,7 +38,7 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"], type=event_field_type),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test", type=ast.ConstantType(type="str")),
+                right=ast.Constant(value="test", type=ast.ConstantType(data_type="str")),
             ),
             type=select_query_type,
         )
@@ -71,7 +76,7 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["e", "event"], type=event_field_type),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test", type=ast.ConstantType(type="str")),
+                right=ast.Constant(value="test", type=ast.ConstantType(data_type="str")),
             ),
             type=select_query_type,
         )
@@ -128,7 +133,7 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["e", "event"], type=event_field_type),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test", type=ast.ConstantType(type="str")),
+                right=ast.Constant(value="test", type=ast.ConstantType(data_type="str")),
             ),
             type=select_query_type,
         )
@@ -201,7 +206,7 @@ class TestResolver(BaseTest):
                     type=ast.FieldType(name="b", table=select_alias_type),
                 ),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test", type=ast.ConstantType(type="str")),
+                right=ast.Constant(value="test", type=ast.ConstantType(data_type="str")),
             ),
             type=ast.SelectQueryType(
                 aliases={},
@@ -226,19 +231,35 @@ class TestResolver(BaseTest):
         self.assertEqual(str(e.exception), "Unable to resolve field: e")
 
     def test_resolve_constant_type(self):
-        expr = parse_select("SELECT 1, 'boo', true, 1.1232, null")
-        resolve_types(expr, database=self.database)
-        expected = ast.SelectQuery(
-            select=[
-                ast.Constant(value=1, type=ast.ConstantType(type="int")),
-                ast.Constant(value="boo", type=ast.ConstantType(type="str")),
-                ast.Constant(value=True, type=ast.ConstantType(type="bool")),
-                ast.Constant(value=1.1232, type=ast.ConstantType(type="float")),
-                ast.Constant(value=None, type=ast.ConstantType(type="unknown")),
-            ],
-            type=ast.SelectQueryType(aliases={}, columns={}, tables={}),
-        )
-        self.assertEqual(expr, expected)
+        with freeze_time("2020-01-10 00:00:00"):
+            expr = parse_select(
+                "SELECT 1, 'boo', true, 1.1232, null, {date}, {datetime}, {uuid}",
+                placeholders={
+                    "date": ast.Constant(value=date(2020, 1, 10)),
+                    "datetime": ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc)),
+                    "uuid": ast.Constant(value=UUID("00000000-0000-4000-8000-000000000000")),
+                },
+            )
+            resolve_types(expr, database=self.database)
+            expected = ast.SelectQuery(
+                select=[
+                    ast.Constant(value=1, type=ast.ConstantType(data_type="int")),
+                    ast.Constant(value="boo", type=ast.ConstantType(data_type="str")),
+                    ast.Constant(value=True, type=ast.ConstantType(data_type="bool")),
+                    ast.Constant(value=1.1232, type=ast.ConstantType(data_type="float")),
+                    ast.Constant(value=None, type=ast.ConstantType(data_type="unknown")),
+                    ast.Constant(value=date(2020, 1, 10), type=ast.ConstantType(data_type="date")),
+                    ast.Constant(
+                        value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc),
+                        type=ast.ConstantType(data_type="datetime"),
+                    ),
+                    ast.Constant(
+                        value=UUID("00000000-0000-4000-8000-000000000000"), type=ast.ConstantType(data_type="uuid")
+                    ),
+                ],
+                type=ast.SelectQueryType(aliases={}, columns={}, tables={}),
+            )
+            self.assertEqual(expr, expected)
 
     def test_resolve_boolean_operation_types(self):
         expr = parse_select("SELECT 1 and 1, 1 or 1, not true")
@@ -247,21 +268,21 @@ class TestResolver(BaseTest):
             select=[
                 ast.And(
                     exprs=[
-                        ast.Constant(value=1, type=ast.ConstantType(type="int")),
-                        ast.Constant(value=1, type=ast.ConstantType(type="int")),
+                        ast.Constant(value=1, type=ast.ConstantType(data_type="int")),
+                        ast.Constant(value=1, type=ast.ConstantType(data_type="int")),
                     ],
-                    type=ast.ConstantType(type="bool"),
+                    type=ast.ConstantType(data_type="bool"),
                 ),
                 ast.Or(
                     exprs=[
-                        ast.Constant(value=1, type=ast.ConstantType(type="int")),
-                        ast.Constant(value=1, type=ast.ConstantType(type="int")),
+                        ast.Constant(value=1, type=ast.ConstantType(data_type="int")),
+                        ast.Constant(value=1, type=ast.ConstantType(data_type="int")),
                     ],
-                    type=ast.ConstantType(type="bool"),
+                    type=ast.ConstantType(data_type="bool"),
                 ),
                 ast.Not(
-                    expr=ast.Constant(value=True, type=ast.ConstantType(type="bool")),
-                    type=ast.ConstantType(type="bool"),
+                    expr=ast.Constant(value=True, type=ast.ConstantType(data_type="bool")),
+                    type=ast.ConstantType(data_type="bool"),
                 ),
             ],
             type=ast.SelectQueryType(aliases={}, columns={}, tables={}),

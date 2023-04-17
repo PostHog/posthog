@@ -56,12 +56,12 @@ class TestAsteriskExpander(BaseTest):
         expand_asterisks(node)
         select_subquery_type = ast.SelectQueryType(
             aliases={
-                "a": ast.FieldAliasType(name="a", type=ast.ConstantType(type="int")),
-                "b": ast.FieldAliasType(name="b", type=ast.ConstantType(type="int")),
+                "a": ast.FieldAliasType(name="a", type=ast.ConstantType(data_type="int")),
+                "b": ast.FieldAliasType(name="b", type=ast.ConstantType(data_type="int")),
             },
             columns={
-                "a": ast.FieldAliasType(name="a", type=ast.ConstantType(type="int")),
-                "b": ast.FieldAliasType(name="b", type=ast.ConstantType(type="int")),
+                "a": ast.FieldAliasType(name="a", type=ast.ConstantType(data_type="int")),
+                "b": ast.FieldAliasType(name="b", type=ast.ConstantType(data_type="int")),
             },
             tables={},
             anonymous_tables=[],
@@ -82,12 +82,12 @@ class TestAsteriskExpander(BaseTest):
             name="x",
             type=ast.SelectQueryType(
                 aliases={
-                    "a": ast.FieldAliasType(name="a", type=ast.ConstantType(type="int")),
-                    "b": ast.FieldAliasType(name="b", type=ast.ConstantType(type="int")),
+                    "a": ast.FieldAliasType(name="a", type=ast.ConstantType(data_type="int")),
+                    "b": ast.FieldAliasType(name="b", type=ast.ConstantType(data_type="int")),
                 },
                 columns={
-                    "a": ast.FieldAliasType(name="a", type=ast.ConstantType(type="int")),
-                    "b": ast.FieldAliasType(name="b", type=ast.ConstantType(type="int")),
+                    "a": ast.FieldAliasType(name="a", type=ast.ConstantType(data_type="int")),
+                    "b": ast.FieldAliasType(name="b", type=ast.ConstantType(data_type="int")),
                 },
                 tables={},
                 anonymous_tables=[],
