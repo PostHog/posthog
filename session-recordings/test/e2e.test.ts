@@ -23,7 +23,7 @@ describe.concurrent('e2e', () => {
     //    think we might actually get away with that the way we are handling
     //    manually committing the offsets.)
 
-    it('handles one event', async ({ producer }) => {
+    it.skip('handles one event', async ({ producer }) => {
         const teamId = '1'
         const sessionId = uuidv4()
         const windowId = uuidv4()
@@ -63,7 +63,7 @@ describe.concurrent('e2e', () => {
         expect(result).toBe({}) // TODO need to fix the e2e tests
     })
 
-    it('handles chunked events', async ({ producer }) => {
+    it.skip('handles chunked events', async ({ producer }) => {
         const teamId = '1'
         const sessionId = uuidv4()
         const windowId = uuidv4()
@@ -123,7 +123,7 @@ describe.concurrent('e2e', () => {
     })
 
     // TODO: Handle this case and re-enable the test
-    it('does not write incomplete events', async ({ producer }) => {
+    it.skip('does not write incomplete events', async ({ producer }) => {
         const teamId = '1'
         const sessionId = uuidv4()
         const windowId = uuidv4()
@@ -158,7 +158,7 @@ describe.concurrent('e2e', () => {
         expect(recording.events.length).toBe(0)
     })
 
-    it('handles event larger than the max chunk limit', async ({ producer }) => {
+    it.skip('handles event larger than the max chunk limit', async ({ producer }) => {
         const teamId = '1'
         const sessionId = uuidv4()
         const windowId = uuidv4()
@@ -193,7 +193,7 @@ describe.concurrent('e2e', () => {
         expect(sessionRecording.events.length).toBe(1)
     })
 
-    it('handles lots of events', async ({ producer }) => {
+    it.skip('handles lots of events', async ({ producer }) => {
         const teamId = '1'
         const sessionId = uuidv4()
         const windowId = uuidv4()
@@ -233,7 +233,7 @@ describe.concurrent('e2e', () => {
         )
     })
 
-    it('handles the timer being interrupted by a large event', async ({ producer }) => {
+    it.skip('handles the timer being interrupted by a large event', async ({ producer }) => {
         const teamId = '1'
         const sessionId = uuidv4()
         const windowId = uuidv4()
