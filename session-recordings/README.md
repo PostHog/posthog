@@ -181,6 +181,6 @@ To get up and running with tests, have the following commands running:
 
 ```bash
 docker-compose up
-yarn start
-yarn test
+pnpm start
+pnpm test
 ```
