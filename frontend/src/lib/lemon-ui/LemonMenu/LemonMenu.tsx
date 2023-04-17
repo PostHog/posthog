@@ -58,12 +58,6 @@ export function LemonMenu({ items, activeItemIndex, tooltipPlacement, ...dropdow
             overlay={<LemonMenuOverlay items={items} tooltipPlacement={tooltipPlacement} itemsRef={itemsRef} />}
             closeOnClickInside
             referenceRef={referenceRef}
-            onVisibilityChange={(visible) => {
-                console.log('visible', visible)
-                if (!visible) {
-                    referenceRef.current?.focus()
-                }
-            }}
             {...dropdownProps}
         />
     )

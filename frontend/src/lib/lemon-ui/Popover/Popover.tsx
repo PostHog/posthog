@@ -24,7 +24,6 @@ export interface PopoverProps {
     visible: boolean
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
-    onVisibilityChange?: (visible: boolean) => void
     /** Popover trigger element. If you pass one <Component/> child, it will get the `ref` prop automatically. */
     children?: React.ReactChild
     /** External reference element not passed as a direct child */
@@ -68,7 +67,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         visible,
         onClickOutside,
         onClickInside,
-        onVisibilityChange,
         placement = 'bottom-start',
         fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
         className,
@@ -161,10 +159,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         },
         [visible]
     )
-
-    useEffect(() => {
-        onVisibilityChange?.(visible)
-    }, [visible])
 
     useEffect(() => {
         if (visible && referenceRef?.current && floatingRef?.current) {
