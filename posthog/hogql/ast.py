@@ -14,6 +14,10 @@ from posthog.hogql.database import (
     Table,
     VirtualTable,
     LazyTable,
+    IntegerDatabaseField,
+    StringDatabaseField,
+    DateTimeDatabaseField,
+    BooleanDatabaseField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -43,6 +47,10 @@ class Type(AST):
 
     def has_child(self, name: str) -> bool:
         return self.get_child(name) is not None
+
+    def resolve_constant_type(self) -> Optional["ConstantType"]:
+        # raise NotImplementedException(f"{type(self).__name__}.resolve_constant_type not overridden")
+        return UnknownType()
 
 
 class Expr(AST):
@@ -201,13 +209,11 @@ class SelectQueryAliasType(Type):
 SelectQueryType.update_forward_refs(SelectQueryAliasType=SelectQueryAliasType)
 
 
-class CallType(Type):
-    name: str
-    args: List[Type]
-
-
 class ConstantType(Type):
     data_type: ConstantDataType
+
+    def resolve_constant_type(self) -> "ConstantType":
+        return self
 
 
 class IntegerType(ConstantType):
@@ -244,12 +250,21 @@ class UUIDType(ConstantType):
 
 class ArrayType(ConstantType):
     data_type: ConstantDataType = PydanticField("array", const=True)
-    item_type: Type
+    item_type: ConstantType
 
 
 class TupleType(ConstantType):
     data_type: ConstantDataType = PydanticField("tuple", const=True)
-    item_types: List[Type]
+    item_types: List[ConstantType]
+
+
+class CallType(Type):
+    name: str
+    arg_types: List[ConstantType]
+    return_type: ConstantType
+
+    def resolve_constant_type(self) -> ConstantType:
+        return self.return_type
 
 
 class AsteriskType(Type):
@@ -271,6 +286,18 @@ class FieldType(Type):
             if table is not None:
                 return table.get_field(self.name)
         return None
+
+    def resolve_constant_type(self) -> ConstantType:
+        database_field = self.resolve_database_field()
+        if isinstance(database_field, IntegerDatabaseField):
+            return IntegerType()
+        elif isinstance(database_field, StringDatabaseField):
+            return StringType()
+        elif isinstance(database_field, BooleanDatabaseField):
+            return BooleanType()
+        elif isinstance(database_field, DateTimeDatabaseField):
+            return DateTimeType()
+        return UnknownType()
 
     def get_child(self, name: str) -> Type:
         database_field = self.resolve_database_field()

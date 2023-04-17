@@ -159,7 +159,7 @@ class TraversingVisitor(Visitor):
         self.visit(node.table_type)
 
     def visit_call_type(self, node: ast.CallType):
-        for expr in node.args:
+        for expr in node.arg_types:
             self.visit(expr)
 
     def visit_integer_type(self, node: ast.IntegerType):

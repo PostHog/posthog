@@ -173,12 +173,14 @@ class Resolver(TraversingVisitor):
         """Visit function calls."""
         if node.type is not None:
             return
-        arg_types: List[ast.Type] = []
+        arg_types: List[ast.ConstantType] = []
         for arg in node.args:
             self.visit(arg)
-            if arg.type is not None:
-                arg_types.append(arg.type)
-        node.type = ast.CallType(name=node.name, args=arg_types)
+            if arg.type:
+                arg_types.append(arg.type.resolve_constant_type() or ast.UnknownType())
+            else:
+                arg_types.append(ast.UnknownType())
+        node.type = ast.CallType(name=node.name, arg_types=arg_types, return_type=ast.UnknownType())
 
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""
