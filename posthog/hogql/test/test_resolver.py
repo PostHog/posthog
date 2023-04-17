@@ -233,11 +233,13 @@ class TestResolver(BaseTest):
     def test_resolve_constant_type(self):
         with freeze_time("2020-01-10 00:00:00"):
             expr = parse_select(
-                "SELECT 1, 'boo', true, 1.1232, null, {date}, {datetime}, {uuid}",
+                "SELECT 1, 'boo', true, 1.1232, null, {date}, {datetime}, {uuid}, {array}, {tuple}",
                 placeholders={
                     "date": ast.Constant(value=date(2020, 1, 10)),
                     "datetime": ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc)),
                     "uuid": ast.Constant(value=UUID("00000000-0000-4000-8000-000000000000")),
+                    "array": ast.Constant(value=[]),
+                    "tuple": ast.Constant(value=(1, 2, 3)),
                 },
             )
             resolve_types(expr, database=self.database)
@@ -256,6 +258,8 @@ class TestResolver(BaseTest):
                     ast.Constant(
                         value=UUID("00000000-0000-4000-8000-000000000000"), type=ast.ConstantType(data_type="uuid")
                     ),
+                    ast.Constant(value=[], type=ast.ConstantType(data_type="array")),
+                    ast.Constant(value=(1, 2, 3), type=ast.ConstantType(data_type="tuple")),
                 ],
                 type=ast.SelectQueryType(aliases={}, columns={}, tables={}),
             )
