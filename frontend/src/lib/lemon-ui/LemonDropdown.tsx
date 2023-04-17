@@ -3,6 +3,10 @@ import { Popover, PopoverLevelContext, PopoverProps } from './Popover'
 
 export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'visible'> {
     visible?: boolean
+    /**
+     * Whether the dropdown should be closed on click inside.
+     * @default true
+     */
     closeOnClickInside?: boolean
     children: React.ReactElement<
         Record<string, any> & {
@@ -16,7 +20,7 @@ export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'vis
 /** A wrapper that provides a dropdown for any element supporting `onClick`. Built on top of Popover. */
 export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.RefAttributes<HTMLDivElement>> =
     React.forwardRef<HTMLDivElement, LemonDropdownProps>(
-        ({ visible, onClickOutside, onClickInside, closeOnClickInside, children, ...popoverProps }, ref) => {
+        ({ visible, onClickOutside, onClickInside, closeOnClickInside = true, children, ...popoverProps }, ref) => {
             const popoverLevel = useContext(PopoverLevelContext)
             const [localVisible, setLocalVisible] = useState(false)
 
