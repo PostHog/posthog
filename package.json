@@ -70,6 +70,11 @@
         "@react-hook/size": "^2.1.2",
         "@sentry/react": "7.22.0",
         "@testing-library/dom": ">=7.21.4",
+        "@tiptap/core": "2.0.0-beta.220",
+        "@tiptap/pm": "2.0.0-beta.220",
+        "@tiptap/react": "2.0.0-beta.220",
+        "@tiptap/starter-kit": "2.0.0-beta.220",
+        "@tiptap/suggestion": "2.0.0-beta.220",
         "@types/md5": "^2.3.0",
         "@types/react-input-autosize": "^2.2.1",
         "@types/react-textfit": "^1.1.0",
@@ -98,6 +103,7 @@
         "fs-extra": "^10.0.0",
         "fuse.js": "^6.4.1",
         "husky": "^7.0.4",
+        "image-blob-reduce": "^4.1.0",
         "kea": "^3.1.5",
         "kea-forms": "^3.0.3",
         "kea-loaders": "^3.0.0",
@@ -109,7 +115,7 @@
         "kea-window-values": "^3.0.0",
         "md5": "^2.3.0",
         "monaco-editor": "^0.23.0",
-        "posthog-js": "1.51.5",
+        "posthog-js": "1.53.2",
         "posthog-js-lite": "2.0.0-alpha5",
         "prettier": "^2.3.1",
         "prop-types": "^15.7.2",
@@ -183,6 +189,7 @@
         "@types/clone": "^2.1.1",
         "@types/d3": "^7.4.0",
         "@types/d3-sankey": "^0.12.1",
+        "@types/image-blob-reduce": "^4.1.1",
         "@types/jest": "^29.2.3",
         "@types/jest-image-snapshot": "^6.1.0",
         "@types/md5": "^2.3.0",
@@ -270,8 +277,8 @@
             "prettier --write"
         ],
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
-            "ruff",
-            "black"
+            "black",
+            "ruff"
         ],
         "*.png": [
             "optipng -clobber -o4 -strip all"

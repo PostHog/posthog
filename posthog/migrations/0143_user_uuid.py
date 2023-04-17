@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
             name="uuid",
             field=models.UUIDField(blank=True, null=True),
         ),
-        migrations.RunPython(create_user_uuid, backwards),
+        migrations.RunPython(create_user_uuid, backwards, elidable=True),
         migrations.AlterField(
             model_name="user",
             name="uuid",

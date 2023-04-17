@@ -84,19 +84,22 @@ export const insight = {
         const networkInterceptAlias = interceptInsightLoad(insightType)
 
         if (insightType === 'JSON') {
-            cy.get('[data-attr=menu-item-insight]').click() // Open the new insight menu in the sidebar
-            cy.get('[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="TRENDS"]').click()
+            cy.clickNavMenu('savedinsights')
+            cy.get('[data-attr="saved-insights-new-insight-dropdown"]').click()
+            cy.get('[data-attr-insight-type="TRENDS"]').click()
             insight.clickTab('JSON')
         } else {
-            cy.get('[data-attr=menu-item-insight]').click() // Open the new insight menu in the sidebar
-            cy.get(`[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="${insightType}"]`).click()
+            cy.clickNavMenu('savedinsights')
+            cy.get('[data-attr="saved-insights-new-insight-dropdown"]').click()
+            cy.get(`[data-attr-insight-type="${insightType}"]`).click()
         }
 
         cy.wait(`@${networkInterceptAlias}`)
     },
     create: (insightName: string, insightType: string = 'TRENDS'): void => {
-        cy.get('[data-attr=menu-item-insight]').click() // Open the new insight menu in the sidebar
-        cy.get(`[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="${insightType}"]`).click()
+        cy.clickNavMenu('savedinsights')
+        cy.get('[data-attr="saved-insights-new-insight-dropdown"]').click()
+        cy.get(`[data-attr-insight-type="${insightType}"]`).click()
 
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
         cy.url().should('not.include', '/new') // wait for insight to complete and update URL

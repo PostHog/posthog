@@ -1,7 +1,7 @@
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { InstanceSetting, SystemStatusRow } from '~/types'
 import { IconLock } from 'lib/lemon-ui/icons'
+import { TZLabel } from '@posthog/apps-common'
 
 const TIMESTAMP_VALUES = new Set(['last_event_ingested_timestamp'])
 
@@ -33,7 +33,7 @@ export function RenderMetricValue(
         if (new Date(value).getTime() === new Date('1970-01-01T00:00:00').getTime()) {
             return 'Never'
         }
-        return humanFriendlyDetailedTime(value)
+        return <TZLabel time={value} />
     }
 
     if (value_type === 'bool' || typeof value === 'boolean') {

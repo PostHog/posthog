@@ -1,4 +1,5 @@
 from posthog.hogql import ast
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, Visitor
 from posthog.test.base import BaseTest
@@ -116,6 +117,6 @@ class TestVisitor(BaseTest):
             def visit_binary_operation(self, node: ast.BinaryOperation):
                 return self.visit(node.left) + node.op + self.visit(node.right)
 
-        with self.assertRaises(ValueError) as e:
+        with self.assertRaises(HogQLException) as e:
             UnknownNotDefinedVisitor().visit(parse_expr("1 + 3 / 'asd2'"))
         self.assertEqual(str(e.exception), "Visitor has no method visit_constant")

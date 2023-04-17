@@ -31,10 +31,10 @@ describe('insightNavLogic', () => {
             theFeatureFlagLogic = featureFlagLogic()
             theFeatureFlagLogic.mount()
             theFeatureFlagLogic.actions.setFeatureFlags(
-                [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS, FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB],
+                [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS, FEATURE_FLAGS.HOGQL],
                 {
                     [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]: false,
-                    [FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]: false,
+                    [FEATURE_FLAGS.HOGQL]: false,
                 }
             )
 

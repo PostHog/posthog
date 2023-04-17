@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 export function EventsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const canOpenEditor = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
+    const canOpenEditor = !!featureFlags[FEATURE_FLAGS.HOGQL]
 
     const { query } = useValues(eventsSceneLogic)
     const { setQuery } = useActions(eventsSceneLogic)

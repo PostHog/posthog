@@ -287,7 +287,7 @@ export function PropertiesTable({
             }
 
             if (filterable && filtered) {
-                entries = entries.filter(([key]) => !key.toLowerCase().startsWith('$') && key !== 'distinct_id')
+                entries = entries.filter(([key]) => !key.startsWith('$') && !keyMappingKeys.includes(key))
             }
 
             if (sortProperties) {
@@ -352,7 +352,11 @@ export function PropertiesTable({
                         <>
                             {filtered || searchTerm ? (
                                 <span className="flex gap-2">
+<<<<<<< HEAD
                                     No properties found
+=======
+                                    <span>No properties found</span>
+>>>>>>> master
                                     <LemonButton
                                         noPadding
                                         onClick={() => {

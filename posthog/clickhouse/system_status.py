@@ -5,6 +5,7 @@ import uuid
 from datetime import timedelta
 from os.path import abspath, basename, dirname, join
 from typing import Dict, Generator, List, Tuple
+import pytz
 
 import sqlparse
 from clickhouse_driver import Client
@@ -105,12 +106,18 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "subrows": {"columns": ["Metric", "Value", "Description"], "rows": list(sorted(system_metrics))},
     }
 
+    # This timestamp is a naive timestamp (does not include a timezone)
+    # ClickHouse always stores timezone agnostic unix timestamp
+    # See https://clickhouse.com/docs/en/sql-reference/data-types/datetime#usage-remarks
     last_event_ingested_timestamp = sync_execute("SELECT max(_timestamp) FROM events")[0][0]
+
+    # Therefore we can confidently apply the UTC timezone
+    last_event_ingested_timestamp_utc = last_event_ingested_timestamp.replace(tzinfo=pytz.UTC)
 
     yield {
         "key": "last_event_ingested_timestamp",
         "metric": "Last event ingested",
-        "value": last_event_ingested_timestamp,
+        "value": last_event_ingested_timestamp_utc,
     }
 
     dead_letter_queue_size = get_dead_letter_queue_size()

@@ -1,3 +1,7 @@
+from typing import cast
+
+import math
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.test.base import BaseTest
@@ -11,6 +15,14 @@ class TestParser(BaseTest):
         self.assertEqual(parse_expr("-1.1"), ast.Constant(value=-1.1))
         self.assertEqual(parse_expr("0"), ast.Constant(value=0))
         self.assertEqual(parse_expr("0.0"), ast.Constant(value=0))
+        self.assertEqual(parse_expr("-inf"), ast.Constant(value=float("-inf")))
+        self.assertEqual(parse_expr("inf"), ast.Constant(value=float("inf")))
+        # nan-s don't like to be compared
+        parsed_nan = parse_expr("nan")
+        self.assertTrue(isinstance(parsed_nan, ast.Constant))
+        self.assertTrue(math.isnan(cast(ast.Constant, parsed_nan).value))
+        self.assertEqual(parse_expr("1e-18"), ast.Constant(value=1e-18))
+        self.assertEqual(parse_expr("2.34e+20"), ast.Constant(value=2.34e20))
 
     def test_booleans(self):
         self.assertEqual(parse_expr("true"), ast.Constant(value=True))
@@ -19,6 +31,99 @@ class TestParser(BaseTest):
 
     def test_null(self):
         self.assertEqual(parse_expr("null"), ast.Constant(value=None))
+
+    def test_conditional(self):
+        self.assertEqual(
+            parse_expr("1 > 2 ? 1 : 2"),
+            ast.Call(
+                name="if",
+                args=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationType.Gt, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                    ),
+                    ast.Constant(value=1),
+                    ast.Constant(value=2),
+                ],
+            ),
+        )
+
+    def test_arrays(self):
+        self.assertEqual(parse_expr("[]"), ast.Array(exprs=[]))
+        self.assertEqual(parse_expr("[1]"), ast.Array(exprs=[ast.Constant(value=1)]))
+        self.assertEqual(
+            parse_expr("[1, avg()]"), ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
+        )
+        self.assertEqual(parse_expr("properties['value']"), ast.Field(chain=["properties", "value"]))
+        self.assertEqual(
+            parse_expr("properties[(select 'value')]"),
+            ast.ArrayAccess(
+                array=ast.Field(chain=["properties"]), property=ast.SelectQuery(select=[ast.Constant(value="value")])
+            ),
+        )
+        self.assertEqual(
+            parse_expr("[1,2,3][1]"),
+            ast.ArrayAccess(
+                array=ast.Array(
+                    exprs=[
+                        ast.Constant(value=1),
+                        ast.Constant(value=2),
+                        ast.Constant(value=3),
+                    ]
+                ),
+                property=ast.Constant(value=1),
+            ),
+        )
+
+    def test_tuples(self):
+        self.assertEqual(
+            parse_expr("(1, avg())"), ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
+        )
+        # needs at least two values to be a tuple
+        self.assertEqual(parse_expr("(1)"), ast.Constant(value=1))
+
+    def test_lambdas(self):
+        self.assertEqual(
+            parse_expr("arrayMap(x -> x * 2)"),
+            ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
+                        args=["x"],
+                        expr=ast.BinaryOperation(
+                            op=ast.BinaryOperationType.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        ),
+                    )
+                ],
+            ),
+        )
+        self.assertEqual(
+            parse_expr("arrayMap((x) -> x * 2)"),
+            ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
+                        args=["x"],
+                        expr=ast.BinaryOperation(
+                            op=ast.BinaryOperationType.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        ),
+                    )
+                ],
+            ),
+        )
+        self.assertEqual(
+            parse_expr("arrayMap((x, y) -> x * y)"),
+            ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
+                        args=["x", "y"],
+                        expr=ast.BinaryOperation(
+                            op=ast.BinaryOperationType.Mult, left=ast.Field(chain=["x"]), right=ast.Field(chain=["y"])
+                        ),
+                    )
+                ],
+            ),
+        )
 
     def test_strings(self):
         self.assertEqual(parse_expr("'null'"), ast.Constant(value="null"))

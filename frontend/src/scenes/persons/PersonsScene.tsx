@@ -13,7 +13,7 @@ export const scene: SceneExport = {
 
 export function PersonsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
 

@@ -29,7 +29,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
     const { loadAction } = useActions(actionLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     return (
         <>

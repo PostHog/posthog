@@ -74,7 +74,7 @@ django-stubs==1.8.0
     # via
     #   -r requirements-dev.in
     #   djangorestframework-stubs
-django-stubs-ext==0.2.0
+django-stubs-ext==0.7.0
     # via django-stubs
 djangorestframework-stubs==1.4.0
     # via -r requirements-dev.in
@@ -105,7 +105,10 @@ idna==2.8
     #   requests
     #   urllib3
 importlib-resources==5.10.2
-    # via openapi-spec-validator
+    # via
+    #   -c requirements.txt
+    #   jsonschema
+    #   openapi-spec-validator
 inflect==5.6.2
     # via datamodel-code-generator
 iniconfig==1.1.1
@@ -137,7 +140,6 @@ mypy==0.981
     #   djangorestframework-stubs
 mypy-extensions==0.4.3
     # via
-    #   -c requirements.txt
     #   -r requirements-dev.in
     #   black
     #   mypy
@@ -301,6 +303,7 @@ typing-extensions==4.4.0
     # via
     #   -c requirements.txt
     #   django-stubs
+    #   django-stubs-ext
     #   djangorestframework-stubs
     #   jsonschema-spec
     #   mypy

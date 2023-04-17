@@ -21,7 +21,8 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             """
             UPDATE posthog_dashboarditem SET last_modified_at = updated_at;
-        """
+        """,
+            elidable=True,
         ),
         migrations.AddField(
             model_name="insight",
