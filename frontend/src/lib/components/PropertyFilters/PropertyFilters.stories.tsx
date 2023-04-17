@@ -2,8 +2,6 @@ import { ComponentMeta } from '@storybook/react'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { AnyPropertyFilter, PropertyOperator } from '~/types'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { useMountedLogic } from 'kea'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
 
 export default {
     title: 'Filters/PropertyFilters',
@@ -32,7 +30,6 @@ const propertyFilters = [
 ] as AnyPropertyFilter[]
 
 export function ComparingPropertyFilters(): JSX.Element {
-    useMountedLogic(personPropertiesModel)
     return (
         <>
             <h1>Pop-over enabled</h1>
@@ -59,6 +56,5 @@ export function ComparingPropertyFilters(): JSX.Element {
 }
 
 export function WithNoCloseButton(): JSX.Element {
-    useMountedLogic(personPropertiesModel)
     return <PropertyFiltersDisplay filters={[...propertyFilters]} />
 }
