@@ -15,15 +15,25 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
         setFocusedItemIndex(activeItemIndex)
     }, [activeItemIndex])
 
+    function focus(itemIndex: number): void {
+        if (itemIndex > -1) {
+            itemsRef.current[itemIndex].current?.focus()
+        } else {
+            ;(referenceRef.current as HTMLElement).focus()
+        }
+    }
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent): void => {
             if (e.key === 'ArrowDown') {
                 if (focusedItemIndex < itemCount - 1) {
+                    focus(focusedItemIndex + 1)
                     setFocusedItemIndex(focusedItemIndex + 1)
                     e.preventDefault() // Prevents scroll
                 }
             } else if (e.key === 'ArrowUp') {
                 if (focusedItemIndex >= 0) {
+                    focus(focusedItemIndex - 1)
                     setFocusedItemIndex(focusedItemIndex - 1)
                     e.preventDefault() // Prevents scroll
                 }
@@ -41,14 +51,6 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
             }
         }
     })
-
-    useEffect(() => {
-        if (focusedItemIndex > -1) {
-            itemsRef.current[focusedItemIndex].current?.focus()
-        } else {
-            ;(referenceRef.current as HTMLElement).focus()
-        }
-    }, [focusedItemIndex])
 
     return { referenceRef, itemsRef }
 }
