@@ -113,6 +113,7 @@ export function LemonSelect<T>({
             className={popover?.className}
             maxContentWidth={dropdownMaxContentWidth}
             activeItemIndex={items.flatMap((i) => (isLemonMenuSection(i) ? i.items : i)).findIndex((i) => i.active)}
+            closeParentPopoverOnClickInside
         >
             <LemonButton
                 className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}

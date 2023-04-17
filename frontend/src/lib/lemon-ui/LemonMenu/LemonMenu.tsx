@@ -38,6 +38,7 @@ export interface LemonMenuProps
             | 'sameWidth'
             | 'maxContentWidth'
             | 'visible'
+            | 'closeParentPopoverOnClickInside'
             | 'className'
         >,
         LemonMenuOverlayProps {
