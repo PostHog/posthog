@@ -34,7 +34,7 @@ from posthog.utils import get_instance_available_sso_providers
 
 
 class UserPasswordResetThrottle(UserRateThrottle):
-    rate = "3/day"
+    rate = "6/day"
 
 
 @csrf_protect

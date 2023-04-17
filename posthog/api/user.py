@@ -53,8 +53,8 @@ class UserAuthenticationThrottle(UserRateThrottle):
         return super().allow_request(request, view)
 
 
-class UserEmailAuthenticationThrottle(UserRateThrottle):
-    rate = "3/day"
+class UserEmailVerificationThrottle(UserRateThrottle):
+    rate = "6/day"
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -328,7 +328,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         return Response({"success": True, "token": token})
 
     @action(
-        methods=["POST"], detail=True, permission_classes=[AllowAny], throttle_classes=[UserEmailAuthenticationThrottle]
+        methods=["POST"], detail=True, permission_classes=[AllowAny], throttle_classes=[UserEmailVerificationThrottle]
     )
     def request_email_verification(self, request, **kwargs):
         uuid = request.data["uuid"]
