@@ -72,16 +72,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingData,
         recordingStartTime,
     }
-    const {
-        setIsFullScreen,
-        setPause,
-        togglePlayPause,
-        seekBackward,
-        seekForward,
-        setSpeed,
-        openExplorer,
-        closeExplorer,
-    } = useActions(sessionRecordingPlayerLogic(logicProps))
+    const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed, closeExplorer } =
+        useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound } = useValues(sessionRecordingDataLogic(logicProps))
     const { isFullScreen, explorerMode } = useValues(sessionRecordingPlayerLogic(logicProps))
     const frame = useFrameRef(logicProps)
@@ -135,13 +127,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         0: 'small',
         1000: 'medium',
     })
-
-    // TODO: Remove this testing code
-    useEffect(() => {
-        setTimeout(() => {
-            openExplorer()
-        }, 2000)
-    }, [])
 
     if (isNotFound) {
         return (
