@@ -67,6 +67,7 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "destination",
             "created_at",
             "last_updated_at",
             "paused_at",
@@ -77,6 +78,7 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
 
     @async_to_sync
     async def create(self, validated_data: dict, team: Team):
+        """Create an ExportSchedule model and in Temporal."""
         export_schedule = ExportSchedule.objects.create(
             team=team,
             name=validated_data["name"],
@@ -158,3 +160,14 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(export_schedule)
         return response.Response(serializer.data)
+
+    @async_to_sync
+    async def perform_destroy(self, instance: ExportSchedule):
+        """Perform a ExportSchedule destroy by clearing it from Temporal and Django."""
+        client = await get_temporal_client()
+        handle = client.get_schedule_handle(
+            instance.name,
+        )
+
+        await handle.delete()
+        instance.delete()
