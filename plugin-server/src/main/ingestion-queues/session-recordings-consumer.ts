@@ -96,8 +96,6 @@ export const startSessionRecordingEventsConsumer = async ({
 
     instrumentConsumerMetrics(consumer, groupId)
 
-    consumer.subscribe([KAFKA_SESSION_RECORDING_EVENTS])
-
     const eachMessageWithContext = eachMessage(groupId, teamManager, producer)
 
     let isMainLoopRunning = true
@@ -113,8 +111,14 @@ export const startSessionRecordingEventsConsumer = async ({
         while (isMainLoopRunning) {
             lastLoopTime = Date.now()
 
+            status.info('🔁', 'main_loop_consuming')
+
+            let messages: Message[] = []
+
             // TODO: add consume error retry handling.
-            const messages = await consumeMessages(consumer, fetchBatchSize)
+            messages = await consumeMessages(consumer, fetchBatchSize)
+
+            status.info('🔁', 'main_loop_consumed', { messagesLength: messages.length })
 
             consumerBatchSize.labels({ topic: KAFKA_SESSION_RECORDING_EVENTS, groupId }).observe(messages.length)
 
@@ -451,7 +455,11 @@ const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
             status.info('📝', 'librdkafka consumer subscribed', { topics })
         })
 
-        consumer.connect({}, (error, data) => {
+        consumer.on('connection.failure', (error: LibrdKafkaError, metrics: ClientMetrics) => {
+            status.error('📝', 'librdkafka connection failure', { error, metrics })
+        })
+
+        consumer.connect({ topic: KAFKA_SESSION_RECORDING_EVENTS }, (error, data) => {
             if (error) {
                 status.error('⚠️', 'connect_error', { error: error })
                 reject(error)
