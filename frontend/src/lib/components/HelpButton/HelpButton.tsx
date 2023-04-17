@@ -121,7 +121,7 @@ export function HelpButton({
                                 hideHelp()
                             }}
                         >
-                            Bug / Feedback
+                            Report bug / get support
                         </LemonButton>
                         {!contactOnly && (
                             <LemonButton
@@ -149,7 +149,7 @@ export function HelpButton({
                             to={`https://posthog.com/questions${HELP_UTM_TAGS}`}
                             targetBlank
                         >
-                            Ask us a question
+                            Ask a question on our forum
                         </LemonButton>
                         <LemonButton
                             icon={<IconTrendingUp />}
