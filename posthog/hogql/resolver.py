@@ -240,6 +240,20 @@ class Resolver(TraversingVisitor):
 
         node.type = ast.ConstantType(type=cast(Literal["int", "float", "str", "bool", "unknown"], datatype))
 
+    def visit_and(self, node: ast.And):
+        for expr in node.exprs:
+            self.visit(expr)
+        node.type = ast.ConstantType(type="bool")
+
+    def visit_or(self, node: ast.Or):
+        for expr in node.exprs:
+            self.visit(expr)
+        node.type = ast.ConstantType(type="bool")
+
+    def visit_not(self, node: ast.Not):
+        self.visit(node.expr)
+        node.type = ast.ConstantType(type="bool")
+
 
 def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:
     """Looks for a field in the scope's list of aliases and children for each joined table."""

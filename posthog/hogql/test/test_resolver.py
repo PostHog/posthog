@@ -225,7 +225,7 @@ class TestResolver(BaseTest):
             resolve_types(expr, database=self.database)
         self.assertEqual(str(e.exception), "Unable to resolve field: e")
 
-    def test_resolve_constant(self):
+    def test_resolve_constant_type(self):
         expr = parse_select("SELECT 1, 'boo', true, 1.1232, null")
         resolve_types(expr, database=self.database)
         expected = ast.SelectQuery(
@@ -235,6 +235,34 @@ class TestResolver(BaseTest):
                 ast.Constant(value=True, type=ast.ConstantType(type="bool")),
                 ast.Constant(value=1.1232, type=ast.ConstantType(type="float")),
                 ast.Constant(value=None, type=ast.ConstantType(type="unknown")),
+            ],
+            type=ast.SelectQueryType(aliases={}, columns={}, tables={}),
+        )
+        self.assertEqual(expr, expected)
+
+    def test_resolve_boolean_operation_types(self):
+        expr = parse_select("SELECT 1 and 1, 1 or 1, not true")
+        resolve_types(expr, database=self.database)
+        expected = ast.SelectQuery(
+            select=[
+                ast.And(
+                    exprs=[
+                        ast.Constant(value=1, type=ast.ConstantType(type="int")),
+                        ast.Constant(value=1, type=ast.ConstantType(type="int")),
+                    ],
+                    type=ast.ConstantType(type="bool"),
+                ),
+                ast.Or(
+                    exprs=[
+                        ast.Constant(value=1, type=ast.ConstantType(type="int")),
+                        ast.Constant(value=1, type=ast.ConstantType(type="int")),
+                    ],
+                    type=ast.ConstantType(type="bool"),
+                ),
+                ast.Not(
+                    expr=ast.Constant(value=True, type=ast.ConstantType(type="bool")),
+                    type=ast.ConstantType(type="bool"),
+                ),
             ],
             type=ast.SelectQueryType(aliases={}, columns={}, tables={}),
         )
