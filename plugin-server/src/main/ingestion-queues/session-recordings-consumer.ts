@@ -121,7 +121,14 @@ export const startSessionRecordingEventsConsumer = async ({
             try {
                 messages = await consumeMessages(consumer, fetchBatchSize)
             } catch (error) {
-                if (error.isRetriable) {
+                if (error.code === 3) {
+                    // This is the topic doesn't exist. We catch this
+                    // specifically as it's not a retriable error, but we have
+                    // set auto create topic, and the topic will be created
+                    // eventually.
+                    status.warn('🔴', 'main_loop_consume_error', { error })
+                    continue
+                } else if (error.isRetriable) {
                     status.warn('🔴', 'main_loop_consume_error', { error })
                     continue
                 } else {
