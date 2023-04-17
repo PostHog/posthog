@@ -15,35 +15,35 @@ class AsteriskExpander(TraversingVisitor):
 
         columns: List[ast.Expr] = []
         for column in node.select:
-            if isinstance(column.ref, ast.AsteriskRef):
-                asterisk = column.ref
-                if isinstance(asterisk.table, ast.TableRef) or isinstance(asterisk.table, ast.TableAliasRef):
+            if isinstance(column.type, ast.AsteriskType):
+                asterisk = column.type
+                if isinstance(asterisk.table, ast.TableType) or isinstance(asterisk.table, ast.TableAliasType):
                     table = asterisk.table
-                    while isinstance(table, ast.TableAliasRef):
-                        table = table.table_ref
-                    if isinstance(table, ast.TableRef):
+                    while isinstance(table, ast.TableAliasType):
+                        table = table.table_type
+                    if isinstance(table, ast.TableType):
                         database_fields = table.table.get_asterisk()
                         for key in database_fields.keys():
-                            ref = ast.FieldRef(name=key, table=asterisk.table)
-                            columns.append(ast.Field(chain=[key], ref=ref))
-                            node.ref.columns[key] = ref
+                            type = ast.FieldType(name=key, table=asterisk.table)
+                            columns.append(ast.Field(chain=[key], type=type))
+                            node.type.columns[key] = type
                     else:
                         raise HogQLException("Can't expand asterisk (*) on table")
-                elif isinstance(asterisk.table, ast.SelectQueryRef) or isinstance(
-                    asterisk.table, ast.SelectQueryAliasRef
+                elif isinstance(asterisk.table, ast.SelectQueryType) or isinstance(
+                    asterisk.table, ast.SelectQueryAliasType
                 ):
                     select = asterisk.table
-                    while isinstance(select, ast.SelectQueryAliasRef):
-                        select = select.ref
-                    if isinstance(select, ast.SelectQueryRef):
+                    while isinstance(select, ast.SelectQueryAliasType):
+                        select = select.type
+                    if isinstance(select, ast.SelectQueryType):
                         for name in select.columns.keys():
-                            ref = ast.FieldRef(name=name, table=asterisk.table)
-                            columns.append(ast.Field(chain=[name], ref=ref))
-                            node.ref.columns[name] = ref
+                            type = ast.FieldType(name=name, table=asterisk.table)
+                            columns.append(ast.Field(chain=[name], type=type))
+                            node.type.columns[name] = type
                     else:
                         raise HogQLException("Can't expand asterisk (*) on subquery")
                 else:
-                    raise HogQLException(f"Can't expand asterisk (*) on a ref of type {type(asterisk.table).__name__}")
+                    raise HogQLException(f"Can't expand asterisk (*) on a type of type {type(asterisk.table).__name__}")
 
             else:
                 columns.append(column)
