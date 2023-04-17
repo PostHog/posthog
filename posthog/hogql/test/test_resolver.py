@@ -39,6 +39,7 @@ class TestResolver(BaseTest):
                 left=ast.Field(chain=["events", "event"], type=event_field_type),
                 op=ast.CompareOperationType.Eq,
                 right=ast.Constant(value="test", type=ast.ConstantType(data_type="str")),
+                type=ast.ConstantType(data_type="bool"),
             ),
             type=select_query_type,
         )
@@ -77,6 +78,7 @@ class TestResolver(BaseTest):
                 left=ast.Field(chain=["e", "event"], type=event_field_type),
                 op=ast.CompareOperationType.Eq,
                 right=ast.Constant(value="test", type=ast.ConstantType(data_type="str")),
+                type=ast.ConstantType(data_type="bool"),
             ),
             type=select_query_type,
         )
@@ -134,6 +136,7 @@ class TestResolver(BaseTest):
                 left=ast.Field(chain=["e", "event"], type=event_field_type),
                 op=ast.CompareOperationType.Eq,
                 right=ast.Constant(value="test", type=ast.ConstantType(data_type="str")),
+                type=ast.ConstantType(data_type="bool"),
             ),
             type=select_query_type,
         )
@@ -207,6 +210,7 @@ class TestResolver(BaseTest):
                 ),
                 op=ast.CompareOperationType.Eq,
                 right=ast.Constant(value="test", type=ast.ConstantType(data_type="str")),
+                type=ast.ConstantType(data_type="bool"),
             ),
             type=ast.SelectQueryType(
                 aliases={},

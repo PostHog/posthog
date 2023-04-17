@@ -250,24 +250,38 @@ class Resolver(TraversingVisitor):
         node.type = loop_type
 
     def visit_constant(self, node):
-        """Visit a constant"""
         if node.type is not None:
             return
 
+        super().visit_constant(node)
         node.type = ast.ConstantType(data_type=resolve_constant_data_type(node.value))
 
     def visit_and(self, node: ast.And):
-        for expr in node.exprs:
-            self.visit(expr)
+        if node.type is not None:
+            return
+
+        super().visit_and(node)
         node.type = ast.ConstantType(data_type="bool")
 
     def visit_or(self, node: ast.Or):
-        for expr in node.exprs:
-            self.visit(expr)
+        if node.type is not None:
+            return
+
+        super().visit_or(node)
         node.type = ast.ConstantType(data_type="bool")
 
     def visit_not(self, node: ast.Not):
-        self.visit(node.expr)
+        if node.type is not None:
+            return
+
+        super().visit_not(node)
+        node.type = ast.ConstantType(data_type="bool")
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.type is not None:
+            return
+
+        super().visit_compare_operation(node)
         node.type = ast.ConstantType(data_type="bool")
 
 

@@ -285,6 +285,7 @@ class And(Expr):
     class Config:
         extra = Extra.forbid
 
+    type: Optional[ConstantType]
     exprs: List[Expr]
 
 
@@ -292,6 +293,7 @@ class Or(Expr):
     class Config:
         extra = Extra.forbid
 
+    type: Optional[ConstantType]
     exprs: List[Expr]
 
 
@@ -316,10 +318,12 @@ class CompareOperation(Expr):
     left: Expr
     right: Expr
     op: CompareOperationType
+    type: Optional[ConstantType]
 
 
 class Not(Expr):
     expr: Expr
+    type: Optional[ConstantType]
 
 
 class OrderExpr(Expr):
