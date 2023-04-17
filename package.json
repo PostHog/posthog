@@ -144,7 +144,7 @@
         "react-virtualized": "^9.22.3",
         "require-from-string": "^2.0.2",
         "resize-observer-polyfill": "^1.5.1",
-        "rrweb": "^1.1.3",
+        "rrweb": "^2.0.0-alpha.8",
         "sass": "^1.26.2",
         "sql-formatter": "^12.1.2",
         "use-debounce": "^9.0.3",
