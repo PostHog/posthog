@@ -145,6 +145,7 @@
         "require-from-string": "^2.0.2",
         "resize-observer-polyfill": "^1.5.1",
         "rrweb": "^2.0.0-alpha.8",
+        "@rrweb/types": "^2.0.0-alpha.8",
         "sass": "^1.26.2",
         "sql-formatter": "^12.1.2",
         "use-debounce": "^9.0.3",
