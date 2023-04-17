@@ -76,7 +76,7 @@ class Resolver(TraversingVisitor):
         for expr in node.select or []:
             self.visit(expr)
             if isinstance(expr.type, ast.FieldAliasType):
-                node.type.columns[expr.type.name] = expr.type
+                node.type.columns[expr.type.alias] = expr.type
             elif isinstance(expr.type, ast.FieldType):
                 node.type.columns[expr.type.name] = expr.type
             elif isinstance(expr, ast.Alias):
@@ -126,7 +126,7 @@ class Resolver(TraversingVisitor):
                 if table_alias == table_name:
                     node.type = node.table.type
                 else:
-                    node.type = ast.TableAliasType(name=table_alias, table_type=node.table.type)
+                    node.type = ast.TableAliasType(alias=table_alias, table_type=node.table.type)
                 scope.tables[table_alias] = node.type
             else:
                 raise ResolverException(f'Unknown table "{table_name}".')
@@ -166,7 +166,7 @@ class Resolver(TraversingVisitor):
         self.visit(node.expr)
         if not node.expr.type:
             raise ResolverException(f"Cannot alias an expression without a type: {node.alias}")
-        node.type = ast.FieldAliasType(name=node.alias, type=node.expr.type)
+        node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type)
         scope.aliases[node.alias] = node.type
 
     def visit_call(self, node: ast.Call):
@@ -191,7 +191,7 @@ class Resolver(TraversingVisitor):
         self.scopes.append(node.type)
 
         for arg in node.args:
-            node.type.aliases[arg] = ast.FieldAliasType(name=arg, type=ast.LambdaArgumentType(name=arg))
+            node.type.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
 
         self.visit(node.expr)
         self.scopes.pop()

@@ -35,7 +35,7 @@ class TestAsteriskExpander(BaseTest):
         resolve_types(node, self.database)
         expand_asterisks(node)
         events_table_type = ast.TableType(table=self.database.events)
-        events_table_alias_type = ast.TableAliasType(table_type=events_table_type, name="e")
+        events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
         self.assertEqual(
             node.select,
             [
@@ -66,12 +66,12 @@ class TestAsteriskExpander(BaseTest):
         expand_asterisks(node)
         select_subquery_type = ast.SelectQueryType(
             aliases={
-                "a": ast.FieldAliasType(name="a", type=ast.ConstantType(data_type="int")),
-                "b": ast.FieldAliasType(name="b", type=ast.ConstantType(data_type="int")),
+                "a": ast.FieldAliasType(alias="a", type=ast.ConstantType(data_type="int")),
+                "b": ast.FieldAliasType(alias="b", type=ast.ConstantType(data_type="int")),
             },
             columns={
-                "a": ast.FieldAliasType(name="a", type=ast.ConstantType(data_type="int")),
-                "b": ast.FieldAliasType(name="b", type=ast.ConstantType(data_type="int")),
+                "a": ast.FieldAliasType(alias="a", type=ast.ConstantType(data_type="int")),
+                "b": ast.FieldAliasType(alias="b", type=ast.ConstantType(data_type="int")),
             },
             tables={},
             anonymous_tables=[],
@@ -92,12 +92,12 @@ class TestAsteriskExpander(BaseTest):
             alias="x",
             select_query_type=ast.SelectQueryType(
                 aliases={
-                    "a": ast.FieldAliasType(name="a", type=ast.ConstantType(data_type="int")),
-                    "b": ast.FieldAliasType(name="b", type=ast.ConstantType(data_type="int")),
+                    "a": ast.FieldAliasType(alias="a", type=ast.ConstantType(data_type="int")),
+                    "b": ast.FieldAliasType(alias="b", type=ast.ConstantType(data_type="int")),
                 },
                 columns={
-                    "a": ast.FieldAliasType(name="a", type=ast.ConstantType(data_type="int")),
-                    "b": ast.FieldAliasType(name="b", type=ast.ConstantType(data_type="int")),
+                    "a": ast.FieldAliasType(alias="a", type=ast.ConstantType(data_type="int")),
+                    "b": ast.FieldAliasType(alias="b", type=ast.ConstantType(data_type="int")),
                 },
                 tables={},
                 anonymous_tables=[],

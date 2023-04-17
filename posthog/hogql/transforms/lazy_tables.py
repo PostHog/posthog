@@ -39,7 +39,7 @@ class LazyTableResolver(TraversingVisitor):
         elif isinstance(type, ast.LazyTableType):
             return type.table.hogql_table()
         elif isinstance(type, ast.TableAliasType):
-            return type.name
+            return type.alias
         elif isinstance(type, ast.SelectQueryAliasType):
             return type.alias
         elif isinstance(type, ast.LazyJoinType):

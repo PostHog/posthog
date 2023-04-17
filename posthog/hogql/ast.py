@@ -57,7 +57,7 @@ class Macro(Expr):
 
 
 class FieldAliasType(Type):
-    name: str
+    alias: str
     type: Type
 
     def get_child(self, name: str) -> Type:
@@ -99,7 +99,7 @@ class TableType(BaseTableType):
 
 
 class TableAliasType(BaseTableType):
-    name: str
+    alias: str
     table_type: TableType
 
     def resolve_database_table(self) -> Table:

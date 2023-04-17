@@ -230,9 +230,9 @@ class _Printer(Visitor):
         if isinstance(node.type, ast.TableAliasType):
             table_type = node.type.table_type
             if table_type is None:
-                raise HogQLException(f"Table alias {node.type.name} does not resolve!")
+                raise HogQLException(f"Table alias {node.type.alias} does not resolve!")
             if not isinstance(table_type, ast.TableType):
-                raise HogQLException(f"Table alias {node.type.name} does not resolve to a table!")
+                raise HogQLException(f"Table alias {node.type.alias} does not resolve to a table!")
 
             if self.dialect == "clickhouse":
                 table_name = table_type.table.clickhouse_table()
@@ -467,7 +467,7 @@ class _Printer(Visitor):
             return self._print_identifier(type.table.hogql_table())
 
     def visit_table_alias_type(self, type: ast.TableAliasType):
-        return self._print_identifier(type.name)
+        return self._print_identifier(type.alias)
 
     def visit_lambda_argument_type(self, type: ast.LambdaArgumentType):
         return self._print_identifier(type.name)
@@ -494,7 +494,7 @@ class _Printer(Visitor):
                     return self.visit(
                         ast.AsteriskType(
                             table_type=ast.TableAliasType(
-                                table_type=ast.TableType(table=resolved_field), name=type.table_type.alias
+                                table_type=ast.TableType(table=resolved_field), alias=type.table_type.alias
                             )
                         )
                     )
@@ -611,7 +611,7 @@ class _Printer(Visitor):
         return self._print_identifier(type.alias)
 
     def visit_field_alias_type(self, type: ast.FieldAliasType):
-        return self._print_identifier(type.name)
+        return self._print_identifier(type.alias)
 
     def visit_virtual_table_type(self, type: ast.VirtualTableType):
         return self.visit(type.table_type)

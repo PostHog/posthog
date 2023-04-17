@@ -56,7 +56,7 @@ class TestResolver(BaseTest):
         resolve_types(expr, database=self.database)
 
         events_table_type = ast.TableType(table=self.database.events)
-        events_table_alias_type = ast.TableAliasType(name="e", table_type=events_table_type)
+        events_table_alias_type = ast.TableAliasType(alias="e", table_type=events_table_type)
         event_field_type = ast.FieldType(name="event", table_type=events_table_alias_type)
         timestamp_field_type = ast.FieldType(name="timestamp", table_type=events_table_alias_type)
         select_query_type = ast.SelectQueryType(
@@ -95,18 +95,18 @@ class TestResolver(BaseTest):
         resolve_types(expr, database=self.database)
 
         events_table_type = ast.TableType(table=self.database.events)
-        events_table_alias_type = ast.TableAliasType(name="e", table_type=events_table_type)
+        events_table_alias_type = ast.TableAliasType(alias="e", table_type=events_table_type)
         event_field_type = ast.FieldType(name="event", table_type=events_table_alias_type)
         timestamp_field_type = ast.FieldType(name="timestamp", table_type=events_table_alias_type)
 
         select_query_type = ast.SelectQueryType(
             aliases={
-                "ee": ast.FieldAliasType(name="ee", type=event_field_type),
-                "e": ast.FieldAliasType(name="e", type=ast.FieldAliasType(name="ee", type=event_field_type)),
+                "ee": ast.FieldAliasType(alias="ee", type=event_field_type),
+                "e": ast.FieldAliasType(alias="e", type=ast.FieldAliasType(alias="ee", type=event_field_type)),
             },
             columns={
-                "ee": ast.FieldAliasType(name="ee", type=event_field_type),
-                "e": ast.FieldAliasType(name="e", type=ast.FieldAliasType(name="ee", type=event_field_type)),
+                "ee": ast.FieldAliasType(alias="ee", type=event_field_type),
+                "e": ast.FieldAliasType(alias="e", type=ast.FieldAliasType(alias="ee", type=event_field_type)),
                 "timestamp": timestamp_field_type,
             },
             tables={"e": events_table_alias_type},
@@ -152,18 +152,18 @@ class TestResolver(BaseTest):
         resolve_types(expr, database=self.database)
         inner_events_table_type = ast.TableType(table=self.database.events)
         inner_event_field_type = ast.FieldAliasType(
-            name="b", type=ast.FieldType(name="event", table_type=inner_events_table_type)
+            alias="b", type=ast.FieldType(name="event", table_type=inner_events_table_type)
         )
         timestamp_field_type = ast.FieldType(name="timestamp", table_type=inner_events_table_type)
-        timstamp_alias_type = ast.FieldAliasType(name="c", type=timestamp_field_type)
+        timstamp_alias_type = ast.FieldAliasType(alias="c", type=timestamp_field_type)
         inner_select_type = ast.SelectQueryType(
             aliases={
                 "b": inner_event_field_type,
-                "c": ast.FieldAliasType(name="c", type=timestamp_field_type),
+                "c": ast.FieldAliasType(alias="c", type=timestamp_field_type),
             },
             columns={
                 "b": inner_event_field_type,
-                "c": ast.FieldAliasType(name="c", type=timestamp_field_type),
+                "c": ast.FieldAliasType(alias="c", type=timestamp_field_type),
             },
             tables={
                 "events": inner_events_table_type,
@@ -410,7 +410,7 @@ class TestResolver(BaseTest):
         expr = parse_select("select event, e.pdi.person_id from events e")
         resolve_types(expr, database=self.database)
         events_table_type = ast.TableType(table=self.database.events)
-        events_table_alias_type = ast.TableAliasType(table_type=events_table_type, name="e")
+        events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
@@ -512,7 +512,7 @@ class TestResolver(BaseTest):
         expr = parse_select("select event, e.pdi.person.id from events e")
         resolve_types(expr, database=self.database)
         events_table_type = ast.TableType(table=self.database.events)
-        events_table_alias_type = ast.TableAliasType(table_type=events_table_type, name="e")
+        events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
