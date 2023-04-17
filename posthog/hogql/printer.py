@@ -37,8 +37,9 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
 
     return ast.CompareOperation(
         op=ast.CompareOperationType.Eq,
-        left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table=table_type)),
+        left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
         right=ast.Constant(value=context.team_id),
+        type=ast.ConstantType(data_type="bool"),
     )
 
 
@@ -479,21 +480,21 @@ class _Printer(Visitor):
             type_with_name_in_scope = None
 
         if (
-            isinstance(type.table, ast.TableType)
-            or isinstance(type.table, ast.TableAliasType)
-            or isinstance(type.table, ast.VirtualTableType)
+            isinstance(type.table_type, ast.TableType)
+            or isinstance(type.table_type, ast.TableAliasType)
+            or isinstance(type.table_type, ast.VirtualTableType)
         ):
             resolved_field = type.resolve_database_field()
             if resolved_field is None:
                 raise HogQLException(f'Can\'t resolve field "{type.name}" on table.')
             if isinstance(resolved_field, Table):
-                if isinstance(type.table, ast.VirtualTableType):
-                    return self.visit(ast.AsteriskType(table=ast.TableType(table=resolved_field)))
+                if isinstance(type.table_type, ast.VirtualTableType):
+                    return self.visit(ast.AsteriskType(table_type=ast.TableType(table=resolved_field)))
                 else:
                     return self.visit(
                         ast.AsteriskType(
-                            table=ast.TableAliasType(
-                                table_type=ast.TableType(table=resolved_field), name=type.table.name
+                            table_type=ast.TableAliasType(
+                                table_type=ast.TableType(table=resolved_field), name=type.table_type.alias
                             )
                         )
                     )
@@ -501,9 +502,9 @@ class _Printer(Visitor):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if (
                 self.context.within_non_hogql_query
-                and isinstance(type.table, ast.VirtualTableType)
+                and isinstance(type.table_type, ast.VirtualTableType)
                 and type.name == "properties"
-                and type.table.field == "poe"
+                and type.table_type.field == "poe"
             ):
                 if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
                     field_sql = "person_properties"
@@ -515,12 +516,12 @@ class _Printer(Visitor):
                 if self.context.within_non_hogql_query and type_with_name_in_scope == type:
                     # Do not prepend table name in non-hogql context. We don't know what it actually is.
                     return field_sql
-                field_sql = f"{self.visit(type.table)}.{field_sql}"
+                field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
-        elif isinstance(type.table, ast.SelectQueryType) or isinstance(type.table, ast.SelectQueryAliasType):
+        elif isinstance(type.table_type, ast.SelectQueryType) or isinstance(type.table_type, ast.SelectQueryAliasType):
             field_sql = self._print_identifier(type.name)
-            if isinstance(type.table, ast.SelectQueryAliasType):
-                field_sql = f"{self.visit(type.table)}.{field_sql}"
+            if isinstance(type.table_type, ast.SelectQueryAliasType):
+                field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
@@ -530,7 +531,7 @@ class _Printer(Visitor):
                     field_sql = "person_props"
 
         else:
-            raise HogQLException(f"Unknown FieldType table type: {type(type.table).__name__}")
+            raise HogQLException(f"Unknown FieldType table type: {type(type.table_type).__name__}")
 
         return field_sql
 
@@ -538,11 +539,11 @@ class _Printer(Visitor):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
-        field_type = type.parent
+        field_type = type.field_type
         field = field_type.resolve_database_field()
 
         # check for a materialised column
-        table = field_type.table
+        table = field_type.table_type
         while isinstance(table, ast.TableAliasType):
             table = table.table_type
 
@@ -561,7 +562,7 @@ class _Printer(Visitor):
             if materialized_column:
                 property_sql = self._print_identifier(materialized_column)
                 if not self.context.within_non_hogql_query:
-                    property_sql = f"{self.visit(field_type.table)}.{property_sql}"
+                    property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
                 materialized_property_sql = property_sql
         elif (
             self.context.within_non_hogql_query
@@ -613,7 +614,7 @@ class _Printer(Visitor):
         return self._print_identifier(type.name)
 
     def visit_virtual_table_type(self, type: ast.VirtualTableType):
-        return self.visit(type.table)
+        return self.visit(type.table_type)
 
     def visit_asterisk_type(self, type: ast.AsteriskType):
         return "*"

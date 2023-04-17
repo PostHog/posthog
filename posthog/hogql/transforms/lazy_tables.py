@@ -41,11 +41,11 @@ class LazyTableResolver(TraversingVisitor):
         elif isinstance(type, ast.TableAliasType):
             return type.name
         elif isinstance(type, ast.SelectQueryAliasType):
-            return type.name
+            return type.alias
         elif isinstance(type, ast.LazyJoinType):
-            return f"{self._get_long_table_name(select, type.table)}__{type.field}"
+            return f"{self._get_long_table_name(select, type.table_type)}__{type.field}"
         elif isinstance(type, ast.VirtualTableType):
-            return f"{self._get_long_table_name(select, type.table)}__{type.field}"
+            return f"{self._get_long_table_name(select, type.table_type)}__{type.field}"
         else:
             raise HogQLException("Should not be reachable")
 
@@ -53,10 +53,12 @@ class LazyTableResolver(TraversingVisitor):
         if node.joined_subquery is not None:
             # we have already visited this property
             return
-        if isinstance(node.parent.table, ast.LazyJoinType) or isinstance(node.parent.table, ast.LazyTableType):
+        if isinstance(node.field_type.table_type, ast.LazyJoinType) or isinstance(
+            node.field_type.table_type, ast.LazyTableType
+        ):
             if self.context and self.context.within_non_hogql_query:
                 # If we're in a non-HogQL query, traverse deeper, just like we normally would have.
-                self.visit(node.parent)
+                self.visit(node.field_type)
             else:
                 # Place the property in a list for processing in "visit_select_query"
                 if len(self.stack_of_fields) == 0:
@@ -64,7 +66,7 @@ class LazyTableResolver(TraversingVisitor):
                 self.stack_of_fields[-1].append(node)
 
     def visit_field_type(self, node: ast.FieldType):
-        if isinstance(node.table, ast.LazyJoinType) or isinstance(node.table, ast.LazyTableType):
+        if isinstance(node.table_type, ast.LazyJoinType) or isinstance(node.table_type, ast.LazyTableType):
             # Each time we find a field, we place it in a list for processing in "visit_select_query"
             if len(self.stack_of_fields) == 0:
                 raise HogQLException("Can't access a lazy field when not in a SelectQuery context")
@@ -101,22 +103,26 @@ class LazyTableResolver(TraversingVisitor):
                 field = field_or_property
             elif isinstance(field_or_property, ast.PropertyType):
                 property = field_or_property
-                field = property.parent
+                field = property.field_type
             else:
                 raise Exception("Should not be reachable")
-            table_type = field.table
+            table_type = field.table_type
 
             # Traverse the lazy tables until we reach a real table, collecting them in a list.
             # Usually there's just one or two.
             table_types: List[ast.LazyJoinType | ast.LazyTableType] = []
             while isinstance(table_type, ast.LazyJoinType) or isinstance(table_type, ast.LazyTableType):
-                table_types.append(table_type)
-                table_type = table_type.table
+                if isinstance(table_type, ast.LazyJoinType):
+                    table_types.append(table_type)
+                    table_type = table_type.table_type
+                if isinstance(table_type, ast.LazyTableType):
+                    table_types.append(table_type)
+                    break
 
             # Loop over the collected lazy tables in reverse order to create the joins
             for table_type in reversed(table_types):
                 if isinstance(table_type, ast.LazyJoinType):
-                    from_table = self._get_long_table_name(select_type, table_type.table)
+                    from_table = self._get_long_table_name(select_type, table_type.table_type)
                     to_table = self._get_long_table_name(select_type, table_type)
                     if to_table not in joins_to_add:
                         joins_to_add[to_table] = JoinToAdd(
@@ -126,7 +132,7 @@ class LazyTableResolver(TraversingVisitor):
                             to_table=to_table,
                         )
                     new_join = joins_to_add[to_table]
-                    if table_type == field.table:
+                    if table_type == field.table_type:
                         chain = []
                         chain.append(field.name)
                         if property is not None:
@@ -143,7 +149,7 @@ class LazyTableResolver(TraversingVisitor):
                             lazy_table=table_type.table,
                         )
                     new_table = tables_to_add[table_name]
-                    if table_type == field.table:
+                    if table_type == field.table_type:
                         chain = []
                         chain.append(field.name)
                         if property is not None:
@@ -210,9 +216,9 @@ class LazyTableResolver(TraversingVisitor):
         # Assign all types on the fields we collected earlier
         for field_or_property in field_collector:
             if isinstance(field_or_property, ast.FieldType):
-                table_type = field_or_property.table
+                table_type = field_or_property.table_type
             elif isinstance(field_or_property, ast.PropertyType):
-                table_type = field_or_property.parent.table
+                table_type = field_or_property.field_type.table_type
             else:
                 raise Exception("Should not be reachable")
 
@@ -220,9 +226,9 @@ class LazyTableResolver(TraversingVisitor):
             table_type = select_type.tables[table_name]
 
             if isinstance(field_or_property, ast.FieldType):
-                field_or_property.table = table_type
+                field_or_property.table_type = table_type
             elif isinstance(field_or_property, ast.PropertyType):
-                field_or_property.parent.table = table_type
+                field_or_property.field_type.table_type = table_type
                 field_or_property.joined_subquery = table_type
 
         self.stack_of_fields.pop()

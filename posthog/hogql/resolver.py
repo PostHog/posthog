@@ -225,8 +225,10 @@ class Resolver(TraversingVisitor):
                 raise ResolverException("Cannot use '*' when there are no tables in the query")
             if table_count > 1:
                 raise ResolverException("Cannot use '*' without table name when there are multiple tables in the query")
-            table = scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else list(scope.tables.values())[0]
-            type = ast.AsteriskType(table=table)
+            table_type = (
+                scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else list(scope.tables.values())[0]
+            )
+            type = ast.AsteriskType(table_type=table_type)
 
         if not type:
             type = lookup_field_by_name(scope, name)
@@ -239,7 +241,7 @@ class Resolver(TraversingVisitor):
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
-                loop_type = loop_type.table
+                loop_type = loop_type.table_type
                 continue
             if len(chain_to_parse) == 0:
                 break

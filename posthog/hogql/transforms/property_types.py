@@ -56,9 +56,9 @@ class PropertyFinder(TraversingVisitor):
         self.found_timestamps = False
 
     def visit_property_type(self, node: ast.PropertyType):
-        if node.parent.name == "properties" and len(node.chain) == 1:
-            if isinstance(node.parent.table, ast.BaseTableType):
-                table = node.parent.table.resolve_database_table().hogql_table()
+        if node.field_type.name == "properties" and len(node.chain) == 1:
+            if isinstance(node.field_type.table_type, ast.BaseTableType):
+                table = node.field_type.table_type.resolve_database_table().hogql_table()
                 if table == "persons" or table == "raw_persons":
                     self.person_properties.add(node.chain[0])
                 if table == "events":
@@ -85,9 +85,9 @@ class PropertySwapper(CloningVisitor):
                 return ast.Call(name="toTimezone", args=[node, ast.Constant(value=self.timezone)])
 
         type = node.type
-        if isinstance(type, ast.PropertyType) and type.parent.name == "properties" and len(type.chain) == 1:
-            if isinstance(type.parent.table, ast.BaseTableType):
-                table = type.parent.table.resolve_database_table().hogql_table()
+        if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
+            if isinstance(type.field_type.table_type, ast.BaseTableType):
+                table = type.field_type.table_type.resolve_database_table().hogql_table()
                 if table == "persons" or table == "raw_persons":
                     if type.chain[0] in self.person_properties:
                         return self._add_type_to_string_field(node, self.person_properties[type.chain[0]])

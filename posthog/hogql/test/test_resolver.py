@@ -19,8 +19,8 @@ class TestResolver(BaseTest):
         resolve_types(expr, self.database)
 
         events_table_type = ast.TableType(table=self.database.events)
-        event_field_type = ast.FieldType(name="event", table=events_table_type)
-        timestamp_field_type = ast.FieldType(name="timestamp", table=events_table_type)
+        event_field_type = ast.FieldType(name="event", table_type=events_table_type)
+        timestamp_field_type = ast.FieldType(name="timestamp", table_type=events_table_type)
         select_query_type = ast.SelectQueryType(
             columns={"event": event_field_type, "timestamp": timestamp_field_type},
             tables={"events": events_table_type},
@@ -57,8 +57,8 @@ class TestResolver(BaseTest):
 
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(name="e", table_type=events_table_type)
-        event_field_type = ast.FieldType(name="event", table=events_table_alias_type)
-        timestamp_field_type = ast.FieldType(name="timestamp", table=events_table_alias_type)
+        event_field_type = ast.FieldType(name="event", table_type=events_table_alias_type)
+        timestamp_field_type = ast.FieldType(name="timestamp", table_type=events_table_alias_type)
         select_query_type = ast.SelectQueryType(
             columns={"event": event_field_type, "timestamp": timestamp_field_type},
             tables={"e": events_table_alias_type},
@@ -96,8 +96,8 @@ class TestResolver(BaseTest):
 
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(name="e", table_type=events_table_type)
-        event_field_type = ast.FieldType(name="event", table=events_table_alias_type)
-        timestamp_field_type = ast.FieldType(name="timestamp", table=events_table_alias_type)
+        event_field_type = ast.FieldType(name="event", table_type=events_table_alias_type)
+        timestamp_field_type = ast.FieldType(name="timestamp", table_type=events_table_alias_type)
 
         select_query_type = ast.SelectQueryType(
             aliases={
@@ -152,9 +152,9 @@ class TestResolver(BaseTest):
         resolve_types(expr, database=self.database)
         inner_events_table_type = ast.TableType(table=self.database.events)
         inner_event_field_type = ast.FieldAliasType(
-            name="b", type=ast.FieldType(name="event", table=inner_events_table_type)
+            name="b", type=ast.FieldType(name="event", table_type=inner_events_table_type)
         )
-        timestamp_field_type = ast.FieldType(name="timestamp", table=inner_events_table_type)
+        timestamp_field_type = ast.FieldType(name="timestamp", table_type=inner_events_table_type)
         timstamp_alias_type = ast.FieldAliasType(name="c", type=timestamp_field_type)
         inner_select_type = ast.SelectQueryType(
             aliases={
@@ -176,7 +176,7 @@ class TestResolver(BaseTest):
                     chain=["b"],
                     type=ast.FieldType(
                         name="b",
-                        table=ast.SelectQueryAliasType(alias="e", select_query_type=inner_select_type),
+                        table_type=ast.SelectQueryAliasType(alias="e", select_query_type=inner_select_type),
                     ),
                 ),
             ],
@@ -206,7 +206,7 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(
                     chain=["e", "b"],
-                    type=ast.FieldType(name="b", table=select_alias_type),
+                    type=ast.FieldType(name="b", table_type=select_alias_type),
                 ),
                 op=ast.CompareOperationType.Eq,
                 right=ast.Constant(value="test", type=ast.ConstantType(data_type="str")),
@@ -214,7 +214,7 @@ class TestResolver(BaseTest):
             ),
             type=ast.SelectQueryType(
                 aliases={},
-                columns={"b": ast.FieldType(name="b", table=select_alias_type)},
+                columns={"b": ast.FieldType(name="b", table_type=select_alias_type)},
                 tables={"e": select_alias_type},
             ),
         )
@@ -318,14 +318,16 @@ class TestResolver(BaseTest):
             select=[
                 ast.Field(
                     chain=["distinct_id"],
-                    type=ast.FieldType(name="distinct_id", table=pdi_table_type),
+                    type=ast.FieldType(name="distinct_id", table_type=pdi_table_type),
                 ),
                 ast.Field(
                     chain=["person", "id"],
                     type=ast.FieldType(
                         name="id",
-                        table=ast.LazyJoinType(
-                            table=pdi_table_type, field="person", lazy_join=self.database.person_distinct_ids.person
+                        table_type=ast.LazyJoinType(
+                            table_type=pdi_table_type,
+                            field="person",
+                            lazy_join=self.database.person_distinct_ids.person,
                         ),
                     ),
                 ),
@@ -338,11 +340,11 @@ class TestResolver(BaseTest):
                 aliases={},
                 anonymous_tables=[],
                 columns={
-                    "distinct_id": ast.FieldType(name="distinct_id", table=pdi_table_type),
+                    "distinct_id": ast.FieldType(name="distinct_id", table_type=pdi_table_type),
                     "id": ast.FieldType(
                         name="id",
-                        table=ast.LazyJoinType(
-                            table=pdi_table_type,
+                        table_type=ast.LazyJoinType(
+                            table_type=pdi_table_type,
                             lazy_join=self.database.person_distinct_ids.person,
                             field="person",
                         ),
@@ -365,14 +367,14 @@ class TestResolver(BaseTest):
             select=[
                 ast.Field(
                     chain=["event"],
-                    type=ast.FieldType(name="event", table=events_table_type),
+                    type=ast.FieldType(name="event", table_type=events_table_type),
                 ),
                 ast.Field(
                     chain=["pdi", "person_id"],
                     type=ast.FieldType(
                         name="person_id",
-                        table=ast.LazyJoinType(
-                            table=events_table_type, field="pdi", lazy_join=self.database.events.pdi
+                        table_type=ast.LazyJoinType(
+                            table_type=events_table_type, field="pdi", lazy_join=self.database.events.pdi
                         ),
                     ),
                 ),
@@ -385,11 +387,11 @@ class TestResolver(BaseTest):
                 aliases={},
                 anonymous_tables=[],
                 columns={
-                    "event": ast.FieldType(name="event", table=events_table_type),
+                    "event": ast.FieldType(name="event", table_type=events_table_type),
                     "person_id": ast.FieldType(
                         name="person_id",
-                        table=ast.LazyJoinType(
-                            table=events_table_type,
+                        table_type=ast.LazyJoinType(
+                            table_type=events_table_type,
                             lazy_join=self.database.events.pdi,
                             field="pdi",
                         ),
@@ -413,14 +415,14 @@ class TestResolver(BaseTest):
             select=[
                 ast.Field(
                     chain=["event"],
-                    type=ast.FieldType(name="event", table=events_table_alias_type),
+                    type=ast.FieldType(name="event", table_type=events_table_alias_type),
                 ),
                 ast.Field(
                     chain=["e", "pdi", "person_id"],
                     type=ast.FieldType(
                         name="person_id",
-                        table=ast.LazyJoinType(
-                            table=events_table_alias_type, field="pdi", lazy_join=self.database.events.pdi
+                        table_type=ast.LazyJoinType(
+                            table_type=events_table_alias_type, field="pdi", lazy_join=self.database.events.pdi
                         ),
                     ),
                 ),
@@ -434,11 +436,11 @@ class TestResolver(BaseTest):
                 aliases={},
                 anonymous_tables=[],
                 columns={
-                    "event": ast.FieldType(name="event", table=events_table_alias_type),
+                    "event": ast.FieldType(name="event", table_type=events_table_alias_type),
                     "person_id": ast.FieldType(
                         name="person_id",
-                        table=ast.LazyJoinType(
-                            table=events_table_alias_type,
+                        table_type=ast.LazyJoinType(
+                            table_type=events_table_alias_type,
                             lazy_join=self.database.events.pdi,
                             field="pdi",
                         ),
@@ -461,15 +463,15 @@ class TestResolver(BaseTest):
             select=[
                 ast.Field(
                     chain=["event"],
-                    type=ast.FieldType(name="event", table=events_table_type),
+                    type=ast.FieldType(name="event", table_type=events_table_type),
                 ),
                 ast.Field(
                     chain=["pdi", "person", "id"],
                     type=ast.FieldType(
                         name="id",
-                        table=ast.LazyJoinType(
-                            table=ast.LazyJoinType(
-                                table=events_table_type, field="pdi", lazy_join=self.database.events.pdi
+                        table_type=ast.LazyJoinType(
+                            table_type=ast.LazyJoinType(
+                                table_type=events_table_type, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
                             lazy_join=self.database.events.pdi.join_table.person,
@@ -485,12 +487,12 @@ class TestResolver(BaseTest):
                 aliases={},
                 anonymous_tables=[],
                 columns={
-                    "event": ast.FieldType(name="event", table=events_table_type),
+                    "event": ast.FieldType(name="event", table_type=events_table_type),
                     "id": ast.FieldType(
                         name="id",
-                        table=ast.LazyJoinType(
-                            table=ast.LazyJoinType(
-                                table=events_table_type, field="pdi", lazy_join=self.database.events.pdi
+                        table_type=ast.LazyJoinType(
+                            table_type=ast.LazyJoinType(
+                                table_type=events_table_type, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
                             lazy_join=self.database.events.pdi.join_table.person,
@@ -515,15 +517,15 @@ class TestResolver(BaseTest):
             select=[
                 ast.Field(
                     chain=["event"],
-                    type=ast.FieldType(name="event", table=events_table_alias_type),
+                    type=ast.FieldType(name="event", table_type=events_table_alias_type),
                 ),
                 ast.Field(
                     chain=["e", "pdi", "person", "id"],
                     type=ast.FieldType(
                         name="id",
-                        table=ast.LazyJoinType(
-                            table=ast.LazyJoinType(
-                                table=events_table_alias_type, field="pdi", lazy_join=self.database.events.pdi
+                        table_type=ast.LazyJoinType(
+                            table_type=ast.LazyJoinType(
+                                table_type=events_table_alias_type, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
                             lazy_join=self.database.events.pdi.join_table.person,
@@ -540,12 +542,12 @@ class TestResolver(BaseTest):
                 aliases={},
                 anonymous_tables=[],
                 columns={
-                    "event": ast.FieldType(name="event", table=events_table_alias_type),
+                    "event": ast.FieldType(name="event", table_type=events_table_alias_type),
                     "id": ast.FieldType(
                         name="id",
-                        table=ast.LazyJoinType(
-                            table=ast.LazyJoinType(
-                                table=events_table_alias_type, field="pdi", lazy_join=self.database.events.pdi
+                        table_type=ast.LazyJoinType(
+                            table_type=ast.LazyJoinType(
+                                table_type=events_table_alias_type, field="pdi", lazy_join=self.database.events.pdi
                             ),
                             field="person",
                             lazy_join=self.database.events.pdi.join_table.person,
@@ -569,14 +571,14 @@ class TestResolver(BaseTest):
             select=[
                 ast.Field(
                     chain=["event"],
-                    type=ast.FieldType(name="event", table=events_table_type),
+                    type=ast.FieldType(name="event", table_type=events_table_type),
                 ),
                 ast.Field(
                     chain=["poe", "id"],
                     type=ast.FieldType(
                         name="id",
-                        table=ast.VirtualTableType(
-                            table=events_table_type, field="poe", virtual_table=self.database.events.poe
+                        table_type=ast.VirtualTableType(
+                            table_type=events_table_type, field="poe", virtual_table=self.database.events.poe
                         ),
                     ),
                 ),
@@ -589,11 +591,11 @@ class TestResolver(BaseTest):
                 aliases={},
                 anonymous_tables=[],
                 columns={
-                    "event": ast.FieldType(name="event", table=events_table_type),
+                    "event": ast.FieldType(name="event", table_type=events_table_type),
                     "id": ast.FieldType(
                         name="id",
-                        table=ast.VirtualTableType(
-                            table=events_table_type, field="poe", virtual_table=self.database.events.poe
+                        table_type=ast.VirtualTableType(
+                            table_type=events_table_type, field="poe", virtual_table=self.database.events.poe
                         ),
                     ),
                 },
@@ -614,14 +616,14 @@ class TestResolver(BaseTest):
         self.assertEqual(
             node.select_queries[0].select,
             [
-                ast.Field(chain=["event"], type=ast.FieldType(name="event", table=events_table_type)),
-                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table=events_table_type)),
+                ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_type)),
+                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=events_table_type)),
             ],
         )
         self.assertEqual(
             node.select_queries[1].select,
             [
-                ast.Field(chain=["event"], type=ast.FieldType(name="event", table=events_table_type)),
-                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table=events_table_type)),
+                ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_type)),
+                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=events_table_type)),
             ],
         )

@@ -18,13 +18,15 @@ class TestAsteriskExpander(BaseTest):
         self.assertEqual(
             node.select,
             [
-                ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table=events_table_type)),
-                ast.Field(chain=["event"], type=ast.FieldType(name="event", table=events_table_type)),
-                ast.Field(chain=["properties"], type=ast.FieldType(name="properties", table=events_table_type)),
-                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table=events_table_type)),
-                ast.Field(chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table=events_table_type)),
-                ast.Field(chain=["elements_chain"], type=ast.FieldType(name="elements_chain", table=events_table_type)),
-                ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table=events_table_type)),
+                ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=events_table_type)),
+                ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_type)),
+                ast.Field(chain=["properties"], type=ast.FieldType(name="properties", table_type=events_table_type)),
+                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=events_table_type)),
+                ast.Field(chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table_type=events_table_type)),
+                ast.Field(
+                    chain=["elements_chain"], type=ast.FieldType(name="elements_chain", table_type=events_table_type)
+                ),
+                ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table_type=events_table_type)),
             ],
         )
 
@@ -37,16 +39,24 @@ class TestAsteriskExpander(BaseTest):
         self.assertEqual(
             node.select,
             [
-                ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table=events_table_alias_type)),
-                ast.Field(chain=["event"], type=ast.FieldType(name="event", table=events_table_alias_type)),
-                ast.Field(chain=["properties"], type=ast.FieldType(name="properties", table=events_table_alias_type)),
-                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table=events_table_alias_type)),
-                ast.Field(chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table=events_table_alias_type)),
+                ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=events_table_alias_type)),
+                ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_alias_type)),
+                ast.Field(
+                    chain=["properties"], type=ast.FieldType(name="properties", table_type=events_table_alias_type)
+                ),
+                ast.Field(
+                    chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=events_table_alias_type)
+                ),
+                ast.Field(
+                    chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table_type=events_table_alias_type)
+                ),
                 ast.Field(
                     chain=["elements_chain"],
-                    type=ast.FieldType(name="elements_chain", table=events_table_alias_type),
+                    type=ast.FieldType(name="elements_chain", table_type=events_table_alias_type),
                 ),
-                ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table=events_table_alias_type)),
+                ast.Field(
+                    chain=["created_at"], type=ast.FieldType(name="created_at", table_type=events_table_alias_type)
+                ),
             ],
         )
 
@@ -69,8 +79,8 @@ class TestAsteriskExpander(BaseTest):
         self.assertEqual(
             node.select,
             [
-                ast.Field(chain=["a"], type=ast.FieldType(name="a", table=select_subquery_type)),
-                ast.Field(chain=["b"], type=ast.FieldType(name="b", table=select_subquery_type)),
+                ast.Field(chain=["a"], type=ast.FieldType(name="a", table_type=select_subquery_type)),
+                ast.Field(chain=["b"], type=ast.FieldType(name="b", table_type=select_subquery_type)),
             ],
         )
 
@@ -96,8 +106,8 @@ class TestAsteriskExpander(BaseTest):
         self.assertEqual(
             node.select,
             [
-                ast.Field(chain=["a"], type=ast.FieldType(name="a", table=select_subquery_type)),
-                ast.Field(chain=["b"], type=ast.FieldType(name="b", table=select_subquery_type)),
+                ast.Field(chain=["a"], type=ast.FieldType(name="a", table_type=select_subquery_type)),
+                ast.Field(chain=["b"], type=ast.FieldType(name="b", table_type=select_subquery_type)),
             ],
         )
 
@@ -112,29 +122,29 @@ class TestAsteriskExpander(BaseTest):
             anonymous_tables=[],
             aliases={},
             columns={
-                "uuid": ast.FieldType(name="uuid", table=events_table_type),
-                "event": ast.FieldType(name="event", table=events_table_type),
-                "properties": ast.FieldType(name="properties", table=events_table_type),
-                "timestamp": ast.FieldType(name="timestamp", table=events_table_type),
-                "distinct_id": ast.FieldType(name="distinct_id", table=events_table_type),
-                "elements_chain": ast.FieldType(name="elements_chain", table=events_table_type),
-                "created_at": ast.FieldType(name="created_at", table=events_table_type),
+                "uuid": ast.FieldType(name="uuid", table_type=events_table_type),
+                "event": ast.FieldType(name="event", table_type=events_table_type),
+                "properties": ast.FieldType(name="properties", table_type=events_table_type),
+                "timestamp": ast.FieldType(name="timestamp", table_type=events_table_type),
+                "distinct_id": ast.FieldType(name="distinct_id", table_type=events_table_type),
+                "elements_chain": ast.FieldType(name="elements_chain", table_type=events_table_type),
+                "created_at": ast.FieldType(name="created_at", table_type=events_table_type),
             },
         )
 
         self.assertEqual(
             node.select,
             [
-                ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table=inner_select_type)),
-                ast.Field(chain=["event"], type=ast.FieldType(name="event", table=inner_select_type)),
-                ast.Field(chain=["properties"], type=ast.FieldType(name="properties", table=inner_select_type)),
-                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table=inner_select_type)),
-                ast.Field(chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table=inner_select_type)),
+                ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=inner_select_type)),
+                ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=inner_select_type)),
+                ast.Field(chain=["properties"], type=ast.FieldType(name="properties", table_type=inner_select_type)),
+                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=inner_select_type)),
+                ast.Field(chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table_type=inner_select_type)),
                 ast.Field(
                     chain=["elements_chain"],
-                    type=ast.FieldType(name="elements_chain", table=inner_select_type),
+                    type=ast.FieldType(name="elements_chain", table_type=inner_select_type),
                 ),
-                ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table=inner_select_type)),
+                ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table_type=inner_select_type)),
             ],
         )
 
@@ -159,13 +169,13 @@ class TestAsteriskExpander(BaseTest):
                     anonymous_tables=[],
                     aliases={},
                     columns={
-                        "uuid": ast.FieldType(name="uuid", table=events_table_type),
-                        "event": ast.FieldType(name="event", table=events_table_type),
-                        "properties": ast.FieldType(name="properties", table=events_table_type),
-                        "timestamp": ast.FieldType(name="timestamp", table=events_table_type),
-                        "distinct_id": ast.FieldType(name="distinct_id", table=events_table_type),
-                        "elements_chain": ast.FieldType(name="elements_chain", table=events_table_type),
-                        "created_at": ast.FieldType(name="created_at", table=events_table_type),
+                        "uuid": ast.FieldType(name="uuid", table_type=events_table_type),
+                        "event": ast.FieldType(name="event", table_type=events_table_type),
+                        "properties": ast.FieldType(name="properties", table_type=events_table_type),
+                        "timestamp": ast.FieldType(name="timestamp", table_type=events_table_type),
+                        "distinct_id": ast.FieldType(name="distinct_id", table_type=events_table_type),
+                        "elements_chain": ast.FieldType(name="elements_chain", table_type=events_table_type),
+                        "created_at": ast.FieldType(name="created_at", table_type=events_table_type),
                     },
                 )
             ]
@@ -175,15 +185,15 @@ class TestAsteriskExpander(BaseTest):
         self.assertEqual(
             node.select,
             [
-                ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table=inner_select_type)),
-                ast.Field(chain=["event"], type=ast.FieldType(name="event", table=inner_select_type)),
-                ast.Field(chain=["properties"], type=ast.FieldType(name="properties", table=inner_select_type)),
-                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table=inner_select_type)),
-                ast.Field(chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table=inner_select_type)),
+                ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=inner_select_type)),
+                ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=inner_select_type)),
+                ast.Field(chain=["properties"], type=ast.FieldType(name="properties", table_type=inner_select_type)),
+                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=inner_select_type)),
+                ast.Field(chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table_type=inner_select_type)),
                 ast.Field(
                     chain=["elements_chain"],
-                    type=ast.FieldType(name="elements_chain", table=inner_select_type),
+                    type=ast.FieldType(name="elements_chain", table_type=inner_select_type),
                 ),
-                ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table=inner_select_type)),
+                ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table_type=inner_select_type)),
             ],
         )

@@ -76,18 +76,18 @@ class BaseTableType(Type):
 
     def get_child(self, name: str) -> Type:
         if name == "*":
-            return AsteriskType(table=self)
+            return AsteriskType(table_type=self)
         if self.has_child(name):
             field = self.resolve_database_table().get_field(name)
             if isinstance(field, LazyJoin):
-                return LazyJoinType(table=self, field=name, lazy_join=field)
+                return LazyJoinType(table_type=self, field=name, lazy_join=field)
             if isinstance(field, LazyTable):
                 return LazyTableType(table=field)
             if isinstance(field, FieldTraverser):
-                return FieldTraverserType(table=self, chain=field.chain)
+                return FieldTraverserType(table_type=self, chain=field.chain)
             if isinstance(field, VirtualTable):
-                return VirtualTableType(table=self, field=name, virtual_table=field)
-            return FieldType(name=name, table=self)
+                return VirtualTableType(table_type=self, field=name, virtual_table=field)
+            return FieldType(name=name, table_type=self)
         raise HogQLException(f"Field not found: {name}")
 
 
@@ -107,7 +107,7 @@ class TableAliasType(BaseTableType):
 
 
 class LazyJoinType(BaseTableType):
-    table: BaseTableType
+    table_type: BaseTableType
     field: str
     lazy_join: LazyJoin
 
@@ -123,7 +123,7 @@ class LazyTableType(BaseTableType):
 
 
 class VirtualTableType(BaseTableType):
-    table: BaseTableType
+    table_type: BaseTableType
     field: str
     virtual_table: VirtualTable
 
@@ -160,9 +160,9 @@ class SelectQueryType(Type):
 
     def get_child(self, name: str) -> Type:
         if name == "*":
-            return AsteriskType(table=self)
+            return AsteriskType(table_type=self)
         if name in self.columns:
-            return FieldType(name=name, table=self)
+            return FieldType(name=name, table_type=self)
         raise HogQLException(f"Column not found: {name}")
 
     def has_child(self, name: str) -> bool:
@@ -191,9 +191,9 @@ class SelectQueryAliasType(Type):
 
     def get_child(self, name: str) -> Type:
         if name == "*":
-            return AsteriskType(table=self)
+            return AsteriskType(table_type=self)
         if self.select_query_type.has_child(name):
-            return FieldType(name=name, table=self)
+            return FieldType(name=name, table_type=self)
         raise HogQLException(f"Field {name} not found on query with alias {self.alias}")
 
     def has_child(self, name: str) -> bool:
@@ -213,21 +213,21 @@ class ConstantType(Type):
 
 
 class AsteriskType(Type):
-    table: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
+    table_type: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
 
 
 class FieldTraverserType(Type):
     chain: List[str]
-    table: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
+    table_type: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
 
 
 class FieldType(Type):
     name: str
-    table: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
+    table_type: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
 
     def resolve_database_field(self) -> Optional[DatabaseField]:
-        if isinstance(self.table, BaseTableType):
-            table = self.table.resolve_database_table()
+        if isinstance(self.table_type, BaseTableType):
+            table = self.table_type.resolve_database_table()
             if table is not None:
                 return table.get_field(self.name)
         return None
@@ -237,7 +237,7 @@ class FieldType(Type):
         if database_field is None:
             raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
-            return PropertyType(chain=[name], parent=self)
+            return PropertyType(chain=[name], field_type=self)
         raise HogQLException(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
@@ -245,14 +245,14 @@ class FieldType(Type):
 
 class PropertyType(Type):
     chain: List[str]
-    parent: FieldType
+    field_type: FieldType
 
     # The property has been moved into a field we query from a joined subquery
     joined_subquery: Optional[SelectQueryAliasType]
     joined_subquery_field_name: Optional[str]
 
     def get_child(self, name: str) -> "Type":
-        return PropertyType(chain=self.chain + [name], parent=self.parent)
+        return PropertyType(chain=self.chain + [name], field_type=self.field_type)
 
     def has_child(self, name: str) -> bool:
         return True

@@ -118,7 +118,7 @@ class TraversingVisitor(Visitor):
         self.visit(node.type)
 
     def visit_field_type(self, node: ast.FieldType):
-        self.visit(node.table)
+        self.visit(node.table_type)
 
     def visit_select_query_type(self, node: ast.SelectQueryType):
         for expr in node.tables.values():
@@ -141,13 +141,13 @@ class TraversingVisitor(Visitor):
         pass
 
     def visit_field_traverser_type(self, node: ast.LazyJoinType):
-        self.visit(node.table)
+        self.visit(node.table_type)
 
     def visit_lazy_join_type(self, node: ast.LazyJoinType):
-        self.visit(node.table)
+        self.visit(node.table_type)
 
     def visit_virtual_table_type(self, node: ast.VirtualTableType):
-        self.visit(node.table)
+        self.visit(node.table_type)
 
     def visit_table_alias_type(self, node: ast.TableAliasType):
         self.visit(node.table_type)
@@ -156,7 +156,7 @@ class TraversingVisitor(Visitor):
         self.visit(node.select_query_type)
 
     def visit_asterisk_type(self, node: ast.AsteriskType):
-        self.visit(node.table)
+        self.visit(node.table_type)
 
     def visit_call_type(self, node: ast.CallType):
         for expr in node.args:
@@ -166,7 +166,7 @@ class TraversingVisitor(Visitor):
         pass
 
     def visit_property_type(self, node: ast.PropertyType):
-        self.visit(node.parent)
+        self.visit(node.field_type)
 
 
 class CloningVisitor(Visitor):
@@ -180,9 +180,10 @@ class CloningVisitor(Visitor):
 
     def visit_macro(self, node: ast.Macro):
         return ast.Macro(
+            type=None if self.clear_types else node.type,
             name=node.name,
             expr=clone_expr(node.expr),
-            type=node.type,
+            macro_type=node.macro_type,
         )
 
     def visit_alias(self, node: ast.Alias):
