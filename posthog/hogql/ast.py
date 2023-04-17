@@ -134,6 +134,10 @@ class VirtualTableType(BaseTableType):
         return self.virtual_table.has_field(name)
 
 
+SelectQueryLikeType = Union["SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
+TableOrSelectType = BaseTableType | SelectQueryLikeType
+
+
 class SelectQueryType(Type):
     """Type and new enclosed scope for a select query. Contains information about all tables and columns in the query."""
 
@@ -142,16 +146,14 @@ class SelectQueryType(Type):
     # all types a select query exports
     columns: Dict[str, Type] = PydanticField(default_factory=dict)
     # all from and join, tables and subqueries with aliases
-    tables: Dict[
-        str, Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
-    ] = PydanticField(default_factory=dict)
+    tables: Dict[str, TableOrSelectType] = PydanticField(default_factory=dict)
     macros: Dict[str, Macro] = PydanticField(default_factory=dict)
     # all from and join subqueries without aliases
     anonymous_tables: List[Union["SelectQueryType", "SelectUnionQueryType"]] = PydanticField(default_factory=list)
 
     def get_alias_for_table_type(
         self,
-        table_type: Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"],
+        table_type: TableOrSelectType,
     ) -> Optional[str]:
         for key, value in self.tables.items():
             if value == table_type:
@@ -172,10 +174,7 @@ class SelectQueryType(Type):
 class SelectUnionQueryType(Type):
     types: List[SelectQueryType]
 
-    def get_alias_for_table_type(
-        self,
-        table_type: Union[BaseTableType, SelectQueryType, "SelectQueryAliasType"],
-    ) -> Optional[str]:
+    def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
 
     def get_child(self, name: str) -> Type:
@@ -187,7 +186,7 @@ class SelectUnionQueryType(Type):
 
 class SelectQueryAliasType(Type):
     alias: str
-    select_query_type: SelectQueryType | SelectUnionQueryType
+    select_query_type: SelectQueryLikeType
 
     def get_child(self, name: str) -> Type:
         if name == "*":
@@ -213,17 +212,17 @@ class ConstantType(Type):
 
 
 class AsteriskType(Type):
-    table_type: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
+    table_type: TableOrSelectType
 
 
 class FieldTraverserType(Type):
     chain: List[str]
-    table_type: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
+    table_type: TableOrSelectType
 
 
 class FieldType(Type):
     name: str
-    table_type: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
+    table_type: TableOrSelectType
 
     def resolve_database_field(self) -> Optional[DatabaseField]:
         if isinstance(self.table_type, BaseTableType):
@@ -368,7 +367,7 @@ class Call(Expr):
 
 
 class JoinExpr(Expr):
-    type: Optional[BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType]
+    type: Optional[TableOrSelectType]
 
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
