@@ -52,7 +52,7 @@ class Macro(Expr):
     name: str
     expr: Expr
     # Whether the macro is an inlined column "SELECT 1 AS a" or a subquery "SELECT a AS (SELECT 1)"
-    type: Literal["column", "subquery"]
+    macro_type: Literal["column", "subquery"]
 
 
 class FieldAliasType(Type):
@@ -208,7 +208,7 @@ class CallType(Type):
 
 
 class ConstantType(Type):
-    value: Any
+    type: Literal["int", "float", "str", "bool", "unknown"]
 
 
 class AsteriskType(Type):

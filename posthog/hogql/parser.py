@@ -588,12 +588,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
         subquery = self.visit(ctx.selectUnionStmt())
         name = self.visit(ctx.identifier())
-        return ast.Macro(name=name, expr=subquery, type="subquery")
+        return ast.Macro(name=name, expr=subquery, macro_type="subquery")
 
     def visitWithExprColumn(self, ctx: HogQLParser.WithExprColumnContext):
         expr = self.visit(ctx.columnExpr())
         name = self.visit(ctx.identifier())
-        return ast.Macro(name=name, expr=expr, type="column")
+        return ast.Macro(name=name, expr=expr, macro_type="column")
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
         if ctx.PLACEHOLDER():

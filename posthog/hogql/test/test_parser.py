@@ -895,7 +895,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("with event as boo select boo from events"),
             ast.SelectQuery(
-                macros={"boo": ast.Macro(name="boo", expr=ast.Field(chain=["event"]), type="column")},
+                macros={"boo": ast.Macro(name="boo", expr=ast.Field(chain=["event"]), macro_type="column")},
                 select=[ast.Field(chain=["boo"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             ),
@@ -903,7 +903,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("with count() as kokku select kokku from events"),
             ast.SelectQuery(
-                macros={"kokku": ast.Macro(name="kokku", expr=ast.Call(name="count", args=[]), type="column")},
+                macros={"kokku": ast.Macro(name="kokku", expr=ast.Call(name="count", args=[]), macro_type="column")},
                 select=[ast.Field(chain=["kokku"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             ),
@@ -920,7 +920,7 @@ class TestParser(BaseTest):
                             select=[ast.Constant(value="yes")],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
-                        type="subquery",
+                        macro_type="subquery",
                     )
                 },
                 select=[ast.Field(chain=["*"])],
@@ -939,9 +939,9 @@ class TestParser(BaseTest):
                             select=[ast.Constant(value="yes")],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
-                        type="subquery",
+                        macro_type="subquery",
                     ),
-                    "sad": ast.Macro(name="sad", expr=ast.Constant(value=":("), type="column"),
+                    "sad": ast.Macro(name="sad", expr=ast.Constant(value=":("), macro_type="column"),
                 },
                 select=[ast.Field(chain=["sad"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["happy"])),
@@ -963,7 +963,7 @@ class TestParser(BaseTest):
                             ],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
-                        type="subquery",
+                        macro_type="subquery",
                     ),
                     "final": ast.Macro(
                         name="final",
@@ -971,7 +971,7 @@ class TestParser(BaseTest):
                             select=[ast.Field(chain=["tt"])],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["users"])),
                         ),
-                        type="subquery",
+                        macro_type="subquery",
                     ),
                 },
                 select=[ast.Field(chain=["*"])],

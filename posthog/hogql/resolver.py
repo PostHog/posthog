@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Literal, cast
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType
@@ -224,7 +224,21 @@ class Resolver(TraversingVisitor):
         """Visit a constant"""
         if node.type is not None:
             return
-        node.type = ast.ConstantType(value=node.value)
+
+        if isinstance(node.value, str):
+            datatype = "str"
+        elif isinstance(node.value, bool):
+            datatype = "bool"
+        elif isinstance(node.value, int):
+            datatype = "int"
+        elif isinstance(node.value, float):
+            datatype = "float"
+        elif node.value is None:
+            datatype = "unknown"
+        else:
+            raise ResolverException(f"Unsupported constant type: {type(node.value)}")
+
+        node.type = ast.ConstantType(type=cast(Literal["int", "float", "str", "bool", "unknown"], datatype))
 
 
 def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:

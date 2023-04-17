@@ -33,7 +33,7 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"], type=event_field_type),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test", type=ast.ConstantType(value="test")),
+                right=ast.Constant(value="test", type=ast.ConstantType(type="str")),
             ),
             type=select_query_type,
         )
@@ -71,7 +71,7 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["e", "event"], type=event_field_type),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test", type=ast.ConstantType(value="test")),
+                right=ast.Constant(value="test", type=ast.ConstantType(type="str")),
             ),
             type=select_query_type,
         )
@@ -128,7 +128,7 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["e", "event"], type=event_field_type),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test", type=ast.ConstantType(value="test")),
+                right=ast.Constant(value="test", type=ast.ConstantType(type="str")),
             ),
             type=select_query_type,
         )
@@ -201,7 +201,7 @@ class TestResolver(BaseTest):
                     type=ast.FieldType(name="b", table=select_alias_type),
                 ),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test", type=ast.ConstantType(value="test")),
+                right=ast.Constant(value="test", type=ast.ConstantType(type="str")),
             ),
             type=ast.SelectQueryType(
                 aliases={},
@@ -224,6 +224,21 @@ class TestResolver(BaseTest):
         with self.assertRaises(ResolverException) as e:
             resolve_types(expr, database=self.database)
         self.assertEqual(str(e.exception), "Unable to resolve field: e")
+
+    def test_resolve_constant(self):
+        expr = parse_select("SELECT 1, 'boo', true, 1.1232, null")
+        resolve_types(expr, database=self.database)
+        expected = ast.SelectQuery(
+            select=[
+                ast.Constant(value=1, type=ast.ConstantType(type="int")),
+                ast.Constant(value="boo", type=ast.ConstantType(type="str")),
+                ast.Constant(value=True, type=ast.ConstantType(type="bool")),
+                ast.Constant(value=1.1232, type=ast.ConstantType(type="float")),
+                ast.Constant(value=None, type=ast.ConstantType(type="unknown")),
+            ],
+            type=ast.SelectQueryType(aliases={}, columns={}, tables={}),
+        )
+        self.assertEqual(expr, expected)
 
     def test_resolve_errors(self):
         queries = [
