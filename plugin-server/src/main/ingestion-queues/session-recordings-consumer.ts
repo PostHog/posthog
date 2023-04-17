@@ -90,6 +90,8 @@ export const startSessionRecordingEventsConsumer = async ({
         'fetch.message.max.bytes': consumerMaxBytes,
         'fetch.wait.max.ms': consumerMaxWaitMs,
         'enable.partition.eof': true,
+        // We set the default topic config to automatically create topics.
+        'allow.auto.create.topics': true,
     })
 
     instrumentConsumerMetrics(consumer, groupId)
@@ -437,12 +439,16 @@ const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
     return await new Promise<RdKafkaConsumer>((resolve, reject) => {
         const consumer = new RdKafkaConsumer(config, {})
 
-        consumer.on('event.log', function (log) {
+        consumer.on('event.log', (log) => {
             status.info('📝', 'librdkafka log', { log: log })
         })
 
-        consumer.on('event.error', function (err) {
+        consumer.on('event.error', (err) => {
             status.error('📝', 'librdkafka error', { log: err })
+        })
+
+        consumer.on('subscribed', (topics) => {
+            status.info('📝', 'librdkafka consumer subscribed', { topics })
         })
 
         consumer.connect({}, (error, data) => {
