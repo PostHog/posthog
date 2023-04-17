@@ -211,6 +211,48 @@ class ConstantType(Type):
     data_type: ConstantDataType
 
 
+class IntegerType(ConstantType):
+    data_type: ConstantDataType = PydanticField("int", const=True)
+
+
+class FloatType(ConstantType):
+    data_type: ConstantDataType = PydanticField("float", const=True)
+
+
+class StringType(ConstantType):
+    data_type: ConstantDataType = PydanticField("str", const=True)
+
+
+class BooleanType(ConstantType):
+    data_type: ConstantDataType = PydanticField("bool", const=True)
+
+
+class UnknownType(ConstantType):
+    data_type: ConstantDataType = PydanticField("unknown", const=True)
+
+
+class DateType(ConstantType):
+    data_type: ConstantDataType = PydanticField("date", const=True)
+
+
+class DateTimeType(ConstantType):
+    data_type: ConstantDataType = PydanticField("datetime", const=True)
+
+
+class UUIDType(ConstantType):
+    data_type: ConstantDataType = PydanticField("uuid", const=True)
+
+
+class ArrayType(ConstantType):
+    data_type: ConstantDataType = PydanticField("array", const=True)
+    item_type: Type
+
+
+class TupleType(ConstantType):
+    data_type: ConstantDataType = PydanticField("tuple", const=True)
+    item_types: List[Type]
+
+
 class AsteriskType(Type):
     table_type: TableOrSelectType
 

@@ -39,7 +39,7 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
         right=ast.Constant(value=context.team_id),
-        type=ast.ConstantType(data_type="bool"),
+        type=ast.BooleanType(),
     )
 
 

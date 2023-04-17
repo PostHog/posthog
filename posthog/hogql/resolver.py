@@ -3,8 +3,7 @@ from typing import List, Optional, Any
 from uuid import UUID
 
 from posthog.hogql import ast
-from posthog.hogql.ast import FieldTraverserType
-from posthog.hogql.constants import ConstantDataType
+from posthog.hogql.ast import FieldTraverserType, ConstantType
 from posthog.hogql.database import Database
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.visitor import TraversingVisitor
@@ -14,27 +13,28 @@ from posthog.models.utils import UUIDT
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
 
-def resolve_constant_data_type(constant: Any) -> ConstantDataType:
+def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
-        return "unknown"
+        return ast.UnknownType()
     if isinstance(constant, bool):
-        return "bool"
+        return ast.BooleanType()
     if isinstance(constant, int):
-        return "int"
+        return ast.IntegerType()
     if isinstance(constant, float):
-        return "float"
+        return ast.FloatType()
     if isinstance(constant, str):
-        return "str"
+        return ast.StringType()
     if isinstance(constant, list):
-        return "array"
+        unique_types = set(resolve_constant_data_type(item) for item in constant)
+        return ast.ArrayType(item_type=unique_types.pop() if len(unique_types) == 1 else ast.UnknownType())
     if isinstance(constant, tuple):
-        return "tuple"
+        return ast.TupleType(item_types=[resolve_constant_data_type(item) for item in constant])
     if isinstance(constant, datetime) or type(constant).__name__ == "FakeDatetime":
-        return "datetime"
+        return ast.DateTimeType()
     if isinstance(constant, date) or type(constant).__name__ == "FakeDate":
-        return "date"
+        return ast.DateType()
     if isinstance(constant, UUID) or isinstance(constant, UUIDT):
-        return "uuid"
+        return ast.UUIDType()
     raise ResolverException(f"Unsupported constant type: {type(constant)}")
 
 
@@ -256,35 +256,35 @@ class Resolver(TraversingVisitor):
             return
 
         super().visit_constant(node)
-        node.type = ast.ConstantType(data_type=resolve_constant_data_type(node.value))
+        node.type = resolve_constant_data_type(node.value)
 
     def visit_and(self, node: ast.And):
         if node.type is not None:
             return
 
         super().visit_and(node)
-        node.type = ast.ConstantType(data_type="bool")
+        node.type = ast.BooleanType()
 
     def visit_or(self, node: ast.Or):
         if node.type is not None:
             return
 
         super().visit_or(node)
-        node.type = ast.ConstantType(data_type="bool")
+        node.type = ast.BooleanType()
 
     def visit_not(self, node: ast.Not):
         if node.type is not None:
             return
 
         super().visit_not(node)
-        node.type = ast.ConstantType(data_type="bool")
+        node.type = ast.BooleanType()
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         if node.type is not None:
             return
 
         super().visit_compare_operation(node)
-        node.type = ast.ConstantType(data_type="bool")
+        node.type = ast.BooleanType()
 
 
 def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:
