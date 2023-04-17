@@ -53,7 +53,7 @@ class Macro(Expr):
     name: str
     expr: Expr
     # Whether the macro is an inlined column "SELECT 1 AS a" or a subquery "SELECT a AS (SELECT 1)"
-    macro_type: Literal["column", "subquery"]
+    macro_format: Literal["column", "subquery"]
 
 
 class FieldAliasType(Type):

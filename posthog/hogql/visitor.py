@@ -183,7 +183,7 @@ class CloningVisitor(Visitor):
             type=None if self.clear_types else node.type,
             name=node.name,
             expr=clone_expr(node.expr),
-            macro_type=node.macro_type,
+            macro_format=node.macro_format,
         )
 
     def visit_alias(self, node: ast.Alias):
