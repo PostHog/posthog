@@ -153,7 +153,7 @@ class TraversingVisitor(Visitor):
         self.visit(node.table_type)
 
     def visit_select_query_alias_type(self, node: ast.SelectQueryAliasType):
-        self.visit(node.type)
+        self.visit(node.select_query_type)
 
     def visit_asterisk_type(self, node: ast.AsteriskType):
         self.visit(node.table)

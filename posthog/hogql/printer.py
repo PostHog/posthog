@@ -536,7 +536,7 @@ class _Printer(Visitor):
 
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
-            return f"{self._print_identifier(type.joined_subquery.name)}.{self._print_identifier(type.joined_subquery_field_name)}"
+            return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
         field_type = type.parent
         field = field_type.resolve_database_field()
@@ -565,7 +565,7 @@ class _Printer(Visitor):
                 materialized_property_sql = property_sql
         elif (
             self.context.within_non_hogql_query
-            and (isinstance(table, ast.SelectQueryAliasType) and table.name == "events__pdi__person")
+            and (isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person")
             or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
@@ -607,9 +607,9 @@ class _Printer(Visitor):
         return self.visit(node.left) if node.right is None else f"{self.visit(node.left)}/{self.visit(node.right)}"
 
     def visit_select_query_alias_type(self, type: ast.SelectQueryAliasType):
-        return self._print_identifier(type.name)
+        return self._print_identifier(type.alias)
 
-    def visit_field_alias_type(self, type: ast.SelectQueryAliasType):
+    def visit_field_alias_type(self, type: ast.FieldAliasType):
         return self._print_identifier(type.name)
 
     def visit_virtual_table_type(self, type: ast.VirtualTableType):

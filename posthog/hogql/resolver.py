@@ -138,7 +138,7 @@ class Resolver(TraversingVisitor):
                     raise ResolverException(
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
-                node.type = ast.SelectQueryAliasType(name=node.alias, type=node.table.type)
+                node.type = ast.SelectQueryAliasType(alias=node.alias, select_query_type=node.table.type)
                 scope.tables[node.alias] = node.type
             else:
                 node.type = node.table.type

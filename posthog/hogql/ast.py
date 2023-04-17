@@ -186,18 +186,18 @@ class SelectUnionQueryType(Type):
 
 
 class SelectQueryAliasType(Type):
-    name: str
-    type: SelectQueryType | SelectUnionQueryType
+    alias: str
+    select_query_type: SelectQueryType | SelectUnionQueryType
 
     def get_child(self, name: str) -> Type:
         if name == "*":
             return AsteriskType(table=self)
-        if self.type.has_child(name):
+        if self.select_query_type.has_child(name):
             return FieldType(name=name, table=self)
-        raise HogQLException(f"Field {name} not found on query with alias {self.name}")
+        raise HogQLException(f"Field {name} not found on query with alias {self.alias}")
 
     def has_child(self, name: str) -> bool:
-        return self.type.has_child(name)
+        return self.select_query_type.has_child(name)
 
 
 SelectQueryType.update_forward_refs(SelectQueryAliasType=SelectQueryAliasType)

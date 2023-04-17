@@ -31,7 +31,7 @@ class AsteriskExpander(TraversingVisitor):
                 ):
                     select = asterisk.table
                     while isinstance(select, ast.SelectQueryAliasType):
-                        select = select.type
+                        select = select.select_query_type
                     if isinstance(select, ast.SelectUnionQueryType):
                         select = select.types[0]
                     if isinstance(select, ast.SelectQueryType):

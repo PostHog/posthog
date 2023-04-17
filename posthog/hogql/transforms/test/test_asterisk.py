@@ -79,8 +79,8 @@ class TestAsteriskExpander(BaseTest):
         resolve_types(node, self.database)
         expand_asterisks(node)
         select_subquery_type = ast.SelectQueryAliasType(
-            name="x",
-            type=ast.SelectQueryType(
+            alias="x",
+            select_query_type=ast.SelectQueryType(
                 aliases={
                     "a": ast.FieldAliasType(name="a", type=ast.ConstantType(data_type="int")),
                     "b": ast.FieldAliasType(name="b", type=ast.ConstantType(data_type="int")),

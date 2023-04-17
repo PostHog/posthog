@@ -166,7 +166,7 @@ class LazyTableResolver(TraversingVisitor):
             subquery = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed)
             resolve_types(subquery, self.context.database, select_type)
             old_table_type = select_type.tables[table_name]
-            select_type.tables[table_name] = ast.SelectQueryAliasType(name=table_name, type=subquery.type)
+            select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
             join_ptr = node.select_from
             while join_ptr:

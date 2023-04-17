@@ -169,14 +169,14 @@ class TestResolver(BaseTest):
                 "events": inner_events_table_type,
             },
         )
-        select_alias_type = ast.SelectQueryAliasType(name="e", type=inner_select_type)
+        select_alias_type = ast.SelectQueryAliasType(alias="e", select_query_type=inner_select_type)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
                     chain=["b"],
                     type=ast.FieldType(
                         name="b",
-                        table=ast.SelectQueryAliasType(name="e", type=inner_select_type),
+                        table=ast.SelectQueryAliasType(alias="e", select_query_type=inner_select_type),
                     ),
                 ),
             ],
