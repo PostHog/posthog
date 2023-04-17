@@ -70,6 +70,7 @@ export function NotebookSideBar(): JSX.Element {
                                         ),
                                         placement: 'right-start',
                                         fallbackPlacements: ['left-start'],
+                                        closeParentPopoverOnClickInside: true,
                                     }}
                                     size="small"
                                     icon={<IconJournal />}

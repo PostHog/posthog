@@ -24,6 +24,7 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
             dropdown={{
                 actionable: true,
                 placement: 'right-start',
+                closeParentPopoverOnClickInside: true,
                 overlay: (
                     <>
                         <h5>File type</h5>

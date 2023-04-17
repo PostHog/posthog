@@ -318,6 +318,7 @@ function InsightMeta({
                                 placement: 'right-start',
                                 fallbackPlacements: ['left-start'],
                                 actionable: true,
+                                closeParentPopoverOnClickInside: true,
                             }}
                             fullWidth
                         >
@@ -343,6 +344,7 @@ function InsightMeta({
                                 placement: 'right-start',
                                 fallbackPlacements: ['left-start'],
                                 actionable: true,
+                                closeParentPopoverOnClickInside: true,
                             }}
                             fullWidth
                         >

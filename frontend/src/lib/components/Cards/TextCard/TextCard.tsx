@@ -116,6 +116,7 @@ export function TextCardInternal(
                                     placement: 'right-start',
                                     fallbackPlacements: ['left-start'],
                                     actionable: true,
+                                    closeParentPopoverOnClickInside: true,
                                 }}
                                 fullWidth
                             >
