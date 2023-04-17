@@ -44,6 +44,7 @@ services:
             KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
             KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
             KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: true
             ALLOW_PLAINTEXT_LISTENER: 'true'
 
     object_storage:
@@ -59,7 +60,8 @@ services:
         image: maildev/maildev:2.0.5
         restart: on-failure
 
-    worker: &worker
+    worker:
+        &worker
         command: ./bin/start-worker
         restart: on-failure
         environment:
@@ -108,11 +110,7 @@ services:
 
     migrate:
         <<: *worker
-        command: sh -c "
-            python manage.py migrate
-            && python manage.py migrate_clickhouse
-            && python manage.py run_async_migrations
-            "
+        command: sh -c " python manage.py migrate && python manage.py migrate_clickhouse && python manage.py run_async_migrations "
         restart: 'no'
         deploy:
             replicas: 0
