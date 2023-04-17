@@ -289,7 +289,6 @@ function LemonSelectOptionRowInternal<T>(
                 ),
                 placement: 'right-start',
                 actionable: true,
-                closeParentPopoverOnClickInside: true,
             }}
         >
             {option.label}
