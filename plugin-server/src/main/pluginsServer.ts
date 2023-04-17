@@ -10,7 +10,7 @@ import { Counter } from 'prom-client'
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
-import { createHub, createKafkaClient, KafkaConfig } from '../utils/db/hub'
+import { createHub, KafkaConfig } from '../utils/db/hub'
 import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
@@ -218,7 +218,7 @@ export async function startPluginsServer(
     // health of the plugin-server. These are used by the /_health endpoint
     // to determine if we should trigger a restart of the pod. These should
     // be super lightweight and ideally not do any IO.
-    const healthChecks: { [service: string]: () => Promise<boolean> } = {}
+    const healthChecks: { [service: string]: () => Promise<boolean> | boolean } = {}
 
     try {
         if (!serverConfig.DISABLE_MMDB && capabilities.mmdb) {

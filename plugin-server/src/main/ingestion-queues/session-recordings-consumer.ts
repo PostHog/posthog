@@ -102,6 +102,7 @@ export const startSessionRecordingEventsConsumer = async ({
     const eachMessageWithContext = eachMessage(groupId, teamManager, producer)
 
     let isMainLoopRunning = true
+    let lastLoopTime = Date.now()
 
     const startConsuming = async () => {
         // Start consuming in a loop, fetching a batch of a max of 500 messages then
@@ -111,6 +112,9 @@ export const startSessionRecordingEventsConsumer = async ({
         // is called, either manually of via auto-commit, these are the values that
         // will be used.
         while (isMainLoopRunning) {
+            lastLoopTime = Date.now()
+
+            // TODO: add consume error retry handling.
             const messages = await consumeMessages(consumer, fetchBatchSize)
 
             consumerBatchSize.labels({ topic: KAFKA_SESSION_RECORDING_EVENTS, groupId }).observe(messages.length)
@@ -126,17 +130,16 @@ export const startSessionRecordingEventsConsumer = async ({
             // On each loop, we flush the producer to ensure that all messages
             // are sent to Kafka.
             await flushProducer(producer)
-            storeOffsetsForMessages(messages, consumer)
+            commitOffsetsForMessages(messages, consumer)
         }
     }
 
     const mainLoop = startConsuming()
 
-    const isHealthy = async () => {
-        // If the consumer is in a health state, return true. Otherwise, return
-        // false.
-        consumer
-        return true
+    const isHealthy = () => {
+        // We define health as the last consumer loop having run in the last
+        // minute. This might not be bullet proof, let's see.
+        return Date.now() - lastLoopTime < 60000
     }
 
     const stop = async () => {
@@ -152,7 +155,7 @@ export const startSessionRecordingEventsConsumer = async ({
         consumer.pause(consumer.assignments())
 
         // Wait for the main loop to finish, but only give it 10 seconds
-        await Promise.race([mainLoop, new Promise((resolve) => setTimeout(resolve, 10000))])
+        await Promise.race([mainLoop, new Promise((resolve) => setTimeout(resolve, 30000))])
 
         // Then we trigger an async commit of the offsets to the broker
         consumer.commit()
@@ -354,6 +357,17 @@ const createKafkaProducer = async (config: ProducerGlobalConfig) => {
         // but at least larger than the default.
         'batch.size': 1024 * 1024, // bytes. The default
         'compression.codec': 'snappy',
+        // Ensure that librdkafka handled producer retries do not produce
+        // duplicates. Note this doesn't mean that if we manually retry a
+        // message that it will be idempotent. May reduce throughput. Note that
+        // at the time of writing the session recording events table in
+        // ClickHouse uses a `ReplicatedReplacingMergeTree` with a ver param of
+        // _timestamp i.e. when the event was added to the Kafka ingest topic.
+        // The sort key is `team_id, toHour(timestamp), session_id, timestamp,
+        // uuid` which means duplicate production of the same event _should_ be
+        // deduplicated when merges occur on the table. This isn't a guarantee
+        // on removing duplicates though and rather still requires deduplication
+        // either when querying the table or client side.
         'enable.idempotence': true,
         dr_cb: true,
         ...config,
@@ -547,7 +561,7 @@ const consumeMessages = async (consumer: RdKafkaConsumer, fetchBatchSize: number
     })
 }
 
-const storeOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer) => {
+const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer) => {
     // Get the offsets for the last message for each partition, from
     // messages
     const offsets = messages.reduce((acc, message) => {
@@ -568,7 +582,7 @@ const storeOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer)
         offset: parseInt(offset, 10) + 1,
     }))
 
-    consumer.offsetsStore(topicPartitionOffsets)
+    consumer.commit(topicPartitionOffsets)
 }
 
 const disconnectConsumer = async (consumer: RdKafkaConsumer) => {
