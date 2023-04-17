@@ -13,7 +13,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 interface PluginJobOptionsProps {
     pluginId: number
     pluginConfigId: number
-    capabilities: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
+    capabilities: Record<'jobs' | 'methods' | 'scheduled_tasks', string[] | undefined>
     publicJobs: Record<string, JobSpec>
     onSubmit: () => void
 }
@@ -28,7 +28,7 @@ export function PluginJobOptions({
     const { featureFlags } = useValues(featureFlagLogic)
 
     const jobs = useMemo(() => {
-        return capabilities.jobs
+        return (capabilities?.jobs || [])
             .filter((jobName) => jobName in publicJobs)
             .filter((jobName) => {
                 // Hide either old or new export depending on the feature flag value

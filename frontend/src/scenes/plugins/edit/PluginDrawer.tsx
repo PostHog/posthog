@@ -296,7 +296,7 @@ export function PluginDrawer(): JSX.Element {
                                                     <Tag className="plugin-capabilities-tag">{capability}</Tag>
                                                 </Tooltip>
                                             ))}
-                                        {editingPlugin.capabilities.jobs.map((jobName) => (
+                                        {(editingPlugin.capabilities?.jobs || []).map((jobName) => (
                                             <Tooltip title="Custom job" key={jobName}>
                                                 <Tag className="plugin-capabilities-tag">{jobName}</Tag>
                                             </Tooltip>
