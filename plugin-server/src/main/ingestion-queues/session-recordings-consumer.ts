@@ -5,9 +5,9 @@ import {
     GlobalConfig,
     HighLevelProducer as RdKafkaProducer,
     KafkaConsumer as RdKafkaConsumer,
+    LibrdKafkaError,
     Message,
     ProducerGlobalConfig,
-    LibrdKafkaError,
 } from 'node-rdkafka'
 import { hostname } from 'os'
 import { exponentialBuckets, Histogram } from 'prom-client'
@@ -68,6 +68,7 @@ export const startSessionRecordingEventsConsumer = async ({
 
     const groupId = 'session-recordings'
     const sessionTimeout = 30000
+    const fetchBatchSize = 500
 
     status.info('🔁', 'Starting session recordings consumer')
 
@@ -91,78 +92,70 @@ export const startSessionRecordingEventsConsumer = async ({
         'fetch.wait.max.ms': consumerMaxWaitMs,
     })
 
-    consumer.on('data', eachMessage(groupId, teamManager, producer))
     consumer.subscribe([KAFKA_SESSION_RECORDING_EVENTS])
 
     const eachMessageWithContext = eachMessage(groupId, teamManager, producer)
 
+    let isRunning = true
+
     // Start consuming in a loop, fetching a batch of a max of 500 messages then
     // processing these with eachMessage, and finally calling
-    // consumer.offsetsStore
+    // consumer.offsetsStore. This will not actually commit offsets on the
+    // brokers, but rather just store the offsets locally such that when commit
+    // is called, either manually of via auto-commit, these are the values that
+    // will be used.
     const startConsuming = async () => {
-        while (true) {
-            const messages = await new Promise<Message[]>((resolve, reject) => {
-                consumer.consume(500, (error: LibrdKafkaError, messages: Message[]) => {
-                    if (error) {
-                        reject(error)
-                    } else {
-                        resolve(messages)
-                    }
-                })
-            })
+        while (isRunning) {
+            const messages = await consumeMessages(consumer, fetchBatchSize)
 
+            consumerBatchSize.labels({ topic: KAFKA_SESSION_RECORDING_EVENTS, groupId }).observe(messages.length)
+
+            // We try to process the entire batch at once. Connections to
+            // PostgreSQL should be pooled, so there shouldn't be too much
+            // danger of overloading the database. It's possible that we end up
+            // hitting the Producers internal queue limit.
+            // TODO: handle either limiting concurrency, or handle the errors
+            // that would result.
             await Promise.all(messages.map((message: Message) => eachMessageWithContext(message)))
 
-            // Get the offsets for the last message for each partition, from
-            // messages
-            const offsets = messages.reduce((acc, message) => {
-                if (!message.partition || !message.offset) {
-                    return acc
-                }
-                const partition = message.partition.toString()
-                const offset = message.offset.toString()
-                if (!acc[partition] || acc[partition] < offset) {
-                    acc[partition] = offset
-                }
-                return acc
-            }, {} as Record<string, string>)
-
-            const topicPartitionOffsets = Object.entries(offsets).map(([partition, offset]) => ({
-                topic: KAFKA_SESSION_RECORDING_EVENTS,
-                partition: parseInt(partition, 10),
-                offset: parseInt(offset, 10),
-            }))
-
-            consumer.offsetsStore(topicPartitionOffsets)
+            // On each loop, we flush the producer to ensure that all messages
+            // are sent to Kafka.
+            await flushProducer(producer)
+            storeOffsetsForMessages(messages, consumer)
         }
     }
 
-    void startConsuming()
+    const mainLoop = startConsuming()
 
     const isHealthy = async () => {
-        // TODO: add health check implementation
+        // If the consumer is in a health state, return true. Otherwise, return
+        // false.
+        consumer
         return true
     }
 
     const stop = async () => {
         status.info('🔁', 'Stopping session recordings consumer')
-        await new Promise((resolve, reject) => {
-            consumer.disconnect((error, data) => {
-                if (error) {
-                    status.error('🔥', 'Failed to disconnect session recordings consumer', { error })
-                    reject(error)
-                } else {
-                    status.info('🔁', 'Disconnected session recordings consumer')
-                    resolve(data)
-                }
-            })
-        })
 
-        await flushProducer(producer)
+        // First we signal to the mainLoop that we should be stopping. The main
+        // loop should complete one loop, flush the producer, and store it's offsets.
+        isRunning = false
+
+        // Wait for the main loop to finish, but only give it 10 seconds
+        await Promise.race([mainLoop, new Promise((resolve) => setTimeout(resolve, 10000))])
+
+        // Then we trigger an async commit of the offsets to the broker
+        consumer.commit()
+
+        // Finally disconnect from the broker. I'm not 100% on if the offset
+        // commit is allowed to complete before completing, or if in fact
+        // disconnect itself handles committing offsets thus the previous
+        // `commit()` call is redundant, but it shouldn't hurt.
+        await disconnectConsumer(consumer)
         await disconnectProducer(producer)
     }
 
-    return { consumer, isHealthy, stop }
+    return { isHealthy, stop }
 }
 
 const eachMessage =
@@ -319,7 +312,9 @@ const eachMessage =
                 .inc()
         }
 
-        latestOffsetTimestampGauge.labels({ topic: message.topic, groupId }).set(1234)
+        latestOffsetTimestampGauge
+            .labels({ topic: message.topic, partition: message.partition, groupId })
+            .set(message.timestamp)
     }
 
 const consumerBatchSize = new Histogram({
@@ -353,6 +348,7 @@ const createKafkaProducer = async (config: ProducerGlobalConfig) => {
         // but at least larger than the default.
         'batch.size': 1024 * 1024, // bytes. The default
         'compression.codec': 'snappy',
+        'enable.idempotence': true,
         dr_cb: true,
         ...config,
     })
@@ -471,4 +467,60 @@ const createRdConnectionConfigFromEnvVars = (kafkaConfig: KafkaConfig): GlobalCo
     }
 
     return config
+}
+const consumeMessages = async (consumer: RdKafkaConsumer, fetchBatchSize: number) => {
+    // Rather than using the pure streaming method of consuming, we
+    // instead fetch in batches. This is to make the logic a little
+    // simpler to start with, although we may want to move to a
+    // streaming implementation if needed. Although given we might want
+    // to switch to a language with better support for Kafka stream
+    // processing, perhaps this will be enough for us.
+    // TODO: handle retriable `LibrdKafkaError`s.
+    return await new Promise<Message[]>((resolve, reject) => {
+        consumer.consume(fetchBatchSize, (error: LibrdKafkaError, messages: Message[]) => {
+            if (error) {
+                reject(error)
+            } else {
+                resolve(messages)
+            }
+        })
+    })
+}
+
+const storeOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer) => {
+    // Get the offsets for the last message for each partition, from
+    // messages
+    const offsets = messages.reduce((acc, message) => {
+        if (!message.partition || !message.offset) {
+            return acc
+        }
+        const partition = message.partition.toString()
+        const offset = message.offset.toString()
+        if (!acc[partition] || acc[partition] < offset) {
+            acc[partition] = offset
+        }
+        return acc
+    }, {} as Record<string, string>)
+
+    const topicPartitionOffsets = Object.entries(offsets).map(([partition, offset]) => ({
+        topic: KAFKA_SESSION_RECORDING_EVENTS,
+        partition: parseInt(partition, 10),
+        offset: parseInt(offset, 10) + 1,
+    }))
+
+    consumer.offsetsStore(topicPartitionOffsets)
+}
+
+const disconnectConsumer = async (consumer: RdKafkaConsumer) => {
+    await new Promise((resolve, reject) => {
+        consumer.disconnect((error, data) => {
+            if (error) {
+                status.error('🔥', 'Failed to disconnect session recordings consumer', { error })
+                reject(error)
+            } else {
+                status.info('🔁', 'Disconnected session recordings consumer')
+                resolve(data)
+            }
+        })
+    })
 }
