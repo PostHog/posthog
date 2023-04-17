@@ -35,6 +35,8 @@ export class Ingester {
     sessions: Map<string, SessionManager> = new Map()
     offsetManager = new OffsetManager()
 
+    // TODO: Have a timer here that runs every N seconds and calls `flushIfNecessary` on all sessions
+
     public async consume(event: IncomingRecordingMessage): Promise<void> {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
@@ -115,7 +117,7 @@ export class Ingester {
             eachMessage: async (message) => {
                 // TODO: handle seeking to first chunk offset
                 // TODO: Handle duplicated data being stored in the case of a consumer restart
-                this.handleKafkaMessage(message)
+                await this.handleKafkaMessage(message)
 
                 // 1. Parse the message
                 // 2. Get or create the SessionManager by sessionId
