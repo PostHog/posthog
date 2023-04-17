@@ -153,6 +153,6 @@ export class Ingester {
             destroyPromises.push(sessionManager.destroy())
         })
 
-        await destroyPromises
+        await Promise.all(destroyPromises)
     }
 }
