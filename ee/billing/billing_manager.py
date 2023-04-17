@@ -239,7 +239,7 @@ class BillingManager:
                 sync_org_quota_limits(organization)
 
         available_features = data.get("available_features", None)
-        if available_features and available_features != organization.available_features:
+        if available_features is not None and available_features != organization.available_features:
             organization.available_features = data["available_features"]
             org_modified = True
 
