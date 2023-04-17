@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 
 import { ChartParams, TrendResult } from '~/types'
@@ -37,7 +37,7 @@ function useBoldNumberTooltip({
 
     const divRef = useRef<HTMLDivElement>(null)
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         const divRect = divRef.current?.getBoundingClientRect()
         const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
@@ -91,9 +91,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
     useEffect(() => {
         // sometimes text fit can get stuck and leave text too small
         // force a resize after a small delay
-        const timer = setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('resize'))
-        }, 500)
+        const timer = setTimeout(() => window.dispatchEvent(new CustomEvent('resize')), 300)
         setTextFitTimer(timer)
         return () => clearTimeout(timer)
     }, [])
