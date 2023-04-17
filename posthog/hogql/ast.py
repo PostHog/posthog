@@ -134,8 +134,7 @@ class VirtualTableType(BaseTableType):
         return self.virtual_table.has_field(name)
 
 
-SelectQueryLikeType = Union["SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
-TableOrSelectType = BaseTableType | SelectQueryLikeType
+TableOrSelectType = Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
 
 
 class SelectQueryType(Type):
@@ -186,7 +185,7 @@ class SelectUnionQueryType(Type):
 
 class SelectQueryAliasType(Type):
     alias: str
-    select_query_type: SelectQueryLikeType
+    select_query_type: SelectQueryType | SelectUnionQueryType
 
     def get_child(self, name: str) -> Type:
         if name == "*":
