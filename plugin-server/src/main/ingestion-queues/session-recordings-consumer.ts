@@ -82,12 +82,9 @@ export const startSessionRecordingEventsConsumer = async ({
         ...connectionConfig,
         'group.id': groupId,
         'session.timeout.ms': sessionTimeout,
-        // Our offset commit strategy is as mentioned on
-        // https://github.com/confluentinc/librdkafka/blob/master/INTRODUCTION.md#at-least-once-processing
-        // i.e. we have librdkafka handle actually committing offsets to Kafka
-        // periodically, but we handle the storing of which offsets we would
-        // like to be committed manually.
-        'enable.auto.commit': true,
+        // We disable auto commit and rather we commit after one batch has
+        // completed.
+        'enable.auto.commit': false,
         'enable.auto.offset.store': false,
         'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
         'fetch.message.max.bytes': consumerMaxBytes,
