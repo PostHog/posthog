@@ -1,6 +1,6 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { pluralize } from 'lib/utils'
 import { SystemStatusRow } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
@@ -73,30 +73,30 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
         >
             <div className="space-y-2">
                 {Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL')) && (
-                    <AlertMessage type="info">
+                    <LemonBanner type="info">
                         <>
                             As you are changing email settings, we'll attempt to send a <b>test email</b> so you can
                             verify everything works (unless you are turning email off).
                         </>
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
                 {Object.keys(instanceConfigEditingState).includes('RECORDINGS_TTL_WEEKS') && (
-                    <AlertMessage type="warning">
+                    <LemonBanner type="warning">
                         <>
                             Changing your recordings TTL requires ClickHouse to have enough free space to perform the
                             operation (even when reducing this value). In addition, please mind that removing old
                             recordings will be removed asynchronously, not immediately.
                         </>
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
                 {Object.keys(instanceConfigEditingState).includes('RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS') && (
-                    <AlertMessage type="warning">
+                    <LemonBanner type="warning">
                         <>
                             Changing your performance events TTL requires ClickHouse to have enough free space to
                             perform the operation (even when reducing this value). In addition, please mind that
                             removing old recordings will be removed asynchronously, not immediately.
                         </>
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
                 <div>The following changes will be immediately applied to your instance.</div>
                 {Object.keys(instanceConfigEditingState).map((key) => (

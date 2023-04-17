@@ -270,7 +270,7 @@ export async function createHub(
 export type KafkaConfig = {
     KAFKA_HOSTS: string
     KAFKAJS_LOG_LEVEL: keyof typeof KAFKAJS_LOG_LEVEL_MAPPING
-    KAFKA_SECURITY_PROTOCOL: string
+    KAFKA_SECURITY_PROTOCOL: 'PLAINTEXT' | 'SSL' | 'SASL_PLAINTEXT' | 'SASL_SSL' | undefined
     KAFKA_CLIENT_CERT_B64?: string
     KAFKA_CLIENT_CERT_KEY_B64?: string
     KAFKA_TRUSTED_CERT_B64?: string

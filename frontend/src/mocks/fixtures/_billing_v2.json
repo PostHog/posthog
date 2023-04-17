@@ -12,27 +12,47 @@
                 {
                     "unit_amount_usd": "0",
                     "up_to": 1000000,
-                    "current_amount_usd": "0.00"
+                    "current_amount_usd": "0.00",
+                    "flat_amount_usd": "0.00",
+                    "current_usage": 0,
+                    "projected_usage": 0,
+                    "projected_amount_usd": 0.0
                 },
                 {
                     "unit_amount_usd": "0.00045",
                     "up_to": 2000000,
-                    "current_amount_usd": "450.00"
+                    "current_amount_usd": "450.00",
+                    "flat_amount_usd": "0.00",
+                    "current_usage": 1000000,
+                    "projected_usage": 1000000,
+                    "projected_amount_usd": 450.0
                 },
                 {
                     "unit_amount_usd": "0.000225",
                     "up_to": 10000000,
-                    "current_amount_usd": "7.65"
+                    "current_amount_usd": "7.65",
+                    "flat_amount_usd": "0.00",
+                    "current_usage": 34000,
+                    "projected_usage": 1034000,
+                    "projected_amount_usd": 7.65
                 },
                 {
                     "unit_amount_usd": "0.000075",
                     "up_to": 100000000,
-                    "current_amount_usd": null
+                    "current_amount_usd": null,
+                    "flat_amount_usd": "0.00",
+                    "current_usage": 0,
+                    "projected_usage": 0,
+                    "projected_amount_usd": 0.0
                 },
                 {
                     "unit_amount_usd": "0.000025",
                     "up_to": null,
-                    "current_amount_usd": null
+                    "current_amount_usd": null,
+                    "flat_amount_usd": "0.00",
+                    "current_usage": 0,
+                    "projected_usage": 0,
+                    "projected_amount_usd": 0.0
                 }
             ],
             "current_amount_usd": "457.65",
