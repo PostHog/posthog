@@ -33,7 +33,7 @@ function EnabledDisabledSwitch({
     return (
         <>
             <Switch checked={value} onChange={onChange} />
-            <strong style={{ paddingLeft: 10 }}>{value ? 'Enabled' : 'Disabled'}</strong>
+            <strong className="pl-2.5">{value ? 'Enabled' : 'Disabled'}</strong>
         </>
     )
 }
@@ -145,7 +145,7 @@ export function PluginDrawer(): JSX.Element {
                 title={editingPlugin?.name}
                 data-attr="plugin-drawer"
                 footer={
-                    <div style={{ display: 'flex' }}>
+                    <div className="flex">
                         <Space style={{ flexGrow: 1 }}>
                             {editingPlugin &&
                                 !editingPlugin.is_global &&
@@ -230,16 +230,16 @@ export function PluginDrawer(): JSX.Element {
                     {/* TODO: Rework as Kea form with Lemon UI components */}
                     {editingPlugin ? (
                         <div>
-                            <div style={{ display: 'flex', marginBottom: 16 }}>
+                            <div className="flex mb-4">
                                 <PluginImage
                                     pluginType={editingPlugin.plugin_type}
                                     url={editingPlugin.url}
                                     icon={editingPlugin.icon}
                                     size="large"
                                 />
-                                <div style={{ flexGrow: 1, paddingLeft: 16 }}>
+                                <div className="grow pl-4">
                                     {endWithPunctation(editingPlugin.description)}
-                                    <div style={{ marginTop: 5 }}>
+                                    <div className="mt-1.5">
                                         {editingPlugin?.plugin_type === 'local' && editingPlugin.url ? (
                                             <LocalPluginTag url={editingPlugin.url} title="Installed Locally" />
                                         ) : editingPlugin.plugin_type === 'source' ? (
@@ -251,7 +251,7 @@ export function PluginDrawer(): JSX.Element {
                                             </a>
                                         )}
                                     </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', marginTop: 5 }}>
+                                    <div className="flex items-center mt-1.5">
                                         <Form.Item
                                             fieldKey="__enabled"
                                             name="__enabled"
@@ -279,14 +279,12 @@ export function PluginDrawer(): JSX.Element {
 
                             {editingPlugin.capabilities && Object.keys(editingPlugin.capabilities).length > 0 ? (
                                 <>
-                                    <h3 className="l3" style={{ marginTop: 32 }}>
-                                        Capabilities
-                                    </h3>
+                                    <h3 className="l3 mt-8">Capabilities</h3>
 
-                                    <div style={{ marginTop: 5 }}>
+                                    <div className="mt-1.5">
                                         {[
-                                            ...editingPlugin.capabilities.methods,
-                                            ...editingPlugin.capabilities.scheduled_tasks,
+                                            ...(editingPlugin.capabilities.methods || []),
+                                            ...(editingPlugin.capabilities.scheduled_tasks || []),
                                         ]
                                             .filter(
                                                 (capability) => !['setupPlugin', 'teardownPlugin'].includes(capability)
@@ -320,9 +318,7 @@ export function PluginDrawer(): JSX.Element {
                                 />
                             )}
 
-                            <h3 className="l3" style={{ marginTop: 32 }}>
-                                Configuration
-                            </h3>
+                            <h3 className="l3 mt-8">Configuration</h3>
                             {getConfigSchemaArray(editingPlugin.config_schema).length === 0 ? (
                                 <div>This app is not configurable.</div>
                             ) : null}
@@ -343,7 +339,7 @@ export function PluginDrawer(): JSX.Element {
                                             extra={
                                                 fieldConfig.hint && (
                                                     <small>
-                                                        <div style={{ height: 2 }} />
+                                                        <div className="h-0.5" />
                                                         <ReactMarkdown source={fieldConfig.hint} linkTarget="_blank" />
                                                     </small>
                                                 )
@@ -370,7 +366,7 @@ export function PluginDrawer(): JSX.Element {
                                     ) : (
                                         <>
                                             {fieldConfig.type ? (
-                                                <p style={{ color: 'var(--danger)' }}>
+                                                <p className="text-danger">
                                                     Invalid config field <i>{fieldConfig.name || fieldConfig.key}</i>.
                                                 </p>
                                             ) : null}
