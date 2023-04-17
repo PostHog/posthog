@@ -77,8 +77,9 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
         ]
 
     @async_to_sync
-    async def create(self, validated_data: dict, team: Team):
+    async def create(self, validated_data: dict):
         """Create an ExportSchedule model and in Temporal."""
+        team = Team.objects.get(id=self.context["team_id"])
         export_schedule = ExportSchedule.objects.create(
             team=team,
             name=validated_data["name"],
