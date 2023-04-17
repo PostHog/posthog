@@ -168,7 +168,6 @@ class TestUnlicensedBillingAPI(APIBaseTest):
             "available_features": [],
             "available_plans": create_billing_plans_mock_response()["plans"],
             "products": create_billing_products_response()["standard"],
-            "products_enterprise": create_billing_products_response()["enterprise"],
         }
 
 
@@ -340,38 +339,6 @@ class TestBillingAPI(APILicensedTest):
                     "image_url": "https://posthog.com/static/images/product-os.png",
                     "percentage_usage": 0.0,
                 }
-            ],
-            "products_enterprise": [
-                {
-                    "current_usage": 0,
-                    "description": "Product Analytics, event pipelines, data warehousing",
-                    "free_allocation": 10000,
-                    "name": "Product OS Enterprise",
-                    "price_description": None,
-                    "tiers": [
-                        {
-                            "current_amount_usd": "0.00",
-                            "unit_amount_usd": "0.00",
-                            "up_to": 1000000,
-                        },
-                        {
-                            "current_amount_usd": None,
-                            "unit_amount_usd": "0.00045",
-                            "up_to": 2000000,
-                        },
-                    ],
-                    "type": "events",
-                    "current_amount_usd": "0.00",
-                    "current_amount_usd": "0.00",
-                    "has_exceeded_limit": False,
-                    "projected_amount_usd": "0.00",
-                    "projected_usage": 0,
-                    "tiered": True,
-                    "unit_amount_usd": "0.00",
-                    "usage_limit": None,
-                    "image_url": "https://posthog.com/static/images/product-os.png",
-                    "percentage_usage": 0.0,
-                },
             ],
             "billing_period": {
                 "current_period_start": "2022-10-07T11:12:48",

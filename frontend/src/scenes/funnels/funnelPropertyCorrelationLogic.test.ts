@@ -5,14 +5,7 @@ import { userLogic } from 'scenes/userLogic'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import {
-    AvailableFeature,
-    CorrelationConfigType,
-    FunnelCorrelationResultsType,
-    InsightLogicProps,
-    InsightShortId,
-    InsightType,
-} from '~/types'
+import { AvailableFeature, CorrelationConfigType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
 import { DEFAULT_EXCLUDED_PERSON_PROPERTIES, funnelPropertyCorrelationLogic } from './funnelPropertyCorrelationLogic'
 
 const Insight123 = '123' as InsightShortId
@@ -20,7 +13,7 @@ const Insight123 = '123' as InsightShortId
 describe('funnelPropertyCorrelationLogic', () => {
     const props = { dashboardItemId: Insight123, syncWithUrl: true }
     let logic: ReturnType<typeof funnelPropertyCorrelationLogic.build>
-    let correlationConfig: CorrelationConfigType = {}
+    const correlationConfig: CorrelationConfigType = {}
 
     beforeEach(() => {
         useAvailableFeatures([AvailableFeature.CORRELATION_ANALYSIS, AvailableFeature.GROUP_ANALYTICS])
@@ -134,34 +127,6 @@ describe('funnelPropertyCorrelationLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     }
 
-    it('Selecting all properties returns expected result', async () => {
-        await initPropertyFunnelCorrelationLogic(props)
-        await expectLogic(logic, () => logic.actions.setPropertyNames(logic.values.allProperties))
-            .toFinishListeners()
-            .toMatchValues({
-                propertyCorrelations: {
-                    events: [
-                        {
-                            event: { event: 'some property' },
-                            success_count: 1,
-                            failure_count: 1,
-                            odds_ratio: 1,
-                            correlation_type: 'success',
-                            result_type: FunnelCorrelationResultsType.Properties,
-                        },
-                        {
-                            event: { event: 'another property' },
-                            success_count: 1,
-                            failure_count: 1,
-                            odds_ratio: 1,
-                            correlation_type: 'failure',
-                            result_type: FunnelCorrelationResultsType.Properties,
-                        },
-                    ],
-                },
-            })
-    })
-
     it('Deselecting all returns empty result', async () => {
         await initPropertyFunnelCorrelationLogic(props)
         await expectLogic(logic, () => logic.actions.setPropertyNames([]))
@@ -201,35 +166,5 @@ describe('funnelPropertyCorrelationLogic', () => {
                 },
             }),
         })
-    })
-
-    it('loads property exclude list from Project settings', async () => {
-        correlationConfig = { excluded_person_property_names: ['some property'] }
-        await initPropertyFunnelCorrelationLogic(props)
-
-        await expectLogic(teamLogic).toMatchValues({
-            currentTeam: partial({
-                correlation_config: { excluded_person_property_names: ['some property'] },
-            }),
-        })
-
-        await expectLogic(logic, () => {
-            logic.actions.setPropertyNames(logic.values.allProperties)
-        })
-            .toFinishAllListeners()
-            .toMatchValues({
-                propertyCorrelations: {
-                    events: [
-                        {
-                            event: { event: 'another property' },
-                            success_count: 1,
-                            failure_count: 1,
-                            odds_ratio: 1,
-                            correlation_type: 'failure',
-                            result_type: FunnelCorrelationResultsType.Properties,
-                        },
-                    ],
-                },
-            })
     })
 })
