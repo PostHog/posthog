@@ -30,8 +30,8 @@ const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<an
     )
 }
 
-export const Flat = Template.bind({})
-Flat.args = {}
+export const Default = Template.bind({})
+Default.args = {}
 
 export const SectionedOptions = Template.bind({})
 SectionedOptions.args = {
