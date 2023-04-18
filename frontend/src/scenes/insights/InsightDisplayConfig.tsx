@@ -26,7 +26,7 @@ import {
     isAreaChartDisplay,
     isLifecycleFilter,
 } from 'scenes/insights/sharedUtils'
-import { ValueOnSeriesFilter } from './filters/ValueOnSeriesFilter'
+import { ValueOnSeriesFilter } from './EditorFilters/ValueOnSeriesFilter'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
