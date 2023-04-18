@@ -25,6 +25,7 @@ import {
     KAFKA_SESSION_RECORDING_EVENTS_DLQ,
 } from '../../config/kafka-topics'
 import { KafkaSecurityProtocol, PipelineEvent, RawEventMessage, Team } from '../../types'
+import { DependencyUnavailableError } from '../../utils/db/error'
 import { KafkaConfig } from '../../utils/db/hub'
 import { status } from '../../utils/status'
 import { createPerformanceEvent, createSessionRecordingEvent } from '../../worker/ingestion/process-event'
@@ -149,21 +150,58 @@ export const startSessionRecordingEventsConsumer = async ({
 
                 consumerBatchSize.labels({ topic: KAFKA_SESSION_RECORDING_EVENTS, groupId }).observe(messages.length)
 
-                // We try to process the entire batch at once. Connections to
-                // PostgreSQL should be pooled, so there shouldn't be too much
-                // danger of overloading the database. It's possible that we end up
-                // hitting the Producers internal queue limit.
+                // To start with, we simply process each message in turn,
+                // without attempting to perform any concurrency. There is a lot
+                // of caching e.g. for team lookups so not so much IO going on
+                // anyway.
                 //
-                // NOTE: _any_ errors that occur in this loop will cause the loop
-                // to exit.
+                // Where we do allow some parallelism is in the producing to
+                // Kafka. The eachMessage function will return a Promise for any
+                // produce requests, rather than blocking on them. This way we
+                // can handle errors for the main processing, and the production
+                // errors separately.
                 //
-                // TODO: handle either limiting concurrency, or handle the errors
-                // that would result.
-                await Promise.all(messages.map((message: Message) => eachMessageWithContext(message)))
+                // For the main processing errors we will check to see if they
+                // are intermittent errors, and if so, we will retry the
+                // processing of the message. If the error is not intermittent,
+                // we will simply stop processing as we assume this is a code
+                // issue that will need to be resolved. We use
+                // DependencyUnavailableError error to distinguish between
+                // intermittent and permanent errors.
+                const pendingProduceRequests: Promise<any>[] = []
+
+                for (const message of messages) {
+                    try {
+                        const produceRequest = eachMessageWithContext(message)
+                        pendingProduceRequests.push(produceRequest)
+                        messagesProcessed++
+                    } catch (error) {
+                        status.error('🔁', 'main_loop_error', { error })
+
+                        if (error instanceof DependencyUnavailableError) {
+                            status.info('🔁', 'main_loop_retrying', { error })
+                            continue
+                        }
+
+                        throw error
+                    }
+                }
 
                 // On each loop, we flush the producer to ensure that all messages
                 // are sent to Kafka.
                 await flushProducer(producer)
+
+                // We wait on all the produce requests to complete. After the
+                // flush they should all have been resolved/rejected, so this is
+                // more for logging purposes.
+                for (const produceRequest of pendingProduceRequests) {
+                    try {
+                        await produceRequest
+                    } catch (error) {
+                        status.error('🔁', 'main_loop_error', { error })
+                    }
+                }
+
                 commitOffsetsForMessages(messages, consumer)
             }
         } catch (error) {
@@ -223,13 +261,12 @@ const eachMessage =
                 offset: message.offset,
                 partition: message.partition,
             })
-            await produce(
+            return produce(
                 producer,
                 KAFKA_SESSION_RECORDING_EVENTS_DLQ,
                 message.value,
                 message.key ? Buffer.from(message.key) : null
             )
-            return
         }
 
         let messagePayload: RawEventMessage
@@ -249,13 +286,12 @@ const eachMessage =
                 offset: message.offset,
                 partition: message.partition,
             })
-            await produce(
+            return produce(
                 producer,
                 KAFKA_SESSION_RECORDING_EVENTS_DLQ,
                 message.value,
                 message.key ? Buffer.from(message.key) : null
             )
-            return
         }
 
         status.info('⬆️', 'processing_session_recording', { uuid: messagePayload.uuid })
@@ -317,7 +353,7 @@ const eachMessage =
                         event.properties || {}
                     )
 
-                    await produce(
+                    return produce(
                         producer,
                         KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
                         Buffer.from(JSON.stringify(clickHouseRecord)),
@@ -331,7 +367,7 @@ const eachMessage =
                         event.properties || {}
                     )
 
-                    await produce(
+                    return produce(
                         producer,
                         KAFKA_PERFORMANCE_EVENTS,
                         Buffer.from(JSON.stringify(clickHouseRecord)),
