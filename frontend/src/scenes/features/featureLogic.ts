@@ -65,10 +65,14 @@ export const featureLogic = kea<featureLogicType>([
     selectors({
         mode: [(_, p) => [p.id], (id): 'view' | 'edit' => (id === 'new' ? 'edit' : 'view')],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         cancel: () => {
-            actions.resetFeature()
-            router.actions.push(urls.features())
+            if (values.isEditingFeature) {
+                actions.editFeature(false)
+            } else {
+                actions.resetFeature()
+                router.actions.push(urls.features())
+            }
         },
     })),
     afterMount(async ({ props, actions }) => {

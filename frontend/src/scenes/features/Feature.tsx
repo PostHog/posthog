@@ -1,4 +1,12 @@
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonTag,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -10,7 +18,7 @@ import { Field as KeaField, Form } from 'kea-forms'
 import { FeatureType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import { Persons } from 'scenes/persons/Persons'
-import { IconFlag, IconPlus } from 'lib/lemon-ui/icons'
+import { IconDelete, IconFlag, IconPlus } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useEffect, useState } from 'react'
@@ -171,41 +179,78 @@ export function Feature(): JSX.Element {
                             )}
                         </Field>
                     )}
-                    <KeaField name="stage" label={<h4 className="font-semibold">Stage</h4>}>
-                        {({ value, onChange }) => (
+                    {isEditingFeature ? (
+                        <KeaField name="stage" label={<h4 className="font-semibold">Stage</h4>}>
+                            {({ value, onChange }) => (
+                                <div>
+                                    <LemonSelect
+                                        value={value}
+                                        onChange={onChange}
+                                        options={[
+                                            {
+                                                label: 'Alpha',
+                                                value: 'alpha',
+                                            },
+                                            {
+                                                label: 'Beta',
+                                                value: 'beta',
+                                            },
+                                            {
+                                                label: 'General Availability',
+                                                value: 'general-availability',
+                                            },
+                                        ]}
+                                    />
+                                </div>
+                            )}
+                        </KeaField>
+                    ) : (
+                        <div className="mb-2">
+                            <b>Stage</b>
                             <div>
-                                <LemonSelect
-                                    value={value}
-                                    onChange={onChange}
-                                    options={[
-                                        {
-                                            label: 'Alpha',
-                                            value: 'alpha',
-                                        },
-                                        {
-                                            label: 'Beta',
-                                            value: 'beta',
-                                        },
-                                        {
-                                            label: 'General Availability',
-                                            value: 'general-availability',
-                                        },
-                                    ]}
-                                />
+                                <LemonTag type="success" className="mt-2 uppercase">
+                                    {feature.stage}
+                                </LemonTag>
                             </div>
-                        )}
-                    </KeaField>
-                    <Field name="description" label="Description" showOptional>
-                        <LemonTextArea
-                            className="ph-ignore-input"
-                            placeholder="Help your users understand the feature"
-                        />
-                    </Field>
-                    <Field name="documentation_url" label="Documentation URL" showOptional>
-                        <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-                    </Field>
+                        </div>
+                    )}
+                    {isEditingFeature ? (
+                        <Field name="description" label="Description" showOptional>
+                            <LemonTextArea
+                                className="ph-ignore-input"
+                                placeholder="Help your users understand the feature"
+                            />
+                        </Field>
+                    ) : (
+                        <div className="mb-2">
+                            <b>Description</b>
+                            <div>
+                                {feature.description ? (
+                                    feature.description
+                                ) : (
+                                    <span className="text-muted">No description</span>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    {isEditingFeature ? (
+                        <Field name="documentation_url" label="Documentation URL" showOptional>
+                            <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+                        </Field>
+                    ) : (
+                        <div className="mb-2">
+                            <b>Documentation Url</b>
+                            <div>
+                                {feature.documentation_url ? (
+                                    feature.documentation_url
+                                ) : (
+                                    <span className="text-muted">No documentation url</span>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
-                {'id' in feature && feature.stage !== 'general-availability' && (
+                {!isEditingFeature && 'id' in feature && feature.stage !== 'general-availability' && (
                     <div className="border rounded p-3 w-1/2 max-w-160">
                         <span>
                             <b>Integrate feature previews</b>
@@ -235,10 +280,10 @@ export function Feature(): JSX.Element {
                     </div>
                 )}
             </div>
-            {'id' in feature && (
+            {!isEditingFeature && 'id' in feature && (
                 <PersonList feature={feature} toggleModal={toggleModal} localPersons={selectedPersons} />
             )}
-            {'id' in feature && (
+            {!isEditingFeature && 'id' in feature && (
                 <EnrollmentSelectorModal
                     onAdded={(persons) => setSelectedPersons(persons)}
                     feature={feature}
@@ -296,12 +341,13 @@ interface PersonListProps {
 }
 
 function PersonList({ feature, toggleModal, localPersons = [] }: PersonListProps): JSX.Element {
+    const key = '$feature_enrollment/' + feature.feature_flag.key
     const personLogicProps: PersonLogicProps = {
         cohort: undefined,
         syncWithUrl: false,
         fixedProperties: [
             {
-                key: '$feature_enrollment/' + feature.feature_flag.key,
+                key: key,
                 type: PropertyFilterType.Person,
                 operator: PropertyOperator.IsSet,
             },
@@ -313,6 +359,16 @@ function PersonList({ feature, toggleModal, localPersons = [] }: PersonListProps
         logic.actions.setPersons(localPersons)
     }, [localPersons])
 
+    const optUserOut = async (person: PersonType): Promise<void> => {
+        await api.persons.updateProperty(person.id as string, key, false)
+        logic.actions.setPerson({ ...person, properties: { ...person.properties, [key]: false } })
+    }
+
+    const optUserIn = async (person: PersonType): Promise<void> => {
+        await api.persons.updateProperty(person.id as string, key, true)
+        logic.actions.setPerson({ ...person, properties: { ...person.properties, [key]: true } })
+    }
+
     return (
         <BindLogic logic={personsLogic} props={personLogicProps}>
             <LemonDivider className="my-4" />
@@ -321,7 +377,7 @@ function PersonList({ feature, toggleModal, localPersons = [] }: PersonListProps
                 useParentLogic={true}
                 fixedProperties={[
                     {
-                        key: '$feature_enrollment/' + feature.feature_flag.key,
+                        key: key,
                         type: PropertyFilterType.Person,
                         operator: PropertyOperator.IsSet,
                     },
@@ -345,6 +401,25 @@ function PersonList({ feature, toggleModal, localPersons = [] }: PersonListProps
                                 <span>
                                     {person.properties['$feature_enrollment/' + feature.feature_flag.key].toString()}
                                 </span>
+                            )
+                        },
+                    },
+                    {
+                        render: function Render(_, person: PersonType) {
+                            return person.properties['$feature_enrollment/' + feature.feature_flag.key] ? (
+                                <LemonButton
+                                    onClick={() => optUserOut(person)}
+                                    icon={<IconDelete />}
+                                    status="danger"
+                                    size="small"
+                                />
+                            ) : (
+                                <LemonButton
+                                    onClick={() => optUserIn(person)}
+                                    icon={<IconPlus />}
+                                    status="primary"
+                                    size="small"
+                                />
                             )
                         },
                     },
