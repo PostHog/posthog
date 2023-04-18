@@ -340,7 +340,7 @@ const eachMessage =
             ]
         }
 
-        status.info('⬆️', 'processing_session_recording', { uuid: messagePayload.uuid })
+        status.debug('⬆️', 'processing_session_recording', { uuid: messagePayload.uuid })
 
         consumedMessageSizeBytes
             .labels({
