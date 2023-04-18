@@ -1,5 +1,5 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { DEFAULT_FILE_NAME, NewConnectionLogic } from './NewConnectionLogic'
+import { DEFAULT_FILE_NAME, BatchExportLogic } from './BatchExportLogic'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -15,8 +15,8 @@ import { ExportOverviewTab } from './ExportOverview'
 import { EditOutlined } from '@ant-design/icons'
 
 export const scene: SceneExport = {
-    component: NewConnection,
-    logic: NewConnectionLogic,
+    component: BatchExport,
+    logic: BatchExportLogic,
     paramsToProps: ({ params: { id } }) => ({ id: id }),
 }
 
@@ -84,12 +84,17 @@ const generateDescription = (interval: Exclude<BatchExportFrequencyType, 'none'>
     return `The job is set to export ${intervals[interval].period} data segments ${intervals[interval].frequency}. This means only the first ${intervals[interval].period} period's data is included in the first run. To conduct an additional one-time export of all existing historical data during this first execution, enable this option.`
 }
 
-export function ConnectionSettings(): JSX.Element {
-    const { connectionSettings, editingSecret, timezone, fileNamePreview } = useValues(NewConnectionLogic)
-    const { setEditingSecret } = useActions(NewConnectionLogic)
+export function S3Settings(): JSX.Element {
+    const {
+        batchExportSettings: connectionSettings,
+        editingSecret,
+        timezone,
+        fileNamePreview,
+    } = useValues(BatchExportLogic)
+    const { setEditingSecret } = useActions(BatchExportLogic)
 
     return (
-        <Form logic={NewConnectionLogic} formKey={'connectionSettings'} className="max-w-200 border rounded p-6">
+        <Form logic={BatchExportLogic} formKey={'connectionSettings'} className="max-w-200 border rounded p-6">
             <div>
                 <h2>Connection</h2>
                 <Field name={'name'} label="Display Name">
@@ -217,12 +222,16 @@ export function ConnectionSettings(): JSX.Element {
     )
 }
 
-export function NewConnection(): JSX.Element {
-    const { connectionChoice, activeTab, connection } = useValues(NewConnectionLogic)
-    const { setTab } = useActions(NewConnectionLogic)
+export function BatchExport(): JSX.Element {
+    const {
+        connectionChoice: batchExportChoice,
+        activeTab,
+        connection: batchExportDestination,
+    } = useValues(BatchExportLogic)
+    const { setTab } = useActions(BatchExportLogic)
     return (
         <>
-            <PageHeader title={connectionChoice?.name || 'undefined'} />
+            <PageHeader title={batchExportChoice?.name || 'undefined'} />
             <LemonTabs
                 tabs={[
                     {
@@ -233,12 +242,12 @@ export function NewConnection(): JSX.Element {
                     {
                         key: 'activity-log',
                         label: 'History',
-                        content: <ActivityLog scope={ActivityScope.CONNECTION} id={connection?.id} />,
+                        content: <ActivityLog scope={ActivityScope.CONNECTION} id={batchExportDestination?.id} />,
                     },
                     {
                         key: 'settings',
                         label: 'Settings',
-                        content: <ConnectionSettings />,
+                        content: <S3Settings />,
                     },
                 ]}
                 activeKey={activeTab}

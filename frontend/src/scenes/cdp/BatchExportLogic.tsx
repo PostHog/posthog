@@ -1,6 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import type { NewConnectionLogicType } from './NewConnectionLogicType'
 import {
     BatchExportDestinationType,
     S3BatchExportConfigType,
@@ -18,11 +17,13 @@ import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
-interface NewConnectionLogicProps {
+import type { BatchExportLogicType } from './BatchExportLogicType'
+
+interface BatchExportLogicProps {
     id: string
 }
 
-const defaultCreator = (values: NewConnectionLogicType['values']): S3BatchExportConfigType => ({
+const defaultCreator = (values: BatchExportLogicType['values']): S3BatchExportConfigType => ({
     name: '',
     frequency: '12',
     firstExport: dayjsUtcToTimezone(new Date().toISOString(), values.timezone).add(1, 'day').startOf('day') as any,
@@ -40,22 +41,22 @@ const defaultCreator = (values: NewConnectionLogicType['values']): S3BatchExport
 
 export const DEFAULT_FILE_NAME = 'posthog-events/{year}/{month}/{day}/{hour}:{minute}:{second}/{partitionId}.csv'
 
-export const NewConnectionLogic = kea<NewConnectionLogicType>([
-    path(['scenes', 'cdp', 'NewConnectionLogic']),
+export const BatchExportLogic = kea<BatchExportLogicType>([
+    path(['scenes', 'cdp', 'BatchExportLogic']),
     connect({
         values: [teamLogic, ['timezone']],
     }),
-    props({} as NewConnectionLogicProps),
+    props({} as BatchExportLogicProps),
     key((props) => props.id ?? 'default'),
     actions({
         setTab: (tab: BatchExportTabsType) => ({ tab }),
         setEditingSecret: (editingSecret: boolean) => ({ editingSecret }),
     }),
     reducers({
-        connection: [
+        batchExportDestination: [
             {
                 id: '123',
-                name: 'Test Connection',
+                name: 'Test Batch Export Destination',
                 status: 'active',
                 connection_type_id: 's3',
                 successRate: '100%',
@@ -88,12 +89,12 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
                 },
             },
         ],
-        connectionSettings: [
+        batchExportSettings: [
             undefined as S3BatchExportConfigType | undefined,
             {
-                loadConnectionSettings: async () => {
-                    const connectionSettings = await Promise.resolve(undefined)
-                    return connectionSettings
+                loadBatchExportSettings: async () => {
+                    const batchExportSettings = await Promise.resolve(undefined)
+                    return batchExportSettings
                 },
             },
         ],
