@@ -15,6 +15,7 @@
     align-items: stretch;
     overflow-x: auto;
     &::before {
+        // The bottom border
         content: '';
         position: absolute;
         left: 0;
@@ -24,6 +25,7 @@
         background: var(--border);
     }
     &::after {
+        // The active tab slider
         content: '';
         position: absolute;
         bottom: 0;
