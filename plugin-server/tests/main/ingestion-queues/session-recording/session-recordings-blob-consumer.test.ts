@@ -1,18 +1,11 @@
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingBlobIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-blob-consumer'
-import { Hub, Team } from '../../../../src/types'
+import { Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
-import { TeamManager } from '../../../../src/worker/ingestion/team-manager'
 import { createIncomingRecordingMessage } from './fixtures'
 
 describe('ingester', () => {
     let ingester: SessionRecordingBlobIngester
-
-    const mockTeam: Team = { id: 1 } as Team
-    const mockTeamManager = {
-        fetchTeam: jest.fn(() => Promise.resolve(mockTeam)),
-        getTeamByToken: jest.fn(() => Promise.resolve(mockTeam)),
-    } as unknown as TeamManager
 
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -26,7 +19,7 @@ describe('ingester', () => {
     })
 
     beforeEach(() => {
-        // TODO: To mock kafka or not...
+        // TODO: Mock certain functions to help with testing
         ingester = new SessionRecordingBlobIngester(hub.teamManager, hub.kafka, defaultConfig, hub.objectStorage)
     })
 
@@ -55,6 +48,4 @@ describe('ingester', () => {
         await ingester.sessions.get('1-session_id_1')?.flush()
         expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
     })
-
-    it.skip('parses incoming kafka messages correctly', () => {})
 })
