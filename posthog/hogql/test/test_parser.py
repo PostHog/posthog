@@ -956,3 +956,28 @@ class TestParser(BaseTest):
                 select_from=ast.JoinExpr(table=ast.Field(chain=["final"])),
             ),
         )
+
+    def test_window_functions(self):
+        query = "SELECT person.id, min(latest_1) over (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) latest_1 FROM events"
+        expr = parse_select(query)
+        expected = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["person", "id"]),
+                ast.Alias(
+                    alias="latest_1",
+                    expr=ast.WindowFunction(
+                        name="min",
+                        exprs=[ast.Field(chain=["latest_1"])],
+                        over_expr=ast.WindowExpr(
+                            partition_by=[ast.Field(chain=["person", "id"])],
+                            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+                            frame_method="ROWS",
+                            frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+                            frame_end=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=1),
+                        ),
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        )
+        self.assertEqual(expr, expected)

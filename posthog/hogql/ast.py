@@ -480,6 +480,26 @@ class SampleExpr(Expr):
     offset_value: Optional[RatioExpr]
 
 
+class WindowFrameExpr(Expr):
+    frame_type: Optional[Literal["CURRENT ROW", "PRECEDING", "FOLLOWING"]] = None
+    frame_value: Optional[int] = None
+
+
+class WindowExpr(Expr):
+    partition_by: Optional[List[Expr]] = None
+    order_by: Optional[List[OrderExpr]] = None
+    frame_method: Optional[Literal["ROWS", "RANGE"]] = None
+    frame_start: Optional[WindowFrameExpr] = None
+    frame_end: Optional[WindowFrameExpr] = None
+
+
+class WindowFunction(Expr):
+    name: str
+    exprs: Optional[List[Expr]] = None
+    over_expr: Optional[WindowExpr] = None
+    over_identifier: Optional[str] = None
+
+
 JoinExpr.update_forward_refs(SampleExpr=SampleExpr)
 JoinExpr.update_forward_refs(SelectUnionQuery=SelectUnionQuery)
 JoinExpr.update_forward_refs(SelectQuery=SelectQuery)
