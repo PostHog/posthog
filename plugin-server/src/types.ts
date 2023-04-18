@@ -167,6 +167,7 @@ export interface PluginsServerConfig {
         | 'scheduler'
         | 'analytics-ingestion'
         | 'recordings-ingestion'
+        | 'recordings-blob-ingestion'
         | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
@@ -233,6 +234,7 @@ export interface PluginServerCapabilities {
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean
     sessionRecordingIngestion?: boolean
+    sessionRecordingBlobIngestion?: boolean
     http?: boolean
     mmdb?: boolean
 }

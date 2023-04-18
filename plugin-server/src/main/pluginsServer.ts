@@ -32,6 +32,7 @@ import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-
 import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
+import { startSessionRecordingBlobConsumer } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
 
 const { version } = require('../../package.json')
 
@@ -441,6 +442,19 @@ export async function startPluginsServer(
                 consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
                 consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+            })
+            stopSessionRecordingEventsConsumer = stop
+            healthChecks['session-recordings'] = isSessionRecordingsHealthy
+        }
+
+        if (capabilities.sessionRecordingBlobIngestion) {
+            const kafka = hub?.kafka ?? createKafkaClient(serverConfig as KafkaConfig)
+            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
+            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
+            const { stop, isHealthy: isSessionRecordingsHealthy } = await startSessionRecordingBlobConsumer({
+                teamManager,
+                kafka,
+                serverConfig,
             })
             stopSessionRecordingEventsConsumer = stop
             healthChecks['session-recordings'] = isSessionRecordingsHealthy
