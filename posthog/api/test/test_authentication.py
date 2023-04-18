@@ -382,13 +382,13 @@ class TestPasswordResetAPI(APIBaseTest):
             },
         )
 
-    def test_cant_reset_more_than_three_times(self):
+    def test_cant_reset_more_than_six_times(self):
         set_instance_setting("EMAIL_HOST", "localhost")
 
-        for i in range(4):
+        for i in range(7):
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
                 response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
-            if i < 3:
+            if i < 6:
                 self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
             else:
                 # Fourth request should fail
@@ -398,7 +398,7 @@ class TestPasswordResetAPI(APIBaseTest):
                 )
 
         # Three emails should be sent, fourth should not
-        self.assertEqual(len(mail.outbox), 3)
+        self.assertEqual(len(mail.outbox), 6)
 
     # Token validation
 
