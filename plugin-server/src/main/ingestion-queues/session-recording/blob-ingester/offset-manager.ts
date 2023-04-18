@@ -55,6 +55,9 @@ export class OffsetManager {
         const key = `${topic}-${partition}`
         const inFlightOffsets = this.offsetsByPartionTopic.get(key)
 
+        status.info(`Current offsets: ${inFlightOffsets}`)
+        status.info(`Removing offsets: ${offsets}`)
+
         if (!inFlightOffsets) {
             status.error(`No offsets found for key: ${key}. This should never happen`)
             return
@@ -77,6 +80,7 @@ export class OffsetManager {
         this.offsetsByPartionTopic.set(key, inFlightOffsets)
 
         if (offsetToCommit) {
+            status.info(`Committing offset ${offsetToCommit} for ${topic}-${partition}`)
             await this.consumer.commitOffsets([
                 {
                     topic,
@@ -84,6 +88,8 @@ export class OffsetManager {
                     offset: offsetToCommit.toString(),
                 },
             ])
+        } else {
+            status.info(`No offset to commit from: ${inFlightOffsets}`)
         }
 
         return offsetToCommit

@@ -1,4 +1,5 @@
 import { Consumer, EachBatchPayload, Kafka, KafkaMessage } from 'kafkajs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { ClientMetrics, HighLevelProducer as RdKafkaProducer, ProducerGlobalConfig } from 'node-rdkafka'
 import { hostname } from 'os'
 import { exponentialBuckets, Histogram } from 'prom-client'
@@ -38,6 +39,7 @@ export class SessionRecordingBlobIngester {
     consumer?: Consumer
     producer?: RdKafkaProducer
     lastHeartbeat: number = Date.now()
+    flushInterval: NodeJS.Timer | null = null
 
     constructor(
         private teamManager: TeamManager,
@@ -194,6 +196,11 @@ export class SessionRecordingBlobIngester {
     public async start(): Promise<void> {
         status.info('🔁', 'Starting session recordings blob consumer')
 
+        // Currently we can't reuse any files stored on disk so we opt to delete them all
+
+        rmSync(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
+        mkdirSync(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true })
+
         this.producer = await createKafkaProducer(this.serverConfig as KafkaConfig)
         this.consumer = this.kafka.consumer({
             groupId,
@@ -205,6 +212,8 @@ export class SessionRecordingBlobIngester {
         setupEventHandlers(this.consumer)
         await this.consumer.connect()
         await this.consumer.subscribe({ topic: KAFKA_SESSION_RECORDING_EVENTS })
+
+        this.offsetManager = new OffsetManager(this.consumer)
 
         await this.consumer.run({
             autoCommit: false,
@@ -223,10 +232,20 @@ export class SessionRecordingBlobIngester {
         // consumer is healthy.
         const { HEARTBEAT } = this.consumer.events
         this.consumer.on(HEARTBEAT, ({ timestamp }) => (this.lastHeartbeat = timestamp))
+
+        // We trigger the flushes from this level to reduce the number of running timers
+        this.flushInterval = setInterval(() => {
+            this.sessions.forEach((sessionManager) => {
+                void sessionManager.flushIfNeccessary()
+            })
+        }, 10000)
     }
 
     public async stop(): Promise<void> {
         status.info('🔁', 'Stopping session recordings consumer')
+        if (this.flushInterval) {
+            clearInterval(this.flushInterval)
+        }
 
         await Promise.all([
             this.consumer?.disconnect() || Promise.resolve(),

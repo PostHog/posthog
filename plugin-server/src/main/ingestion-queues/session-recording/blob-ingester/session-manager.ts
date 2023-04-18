@@ -52,6 +52,14 @@ export class SessionManager {
             await this.addToChunks(message)
         }
 
+        await this.flushIfNeccessary()
+    }
+
+    public get isEmpty(): boolean {
+        return this.buffer.count === 0 && this.chunks.size === 0
+    }
+
+    public async flushIfNeccessary(): Promise<void> {
         const capacity = this.buffer.size / (this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024)
         status.info(
             `Buffer ${this.sessionId}:: capacity: ${(capacity * 100).toFixed(2)}% count: ${
@@ -68,10 +76,6 @@ export class SessionManager {
             status.info(`Flushing buffer ${this.sessionId}...`)
             await this.flush()
         }
-    }
-
-    public get isEmpty(): boolean {
-        return this.buffer.count === 0 && this.chunks.size === 0
     }
 
     /**
