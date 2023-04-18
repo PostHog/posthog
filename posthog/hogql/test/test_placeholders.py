@@ -32,7 +32,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             expr,
             ast.CompareOperation(
-                op=ast.CompareOperationType.Lt,
+                op=ast.CompareOperationOp.Lt,
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Placeholder(field="timestamp"),
             ),
@@ -41,7 +41,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             expr2,
             ast.CompareOperation(
-                op=ast.CompareOperationType.Lt,
+                op=ast.CompareOperationOp.Lt,
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=123),
             ),

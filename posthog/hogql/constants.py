@@ -1,7 +1,9 @@
 # HogQL -> ClickHouse allowed transformations
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Literal
 
 from pydantic import BaseModel, Extra
+
+ConstantDataType = Literal["int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"]
 
 CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     # arithmetic
