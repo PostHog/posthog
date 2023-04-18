@@ -143,7 +143,7 @@ export class SessionManager {
         // NOTE: We should move this to do once on startup
         mkdirSync(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true })
         // NOTE: We may want to figure out how to safely do this async
-        writeFileSync(this.buffer.file, '', 'utf-8')
+        writeFileSync(buffer.file, '', 'utf-8')
 
         return buffer
     }

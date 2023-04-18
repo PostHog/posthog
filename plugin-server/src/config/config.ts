@@ -96,7 +96,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         BUFFER_CONVERSION_SECONDS: isDevEnv() ? 2 : 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
-        OBJECT_STORAGE_ENABLED: false,
+        OBJECT_STORAGE_ENABLED: true,
         OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
         OBJECT_STORAGE_REGION: 'us-east-1',
         OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',

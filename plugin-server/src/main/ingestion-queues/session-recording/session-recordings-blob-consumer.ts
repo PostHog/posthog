@@ -16,14 +16,14 @@ import { SessionManager } from './blob-ingester/session-manager'
 import { IncomingRecordingMessage } from './blob-ingester/types'
 
 const consumerBatchSize = new Histogram({
-    name: 'consumed_batch_size',
+    name: 'recordings_blob_consumed_batch_size',
     help: 'Size of the batch fetched by the consumer',
     labelNames: ['topic', 'groupId'],
     buckets: exponentialBuckets(1, 3, 5),
 })
 
 const consumedMessageSizeBytes = new Histogram({
-    name: 'consumed_message_size_bytes',
+    name: 'recordings_blob_consumed_batch_size_message_size_bytes',
     help: 'Size of consumed message value in bytes',
     labelNames: ['topic', 'groupId', 'messageType'],
     buckets: exponentialBuckets(1, 8, 4).map((bucket) => bucket * 1024),
