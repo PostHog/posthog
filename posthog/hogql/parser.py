@@ -566,14 +566,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprWinFunctionTarget(self, ctx: HogQLParser.ColumnExprWinFunctionTargetContext):
         return ast.WindowFunction(
             name=self.visit(ctx.identifier(0)),
-            exprs=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
+            args=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
             over_identifier=self.visit(ctx.identifier(1)),
         )
 
     def visitColumnExprWinFunction(self, ctx: HogQLParser.ColumnExprWinFunctionContext):
         return ast.WindowFunction(
             name=self.visit(ctx.identifier()),
-            exprs=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
+            args=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
             over_expr=self.visit(ctx.windowExpr()) if ctx.windowExpr() else None,
         )
 

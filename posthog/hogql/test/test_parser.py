@@ -967,7 +967,7 @@ class TestParser(BaseTest):
                     alias="latest_1",
                     expr=ast.WindowFunction(
                         name="min",
-                        exprs=[ast.Field(chain=["latest_1"])],
+                        args=[ast.Field(chain=["latest_1"])],
                         over_expr=ast.WindowExpr(
                             partition_by=[ast.Field(chain=["person", "id"])],
                             order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],

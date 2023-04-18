@@ -495,7 +495,7 @@ class WindowExpr(Expr):
 
 class WindowFunction(Expr):
     name: str
-    exprs: Optional[List[Expr]] = None
+    args: Optional[List[Expr]] = None
     over_expr: Optional[WindowExpr] = None
     over_identifier: Optional[str] = None
 
