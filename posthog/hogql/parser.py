@@ -59,7 +59,7 @@ def get_parser(query: str) -> HogQLParser:
 
 
 class HogQLErrorListener(ErrorListener):
-    def syntaxError(self, recognizer, offendingRef, line, column, msg, e):
+    def syntaxError(self, recognizer, offendingType, line, column, msg, e):
         raise SyntaxException(msg, line=line, column=column)
 
 
@@ -372,7 +372,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprNegate(self, ctx: HogQLParser.ColumnExprNegateContext):
         return ast.BinaryOperation(
-            op=ast.BinaryOperationType.Sub, left=ast.Constant(value=0), right=self.visit(ctx.columnExpr())
+            op=ast.BinaryOperationOp.Sub, left=ast.Constant(value=0), right=self.visit(ctx.columnExpr())
         )
 
     def visitColumnExprSubquery(self, ctx: HogQLParser.ColumnExprSubqueryContext):
@@ -392,11 +392,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprPrecedence1(self, ctx: HogQLParser.ColumnExprPrecedence1Context):
         if ctx.SLASH():
-            op = ast.BinaryOperationType.Div
+            op = ast.BinaryOperationOp.Div
         elif ctx.ASTERISK():
-            op = ast.BinaryOperationType.Mult
+            op = ast.BinaryOperationOp.Mult
         elif ctx.PERCENT():
-            op = ast.BinaryOperationType.Mod
+            op = ast.BinaryOperationOp.Mod
         else:
             raise NotImplementedException(f"Unsupported ColumnExprPrecedence1: {ctx.operator.text}")
         left = self.visit(ctx.left)
@@ -405,9 +405,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprPrecedence2(self, ctx: HogQLParser.ColumnExprPrecedence2Context):
         if ctx.PLUS():
-            op = ast.BinaryOperationType.Add
+            op = ast.BinaryOperationOp.Add
         elif ctx.DASH():
-            op = ast.BinaryOperationType.Sub
+            op = ast.BinaryOperationOp.Sub
         elif ctx.CONCAT():
             raise NotImplementedException(f"Yet unsupported text concat operation: {ctx.operator.text}")
         else:
@@ -418,34 +418,34 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprPrecedence3(self, ctx: HogQLParser.ColumnExprPrecedence3Context):
         if ctx.EQ_SINGLE() or ctx.EQ_DOUBLE():
-            op = ast.CompareOperationType.Eq
+            op = ast.CompareOperationOp.Eq
         elif ctx.NOT_EQ():
-            op = ast.CompareOperationType.NotEq
+            op = ast.CompareOperationOp.NotEq
         elif ctx.LT():
-            op = ast.CompareOperationType.Lt
+            op = ast.CompareOperationOp.Lt
         elif ctx.LE():
-            op = ast.CompareOperationType.LtE
+            op = ast.CompareOperationOp.LtE
         elif ctx.GT():
-            op = ast.CompareOperationType.Gt
+            op = ast.CompareOperationOp.Gt
         elif ctx.GE():
-            op = ast.CompareOperationType.GtE
+            op = ast.CompareOperationOp.GtE
         elif ctx.LIKE():
             if ctx.NOT():
-                op = ast.CompareOperationType.NotLike
+                op = ast.CompareOperationOp.NotLike
             else:
-                op = ast.CompareOperationType.Like
+                op = ast.CompareOperationOp.Like
         elif ctx.ILIKE():
             if ctx.NOT():
-                op = ast.CompareOperationType.NotILike
+                op = ast.CompareOperationOp.NotILike
             else:
-                op = ast.CompareOperationType.ILike
+                op = ast.CompareOperationOp.ILike
         elif ctx.IN():
             if ctx.GLOBAL():
                 raise NotImplementedException(f"Unsupported node: IN GLOBAL")
             if ctx.NOT():
-                op = ast.CompareOperationType.NotIn
+                op = ast.CompareOperationOp.NotIn
             else:
-                op = ast.CompareOperationType.In
+                op = ast.CompareOperationOp.In
         else:
             raise NotImplementedException(f"Unsupported ColumnExprPrecedence3: {ctx.getText()}")
         return ast.CompareOperation(left=self.visit(ctx.left), right=self.visit(ctx.right), op=op)
@@ -476,7 +476,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.CompareOperation(
             left=self.visit(ctx.columnExpr()),
             right=ast.Constant(value=None),
-            op=ast.CompareOperationType.NotEq if ctx.NOT() else ast.CompareOperationType.Eq,
+            op=ast.CompareOperationOp.NotEq if ctx.NOT() else ast.CompareOperationOp.Eq,
         )
 
     def visitColumnExprWinFunctionTarget(self, ctx: HogQLParser.ColumnExprWinFunctionTargetContext):
@@ -588,12 +588,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
         subquery = self.visit(ctx.selectUnionStmt())
         name = self.visit(ctx.identifier())
-        return ast.Macro(name=name, expr=subquery, type="subquery")
+        return ast.Macro(name=name, expr=subquery, macro_format="subquery")
 
     def visitWithExprColumn(self, ctx: HogQLParser.WithExprColumnContext):
         expr = self.visit(ctx.columnExpr())
         name = self.visit(ctx.identifier())
-        return ast.Macro(name=name, expr=expr, type="column")
+        return ast.Macro(name=name, expr=expr, macro_format="column")
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
         if ctx.PLACEHOLDER():

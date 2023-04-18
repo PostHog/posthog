@@ -101,18 +101,18 @@ def property_to_expr(
         field = ast.Field(chain=chain + [property.key])
 
         if operator == PropertyOperator.is_set:
-            return ast.CompareOperation(op=ast.CompareOperationType.NotEq, left=field, right=ast.Constant(value=None))
+            return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))
         elif operator == PropertyOperator.is_not_set:
-            return ast.CompareOperation(op=ast.CompareOperationType.Eq, left=field, right=ast.Constant(value=None))
+            return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=ast.Constant(value=None))
         elif operator == PropertyOperator.icontains:
             return ast.CompareOperation(
-                op=ast.CompareOperationType.ILike,
+                op=ast.CompareOperationOp.ILike,
                 left=field,
                 right=ast.Constant(value=f"%{value}%"),
             )
         elif operator == PropertyOperator.not_icontains:
             return ast.CompareOperation(
-                op=ast.CompareOperationType.NotILike,
+                op=ast.CompareOperationOp.NotILike,
                 left=field,
                 right=ast.Constant(value=f"%{value}%"),
             )
@@ -121,17 +121,17 @@ def property_to_expr(
         elif operator == PropertyOperator.not_regex:
             return ast.Call(name="not", args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])])
         elif operator == PropertyOperator.exact or operator == PropertyOperator.is_date_exact:
-            op = ast.CompareOperationType.Eq
+            op = ast.CompareOperationOp.Eq
         elif operator == PropertyOperator.is_not:
-            op = ast.CompareOperationType.NotEq
+            op = ast.CompareOperationOp.NotEq
         elif operator == PropertyOperator.lt or operator == PropertyOperator.is_date_before:
-            op = ast.CompareOperationType.Lt
+            op = ast.CompareOperationOp.Lt
         elif operator == PropertyOperator.gt or operator == PropertyOperator.is_date_after:
-            op = ast.CompareOperationType.Gt
+            op = ast.CompareOperationOp.Gt
         elif operator == PropertyOperator.lte:
-            op = ast.CompareOperationType.LtE
+            op = ast.CompareOperationOp.LtE
         elif operator == PropertyOperator.gte:
-            op = ast.CompareOperationType.GtE
+            op = ast.CompareOperationOp.GtE
         else:
             raise NotImplementedException(f"PropertyOperator {operator} not implemented")
 
