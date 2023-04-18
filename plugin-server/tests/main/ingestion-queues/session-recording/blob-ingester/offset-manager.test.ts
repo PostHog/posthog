@@ -53,7 +53,7 @@ describe('offset-manager', () => {
 
     it.each([
         [[1], 1],
-        [[2, 5, 10], null],
+        [[2, 5, 10], undefined],
         [[1, 2, 3, 9], 3],
     ])('commits the appropriate offset ', async (removals: number[], expectation: number | null) => {
         ;[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((offset) => {

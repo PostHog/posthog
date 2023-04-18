@@ -1,10 +1,33 @@
+import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingBlobIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-blob-consumer'
+import { Hub, Team } from '../../../../src/types'
+import { createHub } from '../../../../src/utils/db/hub'
+import { TeamManager } from '../../../../src/worker/ingestion/team-manager'
 import { createIncomingRecordingMessage } from './fixtures'
 
 describe('ingester', () => {
     let ingester: SessionRecordingBlobIngester
+
+    const mockTeam: Team = { id: 1 } as Team
+    const mockTeamManager = {
+        fetchTeam: jest.fn(() => Promise.resolve(mockTeam)),
+        getTeamByToken: jest.fn(() => Promise.resolve(mockTeam)),
+    } as unknown as TeamManager
+
+    let hub: Hub
+    let closeHub: () => Promise<void>
+
+    beforeEach(async () => {
+        ;[hub, closeHub] = await createHub()
+    })
+
+    afterEach(async () => {
+        await closeHub()
+    })
+
     beforeEach(() => {
-        ingester = new SessionRecordingBlobIngester()
+        // TODO: To mock kafka or not...
+        ingester = new SessionRecordingBlobIngester(hub.teamManager, hub.kafka, defaultConfig, hub.objectStorage)
     })
 
     it('creates a new session manager if needed', async () => {
