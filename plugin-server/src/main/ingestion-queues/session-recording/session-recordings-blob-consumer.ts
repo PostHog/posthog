@@ -40,15 +40,16 @@ export class SessionRecordingBlobIngester {
     producer?: RdKafkaProducer
     lastHeartbeat: number = Date.now()
     flushInterval: NodeJS.Timer | null = null
+    enabledTeams: number[]
 
     constructor(
         private teamManager: TeamManager,
         private kafka: Kafka,
         private serverConfig: PluginsServerConfig,
         private objectStorage: ObjectStorage
-    ) {}
-
-    // TODO: Have a timer here that runs every N seconds and calls `flushIfNecessary` on all sessions
+    ) {
+        this.enabledTeams = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS.split(',').map(parseInt)
+    }
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {
         const { team_id, session_id } = event
@@ -138,6 +139,11 @@ export class SessionRecordingBlobIngester {
 
         if (team == null) {
             return statusWarn('team_not_found')
+        }
+
+        if (!this.enabledTeams.includes(team.id)) {
+            // NOTE: due to the high volume of hits here we don't log this
+            return
         }
 
         status.info('⬆️', 'processing_session_recording_blob', { uuid: messagePayload.uuid })
