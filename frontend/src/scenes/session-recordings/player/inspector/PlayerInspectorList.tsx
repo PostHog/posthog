@@ -245,8 +245,9 @@ function EmptyNetworkTab({
         <>No results found in this recording.</>
     )
 }
-function EmptyConsoleTab(props: { captureConsoleLogOptIn: boolean }): JSX.Element {
-    return props.captureConsoleLogOptIn ? (
+
+function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: boolean }): JSX.Element {
+    return captureConsoleLogOptIn ? (
         <>No results found in this recording.</>
     ) : (
         <>
