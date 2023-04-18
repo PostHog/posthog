@@ -178,8 +178,7 @@ export const startSessionRecordingEventsConsumer = async ({
             // commit is allowed to complete before completing, or if in fact
             // disconnect itself handles committing offsets thus the previous
             // `commit()` call is redundant, but it shouldn't hurt.
-            await disconnectConsumer(consumer)
-            await disconnectProducer(producer)
+            await Promise.all([disconnectConsumer(consumer), disconnectProducer(producer)])
         }
     }
 
@@ -198,12 +197,16 @@ export const startSessionRecordingEventsConsumer = async ({
         // loop should complete one loop, flush the producer, and store it's offsets.
         isShuttingDown = false
 
-        // Wait for the main loop to finish, but only give it 10 seconds
-        await Promise.race([mainLoop, new Promise((resolve) => setTimeout(resolve, 30000))])
+        // Wait for the main loop to finish, but only give it 30 seconds
+        await join(30000)
     }
 
-    const join = async () => {
-        return await mainLoop
+    const join = async (timeout?: number) => {
+        if (timeout) {
+            await Promise.race([mainLoop, new Promise((resolve) => setTimeout(() => resolve(null), timeout))])
+        } else {
+            await mainLoop
+        }
     }
 
     return { isHealthy, stop, join }

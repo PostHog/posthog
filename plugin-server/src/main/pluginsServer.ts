@@ -91,7 +91,7 @@ export async function startPluginsServer(
     // meantime.
     let bufferConsumer: Consumer | undefined
     let stopSessionRecordingEventsConsumer: (() => void) | undefined
-    let joinSessionRecordingEventsConsumer: (() => Promise<void>) | undefined
+    let joinSessionRecordingEventsConsumer: ((timeout?: number) => Promise<void>) | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
