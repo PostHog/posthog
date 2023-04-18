@@ -104,7 +104,7 @@ export const personsLogic = kea<personsLogicType>({
             }),
             setPersons: (state, { persons }) => ({
                 ...state,
-                results: [...state.results, ...persons],
+                results: [...persons, ...state.results],
             }),
         },
         person: {
