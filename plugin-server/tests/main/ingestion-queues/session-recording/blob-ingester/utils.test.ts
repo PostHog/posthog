@@ -1,4 +1,7 @@
-import { compressToString, decompressFromString } from './utils'
+import {
+    compressToString,
+    decompressFromString,
+} from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 
 // NOTE: This was copied from the output of the related python ingestion code
 const compressedData =

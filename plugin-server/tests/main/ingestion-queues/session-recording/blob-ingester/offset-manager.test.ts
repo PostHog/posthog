@@ -1,18 +1,21 @@
-import { beforeEach, expect, it, describe, vi } from 'vitest'
+import { Consumer } from 'kafkajs'
 
-import { OffsetManager } from './offset-manager'
-
-vi.mock('../utils/kafka')
+import { OffsetManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/offset-manager'
 
 describe('offset-manager', () => {
     const TOPIC = 'test-session-recordings'
 
     let offsetManager: OffsetManager
-    beforeEach(async () => {
-        offsetManager = new OffsetManager()
+    const mockConsumer = {
+        commitOffsets: jest.fn(() => Promise.resolve()),
+    }
+
+    beforeEach(() => {
+        mockConsumer.commitOffsets.mockClear()
+        offsetManager = new OffsetManager(mockConsumer as unknown as Consumer)
     })
 
-    it('collects new offsets', async () => {
+    it('collects new offsets', () => {
         offsetManager.addOffset(TOPIC, 1, 1)
         offsetManager.addOffset(TOPIC, 2, 1)
         offsetManager.addOffset(TOPIC, 3, 4)
@@ -37,7 +40,7 @@ describe('offset-manager', () => {
         offsetManager.addOffset(TOPIC, 1, 5)
         offsetManager.addOffset(TOPIC, 3, 4)
 
-        offsetManager.removeOffsets(TOPIC, 1, [1, 2])
+        await offsetManager.removeOffsets(TOPIC, 1, [1, 2])
 
         expect(offsetManager.offsetsByPartionTopic).toEqual(
             new Map([

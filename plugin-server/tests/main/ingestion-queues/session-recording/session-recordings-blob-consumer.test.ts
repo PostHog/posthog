@@ -1,5 +1,5 @@
-import { createIncomingRecordingMessage } from './blob-ingester/test/fixtures'
-import { SessionRecordingBlobIngester } from './session-recordings-blob-consumer'
+import { SessionRecordingBlobIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-blob-consumer'
+import { createIncomingRecordingMessage } from './fixtures'
 
 describe('ingester', () => {
     let ingester: SessionRecordingBlobIngester

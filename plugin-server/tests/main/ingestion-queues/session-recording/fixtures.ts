@@ -1,15 +1,14 @@
-import { config } from '../config'
-import { compressToString } from '../utils/compression'
-import { IncomingRecordingMessage } from '../types'
+import { randomUUID } from 'node:crypto'
 
+import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/blob-ingester/types'
+import { compressToString } from '../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import jsonInitialSnapshot from './data/snapshot-full.json'
 import jsonFullSnapshot from './data/snapshot-full.json'
-import { randomUUID } from 'node:crypto'
 
 export function createIncomingRecordingMessage(data: Partial<IncomingRecordingMessage> = {}): IncomingRecordingMessage {
     return {
         metadata: {
-            topic: config.topics.sessionRecordingEvents,
+            topic: 'session_recording_events',
             partition: 1,
             offset: 1,
         },

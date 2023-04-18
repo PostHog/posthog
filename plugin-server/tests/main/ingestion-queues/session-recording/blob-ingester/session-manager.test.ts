@@ -1,8 +1,9 @@
 import fs from 'node:fs'
 
-import { SessionManager } from './session-manager'
-import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from './test/fixtures'
-import { compressToString } from './utils'
+import { defaultConfig } from '../../../../../src/config/config'
+import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
+import { compressToString } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
+import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../fixtures'
 
 describe('session-manager', () => {
     let sessionManager: SessionManager
@@ -12,7 +13,7 @@ describe('session-manager', () => {
     }
 
     beforeEach(() => {
-        sessionManager = new SessionManager(mockS3Client, 1, 'session_id_1', 1, 'topic', mockFinish)
+        sessionManager = new SessionManager(defaultConfig, mockS3Client, 1, 'session_id_1', 1, 'topic', mockFinish)
         mockFinish.mockClear()
     })
 
