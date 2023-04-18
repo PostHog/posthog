@@ -39,6 +39,11 @@ jobs:
               uses: docker/metadata-action@v4
               with:
                   images: ghcr.io/posthog/posthog/posthog
+                  tags: |
+                      type=schedule
+                      type=ref,event=branch
+                      type=ref,event=tag
+                      type=ref,event=pr
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v2
@@ -119,3 +124,9 @@ jobs:
                   # the posthog-cloud code we've checked out.
                   build-args: |
                       BASE_IMAGE=ghcr.io/posthog/posthog/posthog:${{ needs.posthog_build.outputs.container_image_version }}
+
+    deploy_preview:
+        uses: ./.github/workflows/pr-deploy.yml
+        needs: [posthog_cloud_build]
+        secrets: inherit
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') }}

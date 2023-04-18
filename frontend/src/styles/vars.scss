@@ -275,6 +275,7 @@ $_lifecycle_dormant: #f86234;
     // Update and override from react-toastify
     // which attaches these variables to :root
     // which means they aren't available in the toolbar
+    --toastify-color-dark: var(--accent-3000-dark);
     --toastify-color-light: var(--bg-light);
     --toastify-color-info: var(--primary);
     --toastify-color-success: var(--success);

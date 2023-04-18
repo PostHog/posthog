@@ -11,6 +11,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
+import { insightDataLogic } from './insightDataLogic'
+import { insightDataLogicType } from './insightDataLogicType'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
@@ -26,7 +28,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             insightMode,
             subscriptionId,
         }),
-        setInsightLogic: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
+        setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
+            logic,
+            unmount,
+        }),
+        setInsightDataLogicRef: (logic: BuiltLogic<insightDataLogicType> | null, unmount: null | (() => void)) => ({
             logic,
             unmount,
         }),
@@ -55,18 +61,27 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         : null,
             },
         ],
-        insightCache: [
+        insightLogicRef: [
             null as null | {
                 logic: BuiltLogic<insightLogicType>
                 unmount: () => void
             },
             {
-                setInsightLogic: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
+                setInsightLogicRef: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
+            },
+        ],
+        insightDataLogicRef: [
+            null as null | {
+                logic: BuiltLogic<insightDataLogicType>
+                unmount: () => void
+            },
+            {
+                setInsightDataLogicRef: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
     }),
     selectors(() => ({
-        insightSelector: [(s) => [s.insightCache], (insightCache) => insightCache?.logic.selectors.insight],
+        insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
             (s) => [s.insight],
@@ -87,16 +102,27 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const insightId = values.insightId ?? null
 
             if (logicInsightId !== insightId) {
-                const oldCache = values.insightCache // free old logic after mounting new one
+                const oldRef = values.insightLogicRef // free old logic after mounting new one
+                const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {
-                    const logic = insightLogic.build({ dashboardItemId: insightId })
+                    const insightProps = { dashboardItemId: insightId }
+
+                    const logic = insightLogic.build(insightProps)
                     const unmount = logic.mount()
-                    actions.setInsightLogic(logic, unmount)
+                    actions.setInsightLogicRef(logic, unmount)
+
+                    const logic2 = insightDataLogic.build(insightProps)
+                    const unmount2 = logic2.mount()
+                    actions.setInsightDataLogicRef(logic2, unmount2)
                 } else {
-                    actions.setInsightLogic(null, null)
+                    actions.setInsightLogicRef(null, null)
+                    actions.setInsightDataLogicRef(null, null)
                 }
-                if (oldCache) {
-                    oldCache.unmount()
+                if (oldRef) {
+                    oldRef.unmount()
+                }
+                if (oldRef2) {
+                    oldRef2.unmount()
                 }
             }
         },
@@ -133,7 +159,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return
             }
 
-            // this makes sure we have "values.insightCache?.logic" below
             if (
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
@@ -141,6 +166,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             ) {
                 actions.setSceneState(insightId, insightMode, subscriptionId)
             }
+
+            const isUsingDataExploration = !!values.insightLogicRef?.logic.values.isUsingDataExploration
 
             // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz
             const filters: Partial<FilterType> | null =
@@ -160,7 +187,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             // reset the insight's state if we have to
             if (initial || method === 'PUSH' || filters || q) {
                 if (insightId === 'new') {
-                    values.insightCache?.logic.actions.setInsight(
+                    values.insightLogicRef?.logic.actions.setInsight(
                         {
                             ...createEmptyInsight(
                                 'new',
@@ -175,10 +202,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             overrideFilter: true,
                         }
                     )
-                    values.insightCache?.logic.actions.loadResults()
+                    if (!isUsingDataExploration) {
+                        values.insightLogicRef?.logic.actions.loadResults()
+                    }
+
                     eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
-                } else if (filters) {
-                    values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))
+                } else if (filters && !isUsingDataExploration) {
+                    values.insightLogicRef?.logic.actions.setFilters(cleanFilters(filters || {}))
                 }
             }
 
@@ -209,10 +239,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         }
     }),
     beforeUnload(({ values }) => ({
-        enabled: () => values.insightMode === ItemMode.Edit && !!values.insightCache?.logic.values.insightChanged,
+        enabled: () => values.insightMode === ItemMode.Edit && !!values.insightLogicRef?.logic.values.insightChanged,
         message: 'Leave insight? Changes you made will be discarded.',
         onConfirm: () => {
-            values.insightCache?.logic.actions.cancelChanges()
+            values.insightLogicRef?.logic.actions.cancelChanges()
         },
     })),
 ])

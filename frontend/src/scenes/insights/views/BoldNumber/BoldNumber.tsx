@@ -80,6 +80,7 @@ function useBoldNumberTooltip({
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insight, filters } = useValues(insightLogic)
+    const [textFitTimer, setTextFitTimer] = useState<NodeJS.Timeout | null>(null)
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
@@ -87,9 +88,29 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
     const showComparison = isTrendsFilter(filters) && filters.compare && insight.result?.length > 1
     const resultSeries = insight?.result?.[0] as TrendResult | undefined
 
+    useEffect(() => {
+        // sometimes text fit can get stuck and leave text too small
+        // force a resize after a small delay
+        const timer = setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('resize'))
+        }, 500)
+        setTextFitTimer(timer)
+        return () => clearTimeout(timer)
+    }, [])
+
     return resultSeries ? (
         <div className="BoldNumber">
-            <Textfit mode="single" min={32} max={120}>
+            <Textfit
+                mode="single"
+                min={32}
+                max={120}
+                onReady={() => {
+                    // if fontsize has calculated then no need for a resize event
+                    if (textFitTimer) {
+                        clearTimeout(textFitTimer)
+                    }
+                }}
+            >
                 <div
                     className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                     onClick={

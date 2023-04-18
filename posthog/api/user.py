@@ -53,6 +53,10 @@ class UserAuthenticationThrottle(UserRateThrottle):
         return super().allow_request(request, view)
 
 
+class UserEmailVerificationThrottle(UserRateThrottle):
+    rate = "6/day"
+
+
 class UserSerializer(serializers.ModelSerializer):
 
     has_password = serializers.SerializerMethodField()
@@ -323,7 +327,9 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         report_user_logged_in(user)
         return Response({"success": True, "token": token})
 
-    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
+    @action(
+        methods=["POST"], detail=True, permission_classes=[AllowAny], throttle_classes=[UserEmailVerificationThrottle]
+    )
     def request_email_verification(self, request, **kwargs):
         uuid = request.data["uuid"]
         if not is_email_available():
@@ -338,7 +344,6 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         if user:
             EmailVerifier.create_token_and_send_email_verification(user)
 
-        # TODO: Limit number of requests for verification emails
         return Response({"success": True})
 
 

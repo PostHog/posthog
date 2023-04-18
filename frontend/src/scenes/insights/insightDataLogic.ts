@@ -25,16 +25,6 @@ export const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
     source: nodeKindToDefaultQuery[kind],
 })
 
-const defaultQuery = (insightProps: InsightLogicProps): Node | null => {
-    const filters = insightProps.cachedInsight?.filters
-    const query = insightProps.cachedInsight?.query
-    return !!query && Object.keys(query).length > 0
-        ? query
-        : !!filters && !!Object.keys(filters).length
-        ? queryFromFilters(filters)
-        : null
-}
-
 export const insightDataLogic = kea<insightDataLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
@@ -53,7 +43,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['setInsight', 'loadInsightSuccess', 'loadResultsSuccess', 'saveInsight as insightLogicSaveInsight'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['loadData'],
+            ['loadData', 'loadDataSuccess'],
         ],
     })),
 
@@ -63,9 +53,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
         toggleQueryEditorPanel: true,
     }),
 
-    reducers(({ props }) => ({
-        query: [
-            defaultQuery(props) as Node | null,
+    reducers({
+        internalQuery: [
+            null as Node | null,
             {
                 setQuery: (_, { query }) => query,
             },
@@ -76,9 +66,18 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 toggleQueryEditorPanel: (state) => !state,
             },
         ],
-    })),
+    }),
 
     selectors({
+        query: [
+            (s) => [s.insight, s.internalQuery],
+            (insight, internalQuery) =>
+                internalQuery ||
+                insight.query ||
+                (insight.filters && insight.filters.insight ? queryFromFilters(insight.filters) : undefined) ||
+                queryFromKind(NodeKind.TrendsQuery),
+        ],
+
         isQueryBasedInsight: [
             (s) => [s.query],
             (query) => {
@@ -107,9 +106,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setQuery: () => {
-            actions.loadData()
-        },
         setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
             if (overrideFilter && query == null) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
@@ -118,14 +114,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
-            if (!!insight.query) {
-                actions.setQuery(insight.query)
-            } else if (!!insight.filters && !!Object.keys(insight.filters).length) {
-                const query = queryFromFilters(insight.filters)
-                actions.setQuery(query)
-            }
-        },
-        loadResultsSuccess: ({ insight }) => {
             if (!!insight.query) {
                 actions.setQuery(insight.query)
             } else if (!!insight.filters && !!Object.keys(insight.filters).length) {

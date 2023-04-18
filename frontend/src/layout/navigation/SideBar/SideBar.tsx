@@ -6,6 +6,7 @@ import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/Project
 import {
     IconApps,
     IconBarChart,
+    IconBugShield,
     IconCoffee,
     IconCohort,
     IconComment,
@@ -49,6 +50,8 @@ import Typography from 'antd/lib/typography'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
+import { NotebookSideBar } from '~/scenes/notebooks/Notebook/NotebookSideBar'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -214,6 +217,9 @@ function Pages(): JSX.Element {
                     {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
                         <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
                     )}
+                    {featureFlags[FEATURE_FLAGS.ARUBUG] && (
+                        <PageButton icon={<IconBugShield />} identifier={Scene.Issues} to={urls.issues()} />
+                    )}
                     <div className="SideBar__heading">Configuration</div>
 
                     <PageButton
@@ -258,6 +264,9 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
             {children}
             <ActivationSidebar />
+            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
+                <NotebookSideBar />
+            </FlaggedFeature>
         </div>
     )
 }

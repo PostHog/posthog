@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import (
     Any,
     Callable,
@@ -150,7 +151,7 @@ class User(AbstractUser, UUIDClassicModel):
     def is_superuser(self) -> bool:  # type: ignore
         return self.is_staff
 
-    @property
+    @cached_property
     def teams(self):
         """
         All teams the user has access to on any organization, taking into account project based permissioning
@@ -182,7 +183,7 @@ class User(AbstractUser, UUIDClassicModel):
 
         return teams.order_by("access_control", "id")
 
-    @property
+    @cached_property
     def organization(self) -> Optional[Organization]:
         if self.current_organization is None:
             if self.current_team is not None:
@@ -191,7 +192,7 @@ class User(AbstractUser, UUIDClassicModel):
             self.save()
         return self.current_organization
 
-    @property
+    @cached_property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
             self.current_team = self.teams.filter(organization=self.current_organization).first()

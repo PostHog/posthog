@@ -20,6 +20,7 @@ import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNot
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingType } from '~/types'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
+import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -40,6 +41,7 @@ export function useFrameRef({
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     includeMeta?: boolean
     noBorder?: boolean
+    embedded?: boolean // hides unimportant meta information and no border
     nextSessionRecording?: Partial<SessionRecordingType>
 }
 
@@ -55,6 +57,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingId,
         sessionRecordingData,
         playerKey,
+        embedded = false,
         includeMeta = true,
         recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
         matching,
@@ -69,11 +72,10 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingData,
         recordingStartTime,
     }
-    const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed } = useActions(
-        sessionRecordingPlayerLogic(logicProps)
-    )
+    const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed, closeExplorer } =
+        useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound } = useValues(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen } = useValues(sessionRecordingPlayerLogic(logicProps))
+    const { isFullScreen, explorerMode } = useValues(sessionRecordingPlayerLogic(logicProps))
     const frame = useFrameRef(logicProps)
 
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
@@ -139,8 +141,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             ref={ref}
             className={clsx('SessionRecordingPlayer', {
                 'SessionRecordingPlayer--fullscreen': isFullScreen,
-                'SessionRecordingPlayer--no-border': noBorder,
+                'SessionRecordingPlayer--no-border': noBorder || embedded,
                 'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
+                'SessionRecordingPlayer--explorer-mode': !!explorerMode,
             })}
         >
             <div className="SessionRecordingPlayer__main">
@@ -161,6 +164,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     <PlayerInspector {...logicProps} />
                 </div>
             )}
+
+            {explorerMode && <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />}
         </div>
     )
 }

@@ -160,7 +160,7 @@ const MiniFilters: SharedListMiniFilter[] = [
 ]
 
 // This logic contains player settings that should persist across players
-// There is no key for this logic, so it does not reset when recordings change
+// If key is not specified, it is global so it does not reset when recordings change in the main recordings page
 export const playerSettingsLogic = kea<playerSettingsLogicType>([
     path(['scenes', 'session-recordings', 'player', 'playerSettingsLogic']),
     actions({
