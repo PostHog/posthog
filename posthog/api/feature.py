@@ -22,6 +22,7 @@ class FeaturePreviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = Feature
         fields = [
+            "id",
             "name",
             "description",
             "stage",
@@ -116,7 +117,6 @@ class FeatureSerializerCreateOnly(FeatureSerializer):
                         }
                     ],
                     "rollout_percentage": 100,
-                    "feature_preview": str(feature.pk),
                 }
             ],
             "payloads": {},

@@ -1973,6 +1973,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_simple_flag: boolean
     rollout_percentage: number | null
     experiment_set: string[] | null
+    features: FeatureType[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean

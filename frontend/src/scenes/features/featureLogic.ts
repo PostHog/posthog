@@ -41,7 +41,7 @@ export const featureLogic = kea<featureLogicType>([
         feature: {
             defaults: { ...NEW_FEATURE } as NewFeatureType | FeatureType,
             errors: (payload) => ({
-                name: !payload.name ? 'You need to set a name' : undefined,
+                name: !payload.name ? 'Feature name must be set' : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 await breakpoint()
@@ -67,7 +67,7 @@ export const featureLogic = kea<featureLogicType>([
     }),
     listeners(({ actions, values }) => ({
         cancel: () => {
-            if (values.isEditingFeature) {
+            if ('id' in values.feature) {
                 actions.editFeature(false)
             } else {
                 actions.resetFeature()

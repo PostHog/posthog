@@ -47,6 +47,11 @@ class CanEditFeatureFlag(BasePermission):
             return can_user_edit_feature_flag(request, feature_flag)
 
 
+class FeaturePreviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        fields = ["id", "name"]
+
+
 class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     # :TRICKY: Needed for backwards compatibility
@@ -55,6 +60,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     rollout_percentage = serializers.SerializerMethodField()
 
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    features: serializers.PrimaryKeyRelatedField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
 
     name = serializers.CharField(
@@ -79,6 +85,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "rollout_percentage",
             "ensure_experience_continuity",
             "experiment_set",
+            "features",
             "rollback_conditions",
             "performed_rollback",
             "can_edit",
@@ -99,6 +106,11 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             and no_properties_used
             and feature_flag.aggregation_group_type_index is None
         )
+
+    def get_features(self, feature_flag: FeatureFlag) -> List[Dict[str, Any]]:
+        from posthog.api.feature import FeaturePreviewSerializer
+
+        return FeaturePreviewSerializer(feature_flag.features, many=True).data
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):
@@ -295,7 +307,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         queryset = super().get_queryset()
 
         if self.action == "list":
-            queryset = queryset.filter(deleted=False).prefetch_related("experiment_set")
+            queryset = queryset.filter(deleted=False).prefetch_related("experiment_set").prefetch_related("features")
 
         return queryset.select_related("created_by").order_by("-created_at")
 
@@ -325,6 +337,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         feature_flags = (
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
             .prefetch_related("experiment_set")
+            .prefetch_related("features")
             .select_related("created_by")
             .order_by("-created_at")
         )

@@ -41,7 +41,7 @@ import {
     FeatureFlagGroupType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { Field } from 'lib/forms/Field'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -1023,19 +1023,46 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
         )
     }
 
+    const isFeaturePreviewCondition = (group: FeatureFlagGroupType): boolean => {
+        return !!(
+            featureFlag.features?.length &&
+            featureFlag.features?.length > 0 &&
+            group.properties.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
+        )
+    }
+
     const renderReleaseCondition = (group: FeatureFlagGroupType, index: number): JSX.Element => {
-        if (group.feature_preview) {
+        if (isFeaturePreviewCondition(group)) {
             return (
                 <Row justify="space-between" align="middle">
-                    <LemonTag type={'primary'}>
+                    <LemonTag type={'default'}>
                         <div className="text-sm ">Connected to feature preview</div>
                     </LemonTag>
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => router.actions.push('/features/' + group.feature_preview)}
+                    <LemonButtonWithDropdown
+                        aria-label="more"
+                        data-attr={'feature-flag-feature-list-button'}
+                        status="primary"
+                        dropdown={{
+                            placement: 'bottom-end',
+                            actionable: true,
+                            overlay: (
+                                <>
+                                    {featureFlag.features?.map((feature) => (
+                                        <LemonButton
+                                            key={feature.id}
+                                            onClick={() => router.actions.push('/features/' + feature.id)}
+                                        >
+                                            {feature.name}
+                                        </LemonButton>
+                                    ))}
+                                </>
+                            ),
+                        }}
+                        size="small"
+                        onClick={() => {}}
                     >
                         Manage
-                    </LemonButton>
+                    </LemonButtonWithDropdown>
                 </Row>
             )
         }
@@ -1165,7 +1192,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 'border',
                                 'rounded',
                                 'p-4',
-                                group.feature_preview && 'FeatureConditionCard--border--highlight'
+                                isFeaturePreviewCondition(group) && 'FeatureConditionCard--border--highlight'
                             )}
                         >
                             <Row align="middle" justify="space-between">
@@ -1199,7 +1226,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                             noPadding
                                             onClick={() => duplicateConditionSet(index)}
                                         />
-                                        {!group.feature_preview && featureFlag.filters.groups.length > 1 && (
+                                        {!isFeaturePreviewCondition(group) && featureFlag.filters.groups.length > 1 && (
                                             <LemonButton
                                                 icon={<IconDelete />}
                                                 status="muted"

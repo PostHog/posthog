@@ -8,10 +8,8 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Field, PureField } from 'lib/forms/Field'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { featureLogic } from './featureLogic'
 import { Field as KeaField, Form } from 'kea-forms'
@@ -31,6 +29,7 @@ import { LabelInValue, LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMulti
 import { useDebouncedCallback } from 'use-debounce'
 import { PersonLogicProps, personsLogic } from 'scenes/persons/personsLogic'
 import api from 'lib/api'
+import clsx from 'clsx'
 
 export const scene: SceneExport = {
     component: Feature,
@@ -62,7 +61,6 @@ function RetrievePreviewsInstructions({ feature }: { feature: FeatureType }): JS
     return (
         <CodeSnippet language={Language.JavaScript} wrap>
             {`posthog.getFeaturePreviews()
-
 // Example response:
 // {
 //     name: '${feature.name}',
@@ -75,7 +73,7 @@ function RetrievePreviewsInstructions({ feature }: { feature: FeatureType }): JS
 }
 
 export function Feature(): JSX.Element {
-    const { feature, featureLoading, isFeatureSubmitting, mode, isEditingFeature } = useValues(featureLogic)
+    const { feature, featureLoading, isFeatureSubmitting, isEditingFeature } = useValues(featureLogic)
     const { submitFeatureRequest, cancel, editFeature } = useActions(featureLogic)
     const [selectedPersons, setSelectedPersons] = useState<PersonType[]>([])
 
@@ -88,29 +86,7 @@ export function Feature(): JSX.Element {
     return (
         <Form formKey="feature" logic={featureLogic}>
             <PageHeader
-                title={
-                    !featureLoading ? (
-                        <KeaField name="name">
-                            {({ value, onChange }) => (
-                                <EditableField
-                                    name="name"
-                                    value={value}
-                                    onChange={(value) => {
-                                        onChange(value)
-                                    }}
-                                    placeholder="Name this feature"
-                                    minLength={1}
-                                    maxLength={200} // Sync with the Feature model
-                                    mode={mode}
-                                    autoFocus={!('id' in feature)}
-                                    data-attr="feature-name"
-                                />
-                            )}
-                        </KeaField>
-                    ) : (
-                        <LemonSkeleton className="w-80 h-10" />
-                    )
-                }
+                title={'New Feature'}
                 buttons={
                     !featureLoading ? (
                         isEditingFeature ? (
@@ -149,8 +125,11 @@ export function Feature(): JSX.Element {
                 }
                 delimited
             />
-            <div className="flex flex-row gap-4">
+            <div className={clsx('flex', 'flex-row', 'gap-4', isEditingFeature ? 'max-w-160' : null)}>
                 <div className="flex flex-col flex-1 gap-4">
+                    <Field name="name" label="Name">
+                        <LemonInput data-attr="feature-name" />
+                    </Field>
                     {'feature_flag' in feature ? (
                         <PureField label="Connected Feature flag">
                             <div>
@@ -208,7 +187,7 @@ export function Feature(): JSX.Element {
                         <div className="mb-2">
                             <b>Stage</b>
                             <div>
-                                <LemonTag type="success" className="mt-2 uppercase">
+                                <LemonTag type="highlight" className="mt-2 uppercase">
                                     {feature.stage}
                                 </LemonTag>
                             </div>
