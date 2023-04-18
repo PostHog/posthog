@@ -80,7 +80,7 @@ class PropertySwapper(CloningVisitor):
     def visit_field(self, node: ast.Field):
         if isinstance(node.ref, ast.FieldRef):
             if isinstance(node.ref.resolve_database_field(), DateTimeDatabaseField):
-                return ast.Call(name="toTimezone", args=[node, ast.Constant(value=self.timezone)])
+                return ast.Call(name="toTimeZone", args=[node, ast.Constant(value=self.timezone)])
 
         ref = node.ref
         if isinstance(ref, ast.PropertyRef) and ref.parent.name == "properties" and len(ref.chain) == 1:
