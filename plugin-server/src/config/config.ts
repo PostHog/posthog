@@ -113,9 +113,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
 
+        SESSION_RECORDING_BLOB_PROCESSING_TEAMS: 'all',
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10, // NOTE: 10 minutes
-        SESSION_RECORDING_MAX_BUFFER_SIZE_KB: process.env.NODE_ENV === 'dev' ? 100 : 1000 * 50, // NOTE: ~1MB in dev, ~50MB in prod
+        SESSION_RECORDING_MAX_BUFFER_SIZE_KB: process.env.NODE_ENV === 'dev' ? 1024 : 1024 * 50, // NOTE: ~1MB in dev, ~50MB in prod
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
     }
 }

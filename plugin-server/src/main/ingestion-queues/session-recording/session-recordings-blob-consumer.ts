@@ -40,7 +40,7 @@ export class SessionRecordingBlobIngester {
     producer?: RdKafkaProducer
     lastHeartbeat: number = Date.now()
     flushInterval: NodeJS.Timer | null = null
-    enabledTeams: number[]
+    enabledTeams: number[] | null
 
     constructor(
         private teamManager: TeamManager,
@@ -48,7 +48,8 @@ export class SessionRecordingBlobIngester {
         private serverConfig: PluginsServerConfig,
         private objectStorage: ObjectStorage
     ) {
-        this.enabledTeams = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS.split(',').map(parseInt)
+        const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
+        this.enabledTeams = enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').map(parseInt)
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {
@@ -141,7 +142,7 @@ export class SessionRecordingBlobIngester {
             return statusWarn('team_not_found')
         }
 
-        if (!this.enabledTeams.includes(team.id)) {
+        if (this.enabledTeams && !this.enabledTeams.includes(team.id)) {
             // NOTE: due to the high volume of hits here we don't log this
             return
         }
@@ -216,6 +217,7 @@ export class SessionRecordingBlobIngester {
             maxWaitTimeInMs: this.serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
         })
         setupEventHandlers(this.consumer)
+
         await this.consumer.connect()
         await this.consumer.subscribe({ topic: KAFKA_SESSION_RECORDING_EVENTS })
 
