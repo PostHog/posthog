@@ -1,15 +1,24 @@
-import path from 'path'
-import { randomUUID } from 'crypto'
-import { s3Client } from '../utils/s3'
-import { IncomingRecordingMessage } from '../types'
-import { config } from '../config'
-import { convertToPersistedMessage } from './utils'
-import { writeFileSync, mkdirSync, createReadStream } from 'fs'
-import { appendFile, rm } from 'fs/promises'
-import { counterS3FilesWritten } from '../utils/metrics'
-import { createLogger } from '../utils/logger'
-import * as zlib from 'zlib'
 import { Upload } from '@aws-sdk/lib-storage'
+import { randomUUID } from 'crypto'
+import { createReadStream, mkdirSync, writeFileSync } from 'fs'
+import { appendFile, rm } from 'fs/promises'
+import path from 'path'
+import { Counter } from 'prom-client'
+import * as zlib from 'zlib'
+
+import { PluginsServerConfig } from '../../../../types'
+import { status } from '../../../../utils/status'
+import { ObjectStorage } from '../../../services/object_storage'
+import { IncomingRecordingMessage } from './types'
+import { convertToPersistedMessage } from './utils'
+
+export const counterS3FilesWritten = new Counter({
+    name: 'recording_s3_files_written',
+    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
+    labelNames: ['partition_key'],
+})
+
+const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 
 // The buffer is a list of messages grouped
 type SessionBuffer = {
@@ -21,21 +30,21 @@ type SessionBuffer = {
     offsets: number[]
 }
 
-const logger = createLogger('session-manager')
-
 export class SessionManager {
     chunks: Map<string, IncomingRecordingMessage[]> = new Map()
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
 
     constructor(
+        public readonly serverConfig: PluginsServerConfig,
+        public readonly s3Client: ObjectStorage['s3'],
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
         public readonly topic: string,
         private readonly onFinish: (offsetsToRemove: number[]) => void
     ) {
-        this.createBuffer()
+        this.buffer = this.createBuffer()
     }
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
@@ -45,25 +54,33 @@ export class SessionManager {
             await this.addToChunks(message)
         }
 
-        const capacity = this.buffer.size / (config.sessions.maxEventGroupKb * 1024)
-        logger.info(
-            `Buffer ${this.sessionId}:: capacity: ${(capacity * 100).toFixed(2)}% count: ${
-                this.buffer.count
-            } ${Math.round(this.buffer.size / 1024)}KB chunks: ${this.chunks.size})`
-        )
-
-        const shouldFlush =
-            capacity > 1 ||
-            Date.now() - this.buffer.createdAt.getTime() >= config.sessions.maxEventGroupAgeSeconds * 1000
-
-        if (shouldFlush) {
-            logger.info(`Flushing buffer ${this.sessionId}...`)
-            await this.flush()
-        }
+        await this.flushIfNeccessary()
     }
 
     public get isEmpty(): boolean {
         return this.buffer.count === 0 && this.chunks.size === 0
+    }
+
+    public async flushIfNeccessary(): Promise<void> {
+        const bufferSizeKb = this.buffer.size / 1024
+        const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
+        const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
+
+        status.info(
+            `Buffer ${this.sessionId}:: capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${
+                this.buffer.count
+            } ${Math.round(bufferSizeKb)}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size})`
+        )
+
+        const shouldFlush =
+            gzippedCapacity > 1 ||
+            Date.now() - this.buffer.createdAt.getTime() >=
+                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+
+        if (shouldFlush) {
+            status.info(`Flushing buffer ${this.sessionId}...`)
+            await this.flush()
+        }
     }
 
     /**
@@ -72,24 +89,24 @@ export class SessionManager {
      */
     public async flush(): Promise<void> {
         if (this.flushBuffer) {
-            logger.warn("Flush called but we're already flushing")
+            status.warn("Flush called but we're already flushing")
             return
         }
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
-        this.createBuffer()
+        this.buffer = this.createBuffer()
 
         try {
-            const baseKey = `${config.s3.sessionRecordingFolder}/team_id/${this.teamId}/session_id/${this.sessionId}`
+            const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
             const dataKey = `${baseKey}/data/${this.flushBuffer.createdAt.getTime()}` // TODO: Change to be based on events times
 
             // TODO should only compress over some threshold? Depends how many uncompressed files we see below c200kb
             const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
 
             const parallelUploads3 = new Upload({
-                client: s3Client,
+                client: this.s3Client,
                 params: {
-                    Bucket: config.s3.bucket,
+                    Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
                     Key: dataKey,
                     Body: fileStream,
                 },
@@ -99,14 +116,15 @@ export class SessionManager {
             })
             await parallelUploads3.done()
 
-            counterS3FilesWritten.add(1, {
-                bytes: this.flushBuffer.size, // since the file is compressed this is wrong, and we don't know the compressed size 🤔
-            })
+            counterS3FilesWritten.inc(1)
+            // counterS3FilesWritten.add(1, {
+            //     bytes: this.flushBuffer.size, // since the file is compressed this is wrong, and we don't know the compressed size 🤔
+            // })
 
             // TODO: Increment file count and size metric
         } catch (error) {
             // TODO: If we fail to write to S3 we should be do something about it
-            logger.error(error)
+            status.error(error)
         } finally {
             await rm(this.flushBuffer.file)
 
@@ -117,21 +135,26 @@ export class SessionManager {
         }
     }
 
-    private createBuffer(): void {
+    private createBuffer(): SessionBuffer {
         const id = randomUUID()
-        this.buffer = {
+        const buffer = {
             id,
             count: 0,
             size: 0,
             createdAt: new Date(),
-            file: path.join(config.sessions.directory, `${this.teamId}.${this.sessionId}.${id}.jsonl`),
+            file: path.join(
+                this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY,
+                `${this.teamId}.${this.sessionId}.${id}.jsonl`
+            ),
             offsets: [],
         }
 
         // NOTE: We should move this to do once on startup
-        mkdirSync(config.sessions.directory, { recursive: true })
+        mkdirSync(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true })
         // NOTE: We may want to figure out how to safely do this async
-        writeFileSync(this.buffer.file, '', 'utf-8')
+        writeFileSync(buffer.file, '', 'utf-8')
+
+        return buffer
     }
 
     /**
@@ -157,7 +180,7 @@ export class SessionManager {
         if (!this.chunks.has(message.chunk_id)) {
             this.chunks.set(message.chunk_id, chunks)
         } else {
-            chunks = this.chunks.get(message.chunk_id)
+            chunks = this.chunks.get(message.chunk_id) || []
         }
 
         chunks.push(message)
@@ -182,8 +205,10 @@ export class SessionManager {
         }
     }
 
-    public async destroy(): Promise<void> {
+    public destroy(): Promise<void> {
         // TODO: Should we delete the buffer files??
         this.onFinish([])
+
+        return Promise.resolve()
     }
 }

@@ -1,15 +1,18 @@
-import { beforeEach, expect, it, describe, vi } from 'vitest'
-
-import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../../test/fixtures'
-import { SessionManager } from './session-manager'
 import fs from 'node:fs'
-import { compressToString } from '../utils/compression'
+
+import { SessionManager } from './session-manager'
+import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from './test/fixtures'
+import { compressToString } from './utils'
 
 describe('session-manager', () => {
     let sessionManager: SessionManager
-    const mockFinish = vi.fn()
-    beforeEach(async () => {
-        sessionManager = new SessionManager(1, 'session_id_1', 1, 'topic', mockFinish)
+    const mockFinish = jest.fn()
+    const mockS3Client: any = {
+        send: jest.fn(),
+    }
+
+    beforeEach(() => {
+        sessionManager = new SessionManager(mockS3Client, 1, 'session_id_1', 1, 'topic', mockFinish)
         mockFinish.mockClear()
     })
 
@@ -42,7 +45,7 @@ describe('session-manager', () => {
         const flushPromise = sessionManager.flush()
 
         expect(sessionManager.buffer.count).toEqual(0)
-        expect(sessionManager.flushBuffer.count).toEqual(1)
+        expect(sessionManager.flushBuffer?.count).toEqual(1)
 
         await flushPromise
 
@@ -58,10 +61,10 @@ describe('session-manager', () => {
         expect(sessionManager.buffer.count).toEqual(1)
 
         const flushPromise = sessionManager.flush()
-        sessionManager.add(event2)
+        await sessionManager.add(event2)
 
         expect(sessionManager.buffer.count).toEqual(1)
-        expect(sessionManager.flushBuffer.count).toEqual(1)
+        expect(sessionManager.flushBuffer?.count).toEqual(1)
 
         await flushPromise
 

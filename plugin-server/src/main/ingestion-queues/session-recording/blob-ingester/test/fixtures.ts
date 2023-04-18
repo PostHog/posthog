@@ -1,6 +1,6 @@
-import { config } from '../src/config'
-import { compressToString } from '../src/utils/compression'
-import { IncomingRecordingMessage } from '../src/types'
+import { config } from '../config'
+import { compressToString } from '../utils/compression'
+import { IncomingRecordingMessage } from '../types'
 
 import jsonInitialSnapshot from './data/snapshot-full.json'
 import jsonFullSnapshot from './data/snapshot-full.json'

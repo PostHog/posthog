@@ -4,21 +4,21 @@ import { ClientMetrics, HighLevelProducer as RdKafkaProducer, ProducerGlobalConf
 import { hostname } from 'os'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
-import { RDKAFKA_LOG_LEVEL_MAPPING } from '../../config/constants'
+import { RDKAFKA_LOG_LEVEL_MAPPING } from '../../../config/constants'
 import {
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
     KAFKA_PERFORMANCE_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS_DLQ,
-} from '../../config/kafka-topics'
-import { KafkaSecurityProtocol, PipelineEvent, RawEventMessage, Team } from '../../types'
-import { KafkaConfig } from '../../utils/db/hub'
-import { status } from '../../utils/status'
-import { createPerformanceEvent, createSessionRecordingEvent } from '../../worker/ingestion/process-event'
-import { TeamManager } from '../../worker/ingestion/team-manager'
-import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
-import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
-import { eventDroppedCounter, latestOffsetTimestampGauge } from './metrics'
+} from '../../../config/kafka-topics'
+import { KafkaSecurityProtocol, PipelineEvent, RawEventMessage, Team } from '../../../types'
+import { KafkaConfig } from '../../../utils/db/hub'
+import { status } from '../../../utils/status'
+import { createPerformanceEvent, createSessionRecordingEvent } from '../../../worker/ingestion/process-event'
+import { TeamManager } from '../../../worker/ingestion/team-manager'
+import { parseEventTimestamp } from '../../../worker/ingestion/timestamps'
+import { instrumentEachBatch, setupEventHandlers } from '../kafka-queue'
+import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 
 export const startSessionRecordingEventsConsumer = async ({
     teamManager,

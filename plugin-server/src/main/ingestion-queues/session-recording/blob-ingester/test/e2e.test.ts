@@ -3,9 +3,9 @@ import { Kafka, Partitioners, Producer } from 'kafkajs'
 import http from 'http'
 import { v4 as uuidv4 } from 'uuid'
 
-import { config } from '../src/config'
+import { config } from '../config'
 import { ListObjectsCommand } from '@aws-sdk/client-s3'
-import { s3Client } from '../src/utils/s3'
+import { s3Client } from '../utils/s3'
 
 declare module 'vitest' {
     export interface TestContext {

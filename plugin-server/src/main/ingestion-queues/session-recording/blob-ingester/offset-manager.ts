@@ -1,10 +1,4 @@
-import { createLogger } from '../utils/logger'
-import { consumer } from '../utils/kafka'
-
-const logger = createLogger('offset-manager')
-
 /**
- * ## Offset Manager
  * - A note on Kafka partitioning
  *
  * We are ingesting events and partitioning based on session_id. This means that we can have multiple sessions
@@ -22,12 +16,18 @@ const logger = createLogger('offset-manager')
  * track everything in this single process
  */
 
+import { Consumer } from 'kafkajs'
+
+import { status } from '../../../../utils/status'
+
 export class OffsetManager {
     // We have to track every message's offset so that we can commit them only after they've been written to S3
     // TODO: Change this to an ordered array.
     offsetsByPartionTopic: Map<string, number[]> = new Map()
 
-    public async addOffset(topic: string, partition: number, offset: number): Promise<void> {
+    constructor(private consumer: Consumer) {}
+
+    public addOffset(topic: string, partition: number, offset: number): void {
         const key = `${topic}-${partition}`
 
         if (!this.offsetsByPartionTopic.has(key)) {
@@ -35,11 +35,11 @@ export class OffsetManager {
         }
 
         // TODO: We should parseInt when we handle the message
-        this.offsetsByPartionTopic.get(key).push(offset)
+        this.offsetsByPartionTopic.get(key)?.push(offset)
     }
 
     // TODO: Ensure all offsets passed here are already checked to be part of the same partition
-    public async removeOffsets(topic: string, partition: number, offsets: number[]): Promise<number | null> {
+    public async removeOffsets(topic: string, partition: number, offsets: number[]): Promise<number | undefined> {
         // TRICKY - We want to find the newest offset from the ones being removed that is
         // older than the oldest in the list
         // e.g. [3, 4, 8, 10] -> removing [3,8] should end up with [4,10] and commit 3
@@ -49,14 +49,17 @@ export class OffsetManager {
             return
         }
 
-        let offsetToCommit: number | null = null
+        let offsetToCommit: number | undefined
         const offsetsToRemove = offsets.sort((a, b) => a - b)
 
         const key = `${topic}-${partition}`
         const inFlightOffsets = this.offsetsByPartionTopic.get(key)
 
+        status.info(`Current offsets: ${inFlightOffsets}`)
+        status.info(`Removing offsets: ${offsets}`)
+
         if (!inFlightOffsets) {
-            logger.error(`No offsets found for key: ${key}. This should never happen`)
+            status.error(`No offsets found for key: ${key}. This should never happen`)
             return
         }
 
@@ -77,13 +80,16 @@ export class OffsetManager {
         this.offsetsByPartionTopic.set(key, inFlightOffsets)
 
         if (offsetToCommit) {
-            await consumer.commitOffsets([
+            status.info(`Committing offset ${offsetToCommit} for ${topic}-${partition}`)
+            await this.consumer.commitOffsets([
                 {
                     topic,
                     partition,
                     offset: offsetToCommit.toString(),
                 },
             ])
+        } else {
+            status.info(`No offset to commit from: ${inFlightOffsets}`)
         }
 
         return offsetToCommit

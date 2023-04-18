@@ -29,9 +29,11 @@ import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
-import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recordings-consumer'
+import { SessionRecordingBlobIngester } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
+import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
+import { getObjectStorage } from './services/object_storage'
 
 const { version } = require('../../package.json')
 
@@ -91,6 +93,7 @@ export async function startPluginsServer(
     // meantime.
     let bufferConsumer: Consumer | undefined
     let stopSessionRecordingEventsConsumer: (() => void) | undefined
+    let stopSessionRecordingBlobConsumer: (() => void) | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
@@ -132,6 +135,7 @@ export async function startPluginsServer(
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
             stopSessionRecordingEventsConsumer?.(),
+            stopSessionRecordingBlobConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
         ])
 
@@ -444,6 +448,20 @@ export async function startPluginsServer(
             })
             stopSessionRecordingEventsConsumer = stop
             healthChecks['session-recordings'] = isSessionRecordingsHealthy
+        }
+
+        if (capabilities.sessionRecordingBlobIngestion) {
+            const kafka = hub?.kafka ?? createKafkaClient(serverConfig as KafkaConfig)
+            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
+            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
+            const s3 = hub?.objectStorage ?? getObjectStorage(serverConfig)
+            if (!s3) {
+                throw new Error("Can't start session recording blob ingestion without object storage")
+            }
+            const ingester = new SessionRecordingBlobIngester(teamManager, kafka, serverConfig, s3)
+            await ingester.start()
+            stopSessionRecordingBlobConsumer = () => ingester.stop()
+            healthChecks['session-recordings-blob'] = () => ingester.isHealthy()
         }
 
         if (capabilities.http) {
