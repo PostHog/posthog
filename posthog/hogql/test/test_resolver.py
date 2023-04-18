@@ -631,15 +631,17 @@ class TestResolver(BaseTest):
     def test_call_type(self):
         node = parse_select("select max(timestamp) from events")
         resolve_types(node, self.database)
-        expected = ast.Call(
-            name="max",
-            # NB! timestamp was resolved to a DateTimeType for the Call's arg type.
-            type=ast.CallType(name="max", arg_types=[ast.DateTimeType()], return_type=ast.UnknownType()),
-            args=[
-                ast.Field(
-                    chain=["timestamp"],
-                    type=ast.FieldType(name="timestamp", table_type=ast.TableType(table=self.database.events)),
-                )
-            ],
-        )
-        self.assertEqual(node.select[0], expected)
+        expected = [
+            ast.Call(
+                name="max",
+                # NB! timestamp was resolved to a DateTimeType for the Call's arg type.
+                type=ast.CallType(name="max", arg_types=[ast.DateTimeType()], return_type=ast.UnknownType()),
+                args=[
+                    ast.Field(
+                        chain=["timestamp"],
+                        type=ast.FieldType(name="timestamp", table_type=ast.TableType(table=self.database.events)),
+                    )
+                ],
+            ),
+        ]
+        self.assertEqual(node.select, expected)
