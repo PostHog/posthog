@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, describe, vi } from 'vitest'
 
-import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../../test/fixtures'
+import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../test/fixtures'
 import { SessionManager } from './session-manager'
 import fs from 'node:fs'
 import { compressToString } from '../utils/compression'

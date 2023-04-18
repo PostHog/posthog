@@ -2,7 +2,7 @@ import { beforeEach, expect, it, describe } from 'vitest'
 import { Producer } from 'kafkajs'
 
 import { Ingester } from './ingester'
-import { createIncomingRecordingMessage } from '../../test/fixtures'
+import { createIncomingRecordingMessage } from '../test/fixtures'
 
 declare module 'vitest' {
     export interface TestContext {
