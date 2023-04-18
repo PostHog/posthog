@@ -59,8 +59,7 @@ services:
         image: maildev/maildev:2.0.5
         restart: on-failure
 
-    worker:
-        &worker
+    worker: &worker
         command: ./bin/start-worker
         restart: on-failure
         environment:
@@ -109,7 +108,11 @@ services:
 
     migrate:
         <<: *worker
-        command: sh -c " python manage.py migrate && python manage.py migrate_clickhouse && python manage.py run_async_migrations "
+        command: sh -c "
+            python manage.py migrate
+            && python manage.py migrate_clickhouse
+            && python manage.py run_async_migrations
+            "
         restart: 'no'
         deploy:
             replicas: 0
