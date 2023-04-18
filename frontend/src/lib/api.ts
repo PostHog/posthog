@@ -230,7 +230,7 @@ class ApiRequest {
     }
 
     public batchExportRun(id: BatchExportRunType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.batchExportRun(teamId).addPathComponent(id)
+        return this.batchExportRuns(teamId).addPathComponent(id)
     }
 
     // # Exports
@@ -605,7 +605,6 @@ const api = {
             async list(teamId: TeamType['id'] = getCurrentTeamId()): Promise<PaginatedResponse<BatchExportRunType>> {
                 return (await new ApiRequest().batchExportRuns(teamId).get()).results
             },
-
             async get(
                 runId: BatchExportRunType['id'],
                 teamId: TeamType['id'] = getCurrentTeamId()
@@ -617,6 +616,27 @@ const api = {
                 teamId: TeamType['id'] = getCurrentTeamId()
             ): Promise<BatchExportRunType> {
                 return await new ApiRequest().batchExportRuns(teamId).create({ data })
+            },
+            async pause(
+                runId: BatchExportRunType['id'],
+                teamId: TeamType['id'] = getCurrentTeamId()
+            ): Promise<BatchExportRunType> {
+                return await new ApiRequest().batchExportRun(runId, teamId).withAction('pause').update()
+            },
+            async resume(
+                runId: BatchExportRunType['id'],
+                teamId: TeamType['id'] = getCurrentTeamId()
+            ): Promise<BatchExportRunType> {
+                return await new ApiRequest().batchExportRun(runId, teamId).withAction('resume').update()
+            },
+            async restart(
+                runId: BatchExportRunType['id'],
+                teamId: TeamType['id'] = getCurrentTeamId()
+            ): Promise<BatchExportRunType> {
+                return await new ApiRequest().batchExportRun(runId, teamId).withAction('restart').update()
+            },
+            async delete(runId: BatchExportRunType['id'], teamId: TeamType['id'] = getCurrentTeamId()): Promise<void> {
+                return await new ApiRequest().batchExportRun(runId, teamId).delete()
             },
         },
     },
