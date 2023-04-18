@@ -3,7 +3,7 @@ import { DEFAULT_FILE_NAME, NewConnectionLogic } from './NewConnectionLogic'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { BatchExportFrequencyType, BatchExportTabsType, FileFormatType } from './types'
+import { BatchExportFrequencyType, BatchExportTabsType, S3BatchExportFileFormatType } from './types'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
@@ -58,7 +58,7 @@ const frequencyOptions: { label: string; value: BatchExportFrequencyType; noun: 
     },
 ]
 
-const fileFormatOptions: { label: string; value: FileFormatType }[] = [
+const fileFormatOptions: { label: string; value: S3BatchExportFileFormatType }[] = [
     {
         label: 'CSV',
         value: 'csv',

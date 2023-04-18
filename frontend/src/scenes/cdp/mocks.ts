@@ -1,14 +1,14 @@
 import { mockBasicUser } from '~/test/mocks'
 import {
-    BatchExportConnectionType,
-    BatchExportSettingsType,
-    BatchExportStatus,
+    BatchExportDestinationType,
+    S3BatchExportConfigType,
+    BatchExportRunStatus,
     ConnectionChoiceType,
-    ExportRunType,
+    BatchExportRunType,
 } from './types'
 import { dayjs } from 'lib/dayjs'
 
-export const mockConnections: BatchExportConnectionType[] = [
+export const mockConnections: BatchExportDestinationType[] = [
     {
         id: '1',
         name: 'Webhook export',
@@ -16,14 +16,14 @@ export const mockConnections: BatchExportConnectionType[] = [
         connection_type_id: 'webhook-export',
         successRate: '100%',
         imageUrl: 'https://a.slack-edge.com/80588/img/services/outgoing-webhook_512.png',
-        settings: {},
+        config: {},
     },
     {
         id: '2',
         name: 'S3 export',
         status: 'Scheduled every hour',
         connection_type_id: 's3-export',
-        settings: {},
+        config: {},
         successRate: '100%',
         imageUrl: 'https://raw.githubusercontent.com/PostHog/s3-export-plugin/main/logo.png',
     },
@@ -44,10 +44,10 @@ export const mockConnectionChoices: ConnectionChoiceType[] = [
     },
 ]
 
-export const mockExportRuns: ExportRunType[] = [
+export const mockExportRuns: BatchExportRunType[] = [
     {
         id: '1',
-        status: BatchExportStatus.Completed,
+        status: BatchExportRunStatus.Completed,
         created_at: '2021-05-10T12:00:00Z',
         completed_at: '2021-05-10T13:00:00Z',
         created_by: mockBasicUser,
@@ -81,7 +81,7 @@ export const mockExportRuns: ExportRunType[] = [
     },
     {
         id: '2',
-        status: BatchExportStatus.Starting,
+        status: BatchExportRunStatus.Starting,
         created_at: '2021-06-10T12:00:00Z',
         completed_at: '2021-06-10T13:00:00Z',
         created_by: null,
@@ -90,7 +90,7 @@ export const mockExportRuns: ExportRunType[] = [
     },
     {
         id: '3',
-        status: BatchExportStatus.Running,
+        status: BatchExportRunStatus.Running,
         created_at: '2021-07-10T12:00:00Z',
         completed_at: '2021-07-10T13:00:00Z',
         created_by: mockBasicUser,
@@ -100,7 +100,7 @@ export const mockExportRuns: ExportRunType[] = [
     },
     {
         id: '4',
-        status: BatchExportStatus.Failed,
+        status: BatchExportRunStatus.Failed,
         created_at: '2021-08-10T12:00:00Z',
         completed_at: '2021-08-10T13:00:00Z',
         created_by: mockBasicUser,
@@ -111,7 +111,7 @@ export const mockExportRuns: ExportRunType[] = [
     },
     {
         id: '5',
-        status: BatchExportStatus.Paused,
+        status: BatchExportRunStatus.Paused,
         created_at: '2021-09-10T12:00:00Z',
         completed_at: '2021-09-10T13:00:00Z',
         created_by: mockBasicUser,
@@ -120,7 +120,7 @@ export const mockExportRuns: ExportRunType[] = [
     },
     {
         id: '6',
-        status: BatchExportStatus.Terminated,
+        status: BatchExportRunStatus.Terminated,
         created_at: '2021-10-10T12:00:00Z',
         completed_at: '2021-10-10T13:00:00Z',
         created_by: mockBasicUser,
@@ -130,7 +130,7 @@ export const mockExportRuns: ExportRunType[] = [
     },
     {
         id: '6',
-        status: BatchExportStatus.TimedOut,
+        status: BatchExportRunStatus.TimedOut,
         created_at: '2021-10-10T12:00:00Z',
         completed_at: '2021-10-10T13:00:00Z',
         created_by: mockBasicUser,
@@ -139,7 +139,7 @@ export const mockExportRuns: ExportRunType[] = [
     },
 ]
 
-export const mockConnectionSettings: BatchExportSettingsType = {
+export const mockConnectionSettings: S3BatchExportConfigType = {
     name: '',
     frequency: '6',
     firstExport: dayjs(),

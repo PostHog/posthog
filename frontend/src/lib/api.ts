@@ -52,6 +52,7 @@ import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
 import { CommunicationResponse } from 'scenes/events/CommunicationDetailsLogic'
+import { BatchExportDestinationType, BatchExportRunType } from 'scenes/cdp/types'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -210,6 +211,26 @@ class ApiRequest {
 
     public actionsDetail(actionId: ActionType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.actions(teamId).addPathComponent(actionId)
+    }
+
+    // # Batch exports
+
+    // ## Export destinations
+    public batchExportDestinations(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('batch_export_destinations')
+    }
+
+    public batchExportDestination(id: BatchExportDestinationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExportDestinations(teamId).addPathComponent(id)
+    }
+
+    // ## Export runs
+    public batchExportRuns(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('batch_export_runs')
+    }
+
+    public batchExportRun(id: BatchExportRunType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExportRun(teamId).addPathComponent(id)
     }
 
     // # Exports
@@ -548,6 +569,55 @@ const api = {
             return requestForScope[activityLogProps.scope](activityLogProps)
                 .withQueryString(toParams(pagingParameters))
                 .get()
+        },
+    },
+
+    batchExports: {
+        destinations: {
+            async list(
+                teamId: TeamType['id'] = getCurrentTeamId()
+            ): Promise<PaginatedResponse<BatchExportDestinationType>> {
+                return (await new ApiRequest().batchExportDestinations(teamId).get()).results
+            },
+            async get(
+                destinationId: BatchExportDestinationType['id'],
+                teamId: TeamType['id'] = getCurrentTeamId()
+            ): Promise<BatchExportDestinationType> {
+                return await new ApiRequest().batchExportDestination(destinationId, teamId).get()
+            },
+
+            async create(
+                data: Partial<BatchExportDestinationType>,
+                teamId: TeamType['id'] = getCurrentTeamId()
+            ): Promise<BatchExportDestinationType> {
+                return await new ApiRequest().batchExportDestinations(teamId).create({ data })
+            },
+
+            async update(
+                destinationId: BatchExportDestinationType['id'],
+                data: Partial<BatchExportDestinationType>,
+                teamId: TeamType['id'] = getCurrentTeamId()
+            ): Promise<BatchExportDestinationType> {
+                return await new ApiRequest().batchExportDestination(destinationId, teamId).update({ data })
+            },
+        },
+        runs: {
+            async list(teamId: TeamType['id'] = getCurrentTeamId()): Promise<PaginatedResponse<BatchExportRunType>> {
+                return (await new ApiRequest().batchExportRuns(teamId).get()).results
+            },
+
+            async get(
+                runId: BatchExportRunType['id'],
+                teamId: TeamType['id'] = getCurrentTeamId()
+            ): Promise<BatchExportRunType> {
+                return await new ApiRequest().batchExportRun(runId, teamId).get()
+            },
+            async create(
+                data: Partial<BatchExportRunType>,
+                teamId: TeamType['id'] = getCurrentTeamId()
+            ): Promise<BatchExportRunType> {
+                return await new ApiRequest().batchExportRuns(teamId).create({ data })
+            },
         },
     },
 

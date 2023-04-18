@@ -2,12 +2,12 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 
 import type { NewConnectionLogicType } from './NewConnectionLogicType'
 import {
-    BatchExportConnectionType,
-    BatchExportSettingsType,
+    BatchExportDestinationType,
+    S3BatchExportConfigType,
     BatchExportTabsType,
     ChangeExportRunStatusEnum,
     ConnectionChoiceType,
-    ExportRunType,
+    BatchExportRunType,
 } from './types'
 import { mockConnectionChoices, mockExportRuns } from './mocks'
 import { loaders } from 'kea-loaders'
@@ -22,7 +22,7 @@ interface NewConnectionLogicProps {
     id: string
 }
 
-const defaultCreator = (values: NewConnectionLogicType['values']): BatchExportSettingsType => ({
+const defaultCreator = (values: NewConnectionLogicType['values']): S3BatchExportConfigType => ({
     name: '',
     frequency: '12',
     firstExport: dayjsUtcToTimezone(new Date().toISOString(), values.timezone).add(1, 'day').startOf('day') as any,
@@ -60,8 +60,8 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
                 connection_type_id: 's3',
                 successRate: '100%',
                 imageUrl: 'https://posthog.com/static/brand/favicon.png',
-                settings: {},
-            } as BatchExportConnectionType,
+                config: {},
+            } as BatchExportDestinationType,
             {},
         ],
         connectionChoices: [mockConnectionChoices as ConnectionChoiceType[], {}],
@@ -89,7 +89,7 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
             },
         ],
         connectionSettings: [
-            undefined as BatchExportSettingsType | undefined,
+            undefined as S3BatchExportConfigType | undefined,
             {
                 loadConnectionSettings: async () => {
                     const connectionSettings = await Promise.resolve(undefined)
@@ -98,7 +98,7 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
             },
         ],
         exportRuns: [
-            [] as ExportRunType[] | undefined,
+            [] as BatchExportRunType[] | undefined,
             {
                 loadExportRuns: async () => {
                     const exportRuns = await Promise.resolve(mockExportRuns)
@@ -115,12 +115,12 @@ export const NewConnectionLogic = kea<NewConnectionLogicType>([
     forms(({ values }) => ({
         connectionSettings: {
             defaults: defaultCreator(values),
-            validate: (values: BatchExportSettingsType) => {
+            validate: (values: S3BatchExportConfigType) => {
                 return {
                     name: values.name ? undefined : 'Name is required',
                 }
             },
-            submit: async (values: BatchExportSettingsType) => {
+            submit: async (values: S3BatchExportConfigType) => {
                 console.log('submitting', values)
                 // TODO: don't send the placeholder AWSSecretAccessKey unless it's been changed
             },

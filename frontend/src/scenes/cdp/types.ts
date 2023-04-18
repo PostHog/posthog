@@ -11,20 +11,26 @@ export type ConnectionChoiceType = {
     type: ConnectionDestinationType
 }
 
-export type BatchExportConnectionType = {
-    id?: string
+export type CDPTabsType = 'connections' | 'history'
+
+export type BatchExportTabsType = 'sync-history' | 'settings' | 'activity-log'
+
+export type BatchExportDestinationType = {
+    id: string
     name: string
     status: string
     connection_type_id: string
     successRate: string
     imageUrl: string
-    settings: Record<string, unknown>
+    config: Record<string, unknown>
+    createdAt?: string
+    lastUpdatedAt?: string
 }
 
-export type BatchExportSettingsType = {
+export type S3BatchExportConfigType = {
     name: string
     frequency: BatchExportFrequencyType
-    firstExport: Dayjs
+    firstExport: Dayjs // TODO: convert dayjs to strings for saving
     stopAtSpecificDate: false
     stopAt: Dayjs | undefined
     backfillRecords: boolean
@@ -33,19 +39,15 @@ export type BatchExportSettingsType = {
     AWSSecretAccessKey: string
     AWSRegion: string
     AWSBucket: string
-    fileFormat: FileFormatType
+    fileFormat: S3BatchExportFileFormatType
     fileName: string
 }
 
-export type CDPTabsType = 'connections' | 'history'
-
-export type BatchExportTabsType = 'sync-history' | 'settings' | 'activity-log'
-
 export type BatchExportFrequencyType = 'none' | '1' | '6' | '12' | 'daily' | 'weekly' | 'monthly'
 
-export type FileFormatType = 'csv'
+export type S3BatchExportFileFormatType = 'csv'
 
-export enum BatchExportStatus {
+export enum BatchExportRunStatus {
     Running = 'Running',
     Cancelled = 'Cancelled',
     Completed = 'Completed',
@@ -57,9 +59,9 @@ export enum BatchExportStatus {
     Paused = 'Paused',
 }
 
-export type ExportRunType = {
+export type BatchExportRunType = {
     id: string
-    status: BatchExportStatus
+    status: BatchExportRunStatus
     created_at: string
     completed_at: string
     export_schedule_id: string | null
@@ -79,4 +81,24 @@ export enum ChangeExportRunStatusEnum {
     Resume = 'Resume',
     Restart = 'Restart',
     Delete = 'Delete',
+}
+
+// TODO do we need this on the frontend? Seems like it's only for the backend
+export interface BatchExportSchedule {
+    id: string
+    team_id: string
+    created_at: string
+    last_updated_at: string
+    paused_at: string | null
+    unpaused_at: string | null
+    start_at: string | null
+    end_at: string | null
+    name: string
+    batch_export_destination_id: string
+    calendars: Record<string, unknown>[]
+    intervals: Record<string, unknown>[]
+    cron_expressions: string[]
+    skip: Record<string, unknown>[]
+    jitter: number | null
+    time_zone_name: string | null
 }

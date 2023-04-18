@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagPropsType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { ChangeExportRunStatusEnum, ExportRunType } from './types'
+import { ChangeExportRunStatusEnum, BatchExportRunType } from './types'
 import { NewConnectionLogic } from './NewConnectionLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -24,7 +24,7 @@ export enum BatchExportStatus {
     Paused = 'Paused',
 }
 
-export function StatusToTagType(status: ExportRunType['status']): LemonTagPropsType {
+export function StatusToTagType(status: BatchExportRunType['status']): LemonTagPropsType {
     switch (status) {
         case BatchExportStatus.Running:
             return 'highlight'
@@ -107,7 +107,7 @@ export function ExportOverviewTab(): JSX.Element {
                     },
                     {
                         title: 'Event count',
-                        render: function Render(_, exportRun: ExportRunType) {
+                        render: function Render(_, exportRun: BatchExportRunType) {
                             return (
                                 exportRun.metrics?.totals.successes + exportRun.metrics?.totals.successes_on_retry || (
                                     <div className="text-muted">—</div>
@@ -117,13 +117,13 @@ export function ExportOverviewTab(): JSX.Element {
                     },
                     {
                         title: 'Event range',
-                        render: function Render(_, exportRun: ExportRunType) {
+                        render: function Render(_, exportRun: BatchExportRunType) {
                             return exportRun.filters
                         },
                     },
                     {
                         title: 'Status',
-                        render: function Render(_, exportRun: ExportRunType) {
+                        render: function Render(_, exportRun: BatchExportRunType) {
                             return (
                                 <>
                                     {exportRun.status === BatchExportStatus.Running ? (
@@ -139,7 +139,7 @@ export function ExportOverviewTab(): JSX.Element {
                     },
                     {
                         title: 'Created by',
-                        render: function Render(_, exportRun: ExportRunType) {
+                        render: function Render(_, exportRun: BatchExportRunType) {
                             if (exportRun.export_schedule_id) {
                                 return <div>Scheduler</div>
                             } else {
@@ -159,7 +159,7 @@ export function ExportOverviewTab(): JSX.Element {
                     },
                     {
                         width: 0,
-                        render: function Render(_, exportRun: ExportRunType) {
+                        render: function Render(_, exportRun: BatchExportRunType) {
                             return (
                                 <More
                                     overlay={
@@ -250,7 +250,7 @@ export function ExportOverviewTab(): JSX.Element {
                     },
                 ]}
                 expandable={{
-                    expandedRowRender: function Render(exportRun: ExportRunType) {
+                    expandedRowRender: function Render(exportRun: BatchExportRunType) {
                         console.log(exportRun)
                         // TODO: change the above to use HistoricalExport
                         return <ExportRun exportRun={exportRun} />
