@@ -50,6 +50,9 @@ class TraversingVisitor(Visitor):
     def visit_order_expr(self, node: ast.OrderExpr):
         self.visit(node.expr)
 
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        self.visit(node.tuple)
+
     def visit_tuple(self, node: ast.Tuple):
         for expr in node.exprs:
             self.visit(expr)
@@ -187,7 +190,7 @@ class TraversingVisitor(Visitor):
     def visit_date_type(self, node: ast.DateType):
         pass
 
-    def visit_datetime_type(self, node: ast.DateTimeType):
+    def visit_date_time_type(self, node: ast.DateTimeType):
         pass
 
     def visit_uuid_type(self, node: ast.UUIDType):
@@ -253,7 +256,14 @@ class CloningVisitor(Visitor):
             order=node.order,
         )
 
-    def visit_tuple(self, node: ast.Array):
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        return ast.TupleAccess(
+            type=None if self.clear_types else node.type,
+            tuple=self.visit(node.tuple),
+            index=node.index,
+        )
+
+    def visit_tuple(self, node: ast.Tuple):
         return ast.Tuple(type=None if self.clear_types else node.type, exprs=[self.visit(expr) for expr in node.exprs])
 
     def visit_lambda(self, node: ast.Lambda):

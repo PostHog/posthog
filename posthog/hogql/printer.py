@@ -309,6 +309,9 @@ class _Printer(Visitor):
     def visit_not(self, node: ast.Not):
         return f"not({self.visit(node.expr)})"
 
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        return f"({self.visit(node.tuple)}).{node.index}"
+
     def visit_tuple(self, node: ast.Tuple):
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 

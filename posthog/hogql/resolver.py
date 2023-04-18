@@ -56,7 +56,7 @@ class Resolver(TraversingVisitor):
         node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
         return node.type
 
-    def visit_select_query(self, node):
+    def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
         if node.type is not None:
             return

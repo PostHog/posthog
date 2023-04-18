@@ -156,6 +156,11 @@ class TestPrinter(BaseTest):
             self._expr("properties['$browser \\\\with a \\n` tick']", HogQLContext(team_id=self.team.pk), "hogql"),
             "properties.`$browser \\\\with a \\n\\` tick`",
         )
+        self.assertEqual(
+            self._expr("properties.0a", HogQLContext(team_id=self.team.pk), "hogql"),
+            "properties.0a",
+        )
+
         self._assert_expr_error("properties.0", "Unsupported node: ColumnExprTupleAccess", "hogql")
         self._assert_expr_error(
             "properties.'no strings'", "mismatched input ''no strings'' expecting DECIMAL_LITERAL", "hogql"
@@ -241,6 +246,15 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
         self._assert_expr_error("1;2", "Syntax error at line 1, column 1: mismatched input ';' expecting <EOF>")
         self._assert_expr_error("b.a(bla)", "Syntax error at line 1, column 3: mismatched input '(' expecting '.'")
+
+    def test_call_types(self):
+        self._assert_expr_error(
+            "max2('string', 2)",
+            "Can not call max2 with types: 'str', 'int'. Available: [('str', 'int'), ('str', 'str')]",
+        )
+        self.assertEqual(self._expr("max2(1, 2)"), "max2(1, 2)")
+        self.assertEqual(self._expr("max2(1, 2.5)"), "max2(1, 2.5)")
+        self.assertEqual(self._expr("max2('string', 2)"), "max2(1, 2)")
 
     def test_logic(self):
         self.assertEqual(

@@ -1,9 +1,66 @@
 # HogQL -> ClickHouse allowed transformations
-from typing import Optional, Dict, Tuple, Literal
+from typing import Optional, Dict, Tuple, Literal, List
 
 from pydantic import BaseModel, Extra
 
 ConstantDataType = Literal["int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"]
+
+ArgTuple = Tuple[List[ConstantDataType], ConstantDataType]
+
+math_args_1: List[ArgTuple] = [(["int"], "int"), (["float"], "float")]
+math_args_2: List[ArgTuple] = [
+    (["int", "float"], "float"),
+    (["float", "int"], "float"),
+    (["float", "float"], "float"),
+    (["int", "int"], "int"),
+]
+math_args_2_int: List[ArgTuple] = [
+    (["int", "int"], "int"),
+    (["int", "float"], "int"),
+    (["float", "int"], "int"),
+    (["float", "float"], "int"),
+]
+math_args_2_float: List[ArgTuple] = [
+    (["int", "int"], "float"),
+    (["int", "float"], "float"),
+    (["float", "int"], "float"),
+    (["float", "float"], "float"),
+]
+
+
+class ClickHouseCall(BaseModel):
+    name: str
+    args: List[ArgTuple]
+
+
+CLICKHOUSE_CALLS: Dict[str, ClickHouseCall] = {
+    # arithmetic
+    "plus": ClickHouseCall(name="plus", args=math_args_2),
+    "minus": ClickHouseCall(name="minus", args=math_args_2),
+    "multiply": ClickHouseCall(name="multiply", args=math_args_2),
+    "divide": ClickHouseCall(name="divide", args=math_args_2),
+    "intDiv": ClickHouseCall(name="intDiv", args=math_args_2_int),
+    "intDivOrZero": ClickHouseCall(name="intDivOrZero", args=math_args_2_int),
+    "modulo": ClickHouseCall(name="modulo", args=math_args_2),
+    "moduloOrZero": ClickHouseCall(name="moduloOrZero", args=math_args_2),
+    "positiveModulo": ClickHouseCall(name="positiveModulo", args=math_args_2),
+    "negate": ClickHouseCall(name="negate", args=math_args_1),
+    "abs": ClickHouseCall(name="abs", args=math_args_1),
+    "gcd": ClickHouseCall(name="gcd", args=math_args_2),
+    "lcm": ClickHouseCall(name="lcm", args=math_args_2),
+    "max2": ClickHouseCall(name="max2", args=math_args_2_float),
+    "min2": ClickHouseCall(name="min2", args=math_args_2_float),
+    # type conversions
+    "toInt": ClickHouseCall(name="toInt64OrNull", args=[(["unknown"], "int")]),
+    "toFloat": ClickHouseCall(name="toFloat64OrNull", args=[(["unknown"], "float")]),
+    "toDate": ClickHouseCall(name="toDateOrNull", args=[(["unknown"], "date")]),
+    "toDateTime": ClickHouseCall(name="toDateTimeOrNull", args=[(["unknown"], "datetime")]),
+    "toUUID": ClickHouseCall(name="toUUIDOrNull", args=[(["unknown"], "uuid")]),
+    "toString": ClickHouseCall(name="toString", args=[(["unknown"], "str")]),
+    "toJSONString": ClickHouseCall(name="toJSONString", args=[(["unknown"], "str")]),
+    "parseDateTime": ClickHouseCall(name="parseDateTimeOrNull", args=[(["str", "str"], "datetime")]),
+    "parseDateTimeBestEffort": ClickHouseCall(name="parseDateTimeBestEffortOrNull", args=[(["str"], "datetime")]),
+}
 
 CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     # arithmetic
@@ -502,6 +559,8 @@ HOGQL_AGGREGATIONS = {
     "anyIf": 2,
     "argMax": 2,
     "argMin": 2,
+    "groupArray": 1,
+    "sumMap": 2,
     # TODO: more aggregate functions?
 }
 ADD_TIMEZONE_TO_FUNCTIONS = ("now", "now64", "NOW", "toDateTime")
