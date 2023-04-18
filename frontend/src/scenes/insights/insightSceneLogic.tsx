@@ -241,10 +241,20 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         }
     }),
     beforeUnload(({ values }) => ({
-        enabled: () =>
-            values.insightMode === ItemMode.Edit &&
-            (!!values.insightLogicRef?.logic.values.insightChanged ||
-                !!values.insightDataLogicRef?.logic.values.queryChanged),
+        enabled: () => {
+            const currentScene = sceneLogic.findMounted()?.values
+
+            // safeguard against running this check on other scenes
+            if (currentScene?.activeScene !== Scene.Insight) {
+                return false
+            }
+
+            return (
+                values.insightMode === ItemMode.Edit &&
+                (!!values.insightLogicRef?.logic.values.insightChanged ||
+                    !!values.insightDataLogicRef?.logic.values.queryChanged)
+            )
+        },
         message: 'Leave insight? Changes you made will be discarded.',
         onConfirm: () => {
             values.insightLogicRef?.logic.actions.cancelChanges()
