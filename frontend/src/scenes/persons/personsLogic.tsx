@@ -55,6 +55,7 @@ export const personsLogic = kea<personsLogicType>({
     },
     actions: {
         setPerson: (person: PersonType | null) => ({ person }),
+        setPersons: (persons: PersonType[]) => ({ persons }),
         loadPerson: (id: string) => ({ id }),
         loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload: PersonListParams) => ({ payload }),
@@ -65,7 +66,7 @@ export const personsLogic = kea<personsLogicType>({
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         setDistinctId: (distinctId: string) => ({ distinctId }),
     },
-    reducers: ({ props }) => ({
+    reducers: () => ({
         listFilters: [
             {} as PersonListParams,
             {
@@ -100,6 +101,10 @@ export const personsLogic = kea<personsLogicType>({
             setPerson: (state, { person }) => ({
                 ...state,
                 results: state.results.map((p) => (person && p.id === person.id ? person : p)),
+            }),
+            setPersons: (state, { persons }) => ({
+                ...state,
+                results: [...state.results, ...persons],
             }),
         },
         person: {

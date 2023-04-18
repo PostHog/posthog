@@ -69,6 +69,7 @@ function RetrievePreviewsInstructions({ feature }: { feature: FeatureType }): JS
 export function Feature(): JSX.Element {
     const { feature, featureLoading, isFeatureSubmitting, mode, isEditingFeature } = useValues(featureLogic)
     const { submitFeatureRequest, cancel, editFeature } = useActions(featureLogic)
+    const [selectedPersons, setSelectedPersons] = useState<PersonType[]>([])
 
     const [isModalOpen, setIsModalOpen] = useState(false)
 
@@ -235,49 +236,15 @@ export function Feature(): JSX.Element {
                 )}
             </div>
             {'id' in feature && (
-                <>
-                    <LemonDivider className="my-4" />
-                    <h3 className="text-xl font-semibold my-4">Persons</h3>
-                    <Persons
-                        fixedProperties={[
-                            {
-                                key: '$feature_enrollment/' + feature.feature_flag.key,
-                                type: PropertyFilterType.Person,
-                                operator: PropertyOperator.IsSet,
-                            },
-                        ]}
-                        extraSceneActions={[
-                            <LemonButton
-                                key={'$feature_enrollment/' + feature.feature_flag.key}
-                                type="primary"
-                                icon={<IconPlus />}
-                                onClick={toggleModal}
-                            >
-                                Add person
-                            </LemonButton>,
-                        ]}
-                        extraColumns={[
-                            {
-                                title: 'Stage',
-                                dataIndex: 'properties',
-                                render: function Render(_, person: PersonType) {
-                                    return (
-                                        <span>
-                                            {person.properties[
-                                                '$feature_enrollment/' + feature.feature_flag.key
-                                            ].toString()}
-                                        </span>
-                                    )
-                                },
-                            },
-                        ]}
-                        compact={true}
-                        showExportAction={false}
-                    />
-                </>
+                <PersonList feature={feature} toggleModal={toggleModal} localPersons={selectedPersons} />
             )}
             {'id' in feature && (
-                <EnrollmentSelectorModal feature={feature} visible={isModalOpen} onClose={toggleModal} />
+                <EnrollmentSelectorModal
+                    onAdded={(persons) => setSelectedPersons(persons)}
+                    feature={feature}
+                    visible={isModalOpen}
+                    onClose={toggleModal}
+                />
             )}
         </Form>
     )
@@ -322,13 +289,81 @@ function FlagSelector({ value, onChange }: FlagSelectorProps): JSX.Element {
     )
 }
 
+interface PersonListProps {
+    feature: FeatureType
+    toggleModal: () => void
+    localPersons: PersonType[]
+}
+
+function PersonList({ feature, toggleModal, localPersons = [] }: PersonListProps): JSX.Element {
+    const personLogicProps: PersonLogicProps = {
+        cohort: undefined,
+        syncWithUrl: false,
+        fixedProperties: [
+            {
+                key: '$feature_enrollment/' + feature.feature_flag.key,
+                type: PropertyFilterType.Person,
+                operator: PropertyOperator.IsSet,
+            },
+        ],
+    }
+    const logic = personsLogic(personLogicProps)
+
+    useEffect(() => {
+        logic.actions.setPersons(localPersons)
+    }, [localPersons])
+
+    return (
+        <BindLogic logic={personsLogic} props={personLogicProps}>
+            <LemonDivider className="my-4" />
+            <h3 className="text-xl font-semibold my-4">Persons</h3>
+            <Persons
+                useParentLogic={true}
+                fixedProperties={[
+                    {
+                        key: '$feature_enrollment/' + feature.feature_flag.key,
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.IsSet,
+                    },
+                ]}
+                extraSceneActions={[
+                    <LemonButton
+                        key={'$feature_enrollment/' + feature.feature_flag.key}
+                        type="primary"
+                        icon={<IconPlus />}
+                        onClick={toggleModal}
+                    >
+                        Add person
+                    </LemonButton>,
+                ]}
+                extraColumns={[
+                    {
+                        title: 'Opted In',
+                        dataIndex: 'properties',
+                        render: function Render(_, person: PersonType) {
+                            return (
+                                <span>
+                                    {person.properties['$feature_enrollment/' + feature.feature_flag.key].toString()}
+                                </span>
+                            )
+                        },
+                    },
+                ]}
+                compact={true}
+                showExportAction={false}
+            />
+        </BindLogic>
+    )
+}
+
 interface EnrollmentSelectorProps {
     feature: FeatureType
     visible: boolean
     onClose: () => void
+    onAdded: (persons: PersonType[]) => void
 }
 
-function EnrollmentSelectorModal({ feature, visible, onClose }: EnrollmentSelectorProps): JSX.Element {
+function EnrollmentSelectorModal({ feature, visible, onClose, onAdded }: EnrollmentSelectorProps): JSX.Element {
     const personLogicProps: PersonLogicProps = {
         cohort: undefined,
         syncWithUrl: false,
@@ -345,7 +380,8 @@ function EnrollmentSelectorModal({ feature, visible, onClose }: EnrollmentSelect
     const { loadPersons, setListFilters } = useActions(logic)
     const { listFilters } = useValues(logic)
     const [searchTerm, setSearchTerm] = useState('')
-    const [selected, setSelected] = useState<LabelInValue[]>([])
+    const [selected, setSelected] = useState<PersonType[]>([])
+    const [selectedLabelValue, setSelectedLabelValue] = useState<LabelInValue[]>([])
     const [confirmLoading, setConfirmLoading] = useState(false)
     const key = '$feature_enrollment/' + feature.feature_flag.key
 
@@ -360,11 +396,19 @@ function EnrollmentSelectorModal({ feature, visible, onClose }: EnrollmentSelect
         loadPersonsDebounced()
     }, [searchTerm])
 
-    const onConfirm = async (): void => {
+    useEffect(() => {
+        setSelectedLabelValue(selected.map((item) => ({ value: item.id as string, label: item.name })))
+    }, [selected])
+
+    const onConfirm = async (): Promise<void> => {
         setConfirmLoading(true)
-        await Promise.all(selected.map((item) => api.persons.updateProperty(item.value, key, true)))
+        await Promise.all(selected.map((item) => api.persons.updateProperty(item.id as string, key, true)))
         setConfirmLoading(false)
         onClose()
+
+        // Need to store local copy because updating person properties uses ingestion pipeline which may lag
+        const hydrated = selected.map((item) => ({ ...item, properties: { ...item.properties, [key]: true } }))
+        onAdded(hydrated)
     }
 
     return (
@@ -386,10 +430,15 @@ function EnrollmentSelectorModal({ feature, visible, onClose }: EnrollmentSelect
                         <LemonSelectMultiple
                             placeholder="Search for persons to add…"
                             labelInValue
-                            value={selected}
+                            value={selectedLabelValue}
                             loading={false}
                             onSearch={setSearchTerm}
-                            onChange={(newValues: LabelInValue[]) => setSelected(newValues)}
+                            onChange={(newValues: LabelInValue[]) => {
+                                const newSelected = selected.filter((person) =>
+                                    newValues.find((item) => item.value === person.id)
+                                )
+                                setSelected(newSelected)
+                            }}
                             filterOption={true}
                             mode="multiple"
                             data-attr="feature-persons-emails"
@@ -413,15 +462,14 @@ function EnrollmentSelectorModal({ feature, visible, onClose }: EnrollmentSelect
                     extraColumns={[
                         {
                             render: function Render(_, person: PersonType) {
-                                const isSelected = selected.some((item) => item.value === person.id)
+                                const isSelected = selected.some((item) => item.id === person.id)
                                 return (
                                     <LemonButton
                                         onClick={() => {
                                             if (isSelected) {
-                                                setSelected(selected.filter((item) => item.value !== person.id))
+                                                setSelected(selected.filter((item) => item.id !== person.id))
                                             } else {
-                                                person.id &&
-                                                    setSelected([...selected, { value: person.id, label: person.name }])
+                                                person.id && setSelected([...selected, person])
                                             }
                                         }}
                                         icon={<IconPlus />}
