@@ -14,6 +14,10 @@ from posthog.hogql.database import (
     Table,
     VirtualTable,
     LazyTable,
+    IntegerDatabaseField,
+    StringDatabaseField,
+    DateTimeDatabaseField,
+    BooleanDatabaseField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -43,6 +47,9 @@ class Type(AST):
 
     def has_child(self, name: str) -> bool:
         return self.get_child(name) is not None
+
+    def resolve_constant_type(self) -> Optional["ConstantType"]:
+        return UnknownType()
 
 
 class Expr(AST):
@@ -134,6 +141,9 @@ class VirtualTableType(BaseTableType):
         return self.virtual_table.has_field(name)
 
 
+TableOrSelectType = Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
+
+
 class SelectQueryType(Type):
     """Type and new enclosed scope for a select query. Contains information about all tables and columns in the query."""
 
@@ -142,17 +152,12 @@ class SelectQueryType(Type):
     # all types a select query exports
     columns: Dict[str, Type] = PydanticField(default_factory=dict)
     # all from and join, tables and subqueries with aliases
-    tables: Dict[
-        str, Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
-    ] = PydanticField(default_factory=dict)
+    tables: Dict[str, TableOrSelectType] = PydanticField(default_factory=dict)
     macros: Dict[str, Macro] = PydanticField(default_factory=dict)
     # all from and join subqueries without aliases
     anonymous_tables: List[Union["SelectQueryType", "SelectUnionQueryType"]] = PydanticField(default_factory=list)
 
-    def get_alias_for_table_type(
-        self,
-        table_type: Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"],
-    ) -> Optional[str]:
+    def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():
             if value == table_type:
                 return key
@@ -172,10 +177,7 @@ class SelectQueryType(Type):
 class SelectUnionQueryType(Type):
     types: List[SelectQueryType]
 
-    def get_alias_for_table_type(
-        self,
-        table_type: Union[BaseTableType, SelectQueryType, "SelectQueryAliasType"],
-    ) -> Optional[str]:
+    def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
 
     def get_child(self, name: str) -> Type:
@@ -203,27 +205,76 @@ class SelectQueryAliasType(Type):
 SelectQueryType.update_forward_refs(SelectQueryAliasType=SelectQueryAliasType)
 
 
-class CallType(Type):
-    name: str
-    args: List[Type]
-
-
 class ConstantType(Type):
     data_type: ConstantDataType
 
+    def resolve_constant_type(self) -> "ConstantType":
+        return self
+
+
+class IntegerType(ConstantType):
+    data_type: ConstantDataType = PydanticField("int", const=True)
+
+
+class FloatType(ConstantType):
+    data_type: ConstantDataType = PydanticField("float", const=True)
+
+
+class StringType(ConstantType):
+    data_type: ConstantDataType = PydanticField("str", const=True)
+
+
+class BooleanType(ConstantType):
+    data_type: ConstantDataType = PydanticField("bool", const=True)
+
+
+class UnknownType(ConstantType):
+    data_type: ConstantDataType = PydanticField("unknown", const=True)
+
+
+class DateType(ConstantType):
+    data_type: ConstantDataType = PydanticField("date", const=True)
+
+
+class DateTimeType(ConstantType):
+    data_type: ConstantDataType = PydanticField("datetime", const=True)
+
+
+class UUIDType(ConstantType):
+    data_type: ConstantDataType = PydanticField("uuid", const=True)
+
+
+class ArrayType(ConstantType):
+    data_type: ConstantDataType = PydanticField("array", const=True)
+    item_type: ConstantType
+
+
+class TupleType(ConstantType):
+    data_type: ConstantDataType = PydanticField("tuple", const=True)
+    item_types: List[ConstantType]
+
+
+class CallType(Type):
+    name: str
+    arg_types: List[ConstantType]
+    return_type: ConstantType
+
+    def resolve_constant_type(self) -> ConstantType:
+        return self.return_type
+
 
 class AsteriskType(Type):
-    table_type: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
+    table_type: TableOrSelectType
 
 
 class FieldTraverserType(Type):
     chain: List[str]
-    table_type: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
+    table_type: TableOrSelectType
 
 
 class FieldType(Type):
     name: str
-    table_type: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
+    table_type: TableOrSelectType
 
     def resolve_database_field(self) -> Optional[DatabaseField]:
         if isinstance(self.table_type, BaseTableType):
@@ -231,6 +282,18 @@ class FieldType(Type):
             if table is not None:
                 return table.get_field(self.name)
         return None
+
+    def resolve_constant_type(self) -> ConstantType:
+        database_field = self.resolve_database_field()
+        if isinstance(database_field, IntegerDatabaseField):
+            return IntegerType()
+        elif isinstance(database_field, StringDatabaseField):
+            return StringType()
+        elif isinstance(database_field, BooleanDatabaseField):
+            return BooleanType()
+        elif isinstance(database_field, DateTimeDatabaseField):
+            return DateTimeType()
+        return UnknownType()
 
     def get_child(self, name: str) -> Type:
         database_field = self.resolve_database_field()
@@ -368,7 +431,7 @@ class Call(Expr):
 
 
 class JoinExpr(Expr):
-    type: Optional[BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType]
+    type: Optional[TableOrSelectType]
 
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None

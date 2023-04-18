@@ -159,10 +159,38 @@ class TraversingVisitor(Visitor):
         self.visit(node.table_type)
 
     def visit_call_type(self, node: ast.CallType):
-        for expr in node.args:
+        for expr in node.arg_types:
             self.visit(expr)
 
-    def visit_constant_type(self, node: ast.ConstantType):
+    def visit_integer_type(self, node: ast.IntegerType):
+        pass
+
+    def visit_float_type(self, node: ast.FloatType):
+        pass
+
+    def visit_string_type(self, node: ast.StringType):
+        pass
+
+    def visit_boolean_type(self, node: ast.BooleanType):
+        pass
+
+    def visit_unknown_type(self, node: ast.UnknownType):
+        pass
+
+    def visit_array_type(self, node: ast.ArrayType):
+        self.visit(node.item_type)
+
+    def visit_tuple_type(self, node: ast.TupleType):
+        for expr in node.item_types:
+            self.visit(expr)
+
+    def visit_date_type(self, node: ast.DateType):
+        pass
+
+    def visit_date_time_type(self, node: ast.DateTimeType):
+        pass
+
+    def visit_uuid_type(self, node: ast.UUIDType):
         pass
 
     def visit_property_type(self, node: ast.PropertyType):
