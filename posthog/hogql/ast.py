@@ -403,6 +403,11 @@ class Array(Expr):
     exprs: List[Expr]
 
 
+class TupleAccess(Expr):
+    tuple: Expr
+    index: int
+
+
 class Tuple(Expr):
     exprs: List[Expr]
 

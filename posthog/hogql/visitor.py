@@ -50,6 +50,9 @@ class TraversingVisitor(Visitor):
     def visit_order_expr(self, node: ast.OrderExpr):
         self.visit(node.expr)
 
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        self.visit(node.tuple)
+
     def visit_tuple(self, node: ast.Tuple):
         for expr in node.exprs:
             self.visit(expr)
@@ -251,6 +254,13 @@ class CloningVisitor(Visitor):
             type=None if self.clear_types else node.type,
             expr=self.visit(node.expr),
             order=node.order,
+        )
+
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        return ast.TupleAccess(
+            type=None if self.clear_types else node.type,
+            tuple=self.visit(node.tuple),
+            index=node.index,
         )
 
     def visit_tuple(self, node: ast.Array):

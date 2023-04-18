@@ -668,3 +668,38 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.clickhouse,
                 f"SELECT [1, 2, 3], [10, 11, 12][1] LIMIT 100 SETTINGS readonly=1, max_execution_time=60",
             )
+
+    def test_tuple_access(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+            # sample pivot table, testing tuple access
+            query = """
+                select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) r from (
+                select col_a, groupArray( (col_b, col_c) ) as g from
+                (
+                    SELECT properties.index as col_a,
+                           event as col_b,
+                           count() as col_c
+                      FROM events
+                  GROUP BY properties.index,
+                           event
+                )
+                group by col_a)
+                group by col_a
+            """
+            response = execute_hogql_query(
+                query,
+                team=self.team,
+            )
+            self.assertEqual(response.results, [("1", [("random event", 1)]), ("0", [("random event", 1)])])
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT col_a, arrayZip((sumMap(g.1, g.2) AS x).1, x.2) AS r FROM "
+                f"(SELECT col_a, groupArray(tuple(col_b, col_c)) AS g FROM "
+                f"(SELECT replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', '') AS col_a, "
+                f"events.event AS col_b, count() AS col_c FROM events WHERE equals(events.team_id, {self.team.pk}) "
+                f"GROUP BY replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_1)s), '^\"|\"$', ''), events.event) "
+                f"GROUP BY col_a) "
+                f"GROUP BY col_a LIMIT 100 "
+                f"SETTINGS readonly=1, max_execution_time=60",
+            )
