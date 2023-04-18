@@ -156,7 +156,15 @@ class TestPrinter(BaseTest):
             self._expr("properties['$browser \\\\with a \\n` tick']", HogQLContext(team_id=self.team.pk), "hogql"),
             "properties.`$browser \\\\with a \\n\\` tick`",
         )
-        self._assert_expr_error("properties.0", "Unsupported node: ColumnExprTupleAccess", "hogql")
+        # "dot NUMBER" means "tuple access" in clickhouse. To access strings properties, wrap them in `backquotes`
+        self.assertEqual(
+            self._expr("properties.0", HogQLContext(team_id=self.team.pk), "hogql"),
+            "properties.0",
+        )
+        self.assertEqual(
+            self._expr("properties.`0`", HogQLContext(team_id=self.team.pk), "hogql"),
+            "properties.`0`",
+        )
         self._assert_expr_error(
             "properties.'no strings'", "mismatched input ''no strings'' expecting DECIMAL_LITERAL", "hogql"
         )
