@@ -2,7 +2,7 @@ import re
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Extra
+from pydantic import Extra
 from pydantic import Field as PydanticField
 
 from posthog.hogql.constants import ConstantDataType
@@ -21,48 +21,8 @@ from posthog.hogql.database.base import (
     VirtualTable,
     LazyTable,
 )
+from posthog.hogql.ast.base import Expr, Macro, Type, ConstantType
 from posthog.hogql.errors import HogQLException, NotImplementedException
-
-# NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
-
-camel_case_pattern = re.compile(r"(?<!^)(?=[A-Z])")
-
-
-class AST(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    def accept(self, visitor):
-        camel_case_name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
-        method_name = f"visit_{camel_case_name}"
-        if hasattr(visitor, method_name):
-            visit = getattr(visitor, method_name)
-            return visit(self)
-        if hasattr(visitor, "visit_unknown"):
-            return visitor.visit_unknown(self)
-        raise NotImplementedException(f"Visitor has no method {method_name}")
-
-
-class Type(AST):
-    def get_child(self, name: str) -> "Type":
-        raise NotImplementedException("Type.get_child not overridden")
-
-    def has_child(self, name: str) -> bool:
-        return self.get_child(name) is not None
-
-    def resolve_constant_type(self) -> Optional["ConstantType"]:
-        return UnknownType()
-
-
-class Expr(AST):
-    type: Optional[Type]
-
-
-class Macro(Expr):
-    name: str
-    expr: Expr
-    # Whether the macro is an inlined column "SELECT 1 AS a" or a subquery "SELECT a AS (SELECT 1)"
-    macro_format: Literal["column", "subquery"]
 
 
 class FieldAliasType(Type):
@@ -205,13 +165,6 @@ class SelectQueryAliasType(Type):
 
 
 SelectQueryType.update_forward_refs(SelectQueryAliasType=SelectQueryAliasType)
-
-
-class ConstantType(Type):
-    data_type: ConstantDataType
-
-    def resolve_constant_type(self) -> "ConstantType":
-        return self
 
 
 class IntegerType(ConstantType):
