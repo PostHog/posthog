@@ -1,35 +1,25 @@
-import { beforeEach, expect, it, describe } from 'vitest'
-import { Producer } from 'kafkajs'
+import { createIncomingRecordingMessage } from './blob-ingester/test/fixtures'
+import { SessionRecordingBlobIngester } from './session-recordings-blob-consumer'
 
-import { Ingester } from './ingester'
-import { createIncomingRecordingMessage } from '../test/fixtures'
-
-declare module 'vitest' {
-    export interface TestContext {
-        producer: Producer
-    }
-}
-
-describe.concurrent('ingester', () => {
-    let ingester: Ingester
-    beforeEach(async () => {
-        ingester = new Ingester()
+describe('ingester', () => {
+    let ingester: SessionRecordingBlobIngester
+    beforeEach(() => {
+        ingester = new SessionRecordingBlobIngester()
     })
 
-    it('creates a new session manager if needed', () => {
+    it('creates a new session manager if needed', async () => {
         const event = createIncomingRecordingMessage()
-        ingester.consume(event)
+        await ingester.consume(event)
         expect(ingester.sessions.size).toBe(1)
         expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
     })
 
-    it('handles multiple incoming sessions', () => {
+    it('handles multiple incoming sessions', async () => {
         const event = createIncomingRecordingMessage()
         const event2 = createIncomingRecordingMessage({
             session_id: 'session_id_2',
         })
-        ingester.consume(event)
-        ingester.consume(event2)
+        await Promise.all([ingester.consume(event), ingester.consume(event2)])
         expect(ingester.sessions.size).toBe(2)
         expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
         expect(ingester.sessions.has('1-session_id_2')).toEqual(true)

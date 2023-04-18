@@ -29,10 +29,10 @@ import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
+import { SessionRecordingBlobIngester } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
 import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
-import { startSessionRecordingBlobConsumer } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
 
 const { version } = require('../../package.json')
 
@@ -92,6 +92,7 @@ export async function startPluginsServer(
     // meantime.
     let bufferConsumer: Consumer | undefined
     let stopSessionRecordingEventsConsumer: (() => void) | undefined
+    let stopSessionRecordingBlobConsumer: (() => void) | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
@@ -133,6 +134,7 @@ export async function startPluginsServer(
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
             stopSessionRecordingEventsConsumer?.(),
+            stopSessionRecordingBlobConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
         ])
 
@@ -451,13 +453,10 @@ export async function startPluginsServer(
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig as KafkaConfig)
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const { stop, isHealthy: isSessionRecordingsHealthy } = await startSessionRecordingBlobConsumer({
-                teamManager,
-                kafka,
-                serverConfig,
-            })
-            stopSessionRecordingEventsConsumer = stop
-            healthChecks['session-recordings'] = isSessionRecordingsHealthy
+            const ingester = new SessionRecordingBlobIngester(teamManager, kafka, serverConfig)
+            await ingester.start()
+            stopSessionRecordingBlobConsumer = () => ingester.stop()
+            healthChecks['session-recordings-blob'] = () => ingester.isHealthy()
         }
 
         if (capabilities.http) {
