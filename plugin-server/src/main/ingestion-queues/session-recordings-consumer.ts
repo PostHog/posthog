@@ -10,6 +10,7 @@ import {
     KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
     Message,
+    NumberNullUndefined,
     ProducerGlobalConfig,
     TopicPartition,
     TopicPartitionOffset,
@@ -168,37 +169,78 @@ export const startSessionRecordingEventsConsumer = async ({
                 // issue that will need to be resolved. We use
                 // DependencyUnavailableError error to distinguish between
                 // intermittent and permanent errors.
-                const pendingProduceRequests: Promise<any>[] = []
+                const pendingProduceRequests: any[] = []
 
                 for (const message of messages) {
-                    try {
-                        const produceRequest = eachMessageWithContext(message)
-                        pendingProduceRequests.push(produceRequest)
-                        messagesProcessed++
-                    } catch (error) {
-                        status.error('🔁', 'main_loop_error', { error })
+                    // Try processing the message. If we get a
+                    // DependencyUnavailableError retry up to 5 times starting
+                    // with a delay of 1 second, then 2 seconds, 4 seconds, 8
+                    // seconds, and finally 16 seconds. If we still get an error
+                    // after that, we will throw it and stop processing.
+                    // If we get any other error, we will throw it and stop
+                    // processing.
+                    let retryCount = 0
+                    let retryDelay = 1000
 
-                        if (error instanceof DependencyUnavailableError) {
-                            status.info('🔁', 'main_loop_retrying', { error })
-                            continue
+                    while (retryCount < 5) {
+                        try {
+                            const produceRequests = await eachMessageWithContext(message)
+                            if (produceRequests) {
+                                pendingProduceRequests.push(...produceRequests)
+                            }
+                            break
+                        } catch (error) {
+                            if (error instanceof DependencyUnavailableError) {
+                                if (retryCount === 4) {
+                                    status.error('🔁', 'main_loop_error_retry_limit', {
+                                        error,
+                                        retryCount,
+                                        retryDelay,
+                                    })
+                                    throw error
+                                } else {
+                                    status.error('🔁', 'main_loop_error_retriable', { error, retryCount, retryDelay })
+                                    await new Promise((resolve) => setTimeout(resolve, retryDelay))
+                                    retryDelay *= 2
+                                    retryCount += 1
+                                }
+                            } else {
+                                status.error('🔁', 'main_loop_error', { error })
+                                throw error
+                            }
                         }
-
-                        throw error
                     }
                 }
 
                 // On each loop, we flush the producer to ensure that all messages
                 // are sent to Kafka.
-                await flushProducer(producer)
+                try {
+                    await flushProducer(producer)
+                } catch (error) {
+                    // Rather than handling errors from flush, we instead handle
+                    // errors per produce request, which gives us a little more
+                    // flexibility in terms of deciding if it is a terminal
+                    // error or not.
+                }
 
                 // We wait on all the produce requests to complete. After the
-                // flush they should all have been resolved/rejected, so this is
-                // more for logging purposes.
+                // flush they should all have been resolved/rejected already. If
+                // we get an intermittent error, such as a Kafka broker being
+                // unavailable, we will throw. We are relying on the Producer
+                // already having handled retries internally.
                 for (const produceRequest of pendingProduceRequests) {
                     try {
                         await produceRequest
                     } catch (error) {
                         status.error('🔁', 'main_loop_error', { error })
+
+                        if (error?.isRetriable) {
+                            // We assume the if the error is retriable, then we
+                            // are probably in a state where e.g. Kafka is down
+                            // temporarily and we would rather simply throw and
+                            // have the process restarted.
+                            throw error
+                        }
                     }
                 }
 
@@ -261,12 +303,14 @@ const eachMessage =
                 offset: message.offset,
                 partition: message.partition,
             })
-            return produce(
-                producer,
-                KAFKA_SESSION_RECORDING_EVENTS_DLQ,
-                message.value,
-                message.key ? Buffer.from(message.key) : null
-            )
+            return [
+                produce(
+                    producer,
+                    KAFKA_SESSION_RECORDING_EVENTS_DLQ,
+                    message.value,
+                    message.key ? Buffer.from(message.key) : null
+                ),
+            ]
         }
 
         let messagePayload: RawEventMessage
@@ -286,12 +330,14 @@ const eachMessage =
                 offset: message.offset,
                 partition: message.partition,
             })
-            return produce(
-                producer,
-                KAFKA_SESSION_RECORDING_EVENTS_DLQ,
-                message.value,
-                message.key ? Buffer.from(message.key) : null
-            )
+            return [
+                produce(
+                    producer,
+                    KAFKA_SESSION_RECORDING_EVENTS_DLQ,
+                    message.value,
+                    message.key ? Buffer.from(message.key) : null
+                ),
+            ]
         }
 
         status.info('⬆️', 'processing_session_recording', { uuid: messagePayload.uuid })
@@ -353,12 +399,14 @@ const eachMessage =
                         event.properties || {}
                     )
 
-                    return produce(
-                        producer,
-                        KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
-                        Buffer.from(JSON.stringify(clickHouseRecord)),
-                        message.key ? Buffer.from(message.key) : null
-                    )
+                    return [
+                        produce(
+                            producer,
+                            KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
+                            Buffer.from(JSON.stringify(clickHouseRecord)),
+                            message.key ? Buffer.from(message.key) : null
+                        ),
+                    ]
                 } else if (event.event === '$performance_event') {
                     const clickHouseRecord = createPerformanceEvent(
                         messagePayload.uuid,
@@ -367,12 +415,14 @@ const eachMessage =
                         event.properties || {}
                     )
 
-                    return produce(
-                        producer,
-                        KAFKA_PERFORMANCE_EVENTS,
-                        Buffer.from(JSON.stringify(clickHouseRecord)),
-                        message.key ? Buffer.from(message.key) : null
-                    )
+                    return [
+                        produce(
+                            producer,
+                            KAFKA_PERFORMANCE_EVENTS,
+                            Buffer.from(JSON.stringify(clickHouseRecord)),
+                            message.key ? Buffer.from(message.key) : null
+                        ),
+                    ]
                 } else {
                     status.warn('⚠️', 'invalid_message', {
                         reason: 'invalid_event_type',
@@ -481,7 +531,7 @@ const produce = async (
 ): Promise<number | null | undefined> => {
     status.debug('📤', 'Producing message', { topic: topic })
     return await new Promise((resolve, reject) =>
-        producer.produce(topic, null, value, key, Date.now(), (error: any, offset: number | null | undefined) => {
+        producer.produce(topic, null, value, key, Date.now(), (error: any, offset: NumberNullUndefined) => {
             if (error) {
                 status.error('⚠️', 'produce_error', { error: error, topic: topic })
                 reject(error)
