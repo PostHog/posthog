@@ -88,7 +88,7 @@ export function RollingDateRangeFilter({
                     }}
                     dropdownMatchSelectWidth={false}
                     options={dateOptions}
-                    popover={{
+                    menu={{
                         ...popover,
                         className: 'RollingDateRangeFilter__popover',
                     }}

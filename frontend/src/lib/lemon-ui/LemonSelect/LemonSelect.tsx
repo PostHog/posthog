@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { IconClose } from '../icons'
-import { LemonButton, LemonButtonWithDropdownProps } from '../LemonButton'
+import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { PopoverProps } from '../Popover'
 import './LemonSelect.scss'
 import clsx from 'clsx'
@@ -12,6 +12,7 @@ import {
     LemonMenuItemLeaf,
     LemonMenuItemNode,
     LemonMenuItems,
+    LemonMenuProps,
     LemonMenuSection,
     isLemonMenuSection,
 } from '../LemonMenu/LemonMenu'
@@ -41,7 +42,7 @@ export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<
 
 export interface LemonSelectProps<T>
     extends Pick<
-        LemonButtonWithDropdownProps,
+        LemonButtonProps,
         'id' | 'className' | 'loading' | 'fullWidth' | 'disabled' | 'data-attr' | 'aria-label' | 'onClick' | 'tabIndex'
     > {
     options: LemonSelectOptions<T>
@@ -59,10 +60,7 @@ export interface LemonSelectProps<T>
     className?: string
     placeholder?: string
     size?: 'small' | 'medium'
-    popover?: {
-        className?: string
-        ref?: React.MutableRefObject<HTMLDivElement | null>
-    }
+    menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
 }
 
 export function LemonSelect<T>({
@@ -77,7 +75,7 @@ export function LemonSelect<T>({
     dropdownPlacement,
     allowClear = false,
     className,
-    popover,
+    menu,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [activeValue, setActiveValue] = useState<T | null>(value)
@@ -110,10 +108,10 @@ export function LemonSelect<T>({
             sameWidth={dropdownMatchSelectWidth}
             placement={dropdownPlacement}
             actionable
-            className={popover?.className}
+            className={menu?.className}
             maxContentWidth={dropdownMaxContentWidth}
             activeItemIndex={items.flatMap((i) => (isLemonMenuSection(i) ? i.items : i)).findIndex((i) => i.active)}
-            closeParentPopoverOnClickInside
+            closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
         >
             <LemonButton
                 className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
