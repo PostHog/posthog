@@ -98,6 +98,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             having=self.visit(ctx.havingClause()) if ctx.havingClause() else None,
             group_by=self.visit(ctx.groupByClause()) if ctx.groupByClause() else None,
             order_by=self.visit(ctx.orderByClause()) if ctx.orderByClause() else None,
+            window_name=self.visit(ctx.windowClause().identifier()) if ctx.windowClause() else None,
+            window_expr=self.visit(ctx.windowClause().windowExpr()) if ctx.windowClause() else None,
         )
 
         if ctx.limitClause():
@@ -116,8 +118,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedException(f"Unsupported: SelectStmt.topClause()")
         if ctx.arrayJoinClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.arrayJoinClause()")
-        if ctx.windowClause():
-            raise NotImplementedException(f"Unsupported: SelectStmt.windowClause()")
         if ctx.settingsClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.settingsClause()")
 
@@ -293,7 +293,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitWindowExpr(self, ctx: HogQLParser.WindowExprContext):
         frame = ctx.winFrameClause()
-        visited_frame = self.visit(frame)
+        visited_frame = self.visit(frame) if frame else None
         expr = ast.WindowExpr(
             partition_by=self.visit(ctx.winPartitionByClause()) if ctx.winPartitionByClause() else None,
             order_by=self.visit(ctx.winOrderByClause()) if ctx.winOrderByClause() else None,

@@ -447,12 +447,34 @@ class JoinExpr(Expr):
     sample: Optional["SampleExpr"] = None
 
 
+class WindowFrameExpr(Expr):
+    frame_type: Optional[Literal["CURRENT ROW", "PRECEDING", "FOLLOWING"]] = None
+    frame_value: Optional[int] = None
+
+
+class WindowExpr(Expr):
+    partition_by: Optional[List[Expr]] = None
+    order_by: Optional[List[OrderExpr]] = None
+    frame_method: Optional[Literal["ROWS", "RANGE"]] = None
+    frame_start: Optional[WindowFrameExpr] = None
+    frame_end: Optional[WindowFrameExpr] = None
+
+
+class WindowFunction(Expr):
+    name: str
+    args: Optional[List[Expr]] = None
+    over_expr: Optional[WindowExpr] = None
+    over_identifier: Optional[str] = None
+
+
 class SelectQuery(Expr):
     type: Optional[SelectQueryType] = None
     macros: Optional[Dict[str, Macro]] = None
     select: List[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None
+    window_name: Optional[str] = None
+    window_expr: Optional[WindowExpr] = None
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None
@@ -478,26 +500,6 @@ class SampleExpr(Expr):
     # k or n
     sample_value: RatioExpr
     offset_value: Optional[RatioExpr]
-
-
-class WindowFrameExpr(Expr):
-    frame_type: Optional[Literal["CURRENT ROW", "PRECEDING", "FOLLOWING"]] = None
-    frame_value: Optional[int] = None
-
-
-class WindowExpr(Expr):
-    partition_by: Optional[List[Expr]] = None
-    order_by: Optional[List[OrderExpr]] = None
-    frame_method: Optional[Literal["ROWS", "RANGE"]] = None
-    frame_start: Optional[WindowFrameExpr] = None
-    frame_end: Optional[WindowFrameExpr] = None
-
-
-class WindowFunction(Expr):
-    name: str
-    args: Optional[List[Expr]] = None
-    over_expr: Optional[WindowExpr] = None
-    over_identifier: Optional[str] = None
 
 
 JoinExpr.update_forward_refs(SampleExpr=SampleExpr)
