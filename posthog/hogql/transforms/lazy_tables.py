@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import LazyJoin, LazyTable
+from posthog.hogql.database.base import LazyJoin, LazyTable
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor

@@ -2,7 +2,7 @@ from typing import Dict, Set
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import DateTimeDatabaseField
+from posthog.hogql.database.fields import DateTimeDatabaseField
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 

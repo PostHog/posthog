@@ -6,18 +6,20 @@ from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
 
 from posthog.hogql.constants import ConstantDataType
-from posthog.hogql.database import (
+from posthog.hogql.database.fields import (
     DatabaseField,
-    FieldTraverser,
-    LazyJoin,
     StringJSONDatabaseField,
-    Table,
-    VirtualTable,
-    LazyTable,
     IntegerDatabaseField,
     StringDatabaseField,
     DateTimeDatabaseField,
     BooleanDatabaseField,
+)
+from posthog.hogql.database.base import (
+    FieldTraverser,
+    LazyJoin,
+    Table,
+    VirtualTable,
+    LazyTable,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
