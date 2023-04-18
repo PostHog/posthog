@@ -51,7 +51,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         values: [
             insightVizDataLogic(props),
             [
-                'querySource',
+                'querySource as vizQuerySource',
                 'insightFilter',
                 'funnelsFilter',
                 'breakdown',
@@ -80,6 +80,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
     }),
 
     selectors(({ props }) => ({
+        querySource: [
+            (s) => [s.vizQuerySource],
+            (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
+        ],
+
         isStepsFunnel: [
             (s) => [s.funnelsFilter],
             (funnelsFilter): boolean | null => {
