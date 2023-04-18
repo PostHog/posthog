@@ -74,6 +74,7 @@ export const startSessionRecordingEventsConsumer = async ({
 
     const connectionConfig = createRdConnectionConfigFromEnvVars(kafkaConfig)
     const producer = await createKafkaProducer(connectionConfig)
+    const eachMessageWithContext = eachMessage(groupId, teamManager, producer)
 
     // Create a node-rdkafka consumer.
     const consumer = await createKafkaConsumer({
@@ -91,8 +92,6 @@ export const startSessionRecordingEventsConsumer = async ({
     })
 
     instrumentConsumerMetrics(consumer, groupId)
-
-    const eachMessageWithContext = eachMessage(groupId, teamManager, producer)
 
     let isShuttingDown = true
     let lastLoopTime = Date.now()
@@ -169,7 +168,7 @@ export const startSessionRecordingEventsConsumer = async ({
                 // issue that will need to be resolved. We use
                 // DependencyUnavailableError error to distinguish between
                 // intermittent and permanent errors.
-                const pendingProduceRequests: any[] = []
+                const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
 
                 for (const message of messages) {
                     // Try processing the message. If we get a
@@ -581,8 +580,8 @@ const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
             status.info('📝', 'librdkafka log', { log: log })
         })
 
-        consumer.on('event.error', (err) => {
-            status.error('📝', 'librdkafka error', { log: err })
+        consumer.on('event.error', (error: LibrdKafkaError) => {
+            status.error('📝', 'librdkafka error', { log: error })
         })
 
         consumer.on('subscribed', (topics) => {
@@ -594,7 +593,11 @@ const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
         })
 
         consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {
-            status.info('📝', 'offset.commit', { error, topicPartitionOffsets })
+            if (error) {
+                status.warn('📝', 'librdkafka_offet_commit_error', { error, topicPartitionOffsets })
+            } else {
+                status.debug('📝', 'librdkafka_offset_commit', { topicPartitionOffsets })
+            }
         })
 
         consumer.connect({}, (error, data) => {
