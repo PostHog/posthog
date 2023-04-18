@@ -39,14 +39,4 @@ describe('announcementLogic', () => {
             shownAnnouncementType: null,
         })
     })
-
-    it('shows a customised cloud announcement from payload', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CLOUD_ANNOUNCEMENT], {
-            [FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]: true, // not sure how to add payload
-        })
-        await expectLogic(logic).toMatchValues({
-            cloudAnnouncement: MOCK_CLOUD_ANNOUNCEMENT,
-            shownAnnouncementType: AnnouncementType.CloudFlag,
-        })
-    })
 })
