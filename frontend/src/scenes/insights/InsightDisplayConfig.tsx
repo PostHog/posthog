@@ -26,7 +26,7 @@ import {
     isAreaChartDisplay,
     isLifecycleFilter,
 } from 'scenes/insights/sharedUtils'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { ValueOnSeriesFilter } from './filters/ValueOnSeriesFilter'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -90,18 +90,6 @@ const showValueOnSeriesFilter = (filters: FilterType): boolean => {
 
 function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
     return <span className="space-x-2 flex items-center text-sm">{props.children}</span>
-}
-
-function ValueOnSeriesFilter(props: { onChange: (checked: boolean) => void; checked: boolean }): JSX.Element {
-    return (
-        <LemonCheckbox
-            onChange={props.onChange}
-            checked={props.checked}
-            label={<span className="font-normal">Show values on series</span>}
-            bordered
-            size="small"
-        />
-    )
 }
 
 export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayConfigProps): JSX.Element {
