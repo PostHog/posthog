@@ -19,6 +19,7 @@ from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from social_django.views import auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
@@ -30,6 +31,10 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.models import OrganizationDomain, User
 from posthog.tasks.email import send_password_reset
 from posthog.utils import get_instance_available_sso_providers
+
+
+class UserPasswordResetThrottle(UserRateThrottle):
+    rate = "6/day"
 
 
 @csrf_protect
@@ -260,8 +265,6 @@ class PasswordResetSerializer(serializers.Serializer):
         if user:
             send_password_reset(user.id)
 
-        # TODO: Limit number of requests for password reset emails
-
         return True
 
 
@@ -304,6 +307,7 @@ class PasswordResetViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = PasswordResetSerializer
     permission_classes = (permissions.AllowAny,)
+    throttle_classes = [UserPasswordResetThrottle]
     SUCCESS_STATUS_CODE = status.HTTP_204_NO_CONTENT
 
 

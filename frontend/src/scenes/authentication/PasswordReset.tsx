@@ -8,11 +8,11 @@ import { passwordResetLogic } from './passwordResetLogic'
 import { router } from 'kea-router'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
+import { IconCheckCircleOutline, IconErrorOutline } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: PasswordReset,
@@ -21,20 +21,30 @@ export const scene: SceneExport = {
 
 export function PasswordReset(): JSX.Element {
     const { preflight, preflightLoading } = useValues(preflightLogic)
-    const { requestPasswordResetSucceeded } = useValues(passwordResetLogic)
+    const { requestPasswordResetSucceeded, requestPasswordResetManualErrors } = useValues(passwordResetLogic)
+
+    console.log(requestPasswordResetManualErrors, 'the errors initially')
 
     return (
         <BridgePage view="password-reset">
-            {requestPasswordResetSucceeded && (
-                <div className="text-center">
-                    <IconCheckCircleOutline className="text-5xl text-success" />
+            {requestPasswordResetManualErrors?.code === 'throttled' ? (
+                <div className="text-center ">
+                    <IconErrorOutline className="text-5xl text-danger" />
                 </div>
+            ) : (
+                requestPasswordResetSucceeded && (
+                    <div className="text-center">
+                        <IconCheckCircleOutline className="text-5xl text-success" />
+                    </div>
+                )
             )}
             <h2>Reset password</h2>
             {preflightLoading ? (
                 <Spinner />
             ) : !preflight?.email_service_available ? (
                 <EmailUnavailable />
+            ) : requestPasswordResetManualErrors?.code === 'throttled' ? (
+                <ResetThrottled />
             ) : requestPasswordResetSucceeded ? (
                 <ResetSuccess />
             ) : (
@@ -114,6 +124,27 @@ function ResetSuccess(): JSX.Element {
         <div className="text-center">
             Request received successfully! If the email <b>{requestPasswordReset?.email || 'you typed'}</b> exists,
             you’ll receive an email with a reset link soon.
+            <div className="mt-4">
+                <LemonButton type="primary" data-attr="back-to-login" center fullWidth onClick={() => push('/login')}>
+                    Back to login
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+function ResetThrottled(): JSX.Element {
+    const { requestPasswordReset } = useValues(passwordResetLogic)
+    const { push } = useActions(router)
+
+    return (
+        <div className="text-center">
+            There have been too many reset requests for the email <b>{requestPasswordReset?.email || 'you typed'}</b>.
+            Please try again later or{' '}
+            <Link to="mailto:hey@posthog.com" className="inline-block">
+                get in touch
+            </Link>{' '}
+            if you think this has been a mistake.
             <div className="mt-4">
                 <LemonButton type="primary" data-attr="back-to-login" center fullWidth onClick={() => push('/login')}>
                     Back to login

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { supportLogic } from './supportLogic'
+import { TargetAreaToName, supportLogic } from './supportLogic'
 import { Form } from 'kea-forms'
 import { LemonButton } from 'lib/lemon-ui/LemonButton/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
@@ -11,27 +11,13 @@ import { capitalizeFirstLetter } from 'lib/utils'
 export default function SupportForm(): JSX.Element {
     const { isSupportFormOpen } = useValues(supportLogic)
     const { closeSupportForm } = useActions(supportLogic)
-    const TargetAreaToName = {
-        analytics: 'Analytics',
-        app_performance: 'App Performance',
-        apps: 'Apps',
-        billing: 'Billing',
-        cohorts: 'Cohorts',
-        data_management: 'Data Management',
-        data_integrity: 'Data Integrity',
-        ingestion: 'Events Ingestion',
-        experiments: 'Experiments',
-        feature_flags: 'Feature Flags',
-        login: 'Login / Sign up / Invites',
-        session_reply: 'Session Replay',
-    }
 
     return (
         <LemonModal
             isOpen={isSupportFormOpen}
             onClose={closeSupportForm}
             title={'Bug / Feedback'}
-            description="Submit a request to our helpdesk"
+            description="We're using aggregate bug reports for prioritization and won't get back to everyone individually."
             footer={
                 <div className="flex-1 flex items-center justify-between">
                     <div className="flex items-center gap-2">
