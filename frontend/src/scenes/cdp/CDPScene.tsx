@@ -10,11 +10,11 @@ import clsx from 'clsx'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ConnectionChoiceType } from './types'
 import { useActions, useValues } from 'kea'
-import { CDPSceneLogic } from './CDPSceneLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { CDPSceneLogic } from './CDPSceneLogic'
 
 export const scene: SceneExport = {
     component: CDPScene,

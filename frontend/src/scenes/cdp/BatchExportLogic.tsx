@@ -114,7 +114,7 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
         ],
     }),
     forms(({ values }) => ({
-        connectionSettings: {
+        batchExportSettings: {
             defaults: defaultCreator(values),
             validate: (values: S3BatchExportConfigType) => {
                 return {
@@ -135,8 +135,8 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
             },
         ],
         fileNamePreview: [
-            (s) => [s.connectionSettings],
-            (connectionSettings) => {
+            (s) => [s.batchExportSettings],
+            (batchExportSettings) => {
                 const now = dayjs()
                 const partitionId = '345345'
 
@@ -149,7 +149,7 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
                     ['second', 'ss'],
                 ]
 
-                let fileNamePreview = connectionSettings.fileName
+                let fileNamePreview = batchExportSettings.fileName
 
                 date_components.forEach(([component, format]) => {
                     fileNamePreview = fileNamePreview?.replace(`{${component}}`, now.format(format))
@@ -172,8 +172,8 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadConnectionChoicesSuccess: () => {
-            actions.setConnectionSettingsValues({
-                name: values.connectionSettings.name || values?.connectionChoice?.name,
+            actions.setBatchExportSettingsValues({
+                name: values.batchExportSettings.name || values?.connectionChoice?.name,
             })
         },
         loadConnectionSettingsSuccess: ({ connectionSettings }) => {
@@ -183,6 +183,6 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
     afterMount(({ actions }) => {
         actions.loadConnectionChoices()
         actions.loadExportRuns()
-        actions.loadConnectionSettings()
+        actions.loadBatchExportSettings()
     }),
 ])

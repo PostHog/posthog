@@ -94,7 +94,7 @@ export function S3Settings(): JSX.Element {
     const { setEditingSecret } = useActions(BatchExportLogic)
 
     return (
-        <Form logic={BatchExportLogic} formKey={'connectionSettings'} className="max-w-200 border rounded p-6">
+        <Form logic={BatchExportLogic} formKey={'batchExportSettings'} className="max-w-200 border rounded p-6">
             <div>
                 <h2>Connection</h2>
                 <Field name={'name'} label="Display Name">
@@ -174,7 +174,7 @@ export function S3Settings(): JSX.Element {
                                 Reset secret key
                             </LemonButton>
                         ) : (
-                            <LemonInput />
+                            <LemonInput type="password" />
                         )}
                     </Field>
                 </div>

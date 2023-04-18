@@ -3,7 +3,6 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagPropsType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ChangeExportRunStatusEnum, BatchExportRunType } from './types'
-import { NewConnectionLogic } from './NewConnectionLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -11,6 +10,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Progress } from 'antd'
 import { ExportRun } from './ExportRun'
+import { BatchExportLogic } from './BatchExportLogic'
 
 export enum BatchExportStatus {
     Running = 'Running',
@@ -24,7 +24,7 @@ export enum BatchExportStatus {
     Paused = 'Paused',
 }
 
-export function StatusToTagType(status: BatchExportRunType['status']): LemonTagPropsType {
+export function StatusToTagType(status: BatchExportStatus): LemonTagPropsType {
     switch (status) {
         case BatchExportStatus.Running:
             return 'highlight'
@@ -50,8 +50,8 @@ export function StatusToTagType(status: BatchExportRunType['status']): LemonTagP
 }
 
 export function ExportOverviewTab(): JSX.Element {
-    const { exportRuns, exportRunsLoading } = useValues(NewConnectionLogic)
-    const { changeExportRunStatus } = useActions(NewConnectionLogic)
+    const { exportRuns, exportRunsLoading } = useValues(BatchExportLogic)
+    const { changeExportRunStatus } = useActions(BatchExportLogic)
     // const { historicalExports, historicalExportsLoading, pluginConfig, interfaceJobsProps, hasRunningExports } =
     // useValues(appMetricsSceneLogic)
     // const { openHistoricalExportModal, loadHistoricalExports } = useActions(appMetricsSceneLogic)
