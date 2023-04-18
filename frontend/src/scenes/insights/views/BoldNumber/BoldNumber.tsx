@@ -108,6 +108,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                         clearTimeout(textFitTimer)
                     }
                 }}
+                style={{ lineHeight: 1 }}
             >
                 <div
                     className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
