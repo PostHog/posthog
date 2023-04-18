@@ -1,9 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import {
+    AdminClient,
     ClientMetrics,
     ConsumerGlobalConfig,
     GlobalConfig,
     HighLevelProducer as RdKafkaProducer,
+    IAdminClient,
     KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
     Message,
@@ -90,8 +92,6 @@ export const startSessionRecordingEventsConsumer = async ({
         'fetch.message.max.bytes': consumerMaxBytes,
         'fetch.wait.max.ms': consumerMaxWaitMs,
         'enable.partition.eof': true,
-        // We set the default topic config to automatically create topics.
-        'allow.auto.create.topics': true,
     })
 
     instrumentConsumerMetrics(consumer, groupId)
@@ -100,6 +100,19 @@ export const startSessionRecordingEventsConsumer = async ({
 
     let isMainLoopRunning = true
     let lastLoopTime = Date.now()
+
+    // Before subscribing, we need to ensure that the topic exists. We don't
+    // currently have a way to manage topic creation elsewhere (we handle this
+    // via terraform in production but this isn't applicable e.g. to hobby
+    // deployments) so we use the Kafka admin client to do so. We don't use the
+    // Kafka `enable.auto.create.topics` option as the behaviour of this doesn't
+    // seem to be well documented and it seems to not function as expected in
+    // our testing of it, we end up getting "Unknown topic or partition" errors
+    // on consuming, possibly similar to
+    // https://github.com/confluentinc/confluent-kafka-dotnet/issues/1366.
+    const adminClient = createAdminClient(connectionConfig)
+    await ensureTopicExists(adminClient, KAFKA_SESSION_RECORDING_EVENTS)
+    adminClient.disconnect()
 
     consumer.subscribe([KAFKA_SESSION_RECORDING_EVENTS])
 
@@ -627,4 +640,22 @@ const disconnectConsumer = async (consumer: RdKafkaConsumer) => {
             }
         })
     })
+}
+
+const ensureTopicExists = async (adminClient: IAdminClient, topic: string) => {
+    return await new Promise((resolve, reject) =>
+        adminClient.createTopic({ topic, num_partitions: -1, replication_factor: -1 }, (error: LibrdKafkaError) => {
+            if (error) {
+                status.error('🔥', 'Failed to create topic', { error })
+                reject(error)
+            } else {
+                status.info('🔁', 'Created topic')
+                resolve(adminClient)
+            }
+        })
+    )
+}
+
+const createAdminClient = (connectionConfig: GlobalConfig) => {
+    return AdminClient.create(connectionConfig)
 }
