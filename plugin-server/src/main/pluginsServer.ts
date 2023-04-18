@@ -470,7 +470,6 @@ export async function startPluginsServer(
         // } finally {
         //      await closeJobs()
         // }
-        // }
         // ```
         if (joinSessionRecordingEventsConsumer) {
             joinSessionRecordingEventsConsumer().catch(closeJobs)

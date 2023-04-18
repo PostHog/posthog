@@ -83,11 +83,11 @@ export const startSessionRecordingEventsConsumer = async ({
         // We disable auto commit and rather we commit after one batch has
         // completed.
         'enable.auto.commit': false,
-        'enable.auto.offset.store': false,
         'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
         'fetch.message.max.bytes': consumerMaxBytes,
         'fetch.wait.max.ms': consumerMaxWaitMs,
         'enable.partition.eof': true,
+        offset_commit_cb: true,
     })
 
     instrumentConsumerMetrics(consumer, groupId)
@@ -132,7 +132,7 @@ export const startSessionRecordingEventsConsumer = async ({
         const statusLogMilliseconds = 10000
         const statusLogInterval = setInterval(() => {
             status.info('🔁', 'main_loop', {
-                processingRatePerSecond: messagesProcessed / (statusLogMilliseconds / 1000),
+                messagesPerSecond: messagesProcessed / (statusLogMilliseconds / 1000),
                 lastLoopTime: new Date(lastLoopTime).toISOString(),
             })
 
@@ -210,6 +210,8 @@ export const startSessionRecordingEventsConsumer = async ({
                             }
                         }
                     }
+
+                    messagesProcessed += 1
                 }
 
                 // On each loop, we flush the producer to ensure that all messages
@@ -558,8 +560,16 @@ const disconnectProducer = async (producer: RdKafkaProducer) => {
 }
 
 const flushProducer = async (producer: RdKafkaProducer) => {
+    status.debug('📤', 'flushing_producer')
     return await new Promise((resolve, reject) =>
-        producer.flush(10000, (error) => (error ? reject(error) : resolve(null)))
+        producer.flush(10000, (error) => {
+            status.debug('📤', 'flushed_producer')
+            if (error) {
+                reject(error)
+            } else {
+                resolve(null)
+            }
+        })
     )
 }
 
@@ -581,6 +591,10 @@ const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
 
         consumer.on('connection.failure', (error: LibrdKafkaError, metrics: ClientMetrics) => {
             status.error('📝', 'librdkafka connection failure', { error, metrics })
+        })
+
+        consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {
+            status.info('📝', 'offset.commit', { error, topicPartitionOffsets })
         })
 
         consumer.connect({}, (error, data) => {
@@ -700,9 +714,6 @@ const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer
     // Get the offsets for the last message for each partition, from
     // messages
     const offsets = messages.reduce((acc, message) => {
-        if (!message.partition || !message.offset) {
-            return acc
-        }
         const partition = message.partition.toString()
         const offset = message.offset.toString()
         if (!acc[partition] || acc[partition] < offset) {
@@ -717,7 +728,10 @@ const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer
         offset: parseInt(offset, 10) + 1,
     }))
 
-    consumer.commit(topicPartitionOffsets)
+    if (topicPartitionOffsets.length > 0) {
+        status.debug('📝', 'Committing offsets', { topicPartitionOffsets })
+        consumer.commit(topicPartitionOffsets)
+    }
 }
 
 const disconnectConsumer = async (consumer: RdKafkaConsumer) => {
