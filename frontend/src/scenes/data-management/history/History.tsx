@@ -13,7 +13,12 @@ export function History(): JSX.Element {
                 tabbedPage
             />
             <DataManagementPageTabs tab={DataManagementTab.History} />
-            <ActivityLog scope={ActivityScope.DATA_MANAGEMENT} />
+            <ActivityLog
+                scope={ActivityScope.DATA_MANAGEMENT}
+                caption={
+                    'Only actions taken in the UI are captured in History. E.g. automatic creation of definitions by ingestion are not shown here'
+                }
+            />
         </div>
     )
 }
