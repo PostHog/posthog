@@ -16,15 +16,18 @@ export function NotebookSideBar(): JSX.Element {
     const [isEditable, setIsEditable] = useState(true)
     const [showCode, setShowCode] = useState(false)
 
+    // NOTE: This doesn't work for some reason, possibly due to the way the editor is rendered
     useKeyboardHotkeys(
-        {
-            escape: {
-                action: function () {
-                    setFullScreen(false)
-                },
-            },
-        },
-        []
+        notebookSideBarShown
+            ? {
+                  escape: {
+                      action: function () {
+                          setFullScreen(false)
+                      },
+                  },
+              }
+            : {},
+        [notebookSideBarShown]
     )
 
     return (

@@ -135,17 +135,18 @@ export const FEATURE_FLAGS = {
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
-    PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
     REQUIRE_EMAIL_VERIFICATION: 'require-email-verification', // owner: @raquelmsmith
     SAMPLING: 'sampling', // owner: @yakkomajuri
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
-    FF_CODE_EXAMPLE: 'ff-code-example', // owner: @liyiy
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     RECORDINGS_LIST_V2: 'recordings-list-v2-enabled', // owner: #team-session-recordings
     HOGQL: 'hogql', // owner: #team-product-analytics
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
+    ARUBUG: 'arubug', // owner: #team-arubug
+    BILLING_BY_PRODUCTS: 'billing-by-products', // owner: @raquelmsmith
+    RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
     DATA_MANAGEMENT_HISTORY: 'data-management-history', // owner: @pauldambra
 }
 

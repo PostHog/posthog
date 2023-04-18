@@ -21,15 +21,21 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
 
-export function InsightEmptyState(): JSX.Element {
+export function InsightEmptyState({
+    heading = 'There are no matching events for this query',
+    detail = 'Try changing the date range, or pick another action, event or breakdown.',
+}: {
+    heading?: string
+    detail?: string
+}): JSX.Element {
     return (
         <div className="insight-empty-state">
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                 </div>
-                <h2>There are no matching events for this query</h2>
-                <p className="text-center">Try changing the date range, or pick another action, event or breakdown.</p>
+                <h2>{heading}</h2>
+                <p className="text-center">{detail}</p>
             </div>
         </div>
     )

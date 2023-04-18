@@ -1,6 +1,7 @@
 from typing import List
 
 from posthog.hogql import ast
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.visitor import TraversingVisitor
 
 
@@ -39,9 +40,9 @@ class AsteriskExpander(TraversingVisitor):
                             columns.append(ast.Field(chain=[name], ref=ref))
                             node.ref.columns[name] = ref
                     else:
-                        raise ValueError("Can't expand asterisk (*) on subquery")
+                        raise HogQLException("Can't expand asterisk (*) on subquery")
                 else:
-                    raise ValueError(f"Can't expand asterisk (*) on a ref of type {type(asterisk.table).__name__}")
+                    raise HogQLException(f"Can't expand asterisk (*) on a ref of type {type(asterisk.table).__name__}")
 
             else:
                 columns.append(column)

@@ -18,18 +18,13 @@ class FunnelEventQuery(EventQuery):
         skip_entity_filter=False,
     ) -> Tuple[str, Dict[str, Any]]:
 
-        aggregation_target = (
-            get_aggregation_target_field(
-                self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, f"{self.EVENT_TABLE_ALIAS}.person_id"
-            )
-            if self._person_on_events_mode != PersonOnEventsMode.DISABLED
-            else get_aggregation_target_field(
-                self._filter.aggregation_group_type_index,
-                self.EVENT_TABLE_ALIAS,
-                f"{self.EVENT_TABLE_ALIAS}.distinct_id"
-                if self._aggregate_users_by_distinct_id
-                else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
-            )
+        _aggregation_target = self._person_id_alias
+
+        if self._aggregate_users_by_distinct_id:
+            _aggregation_target = f"{self.EVENT_TABLE_ALIAS}.distinct_id"
+
+        aggregation_target = get_aggregation_target_field(
+            self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, _aggregation_target
         )
 
         _fields = [
@@ -40,7 +35,7 @@ class FunnelEventQuery(EventQuery):
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
 
         if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
-            _fields += [f"{self.EVENT_TABLE_ALIAS}.person_id as person_id"]
+            _fields += [f"{self._person_id_alias} as person_id"]
 
             _fields.extend(
                 f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
@@ -49,7 +44,7 @@ class FunnelEventQuery(EventQuery):
 
         else:
             if self._should_join_distinct_ids:
-                _fields += [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id"]
+                _fields += [f"{self._person_id_alias} as person_id"]
             if self._should_join_persons:
                 _fields.extend(
                     f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
@@ -115,9 +110,13 @@ class FunnelEventQuery(EventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if (
+        non_person_id_aggregation = (
             self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id
-        ) and not self._column_optimizer.is_using_cohort_propertes:
+        )
+        is_using_cohort_propertes = self._column_optimizer.is_using_cohort_propertes
+        if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED or (
+            non_person_id_aggregation and not is_using_cohort_propertes
+        ):
             self._should_join_distinct_ids = False
         else:
             self._should_join_distinct_ids = True
@@ -125,7 +124,6 @@ class FunnelEventQuery(EventQuery):
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
         if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
-            self._should_join_distinct_ids = False
             self._should_join_persons = False
 
     def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:

@@ -15,7 +15,7 @@ import {
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { UploadFile } from 'antd/lib/upload/interface'
-import { eventWithTime } from 'rrweb/typings/types'
+import { eventWithTime } from '@rrweb/types'
 import { PostHog } from 'posthog-js'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { InsightQueryNode, Node } from './queries/schema'
+import { InsightQueryNode, Node, QueryContext } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -558,6 +558,10 @@ export interface RRWebRecordingConsoleLogPayload {
     trace: string[]
 }
 
+export interface RRWebRecordingNetworkPayload {
+    [key: number]: any
+}
+
 export interface RecordingConsoleLogBase {
     parsedPayload: string
     hash?: string // md5() on parsedPayload. Used for deduping console logs.
@@ -880,6 +884,7 @@ export interface EventType {
     elements_chain?: string | null
     /** Used in session recording events list */
     colonTimestamp?: string
+    uuid?: string
 }
 
 export interface RecordingTimeMixinType {
@@ -971,7 +976,7 @@ export interface RecentPerformancePageView extends PerformancePageView {
 
 export interface PerformanceEvent {
     uuid: string
-    timestamp: string
+    timestamp: string | number
     distinct_id: string
     session_id: string
     window_id: string
@@ -1037,8 +1042,6 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export type BillingVersion = 'v1' | 'v2'
-
 export interface BillingV2FeatureType {
     key: string
     name: string
@@ -1050,33 +1053,74 @@ export interface BillingV2FeatureType {
 }
 
 export interface BillingV2TierType {
+    flat_amount_usd: string
     unit_amount_usd: string
-    current_amount_usd?: string | null
+    current_amount_usd: string | null
+    current_usage: number
+    projected_usage: number | null
+    projected_amount_usd: number | null
     up_to: number | null
 }
 
 export interface BillingProductV2Type {
-    type: 'events' | 'recordings' | 'enterprise' | 'base'
+    type: string
+    usage_key: string
     name: string
-    description?: string
-    price_description?: string
-    image_url?: string
+    description: string
+    price_description?: string | null
+    image_url?: string | null
+    docs_url: string | null
     free_allocation?: number
-    tiers?: BillingV2TierType[]
+    subscribed: boolean
+    tiers?: BillingV2TierType[] | null
     tiered: boolean
     current_usage?: number
+    projected_amount_usd?: string
     projected_usage?: number
     percentage_usage: number
-    current_amount_usd?: string
-    usage_limit?: number
+    current_amount_usd_before_addons: string | null
+    current_amount_usd: string | null
+    usage_limit: number | null
+    has_exceeded_limit: boolean
+    unit: string
     unit_amount_usd: string | null
+    plans: BillingV2PlanType[]
+    contact_support: boolean
     feature_groups: {
+        // deprecated, remove after removing the billing plans table
         group: string
         name: string
         features: BillingV2FeatureType[]
     }[]
+    addons: BillingProductV2AddonType[]
+    // sometimes addons are included with the base product, but they aren't subscribed individually
+    included?: boolean
 }
 
+export interface BillingProductV2AddonType {
+    name: string
+    description: string
+    price_description: string | null
+    image_url: string | null
+    docs_url: string | null
+    type: string
+    tiers: BillingV2TierType[] | null
+    tiered: boolean
+    subscribed: boolean
+    // sometimes addons are included with the base product, but they aren't subscribed individually
+    included?: boolean
+    contact_support?: boolean
+    unit: string | null
+    unit_amount_usd: string | null
+    current_amount_usd: string | null
+    current_usage: number
+    projected_usage: number | null
+    projected_amount_usd: string | null
+    plans: BillingV2PlanType[]
+    usage_key: string
+    free_allocation?: number
+    percentage_usage?: number
+}
 export interface BillingV2Type {
     customer_id: string
     has_active_subscription: boolean
@@ -1086,7 +1130,6 @@ export interface BillingV2Type {
     current_total_amount_usd?: string
     current_total_amount_usd_after_discount?: string
     products: BillingProductV2Type[]
-    products_enterprise?: BillingProductV2Type[]
 
     custom_limits_usd?: {
         [key: string]: string | null | undefined
@@ -1105,11 +1148,16 @@ export interface BillingV2Type {
 }
 
 export interface BillingV2PlanType {
+    free_allocation?: number
+    features: BillingV2FeatureType[]
     key: string
     name: string
     description: string
     is_free?: boolean
     products: BillingProductV2Type[]
+    plan_key?: string
+    current_plan?: any
+    tiers?: BillingV2TierType[]
 }
 
 export interface PlanInterface {
@@ -1894,6 +1942,8 @@ export interface ChartParams {
     inCardView?: boolean
     inSharedMode?: boolean
     showPersonsModal?: boolean
+    /** allows overriding by queries, e.g. setting empty state text*/
+    context?: QueryContext
 }
 
 export interface HistogramGraphDatum {
@@ -2209,7 +2259,6 @@ interface BaseExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
-    secondary_metric_results?: SecondaryMetricAPIResult[]
     variants: ExperimentVariant[]
 }
 
@@ -2235,11 +2284,6 @@ export interface FunnelExperimentResults {
 }
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
-
-export interface SecondaryMetricAPIResult {
-    name: string
-    result: Record<string, number>
-}
 
 export interface SecondaryExperimentMetric {
     name: string
@@ -2339,6 +2383,7 @@ export enum HelpType {
     Email = 'email',
     Docs = 'docs',
     Updates = 'updates',
+    SupportForm = 'support_form',
 }
 
 export interface VersionType {

@@ -31,8 +31,23 @@ export function renderColumn(
     } else if (isHogQLQuery(query.source)) {
         if (typeof value === 'string') {
             try {
-                if ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']'))) {
-                    return <ReactJson src={JSON.parse(value)} name={key} collapsed={1} />
+                if (value.startsWith('{') && value.endsWith('}')) {
+                    return (
+                        <ReactJson
+                            src={JSON.parse(value)}
+                            name={key}
+                            collapsed={Object.keys(JSON.stringify(value)).length > 10 ? 0 : 1}
+                        />
+                    )
+                }
+                if (value.startsWith('[') && value.endsWith(']')) {
+                    return (
+                        <ReactJson
+                            src={JSON.parse(value)}
+                            name={key}
+                            collapsed={JSON.stringify(value).length > 10 ? 0 : 1}
+                        />
+                    )
                 }
             } catch (e) {}
             if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}/)) {
@@ -187,7 +202,7 @@ export function renderColumn(
         return typeof record === 'object' ? record[parent][child] : 'unknown'
     } else {
         if (typeof value === 'object' && value !== null) {
-            return <ReactJson src={value} name={key} collapsed={1} />
+            return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
         return String(value)
     }

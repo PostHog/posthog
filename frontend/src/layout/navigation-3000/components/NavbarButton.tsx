@@ -1,5 +1,3 @@
-import { useValues } from 'kea'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { sceneConfigurations } from 'scenes/scenes'
 import React, { FunctionComponent, ReactElement, useState } from 'react'
@@ -12,16 +10,14 @@ export interface NavbarButtonProps {
     onClick?: () => void
     to?: string
     persistentTooltip?: boolean
+    active?: boolean
 }
 
 export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardRef<HTMLElement, NavbarButtonProps>(
     ({ identifier, title, onClick, persistentTooltip, ...buttonProps }, ref): JSX.Element => {
-        const { aliasedActiveScene } = useValues(sceneLogic)
-
         const [hasBeenClicked, setHasBeenClicked] = useState(false)
 
         const effectiveTitle: string | undefined = title || sceneConfigurations[identifier]?.name
-        const isActive: boolean = identifier === aliasedActiveScene
 
         return (
             <li>
@@ -33,7 +29,6 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                 >
                     <LemonButton
                         ref={ref}
-                        active={isActive}
                         data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
                         onMouseEnter={() => setHasBeenClicked(false)}
                         onClick={() => {

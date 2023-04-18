@@ -153,7 +153,7 @@ export function InAppFeedback(): JSX.Element {
                     to use this feature.
                 </div>
             )}
-            <Query query={trendQuery} />
+            <Query query={trendQuery} readOnly />
             <LemonDivider className="my-6" />
             <Query query={dataTableQuery} setQuery={setDataTableQuery} />
         </>

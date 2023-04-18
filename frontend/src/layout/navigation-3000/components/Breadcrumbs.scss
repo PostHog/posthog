@@ -1,6 +1,6 @@
 .Breadcrumbs3000 {
     z-index: var(--z-main-nav);
-    position: absolute;
+    position: sticky;
     top: 0;
     backdrop-filter: blur(8px);
     display: flex;
@@ -21,6 +21,7 @@
     align-items: center;
     white-space: pre;
     cursor: default;
+    color: var(--default);
 
     &.Breadcrumbs3000__breadcrumb--here {
         cursor: default;

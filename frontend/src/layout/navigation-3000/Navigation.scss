@@ -3,31 +3,16 @@
     width: 100%;
     height: 100%;
     min-height: 100vh;
-    height: 100vh;
     background: var(--bg-3000);
-    overflow: hidden;
 
     > main {
-        position: relative;
         flex: 1;
         min-width: 0;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
     }
+}
 
-    .Navigation3000__scene {
-        display: flex;
-        flex: 1;
-        padding-top: 3rem; // Offset the breadcrumbs
-        overflow: hidden;
-
-        .Navigation3000__content {
-            flex: 1;
-            padding: 0 1rem;
-            overflow-y: auto;
-        }
-    }
+.Navigation3000__scene {
+    margin: 0 1rem;
 }
 
 // Navbar
@@ -75,7 +60,8 @@
     --sidebar-slider-padding: 0.25rem;
     --sidebar-horizontal-padding: 0.5rem;
     --sidebar-row-height: 2rem;
-    transition: 100ms ease flex-basis;
+    --sidebar-basic-leaf-row-height: 2rem;
+    --sidebar-extended-leaf-row-height: 2.875rem;
     position: relative;
     // This border is just for sizing, the visible border is on the content and slider
     // Hidden when the sidebar is closed
@@ -83,49 +69,53 @@
     flex: 0 0 var(--sidebar-width);
     box-sizing: content-box;
 
-    [theme='dark'] & {
-        background: var(--accent-3000);
-    }
-
     &.Sidebar3000--resizing {
-        transition: none; // Increase responsiveness when resizing
         will-change: flex-basis;
     }
 
+    h3,
     h4,
     h5 {
         color: var(--default);
+        text-overflow: ellipsis;
+        overflow: hidden;
+        margin: 0;
+        line-height: inherit;
+    }
+    h3 {
         font-weight: 600;
         line-height: 2rem;
-        margin: 0;
-    }
-    h4 {
         font-size: 0.75rem;
     }
-    h5 {
+    h4 {
+        font-weight: 600;
+        line-height: 2rem;
         font-size: 0.6875rem;
+    }
+    h5 {
+        font-weight: 500;
+        font-size: 0.75rem;
         text-transform: none;
         letter-spacing: normal;
     }
 }
 
 .Sidebar3000__content {
-    transition: 100ms ease width;
-    position: fixed;
+    position: sticky;
     top: 0;
-    left: calc(3rem + 1px);
     display: flex;
     flex-direction: column;
     align-items: stretch;
     height: 100vh;
     width: var(--sidebar-width);
-    // This is so that the border goes beyond the viewport during overscroll
-    // Hidden when the sidebar is closed
-    border-right: min(1px, var(--sidebar-width)) solid transparent;
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     box-sizing: content-box;
     white-space: nowrap;
     overflow: hidden;
+    background: var(--bg-3000);
+    [theme='dark'] & {
+        background: var(--accent-3000);
+    }
 
     .Sidebar3000--resizing & {
         transition: none; // Increase responsiveness when resizing
@@ -133,7 +123,8 @@
     }
 }
 
-.Sidebar3000__main {
+.Sidebar3000__lists {
+    position: relative; // For SpinnerOverlay
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -176,11 +167,11 @@
         width: 1px;
     }
     &::before {
-        transition: 200ms ease transform, 200ms ease background-color;
+        transition: 100ms ease transform, 100ms ease background-color;
         background: var(--border);
     }
     &::after {
-        transition: 200ms ease opacity, 200ms ease transform, 200ms ease background-color;
+        transition: 100ms ease opacity, 100ms ease transform, 100ms ease background-color;
         background: var(--text-3000);
         opacity: 0;
     }
@@ -206,7 +197,6 @@
 // Accordion
 
 .Accordion {
-    --accordion-row-height: 1.75rem;
     --accordion-arrow-size: 1rem;
     --accordion-inset: 1.25rem;
     --accordion-header-background: var(--accent-3000);
@@ -228,7 +218,7 @@
 }
 
 .Accordion__header {
-    transition: 200ms ease background, 200ms ease border-color;
+    transition: 100ms ease background, 100ms ease border-color;
     display: flex;
     align-items: center;
     background: var(--accordion-header-background);
@@ -241,40 +231,97 @@
         background: var(--border-3000);
     }
     .LemonIcon {
-        transition: 200ms ease transform;
+        transition: 100ms ease transform;
         font-size: var(--accordion-arrow-size);
         flex-shrink: 0;
         .Accordion--expanded & {
             transform: rotate(90deg);
         }
     }
-    h5 {
+    h4 {
         margin-left: calc(var(--accordion-inset) - var(--accordion-arrow-size));
     }
 }
 
-.Accordion_content {
+.Accordion__content {
     border-bottom-width: 1px;
 }
 
-.Accordion_meta {
+.Accordion__meta {
     opacity: 0.5;
     padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--accordion-inset) + var(--sidebar-horizontal-padding));
     line-height: var(--accordion-row-height);
     user-select: none;
 }
 
-.Accordion_list {
-    li {
-        transition: 200ms ease background;
-        padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--accordion-inset) + var(--sidebar-horizontal-padding));
-        line-height: var(--accordion-row-height);
-        font-weight: 500;
-        text-overflow: ellipsis;
-        overflow: hidden;
-        cursor: pointer;
-        &:hover {
-            background: var(--border-3000);
+.SidebarList__item {
+    --sidebar-list-item-status-color: var(--muted);
+    --sidebar-list-item-fold-size: 0.5rem;
+    --sidebar-list-item-ribbon-width: 0.1875rem;
+    position: relative;
+    transition: 100ms ease background;
+    padding: 0 var(--sidebar-horizontal-padding) 0
+        calc(
+            var(--accordion-inset, 0px) + var(--sidebar-horizontal-padding) +
+                var(--sidebar-list-item-marker-offset, 0px)
+        );
+    color: var(--muted);
+    border-bottom-width: 1px;
+    line-height: 1.125rem;
+    height: var(--sidebar-basic-leaf-row-height);
+    cursor: pointer;
+
+    &:hover,
+    &[aria-current='page'] {
+        background: var(--border-3000);
+    }
+
+    &.SidebarList__item--extended {
+        height: var(--sidebar-extended-leaf-row-height);
+    }
+
+    &.SidebarList__item--marker-fold,
+    &.SidebarList__item--marker-ribbon {
+        &::before {
+            content: '';
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
         }
+    }
+    &.SidebarList__item--marker-fold {
+        &::before {
+            width: 0;
+            height: 0;
+            border-left: var(--sidebar-list-item-fold-size) solid var(--sidebar-list-item-status-color);
+            border-bottom: var(--sidebar-list-item-fold-size) solid transparent;
+        }
+    }
+    &.SidebarList__item--marker-ribbon {
+        --sidebar-list-item-marker-offset: var(--sidebar-list-item-ribbon-width);
+        &::before {
+            width: var(--sidebar-list-item-ribbon-width);
+            height: calc(100% + 1px);
+            background: var(--sidebar-list-item-status-color);
+        }
+    }
+    &.SidebarList__item--marker-status-success {
+        --sidebar-list-item-status-color: var(--success);
+    }
+    &.SidebarList__item--marker-status-warning {
+        --sidebar-list-item-status-color: var(--warning);
+    }
+    &.SidebarList__item--marker-status-danger {
+        --sidebar-list-item-status-color: var(--danger);
+    }
+
+    > a {
+        display: flex;
+        justify-content: center;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        color: inherit;
     }
 }

@@ -46,7 +46,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { UserActivityIndicator } from '../../UserActivityIndicator/UserActivityIndicator'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
@@ -67,6 +67,7 @@ import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/Queries
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { QueryContext } from '~/queries/schema'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -415,7 +416,7 @@ function InsightMeta({
 }
 
 function VizComponentFallback(): JSX.Element {
-    return <AlertMessage type="warning">Unknown insight display type</AlertMessage>
+    return <LemonBanner type="warning">Unknown insight display type</LemonBanner>
 }
 
 export interface InsightVizProps
@@ -424,6 +425,8 @@ export interface InsightVizProps
     invalidFunnelExclusion?: boolean
     empty?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
+    /** pass in information from queries, e.g. what text to use for empty states*/
+    context?: QueryContext
 }
 
 export function InsightViz({
@@ -436,6 +439,7 @@ export function InsightViz({
     empty,
     tooFewFunnelSteps,
     invalidFunnelExclusion,
+    context,
 }: InsightVizProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
@@ -466,23 +470,23 @@ export function InsightViz({
                     : undefined
             }
         >
-            {loading && !timedOut && <SpinnerOverlay />}
+            {loading && <SpinnerOverlay />}
             {tooFewFunnelSteps ? (
                 <FunnelSingleStepState actionable={false} />
             ) : invalidFunnelExclusion ? (
                 <FunnelInvalidExclusionState />
             ) : empty ? (
-                <InsightEmptyState />
-            ) : timedOut ? (
+                <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+            ) : !loading && timedOut ? (
                 <InsightTimeoutState
-                    isLoading={!!loading}
+                    isLoading={false}
                     insightProps={{ dashboardItemId: undefined }}
                     insightType={insight.filters.insight}
                 />
             ) : apiErrored && !loading ? (
                 <InsightErrorState excludeDetail />
             ) : (
-                !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} />
+                !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} context={context} />
             )}
         </div>
     )
@@ -603,9 +607,9 @@ function InsightCardInternal(
                         }
                     >
                         {exportedAndCached || sharedAndCached ? (
-                            <Query query={insight.query} cachedResults={insight.result} />
+                            <Query query={insight.query} cachedResults={insight.result} readOnly />
                         ) : isUsingDashboardQueries && canMakeQueryAPICalls ? (
-                            <Query query={insight.query} />
+                            <Query query={insight.query} readOnly />
                         ) : (
                             <QueriesUnsupportedHere />
                         )}

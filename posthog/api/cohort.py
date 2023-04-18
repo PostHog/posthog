@@ -94,12 +94,6 @@ class CohortSerializer(serializers.ModelSerializer):
             if filter_data:
                 insert_cohort_from_insight_filter.delay(cohort.pk, filter_data)
 
-    def _handle_csv(self, file, cohort: Cohort) -> None:
-        decoded_file = file.read().decode("utf-8").splitlines()
-        reader = csv.reader(decoded_file)
-        distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
-        calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
-
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
         Team.objects.get(pk=self.context["team_id"])

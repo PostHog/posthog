@@ -14,6 +14,7 @@ import clsx from 'clsx'
 import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { containsHogQLQuery } from '~/queries/utils'
+import { insightNavLogic } from './InsightNav/insightNavLogic'
 
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
@@ -46,6 +47,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
+    const { activeView } = useValues(insightNavLogic(insightProps))
 
     useEffect(() => {
         reportInsightViewedForRecentInsights()
@@ -82,11 +84,13 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 
-            {isUsingDataExploration || (isUsingDashboardQueries && isQueryBasedInsight) ? (
+            {isUsingDataExploration ||
+            (isUsingDashboardQueries && [InsightType.SQL, InsightType.JSON].includes(activeView)) ? (
                 <>
                     <Query
                         query={query}
                         setQuery={insightMode === ItemMode.Edit ? setQuery : undefined}
+                        readOnly={insightMode !== ItemMode.Edit}
                         context={{
                             showOpenEditorButton: false,
                             showQueryEditor: actuallyShowQueryEditor,

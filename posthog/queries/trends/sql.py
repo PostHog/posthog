@@ -281,7 +281,7 @@ FROM (
         breakdown_value
     FROM (
         SELECT
-        {person_id_alias}.person_id as person_id,
+        {person_id_alias} as person_id,
         timestamp,
         {breakdown_value} as breakdown_value
         FROM
@@ -307,7 +307,7 @@ FROM (
     CROSS JOIN (
         SELECT
             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS timestamp,
-            {person_id_alias}.person_id AS person_id,
+            {person_id_alias} AS person_id,
             {breakdown_value} AS breakdown_value
         FROM events e
         {sample_clause}

@@ -29,7 +29,6 @@ from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import PKorUUIDViewSet, StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
-from posthog.client import sync_execute
 from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
@@ -42,7 +41,6 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
 from posthog.models.person.util import delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery, get_people
@@ -265,16 +263,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             raise NotFound(detail="Person not found.")
 
     @action(methods=["GET"], detail=False)
-    def properties(self, request: request.Request, **kwargs) -> response.Response:
-        result = self.get_properties(request)
-
-        return response.Response(result)
-
-    def get_properties(self, request: request.Request):
-        rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": self.team.pk})
-        return [{"name": name, "count": count} for name, count in rows]
-
-    @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         value = request.GET.get("value")
@@ -355,7 +343,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             distinct_id=person.distinct_ids[0],
             ip=None,
             site_url=None,
-            team_id=self.team_id,
+            token=self.team.api_token,
             now=datetime.now(),
             sent_at=None,
             event={
@@ -438,7 +426,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             distinct_id=instance.distinct_ids[0],
             ip=None,
             site_url=None,
-            team_id=instance.team_id,
+            token=instance.team.api_token,
             now=datetime.now(),
             sent_at=None,
             event={

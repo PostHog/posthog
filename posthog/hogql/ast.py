@@ -8,11 +8,13 @@ from pydantic import Field as PydanticField
 from posthog.hogql.database import (
     DatabaseField,
     FieldTraverser,
-    LazyTable,
+    LazyJoin,
     StringJSONDatabaseField,
     Table,
     VirtualTable,
+    LazyTable,
 )
+from posthog.hogql.errors import HogQLException, NotImplementedException
 
 # NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
 
@@ -31,12 +33,12 @@ class AST(BaseModel):
             return visit(self)
         if hasattr(visitor, "visit_unknown"):
             return visitor.visit_unknown(self)
-        raise ValueError(f"Visitor has no method {method_name}")
+        raise NotImplementedException(f"Visitor has no method {method_name}")
 
 
 class Ref(AST):
     def get_child(self, name: str) -> "Ref":
-        raise NotImplementedError("Ref.get_child not overridden")
+        raise NotImplementedException("Ref.get_child not overridden")
 
     def has_child(self, name: str) -> bool:
         return self.get_child(name) is not None
@@ -66,7 +68,7 @@ class FieldAliasRef(Ref):
 
 class BaseTableRef(Ref):
     def resolve_database_table(self) -> Table:
-        raise NotImplementedError("BaseTableRef.resolve_database_table not overridden")
+        raise NotImplementedException("BaseTableRef.resolve_database_table not overridden")
 
     def has_child(self, name: str) -> bool:
         return self.resolve_database_table().has_field(name)
@@ -76,14 +78,16 @@ class BaseTableRef(Ref):
             return AsteriskRef(table=self)
         if self.has_child(name):
             field = self.resolve_database_table().get_field(name)
+            if isinstance(field, LazyJoin):
+                return LazyJoinRef(table=self, field=name, lazy_join=field)
             if isinstance(field, LazyTable):
-                return LazyTableRef(table=self, field=name, lazy_table=field)
+                return LazyTableRef(table=field)
             if isinstance(field, FieldTraverser):
                 return FieldTraverserRef(table=self, chain=field.chain)
             if isinstance(field, VirtualTable):
                 return VirtualTableRef(table=self, field=name, virtual_table=field)
             return FieldRef(name=name, table=self)
-        raise ValueError(f"Field not found: {name}")
+        raise HogQLException(f"Field not found: {name}")
 
 
 class TableRef(BaseTableRef):
@@ -101,13 +105,20 @@ class TableAliasRef(BaseTableRef):
         return self.table_ref.table
 
 
-class LazyTableRef(BaseTableRef):
+class LazyJoinRef(BaseTableRef):
     table: BaseTableRef
     field: str
-    lazy_table: LazyTable
+    lazy_join: LazyJoin
 
     def resolve_database_table(self) -> Table:
-        return self.lazy_table.table
+        return self.lazy_join.join_table
+
+
+class LazyTableRef(BaseTableRef):
+    table: LazyTable
+
+    def resolve_database_table(self) -> Table:
+        return self.table
 
 
 class VirtualTableRef(BaseTableRef):
@@ -149,7 +160,7 @@ class SelectQueryRef(Ref):
             return AsteriskRef(table=self)
         if name in self.columns:
             return FieldRef(name=name, table=self)
-        raise ValueError(f"Column not found: {name}")
+        raise HogQLException(f"Column not found: {name}")
 
     def has_child(self, name: str) -> bool:
         return name in self.columns
@@ -180,7 +191,7 @@ class SelectQueryAliasRef(Ref):
             return AsteriskRef(table=self)
         if self.ref.has_child(name):
             return FieldRef(name=name, table=self)
-        raise ValueError(f"Field {name} not found on query with alias {self.name}")
+        raise HogQLException(f"Field {name} not found on query with alias {self.name}")
 
     def has_child(self, name: str) -> bool:
         return self.ref.has_child(name)
@@ -221,16 +232,16 @@ class FieldRef(Ref):
     def get_child(self, name: str) -> Ref:
         database_field = self.resolve_database_field()
         if database_field is None:
-            raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
+            raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
-            return PropertyRef(name=name, parent=self)
-        raise ValueError(
+            return PropertyRef(chain=[name], parent=self)
+        raise HogQLException(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
 
 
 class PropertyRef(Ref):
-    name: str
+    chain: List[str]
     parent: FieldRef
 
     # The property has been moved into a field we query from a joined subquery
@@ -238,10 +249,14 @@ class PropertyRef(Ref):
     joined_subquery_field_name: Optional[str]
 
     def get_child(self, name: str) -> "Ref":
-        raise NotImplementedError("JSON property traversal is not yet supported")
+        return PropertyRef(chain=self.chain + [name], parent=self.parent)
 
     def has_child(self, name: str) -> bool:
-        return False
+        return True
+
+
+class LambdaArgumentRef(Ref):
+    name: str
 
 
 class Alias(Expr):
@@ -309,6 +324,24 @@ class OrderExpr(Expr):
     order: Literal["ASC", "DESC"] = "ASC"
 
 
+class ArrayAccess(Expr):
+    array: Expr
+    property: Expr
+
+
+class Array(Expr):
+    exprs: List[Expr]
+
+
+class Tuple(Expr):
+    exprs: List[Expr]
+
+
+class Lambda(Expr):
+    args: List[str]
+    expr: Expr
+
+
 class Constant(Expr):
     value: Any
 
@@ -328,6 +361,8 @@ class Call(Expr):
 
 
 class JoinExpr(Expr):
+    ref: Optional[BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef]
+
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
     alias: Optional[str] = None
