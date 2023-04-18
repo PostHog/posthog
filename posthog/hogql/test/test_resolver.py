@@ -633,6 +633,7 @@ class TestResolver(BaseTest):
         resolve_types(node, self.database)
         expected = ast.Call(
             name="max",
+            # NB! timestamp was resolved to a DateTimeType for the Call's arg type.
             type=ast.CallType(name="max", arg_types=[ast.DateTimeType()], return_type=ast.UnknownType()),
             args=[
                 ast.Field(
