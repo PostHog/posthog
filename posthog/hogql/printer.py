@@ -413,10 +413,15 @@ class _Printer(Visitor):
                     f"Aggregation '{node.name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
                 )
             if isinstance(required_arg_count, tuple) and (
-                len(node.args) < required_arg_count[0] or len(node.args) > required_arg_count[1]
+                (required_arg_count[0] is not None and len(node.args) < required_arg_count[0])
+                or (required_arg_count[1] is not None and len(node.args) > required_arg_count[1])
             ):
+                if required_arg_count[1] is None:
+                    raise HogQLException(
+                        f"Aggregation '{node.name}' requires at least {required_arg_count[0]} argument{'s' if required_arg_count[0] != 1 else ''}, found {len(node.args)}"
+                    )
                 raise HogQLException(
-                    f"Aggregation '{node.name}' requires between {required_arg_count[0]} and {required_arg_count[1]} arguments, found {len(node.args)}"
+                    f"Aggregation '{node.name}' requires between {required_arg_count[0] or '0'} and {required_arg_count[1] or 'unlimited'} arguments, found {len(node.args)}"
                 )
 
             # check that we're not running inside another aggregate
