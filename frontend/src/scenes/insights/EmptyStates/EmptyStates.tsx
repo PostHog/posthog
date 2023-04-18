@@ -142,7 +142,7 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                                         openSupportForm('bug', 'analytics')
                                     }}
                                 >
-                                    Submit a bug report
+                                    Submit a bug report.
                                 </Link>{' '}
                             </li>
                         </ol>
