@@ -1,4 +1,3 @@
-import { Upload } from '@aws-sdk/lib-storage'
 import { randomUUID } from 'crypto'
 import { createReadStream, mkdirSync, writeFileSync } from 'fs'
 import { appendFile, rm } from 'fs/promises'
@@ -7,7 +6,7 @@ import { Counter } from 'prom-client'
 import * as zlib from 'zlib'
 
 import { status } from '../../../../utils/status'
-import { s3Client } from '../utils/s3'
+import { ObjectStorage } from '../../../services/object_storage'
 import { config } from './config'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
@@ -34,6 +33,7 @@ export class SessionManager {
     flushBuffer?: SessionBuffer
 
     constructor(
+        public readonly objectStorage: ObjectStorage['s3'],
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
@@ -190,8 +190,10 @@ export class SessionManager {
         }
     }
 
-    public async destroy(): Promise<void> {
+    public destroy(): Promise<void> {
         // TODO: Should we delete the buffer files??
         this.onFinish([])
+
+        return Promise.resolve()
     }
 }

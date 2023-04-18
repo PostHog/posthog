@@ -15,7 +15,7 @@ import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
-import { connectObjectStorage } from '../../main/services/object_storage'
+import { ObjectStorage, connectObjectStorage } from '../../main/services/object_storage'
 import {
     EnqueuedPluginJob,
     Hub,
@@ -160,8 +160,10 @@ export async function createHub(
     status.info('👍', `Redis ready`)
 
     status.info('🤔', `Connecting to object storage...`)
+
+    let objectStorage: ObjectStorage['s3']
     try {
-        connectObjectStorage(serverConfig)
+        objectStorage = connectObjectStorage(serverConfig)
         status.info('👍', 'Object storage ready')
     } catch (e) {
         status.warn('🪣', `Object storage could not be created: ${e}`)
@@ -232,6 +234,7 @@ export async function createHub(
         kafkaProducer,
         statsd,
         enqueuePluginJob,
+        objectStorage: objectStorage,
 
         plugins: new Map(),
         pluginConfigs: new Map(),

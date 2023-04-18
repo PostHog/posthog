@@ -9,6 +9,7 @@ import { KafkaSecurityProtocol, PipelineEvent, PluginsServerConfig, RawEventMess
 import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
+import { ObjectStorage } from '../../services/object_storage'
 import { instrumentEachBatch, setupEventHandlers } from '../kafka-queue'
 import { OffsetManager } from './blob-ingester/offset-manager'
 import { SessionManager } from './blob-ingester/session-manager'
@@ -38,7 +39,12 @@ export class SessionRecordingBlobIngester {
     producer?: RdKafkaProducer
     lastHeartbeat: number = Date.now()
 
-    constructor(private teamManager: TeamManager, private kafka: Kafka, private serverConfig: PluginsServerConfig) {}
+    constructor(
+        private teamManager: TeamManager,
+        private kafka: Kafka,
+        private serverConfig: PluginsServerConfig,
+        private objectStorage: ObjectStorage
+    ) {}
 
     // TODO: Have a timer here that runs every N seconds and calls `flushIfNecessary` on all sessions
 

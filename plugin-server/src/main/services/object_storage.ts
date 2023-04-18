@@ -7,15 +7,17 @@ let S3: typeof aws.S3 | null = null
 
 export interface ObjectStorage {
     healthcheck: () => Promise<boolean>
+    s3: typeof aws.S3
 }
 
 // Object Storage added without any uses to flush out deployment concerns.
 // see https://github.com/PostHog/posthog/pull/9901
 export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>): ObjectStorage => {
-    let storage = {
+    let storage: ObjectStorage = {
         healthcheck: async () => {
             return Promise.resolve(true) // healthy if object storage isn't configured
         },
+        s3: undefined,
     }
     try {
         const {
@@ -52,6 +54,7 @@ export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>)
                         return false
                     }
                 },
+                s3: S3,
             }
         }
     } catch (e) {

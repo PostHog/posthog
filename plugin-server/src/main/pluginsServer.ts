@@ -33,6 +33,7 @@ import { SessionRecordingBlobIngester } from './ingestion-queues/session-recordi
 import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
+import { connectObjectStorage } from './services/object_storage'
 
 const { version } = require('../../package.json')
 
@@ -453,7 +454,9 @@ export async function startPluginsServer(
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig as KafkaConfig)
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const ingester = new SessionRecordingBlobIngester(teamManager, kafka, serverConfig)
+            const s3 = hub?.objectStorage ?? connectObjectStorage(serverConfig)
+
+            const ingester = new SessionRecordingBlobIngester(teamManager, kafka, serverConfig, s3)
             await ingester.start()
             stopSessionRecordingBlobConsumer = () => ingester.stop()
             healthChecks['session-recordings-blob'] = () => ingester.isHealthy()
