@@ -100,6 +100,7 @@ class PersonQuery:
         filter_future_persons_query = (
             "and argMax(created_at, version) < now() + interval '1 day'" if filter_future_persons else ""
         )
+        updated_after_clause, updated_after_params = self._get_updated_after_clause()
 
         return (
             f"""
@@ -114,7 +115,7 @@ class PersonQuery:
             )
             {cohort_filters}
             GROUP BY id
-            HAVING max(is_deleted) = 0 {filter_future_persons_query}
+            HAVING max(is_deleted) = 0 {filter_future_persons_query} {updated_after_clause}
             {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
             {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
@@ -127,12 +128,13 @@ class PersonQuery:
             WHERE team_id = %(team_id)s
             {cohort_filters}
             GROUP BY id
-            HAVING max(is_deleted) = 0 {filter_future_persons_query}
+            HAVING max(is_deleted) = 0 {filter_future_persons_query} {updated_after_clause}
             {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
             {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
         """,
             {
+                **updated_after_params,
                 **person_params,
                 **grouped_person_params,
                 **cohort_params,
@@ -318,4 +320,14 @@ class PersonQuery:
             return prop_filter_json_extract(
                 Property(key="email", value=self._filter.email, type="person"), 0, prepend="_email"
             )
+        return "", {}
+
+    def _get_updated_after_clause(self) -> Tuple[str, Dict]:
+        if not isinstance(self._filter, Filter):
+            return "", {}
+
+        if self._filter.updated_after:
+            return "and max(_timestamp) > parseDateTimeBestEffort(%(updated_after)s)", {
+                "updated_after": self._filter.updated_after
+            }
         return "", {}
