@@ -64,16 +64,12 @@ export class SessionManager {
     public async flushIfNeccessary(): Promise<void> {
         const bufferSizeKb = this.buffer.size / 1024
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
-
-        const capacity = bufferSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
 
         status.info(
-            `Buffer ${this.sessionId}:: capacity: ${(capacity * 100).toFixed(2)}% (${(gzippedCapacity * 100).toFixed(
-                2
-            )}%): count: ${this.buffer.count} ${Math.round(bufferSizeKb)}KB (~ ${Math.round(gzipSizeKb)}KB) chunks: ${
-                this.chunks.size
-            })`
+            `Buffer ${this.sessionId}:: capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${
+                this.buffer.count
+            } ${Math.round(bufferSizeKb)}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size})`
         )
 
         const shouldFlush =
