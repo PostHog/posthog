@@ -160,7 +160,7 @@ export const insightLogic = kea<insightLogicType>([
         }),
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
-        cancelChanges: (goToViewMode?: boolean) => ({ goToViewMode }),
+        cancelChanges: true,
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
@@ -650,12 +650,16 @@ export const insightLogic = kea<insightLogicType>([
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
         insightChanged: [
-            (s) => [s.insight, s.savedInsight, s.filters],
-            (insight, savedInsight, filters): boolean =>
-                (insight.name || '') !== (savedInsight.name || '') ||
-                (insight.description || '') !== (savedInsight.description || '') ||
-                !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
-                !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})),
+            (s) => [s.insight, s.savedInsight, s.filters, s.isUsingDataExploration],
+            (insight, savedInsight, filters, isUsingDataExploration): boolean => {
+                return (
+                    (insight.name || '') !== (savedInsight.name || '') ||
+                    (insight.description || '') !== (savedInsight.description || '') ||
+                    !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
+                    (!isUsingDataExploration &&
+                        !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})))
+                )
+            },
         ],
         isInDashboardContext: [
             () => [router.selectors.location],
@@ -1153,12 +1157,8 @@ export const insightLogic = kea<insightLogicType>([
             }
             actions.setFilters(newFilters)
         },
-        cancelChanges: ({ goToViewMode }) => {
+        cancelChanges: () => {
             actions.setFilters(values.savedInsight.filters || {})
-            if (goToViewMode) {
-                insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
-                eventUsageLogic.actions.reportInsightsTabReset()
-            }
         },
     })),
     events(({ props, values, actions }) => ({
@@ -1171,7 +1171,7 @@ export const insightLogic = kea<insightLogicType>([
                 (Object.keys(props.cachedInsight?.filters || {}).length > 0 ||
                     Object.keys(props.cachedInsight?.query || {}).length > 0)
 
-            if (!isCachedWithResultAndFilters) {
+            if (!isCachedWithResultAndFilters || !!values.isUsingDataExploration) {
                 if (hasDashboardItemId) {
                     const insight = findInsightFromMountedLogic(
                         props.dashboardItemId as string | InsightShortId,
@@ -1188,7 +1188,7 @@ export const insightLogic = kea<insightLogicType>([
                     }
                 }
                 if (!props.doNotLoad) {
-                    if (props.cachedInsight?.filters && !props.cachedInsight?.query) {
+                    if (props.cachedInsight?.filters && !props.cachedInsight?.query && !values.isUsingDataExploration) {
                         actions.loadResults()
                     } else if (hasDashboardItemId) {
                         actions.loadInsight(props.dashboardItemId as InsightShortId)

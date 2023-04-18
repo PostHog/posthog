@@ -22,12 +22,7 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
     connect((props: InsightLogicProps) => ({
         logic: [eventUsageLogic],
 
-        values: [
-            insightLogic(props),
-            ['filters', 'isInDashboardContext'],
-            funnelPropertyCorrelationLogic(props),
-            ['allProperties'],
-        ],
+        values: [insightLogic(props), ['filters', 'isInDashboardContext']],
 
         actions: [
             insightLogic(props),
@@ -150,7 +145,7 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
             eventUsageLogic.actions.reportCorrelationInteraction(
                 FunnelCorrelationResultsType.Properties,
                 'set property names',
-                { property_names: propertyNames.length === values.allProperties.length ? '$all' : propertyNames }
+                { property_names: propertyNames }
             )
         },
         loadEventWithPropertyCorrelations: async (eventName: string) => {

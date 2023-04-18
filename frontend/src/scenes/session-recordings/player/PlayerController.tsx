@@ -8,16 +8,18 @@ import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { IconExport, IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
+import { IconExport, IconFullScreen, IconMagnifier, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCheckbox } from '@posthog/lemon-ui'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    const { togglePlayPause, exportRecordingToFile } = useActions(logic)
+    const { togglePlayPause, exportRecordingToFile, openExplorer } = useActions(logic)
     const { currentPlayerState } = useValues(logic)
 
     const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
@@ -125,6 +127,17 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                                 >
                                     Export to file
                                 </LemonButton>
+
+                                <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_DOM_EXPLORER} match={true}>
+                                    <LemonButton
+                                        status="stealth"
+                                        onClick={() => openExplorer()}
+                                        fullWidth
+                                        sideIcon={<IconMagnifier />}
+                                    >
+                                        Explore DOM
+                                    </LemonButton>
+                                </FlaggedFeature>
                             </>
                         }
                     />

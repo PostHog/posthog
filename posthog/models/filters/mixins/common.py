@@ -557,6 +557,17 @@ class EmailMixin(BaseParamMixin):
         return email
 
 
+class UpdatedAfterMixin(BaseParamMixin):
+    """
+    Filter on updated after (parsable by CH parseDateTimeBestEffort). Only used for person endpoint
+    """
+
+    @cached_property
+    def updated_after(self) -> Optional[str]:
+        updated_after = self._data.get("updated_after", None)
+        return updated_after
+
+
 class SampleMixin(BaseParamMixin):
     """
     Sample factor for a query.

@@ -68,7 +68,7 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                 try {
                     await api.create('api/reset/', { email })
                 } catch (e: any) {
-                    actions.setRequestPasswordResetManualErrors({ email: e.detail })
+                    actions.setRequestPasswordResetManualErrors(e)
                 }
             },
         },

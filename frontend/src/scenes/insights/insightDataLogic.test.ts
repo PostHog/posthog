@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
-import { InsightLogicProps, InsightShortId, InsightType } from '~/types'
+import { InsightShortId } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { NodeKind, TrendsQuery } from '~/queries/schema'
@@ -23,48 +23,6 @@ describe('insightDataLogic', () => {
             },
         })
         initKeaTests()
-    })
-
-    describe('default query', () => {
-        it('defaults to null', () => {
-            const props: InsightLogicProps = { dashboardItemId: 'new' }
-            const logic = insightDataLogic(props)
-            logic.mount()
-            expectLogic(logic).toMatchValues({
-                query: null,
-            })
-        })
-
-        it('can load from a cached filter-based insight', () => {
-            const props: InsightLogicProps = {
-                dashboardItemId: 'new',
-                cachedInsight: { filters: { insight: InsightType.STICKINESS } },
-            }
-            const logic = insightDataLogic(props)
-            logic.mount()
-            expectLogic(logic).toMatchValues({
-                query: expect.objectContaining({
-                    kind: NodeKind.InsightVizNode,
-                    source: expect.objectContaining({
-                        kind: NodeKind.StickinessQuery,
-                    }),
-                }),
-            })
-        })
-
-        it('can load from a cached query-based insight', () => {
-            const props: InsightLogicProps = {
-                dashboardItemId: 'new',
-                cachedInsight: { query: { kind: NodeKind.DataTableNode } },
-            }
-            const logic = insightDataLogic(props)
-            logic.mount()
-            expectLogic(logic).toMatchValues({
-                query: expect.objectContaining({
-                    kind: NodeKind.DataTableNode,
-                }),
-            })
-        })
     })
 
     describe('reacts when the insight changes', () => {
@@ -96,6 +54,7 @@ describe('insightDataLogic', () => {
                     query: q,
                 })
         })
+
         it('sets query when filters is present and override is set', async () => {
             const q = examples.InsightTrendsQuery as TrendsQuery
 
@@ -146,6 +105,7 @@ describe('insightDataLogic', () => {
                                     custom_name: 'Views',
                                     event: '$pageview',
                                     kind: 'EventsNode',
+                                    math: 'total',
                                     name: '$pageview',
                                     properties: [
                                         {
