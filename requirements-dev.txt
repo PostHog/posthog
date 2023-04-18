@@ -105,10 +105,7 @@ idna==2.8
     #   requests
     #   urllib3
 importlib-resources==5.10.2
-    # via
-    #   -c requirements.txt
-    #   jsonschema
-    #   openapi-spec-validator
+    # via openapi-spec-validator
 inflect==5.6.2
     # via datamodel-code-generator
 iniconfig==1.1.1
@@ -239,6 +236,7 @@ pyyaml==6.0
     #   -c requirements.txt
     #   jsonschema-spec
     #   openapi-spec-validator
+    #   responses
 redis==4.3.4
     # via
     #   -c requirements.txt
@@ -249,6 +247,9 @@ requests==2.28.1
     #   coreapi
     #   djangorestframework-stubs
     #   prance
+    #   responses
+responses==0.23.1
+    # via -r requirements-dev.in
 ruamel-yaml==0.17.21
     # via prance
 ruamel-yaml-clib==0.2.7
@@ -294,7 +295,9 @@ types-python-dateutil==2.8.3
 types-pytz==2021.3.2
     # via -r requirements-dev.in
 types-pyyaml==6.0.1
-    # via -r requirements-dev.in
+    # via
+    #   -r requirements-dev.in
+    #   responses
 types-redis==4.3.20
     # via -r requirements-dev.in
 types-requests==2.26.1
@@ -316,6 +319,7 @@ urllib3[secure,socks]==1.26.13
     # via
     #   -c requirements.txt
     #   requests
+    #   responses
 urllib3-secure-extra==0.1.0
     # via
     #   -c requirements.txt

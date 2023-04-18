@@ -10,6 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django_prometheus.exports import ExportToDjangoView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 from two_factor.urls import urlpatterns as tf_urls
+from posthog.api.customer_data_pipeline import proxy_request_with_jwt_token
 
 from posthog.api import (
     api_not_found,
@@ -130,6 +131,8 @@ urlpatterns = [
     *admin_urlpatterns,
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
+    # Add in Customer Data Pipeline proxy endpoints
+    re_path(r"^api/projects/(?P<project_id>\d+)/destination", proxy_request_with_jwt_token),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
@@ -181,7 +184,6 @@ if settings.DEBUG:
     urlpatterns.append(path("_metrics", ExportToDjangoView))
 
 if settings.TEST:
-
     # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
