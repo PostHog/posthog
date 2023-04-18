@@ -4,6 +4,7 @@ from unittest.mock import ANY, patch
 
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
+from django.core.cache import cache
 from django.utils import timezone
 from django_otp.oath import totp
 from django_otp.util import random_hex
@@ -279,6 +280,12 @@ class TestLoginAPI(APIBaseTest):
 class TestPasswordResetAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
+    def setUp(self):
+        # prevent throttling of user requests to pass on from one test
+        # to the next
+        cache.clear()
+        return super().setUp()
+
     # Password reset request
 
     @patch("posthoganalytics.capture")
@@ -374,6 +381,24 @@ class TestPasswordResetAPI(APIBaseTest):
                 "attr": None,
             },
         )
+
+    def test_cant_reset_more_than_three_times(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
+        for i in range(4):
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+                response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
+            if i < 3:
+                self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+            else:
+                # Fourth request should fail
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                self.assertDictContainsSubset(
+                    {"attr": None, "code": "throttled", "type": "throttled_error"}, response.json()
+                )
+
+        # Three emails should be sent, fourth should not
+        self.assertEqual(len(mail.outbox), 3)
 
     # Token validation
 

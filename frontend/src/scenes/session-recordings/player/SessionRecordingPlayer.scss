@@ -86,6 +86,13 @@
             }
         }
     }
+
+    &--explorer-mode {
+        .SessionRecordingPlayer__main,
+        .SessionRecordingPlayer__inspector {
+            display: none;
+        }
+    }
 }
 
 .PlayerControlSeekIcon {

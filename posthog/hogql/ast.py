@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
 
+from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.database import (
     DatabaseField,
     FieldTraverser,
@@ -36,77 +37,77 @@ class AST(BaseModel):
         raise NotImplementedException(f"Visitor has no method {method_name}")
 
 
-class Ref(AST):
-    def get_child(self, name: str) -> "Ref":
-        raise NotImplementedException("Ref.get_child not overridden")
+class Type(AST):
+    def get_child(self, name: str) -> "Type":
+        raise NotImplementedException("Type.get_child not overridden")
 
     def has_child(self, name: str) -> bool:
         return self.get_child(name) is not None
 
 
 class Expr(AST):
-    ref: Optional[Ref]
+    type: Optional[Type]
 
 
 class Macro(Expr):
     name: str
     expr: Expr
     # Whether the macro is an inlined column "SELECT 1 AS a" or a subquery "SELECT a AS (SELECT 1)"
-    type: Literal["column", "subquery"]
+    macro_format: Literal["column", "subquery"]
 
 
-class FieldAliasRef(Ref):
-    name: str
-    ref: Ref
+class FieldAliasType(Type):
+    alias: str
+    type: Type
 
-    def get_child(self, name: str) -> Ref:
-        return self.ref.get_child(name)
+    def get_child(self, name: str) -> Type:
+        return self.type.get_child(name)
 
     def has_child(self, name: str) -> bool:
-        return self.ref.has_child(name)
+        return self.type.has_child(name)
 
 
-class BaseTableRef(Ref):
+class BaseTableType(Type):
     def resolve_database_table(self) -> Table:
-        raise NotImplementedException("BaseTableRef.resolve_database_table not overridden")
+        raise NotImplementedException("BaseTableType.resolve_database_table not overridden")
 
     def has_child(self, name: str) -> bool:
         return self.resolve_database_table().has_field(name)
 
-    def get_child(self, name: str) -> Ref:
+    def get_child(self, name: str) -> Type:
         if name == "*":
-            return AsteriskRef(table=self)
+            return AsteriskType(table_type=self)
         if self.has_child(name):
             field = self.resolve_database_table().get_field(name)
             if isinstance(field, LazyJoin):
-                return LazyJoinRef(table=self, field=name, lazy_join=field)
+                return LazyJoinType(table_type=self, field=name, lazy_join=field)
             if isinstance(field, LazyTable):
-                return LazyTableRef(table=field)
+                return LazyTableType(table=field)
             if isinstance(field, FieldTraverser):
-                return FieldTraverserRef(table=self, chain=field.chain)
+                return FieldTraverserType(table_type=self, chain=field.chain)
             if isinstance(field, VirtualTable):
-                return VirtualTableRef(table=self, field=name, virtual_table=field)
-            return FieldRef(name=name, table=self)
+                return VirtualTableType(table_type=self, field=name, virtual_table=field)
+            return FieldType(name=name, table_type=self)
         raise HogQLException(f"Field not found: {name}")
 
 
-class TableRef(BaseTableRef):
+class TableType(BaseTableType):
     table: Table
 
     def resolve_database_table(self) -> Table:
         return self.table
 
 
-class TableAliasRef(BaseTableRef):
-    name: str
-    table_ref: TableRef
+class TableAliasType(BaseTableType):
+    alias: str
+    table_type: TableType
 
     def resolve_database_table(self) -> Table:
-        return self.table_ref.table
+        return self.table_type.table
 
 
-class LazyJoinRef(BaseTableRef):
-    table: BaseTableRef
+class LazyJoinType(BaseTableType):
+    table_type: BaseTableType
     field: str
     lazy_join: LazyJoin
 
@@ -114,15 +115,15 @@ class LazyJoinRef(BaseTableRef):
         return self.lazy_join.join_table
 
 
-class LazyTableRef(BaseTableRef):
+class LazyTableType(BaseTableType):
     table: LazyTable
 
     def resolve_database_table(self) -> Table:
         return self.table
 
 
-class VirtualTableRef(BaseTableRef):
-    table: BaseTableRef
+class VirtualTableType(BaseTableType):
+    table_type: BaseTableType
     field: str
     virtual_table: VirtualTable
 
@@ -133,129 +134,131 @@ class VirtualTableRef(BaseTableRef):
         return self.virtual_table.has_field(name)
 
 
-class SelectQueryRef(Ref):
+class SelectQueryType(Type):
+    """Type and new enclosed scope for a select query. Contains information about all tables and columns in the query."""
+
     # all aliases a select query has access to in its scope
-    aliases: Dict[str, FieldAliasRef] = PydanticField(default_factory=dict)
-    # all refs a select query exports
-    columns: Dict[str, Ref] = PydanticField(default_factory=dict)
+    aliases: Dict[str, FieldAliasType] = PydanticField(default_factory=dict)
+    # all types a select query exports
+    columns: Dict[str, Type] = PydanticField(default_factory=dict)
     # all from and join, tables and subqueries with aliases
     tables: Dict[
-        str, Union[BaseTableRef, "SelectUnionQueryRef", "SelectQueryRef", "SelectQueryAliasRef"]
+        str, Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
     ] = PydanticField(default_factory=dict)
     macros: Dict[str, Macro] = PydanticField(default_factory=dict)
     # all from and join subqueries without aliases
-    anonymous_tables: List[Union["SelectQueryRef", "SelectUnionQueryRef"]] = PydanticField(default_factory=list)
+    anonymous_tables: List[Union["SelectQueryType", "SelectUnionQueryType"]] = PydanticField(default_factory=list)
 
-    def get_alias_for_table_ref(
+    def get_alias_for_table_type(
         self,
-        table_ref: Union[BaseTableRef, "SelectUnionQueryRef", "SelectQueryRef", "SelectQueryAliasRef"],
+        table_type: Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"],
     ) -> Optional[str]:
         for key, value in self.tables.items():
-            if value == table_ref:
+            if value == table_type:
                 return key
         return None
 
-    def get_child(self, name: str) -> Ref:
+    def get_child(self, name: str) -> Type:
         if name == "*":
-            return AsteriskRef(table=self)
+            return AsteriskType(table_type=self)
         if name in self.columns:
-            return FieldRef(name=name, table=self)
+            return FieldType(name=name, table_type=self)
         raise HogQLException(f"Column not found: {name}")
 
     def has_child(self, name: str) -> bool:
         return name in self.columns
 
 
-class SelectUnionQueryRef(Ref):
-    refs: List[SelectQueryRef]
+class SelectUnionQueryType(Type):
+    types: List[SelectQueryType]
 
-    def get_alias_for_table_ref(
+    def get_alias_for_table_type(
         self,
-        table_ref: Union[BaseTableRef, SelectQueryRef, "SelectQueryAliasRef"],
+        table_type: Union[BaseTableType, SelectQueryType, "SelectQueryAliasType"],
     ) -> Optional[str]:
-        return self.refs[0].get_alias_for_table_ref(table_ref)
+        return self.types[0].get_alias_for_table_type(table_type)
 
-    def get_child(self, name: str) -> Ref:
-        return self.refs[0].get_child(name)
+    def get_child(self, name: str) -> Type:
+        return self.types[0].get_child(name)
 
     def has_child(self, name: str) -> bool:
-        return self.refs[0].has_child(name)
+        return self.types[0].has_child(name)
 
 
-class SelectQueryAliasRef(Ref):
-    name: str
-    ref: SelectQueryRef | SelectUnionQueryRef
+class SelectQueryAliasType(Type):
+    alias: str
+    select_query_type: SelectQueryType | SelectUnionQueryType
 
-    def get_child(self, name: str) -> Ref:
+    def get_child(self, name: str) -> Type:
         if name == "*":
-            return AsteriskRef(table=self)
-        if self.ref.has_child(name):
-            return FieldRef(name=name, table=self)
-        raise HogQLException(f"Field {name} not found on query with alias {self.name}")
+            return AsteriskType(table_type=self)
+        if self.select_query_type.has_child(name):
+            return FieldType(name=name, table_type=self)
+        raise HogQLException(f"Field {name} not found on query with alias {self.alias}")
 
     def has_child(self, name: str) -> bool:
-        return self.ref.has_child(name)
+        return self.select_query_type.has_child(name)
 
 
-SelectQueryRef.update_forward_refs(SelectQueryAliasRef=SelectQueryAliasRef)
+SelectQueryType.update_forward_refs(SelectQueryAliasType=SelectQueryAliasType)
 
 
-class CallRef(Ref):
+class CallType(Type):
     name: str
-    args: List[Ref]
+    args: List[Type]
 
 
-class ConstantRef(Ref):
-    value: Any
+class ConstantType(Type):
+    data_type: ConstantDataType
 
 
-class AsteriskRef(Ref):
-    table: BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef
+class AsteriskType(Type):
+    table_type: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
 
 
-class FieldTraverserRef(Ref):
+class FieldTraverserType(Type):
     chain: List[str]
-    table: BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef
+    table_type: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
 
 
-class FieldRef(Ref):
+class FieldType(Type):
     name: str
-    table: BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef
+    table_type: BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType
 
     def resolve_database_field(self) -> Optional[DatabaseField]:
-        if isinstance(self.table, BaseTableRef):
-            table = self.table.resolve_database_table()
+        if isinstance(self.table_type, BaseTableType):
+            table = self.table_type.resolve_database_table()
             if table is not None:
                 return table.get_field(self.name)
         return None
 
-    def get_child(self, name: str) -> Ref:
+    def get_child(self, name: str) -> Type:
         database_field = self.resolve_database_field()
         if database_field is None:
             raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
-            return PropertyRef(chain=[name], parent=self)
+            return PropertyType(chain=[name], field_type=self)
         raise HogQLException(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
 
 
-class PropertyRef(Ref):
+class PropertyType(Type):
     chain: List[str]
-    parent: FieldRef
+    field_type: FieldType
 
     # The property has been moved into a field we query from a joined subquery
-    joined_subquery: Optional[SelectQueryAliasRef]
+    joined_subquery: Optional[SelectQueryAliasType]
     joined_subquery_field_name: Optional[str]
 
-    def get_child(self, name: str) -> "Ref":
-        return PropertyRef(chain=self.chain + [name], parent=self.parent)
+    def get_child(self, name: str) -> "Type":
+        return PropertyType(chain=self.chain + [name], field_type=self.field_type)
 
     def has_child(self, name: str) -> bool:
         return True
 
 
-class LambdaArgumentRef(Ref):
+class LambdaArgumentType(Type):
     name: str
 
 
@@ -264,7 +267,7 @@ class Alias(Expr):
     expr: Expr
 
 
-class BinaryOperationType(str, Enum):
+class BinaryOperationOp(str, Enum):
     Add = "+"
     Sub = "-"
     Mult = "*"
@@ -275,13 +278,14 @@ class BinaryOperationType(str, Enum):
 class BinaryOperation(Expr):
     left: Expr
     right: Expr
-    op: BinaryOperationType
+    op: BinaryOperationOp
 
 
 class And(Expr):
     class Config:
         extra = Extra.forbid
 
+    type: Optional[ConstantType]
     exprs: List[Expr]
 
 
@@ -289,10 +293,11 @@ class Or(Expr):
     class Config:
         extra = Extra.forbid
 
+    type: Optional[ConstantType]
     exprs: List[Expr]
 
 
-class CompareOperationType(str, Enum):
+class CompareOperationOp(str, Enum):
     Eq = "=="
     NotEq = "!="
     Gt = ">"
@@ -312,11 +317,13 @@ class CompareOperationType(str, Enum):
 class CompareOperation(Expr):
     left: Expr
     right: Expr
-    op: CompareOperationType
+    op: CompareOperationOp
+    type: Optional[ConstantType]
 
 
 class Not(Expr):
     expr: Expr
+    type: Optional[ConstantType]
 
 
 class OrderExpr(Expr):
@@ -361,7 +368,7 @@ class Call(Expr):
 
 
 class JoinExpr(Expr):
-    ref: Optional[BaseTableRef | SelectQueryRef | SelectQueryAliasRef | SelectUnionQueryRef]
+    type: Optional[BaseTableType | SelectQueryType | SelectQueryAliasType | SelectUnionQueryType]
 
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
@@ -373,7 +380,7 @@ class JoinExpr(Expr):
 
 
 class SelectQuery(Expr):
-    ref: Optional[SelectQueryRef] = None
+    type: Optional[SelectQueryType] = None
     macros: Optional[Dict[str, Macro]] = None
     select: List[Expr]
     distinct: Optional[bool] = None
@@ -390,7 +397,7 @@ class SelectQuery(Expr):
 
 
 class SelectUnionQuery(Expr):
-    ref: Optional[SelectUnionQueryRef] = None
+    type: Optional[SelectUnionQueryType] = None
     select_queries: List[SelectQuery]
 
 
