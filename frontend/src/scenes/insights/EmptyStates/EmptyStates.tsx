@@ -129,7 +129,7 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                 <h2>{title || 'There was an error completing this query'}</h2>
                 {!excludeDetail && (
                     <div className="mt-4">
-                        We apologize for this unexpected situation. There are a few things you can do:
+                        We apologize for this unexpected situation. There are a couple of things you can do:
                         <ol>
                             <li>
                                 First and foremost you can <b>try again</b>. We recommended you wait a few moments
