@@ -91,6 +91,7 @@ export async function startPluginsServer(
     // meantime.
     let bufferConsumer: Consumer | undefined
     let stopSessionRecordingEventsConsumer: (() => void) | undefined
+    let joinSessionRecordingEventsConsumer: (() => Promise<void>) | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
@@ -432,7 +433,11 @@ export async function startPluginsServer(
         if (capabilities.sessionRecordingIngestion) {
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const { stop, isHealthy: isSessionRecordingsHealthy } = await startSessionRecordingEventsConsumer({
+            const {
+                stop,
+                isHealthy: isSessionRecordingsHealthy,
+                join,
+            } = await startSessionRecordingEventsConsumer({
                 teamManager: teamManager,
                 kafkaConfig: serverConfig as KafkaConfig,
                 consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
@@ -440,11 +445,39 @@ export async function startPluginsServer(
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             })
             stopSessionRecordingEventsConsumer = stop
+            joinSessionRecordingEventsConsumer = join
             healthChecks['session-recordings'] = isSessionRecordingsHealthy
         }
 
         if (capabilities.http) {
             httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer, piscina)
+        }
+
+        // If session recordings consumer is defined, then join it. If join
+        // resolves, then the consumer has stopped and we should shut down
+        // everything else. Ideally we would also join all the other background
+        // tasks as well to ensure we stop the server if we hit any errors and
+        // don't end up with zombie instances, but I'll leave that refactoring
+        // for another time. Note that we have the liveness health checks
+        // already, so in K8s cases zombies should be reaped anyway, albeit not
+        // in the most efficient way.
+        //
+        // When extending to other consumers, we would want to do something like
+        //
+        // ```
+        // try {
+        //      await Promise.race([sessionConsumer.join(), analyticsConsumer.join(), ...])
+        // } finally {
+        //      await closeJobs()
+        // }
+        // }
+        // ```
+        if (joinSessionRecordingEventsConsumer) {
+            try {
+                await joinSessionRecordingEventsConsumer()
+            } finally {
+                await closeJobs()
+            }
         }
 
         return serverInstance ?? { stop: closeJobs }

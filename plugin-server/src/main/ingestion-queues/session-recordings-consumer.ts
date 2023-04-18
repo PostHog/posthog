@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import {
     AdminClient,
     ClientMetrics,
+    CODES,
     ConsumerGlobalConfig,
     GlobalConfig,
     HighLevelProducer as RdKafkaProducer,
@@ -54,20 +55,13 @@ export const startSessionRecordingEventsConsumer = async ({
         is a test bed for consumer improvements, which should be ported to the
         other consumers.
 
-        We keep track of unaknowledged messages per Kafka partition, and only
-        commit up to just before the oldest unaknowledged message. This is to
-        ensure that we don't commit offsets for messages that we haven't
-        processed yet. This is important because we use the offset to determine
-        where to pick up processing if the consumer dies and needs restarting.
-        Essentially we want to provide at least once delivery guarantees to the
-        topic we produce to, but we do not currently try to provide exactly once
-        guarantees.
-
-        We try to consumer from Kafka as fast as possible, but we also need to
-        be careful not to consumer too many resources on of the consumer member,
-        so we apply some back pressure based on the number of unaknowledged
-        messages. If the number of unaknowledged messages is greater than
-        `maxUnacknowledgedMessages`, we pause consumption from the partition.
+        We consume batches of messages, process these to completion, including
+        getting acknowledgements that the messages have been pushed to Kafka,
+        then commit the offsets of the messages we have processed. We do this
+        instead of going completely stream happy just to keep the complexity
+        low. We may well move this ingester to a different framework
+        specifically for stream processing so no need to put too much work into
+        this.
     */
 
     const groupId = 'session-recordings'
@@ -98,7 +92,7 @@ export const startSessionRecordingEventsConsumer = async ({
 
     const eachMessageWithContext = eachMessage(groupId, teamManager, producer)
 
-    let isMainLoopRunning = true
+    let isShuttingDown = true
     let lastLoopTime = Date.now()
 
     // Before subscribing, we need to ensure that the topic exists. We don't
@@ -123,49 +117,69 @@ export const startSessionRecordingEventsConsumer = async ({
         // brokers, but rather just store the offsets locally such that when commit
         // is called, either manually of via auto-commit, these are the values that
         // will be used.
-        while (isMainLoopRunning) {
-            lastLoopTime = Date.now()
+        //
+        // Note that we rely on librdkafka handling retries for any Kafka
+        // related operations, e.g. it will handle in the background rebalances,
+        // during which time consumeMessages will simply return an empty array.
 
-            status.info('🔁', 'main_loop_consuming')
+        // We also log the number of messages we have processed every 10
+        // seconds, which should give some feedback to the user that things are
+        // functioning as expected. You can increase the log level to debug to
+        // see each loop.
+        let messagesProcessed = 0
+        const statusLogMilliseconds = 10000
+        const statusLogInterval = setInterval(() => {
+            status.info('🔁', 'main_loop', {
+                processingRatePerSecond: messagesProcessed / (statusLogMilliseconds / 1000),
+                lastLoopTime: new Date(lastLoopTime).toISOString(),
+            })
 
-            let messages: Message[] = []
+            messagesProcessed = 0
+        }, statusLogMilliseconds)
 
-            // TODO: add consume error retry handling.
-            try {
-                messages = await consumeMessages(consumer, fetchBatchSize)
-            } catch (error) {
-                if (error.code === 3) {
-                    // This is the topic doesn't exist. We catch this
-                    // specifically as it's not a retriable error, but we have
-                    // set auto create topic, and the topic will be created
-                    // eventually.
-                    status.warn('🔴', 'main_loop_consume_error', { error })
-                    continue
-                } else if (error.isRetriable) {
-                    status.warn('🔴', 'main_loop_consume_error', { error })
-                    continue
-                } else {
-                    status.error('🔴', 'main_loop_consume_error', { error })
-                    break
-                }
+        try {
+            while (isShuttingDown) {
+                lastLoopTime = Date.now()
+
+                status.debug('🔁', 'main_loop_consuming')
+
+                const messages = await consumeMessages(consumer, fetchBatchSize)
+
+                status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
+
+                consumerBatchSize.labels({ topic: KAFKA_SESSION_RECORDING_EVENTS, groupId }).observe(messages.length)
+
+                // We try to process the entire batch at once. Connections to
+                // PostgreSQL should be pooled, so there shouldn't be too much
+                // danger of overloading the database. It's possible that we end up
+                // hitting the Producers internal queue limit.
+                //
+                // NOTE: _any_ errors that occur in this loop will cause the loop
+                // to exit.
+                //
+                // TODO: handle either limiting concurrency, or handle the errors
+                // that would result.
+                await Promise.all(messages.map((message: Message) => eachMessageWithContext(message)))
+
+                // On each loop, we flush the producer to ensure that all messages
+                // are sent to Kafka.
+                await flushProducer(producer)
+                commitOffsetsForMessages(messages, consumer)
             }
+        } catch (error) {
+            status.error('🔁', 'main_loop_error', { error })
+            throw error
+        } finally {
+            status.info('🔁', 'main_loop_stopping')
 
-            status.info('🔁', 'main_loop_consumed', { messagesLength: messages.length })
+            clearInterval(statusLogInterval)
 
-            consumerBatchSize.labels({ topic: KAFKA_SESSION_RECORDING_EVENTS, groupId }).observe(messages.length)
-
-            // We try to process the entire batch at once. Connections to
-            // PostgreSQL should be pooled, so there shouldn't be too much
-            // danger of overloading the database. It's possible that we end up
-            // hitting the Producers internal queue limit.
-            // TODO: handle either limiting concurrency, or handle the errors
-            // that would result.
-            await Promise.all(messages.map((message: Message) => eachMessageWithContext(message)))
-
-            // On each loop, we flush the producer to ensure that all messages
-            // are sent to Kafka.
-            await flushProducer(producer)
-            commitOffsetsForMessages(messages, consumer)
+            // Finally disconnect from the broker. I'm not 100% on if the offset
+            // commit is allowed to complete before completing, or if in fact
+            // disconnect itself handles committing offsets thus the previous
+            // `commit()` call is redundant, but it shouldn't hurt.
+            await disconnectConsumer(consumer)
+            await disconnectProducer(producer)
         }
     }
 
@@ -182,28 +196,17 @@ export const startSessionRecordingEventsConsumer = async ({
 
         // First we signal to the mainLoop that we should be stopping. The main
         // loop should complete one loop, flush the producer, and store it's offsets.
-        isMainLoopRunning = false
-
-        // We might as well pause the consumer to stop it fetching messages from
-        // the brokers in the background. Not 100% necessary but saves on some
-        // unnecessary work.
-        consumer.pause(consumer.assignments())
+        isShuttingDown = false
 
         // Wait for the main loop to finish, but only give it 10 seconds
         await Promise.race([mainLoop, new Promise((resolve) => setTimeout(resolve, 30000))])
-
-        // Then we trigger an async commit of the offsets to the broker
-        consumer.commit()
-
-        // Finally disconnect from the broker. I'm not 100% on if the offset
-        // commit is allowed to complete before completing, or if in fact
-        // disconnect itself handles committing offsets thus the previous
-        // `commit()` call is redundant, but it shouldn't hurt.
-        await disconnectConsumer(consumer)
-        await disconnectProducer(producer)
     }
 
-    return { isHealthy, stop }
+    const join = async () => {
+        return await mainLoop
+    }
+
+    return { isHealthy, stop, join }
 }
 
 const eachMessage =
@@ -646,8 +649,14 @@ const ensureTopicExists = async (adminClient: IAdminClient, topic: string) => {
     return await new Promise((resolve, reject) =>
         adminClient.createTopic({ topic, num_partitions: -1, replication_factor: -1 }, (error: LibrdKafkaError) => {
             if (error) {
-                status.error('🔥', 'Failed to create topic', { error })
-                reject(error)
+                if (error.code === CODES.ERRORS.ERR_TOPIC_ALREADY_EXISTS) {
+                    // If it's a topic already exists error, then we don't need
+                    // to error.
+                    resolve(adminClient)
+                } else {
+                    status.error('🔥', 'Failed to create topic', { error })
+                    reject(error)
+                }
             } else {
                 status.info('🔁', 'Created topic')
                 resolve(adminClient)
