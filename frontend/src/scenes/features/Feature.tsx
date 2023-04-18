@@ -1,5 +1,5 @@
 import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Field, PureField } from 'lib/forms/Field'
@@ -13,12 +13,16 @@ import { Persons } from 'scenes/persons/Persons'
 import { IconFlag, IconPlus } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { LabelInValue, LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple'
+import { useDebouncedCallback } from 'use-debounce'
+import { personsLogic } from 'scenes/persons/personsLogic'
+import { asDisplay } from '@posthog/apps-common'
 
 export const scene: SceneExport = {
     component: Feature,
@@ -273,35 +277,50 @@ export function Feature(): JSX.Element {
                 </>
             )}
             {'id' in feature && (
-                <LemonModal title={'Select person to add'} isOpen={isModalOpen} onClose={toggleModal} width={560}>
-                    <Persons
-                        fixedProperties={[
-                            {
+                <LemonModal
+                    title={'Select person to add'}
+                    isOpen={isModalOpen}
+                    onClose={toggleModal}
+                    width={560}
+                    footer={
+                        <LemonButton type="primary" loading={false} onClick={() => {}}>
+                            Add
+                        </LemonButton>
+                    }
+                >
+                    <h5>Stage</h5>
+                    <div>
+                        <LemonSelect
+                            options={[
+                                {
+                                    label: 'Alpha',
+                                    value: 'alpha',
+                                },
+                                {
+                                    label: 'Beta',
+                                    value: 'beta',
+                                },
+                                {
+                                    label: 'General Availability',
+                                    value: 'general-availability',
+                                },
+                            ]}
+                        />
+                    </div>
+                    <BindLogic
+                        logic={personsLogic}
+                        props={{
+                            cohort: undefined,
+                            syncWithUrl: false,
+                            fixedProperties: {
                                 key: '$feature_enrollment/' + feature.feature_flag.key,
                                 type: PropertyFilterType.Person,
                                 operator: PropertyOperator.IsNotSet,
                             },
-                        ]}
-                        compact={true}
-                        showFilters={false}
-                        showExportAction={false}
-                        extraColumns={[
-                            {
-                                render: function Render() {
-                                    return (
-                                        <LemonButton
-                                            onClick={() => console.log('HELLO')}
-                                            icon={<IconPlus />}
-                                            size="small"
-                                            type="secondary"
-                                        >
-                                            Add
-                                        </LemonButton>
-                                    )
-                                },
-                            },
-                        ]}
-                    />
+                        }}
+                    >
+                        <EnrollmentSelector feature={feature} />
+                    </BindLogic>
                 </LemonModal>
             )}
         </Form>
@@ -344,5 +363,82 @@ function FlagSelector({ value, onChange }: FlagSelectorProps): JSX.Element {
                 {!!featureFlag.key ? featureFlag.key : 'Select flag'}
             </LemonButton>
         </Popover>
+    )
+}
+
+interface EnrollmentSelectorProps {
+    feature: FeatureType
+}
+
+function EnrollmentSelector({ feature }: EnrollmentSelectorProps): JSX.Element {
+    const { loadPersons, setListFilters } = useActions(personsLogic)
+    const { listFilters } = useValues(personsLogic)
+    const [searchTerm, setSearchTerm] = useState('')
+    const [selected, setSelected] = useState<LabelInValue[]>([])
+
+    const loadPersonsDebounced = useDebouncedCallback(loadPersons, 800)
+
+    useEffect(() => {
+        setSearchTerm(listFilters.search || '')
+    }, [])
+
+    useEffect(() => {
+        setListFilters({ search: searchTerm || undefined })
+        loadPersonsDebounced()
+    }, [searchTerm])
+
+    return (
+        <>
+            <h5 className="mt-2">People</h5>
+            <div className="flex gap-2">
+                <div className="flex-1">
+                    <LemonSelectMultiple
+                        placeholder="Search for persons to add…"
+                        labelInValue
+                        value={selected}
+                        loading={false}
+                        onSearch={setSearchTerm}
+                        onChange={(newValues: LabelInValue[]) => setSelected(newValues)}
+                        filterOption={true}
+                        mode="multiple"
+                        data-attr="feature-persons-emails"
+                        options={[]}
+                    />
+                </div>
+            </div>
+            <Persons
+                fixedProperties={[
+                    {
+                        key: '$feature_enrollment/' + feature.feature_flag.key,
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.IsNotSet,
+                    },
+                ]}
+                compact={true}
+                showFilters={false}
+                showExportAction={false}
+                showSearch={false}
+                useParentLogic={true}
+                extraColumns={[
+                    {
+                        render: function Render(_, person: PersonType) {
+                            return (
+                                <LemonButton
+                                    onClick={() =>
+                                        setSelected([
+                                            ...selected,
+                                            { label: asDisplay(person), value: person.id as string },
+                                        ])
+                                    }
+                                    icon={<IconPlus />}
+                                    size="small"
+                                    type="secondary"
+                                />
+                            )
+                        },
+                    },
+                ]}
+            />
+        </>
     )
 }

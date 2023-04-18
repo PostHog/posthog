@@ -19,28 +19,68 @@ interface PersonsProps {
     showFilters?: boolean
     showExportAction?: boolean
     extraColumns?: LemonTableColumn<PersonType, keyof PersonType | undefined>[]
+    showSearch?: boolean
+    useParentLogic?: boolean
 }
 
-export function Persons({ cohort, fixedProperties, extraSceneActions, compact, showFilters, showExportAction, extraColumns }: PersonsProps = {}): JSX.Element {
+export function Persons({
+    cohort,
+    fixedProperties,
+    extraSceneActions,
+    compact,
+    showFilters,
+    showExportAction,
+    extraColumns,
+    showSearch,
+    useParentLogic = false,
+}: PersonsProps = {}): JSX.Element {
+    if (useParentLogic) {
+        return (
+            <PersonsScene
+                extraSceneActions={extraSceneActions}
+                compact={compact}
+                showFilters={showFilters}
+                showExportAction={showExportAction}
+                extraColumns={extraColumns}
+                showSearch={showSearch}
+            />
+        )
+    }
+
     return (
         <BindLogic
             logic={personsLogic}
             props={{ cohort: cohort, syncWithUrl: !cohort && !fixedProperties, fixedProperties }}
         >
-            <PersonsScene extraSceneActions={extraSceneActions} compact={compact} showFilters={showFilters} showExportAction={showExportAction} extraColumns={extraColumns}/>
+            <PersonsScene
+                extraSceneActions={extraSceneActions}
+                compact={compact}
+                showFilters={showFilters}
+                showExportAction={showExportAction}
+                extraColumns={extraColumns}
+                showSearch={showSearch}
+            />
         </BindLogic>
     )
 }
 
 interface PersonsSceneProps {
     extraSceneActions?: JSX.Element[]
-    compact?: boolean,
+    compact?: boolean
     showFilters?: boolean
     showExportAction?: boolean
     extraColumns?: LemonTableColumn<PersonType, keyof PersonType | undefined>[]
+    showSearch?: boolean
 }
 
-export function PersonsScene({ extraSceneActions, compact, extraColumns, showFilters = true, showExportAction = true} : PersonsSceneProps): JSX.Element {
+export function PersonsScene({
+    extraSceneActions,
+    compact,
+    extraColumns,
+    showFilters = true,
+    showExportAction = true,
+    showSearch = true,
+}: PersonsSceneProps): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading, exporterProps, apiDocsURL } = useValues(personsLogic)
 
@@ -48,48 +88,52 @@ export function PersonsScene({ extraSceneActions, compact, extraColumns, showFil
         <div className="persons-list">
             <div className="space-y-2">
                 <div className="flex justify-between items-center gap-2">
-                    <Col>
-                        <PersonsSearch />
-                    </Col>
-                    <Col className='flex flex-row gap-2'>
-                        {showExportAction && 
-                        <Popconfirm
-                            placement="topRight"
-                            title={
-                                <>
-                                    Exporting by CSV is limited to 10,000 users.
-                                    <br />
-                                    To export more, please use <a href={apiDocsURL}>the API</a>. Do you want to export by
-                                    CSV?
-                                </>
-                            }
-                            onConfirm={() => triggerExport(exporterProps[0])}
-                        >
-                            <LemonButton type="secondary" icon={<IconExport style={{ color: 'var(--primary)' }} />}>
-                                {listFilters.properties && listFilters.properties.length > 0 ? (
-                                    <div style={{ display: 'block' }}>
-                                        Export (<strong>{listFilters.properties.length}</strong> filter)
-                                    </div>
-                                ) : (
-                                    'Export'
-                                )}
-                            </LemonButton>
-                        </Popconfirm>
-                        }  
+                    {showSearch && (
+                        <Col>
+                            <PersonsSearch />
+                        </Col>
+                    )}
+                    <Col className="flex flex-row gap-2">
+                        {showExportAction && (
+                            <Popconfirm
+                                placement="topRight"
+                                title={
+                                    <>
+                                        Exporting by CSV is limited to 10,000 users.
+                                        <br />
+                                        To export more, please use <a href={apiDocsURL}>the API</a>. Do you want to
+                                        export by CSV?
+                                    </>
+                                }
+                                onConfirm={() => triggerExport(exporterProps[0])}
+                            >
+                                <LemonButton type="secondary" icon={<IconExport style={{ color: 'var(--primary)' }} />}>
+                                    {listFilters.properties && listFilters.properties.length > 0 ? (
+                                        <div style={{ display: 'block' }}>
+                                            Export (<strong>{listFilters.properties.length}</strong> filter)
+                                        </div>
+                                    ) : (
+                                        'Export'
+                                    )}
+                                </LemonButton>
+                            </Popconfirm>
+                        )}
                         {extraSceneActions ? extraSceneActions : null}
                     </Col>
                 </div>
-                {showFilters && <PropertyFilters
-                    pageKey="persons-list-page"
-                    propertyFilters={listFilters.properties}
-                    onChange={(properties) => {
-                        setListFilters({ properties })
-                        loadPersons()
-                    }}
-                    endpoint="person"
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
-                    showConditionBadge
-                />}
+                {showFilters && (
+                    <PropertyFilters
+                        pageKey="persons-list-page"
+                        propertyFilters={listFilters.properties}
+                        onChange={(properties) => {
+                            setListFilters({ properties })
+                            loadPersons()
+                        }}
+                        endpoint="person"
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                        showConditionBadge
+                    />
+                )}
                 <PersonsTable
                     people={persons.results}
                     loading={personsLoading}
