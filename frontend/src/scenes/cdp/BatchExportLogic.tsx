@@ -160,13 +160,16 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.connectionChoice],
-            (): Breadcrumb[] => [
+            (s) => [s.batchExportSettings],
+            (batchExportDestination: BatchExportDestinationType): Breadcrumb[] => [
                 {
                     name: 'CDP',
                     path: urls.cdp(),
                 },
-                // ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),
+                {
+                    name: batchExportDestination.name,
+                    path: urls.cdpBatchExport(batchExportDestination.id),
+                },
             ],
         ],
     }),

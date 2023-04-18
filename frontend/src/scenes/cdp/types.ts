@@ -2,13 +2,16 @@ import { Dayjs } from 'lib/dayjs'
 import { AppErrorSummary, AppMetrics } from 'scenes/apps/appMetricsSceneLogic'
 import { UserBasicType } from '~/types'
 
-export type ConnectionDestinationType = 'Event streaming' | 'Batch export'
+export enum ConnectionDestinationEnum {
+    EventStreaming = 'Event streaming',
+    BatchExport = 'Batch export',
+}
 
 export type ConnectionChoiceType = {
     id: string
     name: string
     imageUrl: string
-    type: ConnectionDestinationType
+    type: ConnectionDestinationEnum
 }
 
 export type CDPTabsType = 'connections' | 'history'
@@ -19,7 +22,7 @@ export type BatchExportDestinationType = {
     id: string
     name: string
     status: string
-    connection_type_id: string
+    connection_type_id: string // TODO: convert to string id
     successRate: string
     imageUrl: string
     config: Record<string, unknown>

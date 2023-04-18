@@ -8,7 +8,7 @@ import './CDPScene.scss'
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import clsx from 'clsx'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { ConnectionChoiceType } from './types'
+import { ConnectionChoiceType, ConnectionDestinationEnum } from './types'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
@@ -61,9 +61,9 @@ export function ConnectionsTab(): JSX.Element {
                 },
                 {
                     title: 'Type',
-                    dataIndex: 'type',
-                    render: (_, { type }) => {
-                        return <>{type}</>
+                    dataIndex: 'connection_type_id',
+                    render: (_, { connection_type_id }) => {
+                        return <>{connection_type_id}</>
                     },
                 },
                 {
@@ -121,7 +121,13 @@ export function NewConnectionModal(): JSX.Element {
                     {connectionChoices.map((connectionChoice: ConnectionChoiceType, index: number) => (
                         <ConnectionChoice
                             connectionChoice={connectionChoice}
-                            onClick={() => push(urls.cdpNewConnection(connectionChoice.id))} // TODO: change this to a link
+                            onClick={() => {
+                                if (connectionChoice.type === ConnectionDestinationEnum.BatchExport) {
+                                    push(urls.cdpBatchExport(connectionChoice.id))
+                                } else {
+                                    console.error('Not implemented')
+                                }
+                            }} // TODO: change this to a link
                             index={index}
                             key={connectionChoice.id}
                         />
