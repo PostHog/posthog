@@ -18,10 +18,10 @@ def translate_hogql(query: str, context: HogQLContext, dialect: Literal["hogql",
     try:
         # Create a fake query that selects from "events" to have fields to select from.
         context.database = context.database or create_hogql_database(context.team_id)
-        select_query_ref = ast.SelectQueryRef(tables={"events": ast.TableRef(table=context.database.events)})
+        select_query_type = ast.SelectQueryType(tables={"events": ast.TableType(table=context.database.events)})
         node = parse_expr(query, no_placeholders=True)
         select_query = ast.SelectQuery(
-            select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), ref=select_query_ref
+            select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), type=select_query_type
         )
         prepared_ast: ast.SelectQuery = cast(
             ast.SelectQuery,

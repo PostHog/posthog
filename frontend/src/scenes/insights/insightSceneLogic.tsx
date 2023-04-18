@@ -11,6 +11,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
+import { insightDataLogic } from './insightDataLogic'
+import { insightDataLogicType } from './insightDataLogicType'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
@@ -27,6 +29,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             subscriptionId,
         }),
         setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
+            logic,
+            unmount,
+        }),
+        setInsightDataLogicRef: (logic: BuiltLogic<insightDataLogicType> | null, unmount: null | (() => void)) => ({
             logic,
             unmount,
         }),
@@ -64,6 +70,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setInsightLogicRef: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
+        insightDataLogicRef: [
+            null as null | {
+                logic: BuiltLogic<insightDataLogicType>
+                unmount: () => void
+            },
+            {
+                setInsightDataLogicRef: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
+            },
+        ],
     }),
     selectors(() => ({
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
@@ -80,6 +95,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 },
             ],
         ],
+        isUsingDataExploration: [
+            (s) => [s.insightLogicRef],
+            (insightLogicRef) => !!insightLogicRef?.logic.values.isUsingDataExploration,
+        ],
     })),
     sharedListeners(({ actions, values }) => ({
         reloadInsightLogic: () => {
@@ -88,15 +107,26 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             if (logicInsightId !== insightId) {
                 const oldRef = values.insightLogicRef // free old logic after mounting new one
+                const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {
-                    const logic = insightLogic.build({ dashboardItemId: insightId })
+                    const insightProps = { dashboardItemId: insightId }
+
+                    const logic = insightLogic.build(insightProps)
                     const unmount = logic.mount()
                     actions.setInsightLogicRef(logic, unmount)
+
+                    const logic2 = insightDataLogic.build(insightProps)
+                    const unmount2 = logic2.mount()
+                    actions.setInsightDataLogicRef(logic2, unmount2)
                 } else {
                     actions.setInsightLogicRef(null, null)
+                    actions.setInsightDataLogicRef(null, null)
                 }
                 if (oldRef) {
                     oldRef.unmount()
+                }
+                if (oldRef2) {
+                    oldRef2.unmount()
                 }
             }
         },
@@ -174,9 +204,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             overrideFilter: true,
                         }
                     )
-                    values.insightLogicRef?.logic.actions.loadResults()
+                    if (!values.isUsingDataExploration) {
+                        values.insightLogicRef?.logic.actions.loadResults()
+                    }
+
                     eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
-                } else if (filters) {
+                } else if (filters && !values.isUsingDataExploration) {
                     values.insightLogicRef?.logic.actions.setFilters(cleanFilters(filters || {}))
                 }
             }
@@ -208,10 +241,24 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         }
     }),
     beforeUnload(({ values }) => ({
-        enabled: () => values.insightMode === ItemMode.Edit && !!values.insightLogicRef?.logic.values.insightChanged,
+        enabled: () => {
+            const currentScene = sceneLogic.findMounted()?.values
+
+            // safeguard against running this check on other scenes
+            if (currentScene?.activeScene !== Scene.Insight) {
+                return false
+            }
+
+            return (
+                values.insightMode === ItemMode.Edit &&
+                (!!values.insightLogicRef?.logic.values.insightChanged ||
+                    !!values.insightDataLogicRef?.logic.values.queryChanged)
+            )
+        },
         message: 'Leave insight? Changes you made will be discarded.',
         onConfirm: () => {
             values.insightLogicRef?.logic.actions.cancelChanges()
+            values.insightDataLogicRef?.logic.actions.cancelChanges()
         },
     })),
 ])
