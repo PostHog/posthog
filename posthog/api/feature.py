@@ -6,6 +6,7 @@ from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from django.utils.text import slugify
 
 
 class FeaturePreviewSerializer(serializers.ModelSerializer):
@@ -50,9 +51,7 @@ class FeatureSerializer(serializers.ModelSerializer):
 
 
 class FeatureSerializerCreateOnly(FeatureSerializer):
-    feature_flag_key = serializers.CharField(
-        max_length=FeatureFlag._meta.get_field("key").max_length, required=True, write_only=True
-    )
+    feature_flag_id = serializers.IntegerField(required=False, write_only=True)
 
     class Meta:
         model = Feature
@@ -64,37 +63,44 @@ class FeatureSerializerCreateOnly(FeatureSerializer):
             "image_url",
             "documentation_url",
             "created_at",
-            "feature_flag",
-            "feature_flag_key",
+            "feature_flag_id",
         ]
-        read_only_fields = ["id", "feature_flag", "created_at"]
+        read_only_fields = ["id", "created_at"]
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
-        feature_flag_key = validated_data.pop("feature_flag_key")
-        feature_flag = FeatureFlag.objects.create(
-            team_id=self.context["team_id"],
-            key=feature_flag_key,
-            name=f"Feature Flag for Feature {validated_data['name']}",
-            created_by=self.context["request"].user,
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": f"$feature_enrollment/{feature_flag_key}",
-                                "type": "person",
-                                "value": ["true"],
-                                "operator": "exact",
-                            }
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ],
-                "payloads": {},
-                "multivariate": None,
-            },
-        )
+
+        feature_flag_id = validated_data.get("feature_flag_id", None)
+
+        if feature_flag_id:
+            feature_flag = FeatureFlag.objects.get(pk=feature_flag_id)
+            feature_flag_key = feature_flag.key
+        else:
+            feature_flag_key = slugify(validated_data["name"])
+            feature_flag = FeatureFlag.objects.create(
+                team_id=self.context["team_id"],
+                key=feature_flag_key,
+                name=f"Feature Flag for Feature {validated_data['name']}",
+                created_by=self.context["request"].user,
+                filters={
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": f"$feature_enrollment/{feature_flag_key}",
+                                    "type": "person",
+                                    "value": ["true"],
+                                    "operator": "exact",
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ],
+                    "payloads": {},
+                    "multivariate": None,
+                },
+            )
+            feature_flag_key = feature_flag.key
         validated_data["feature_flag_id"] = feature_flag.id
 
         feature: Feature = super().create(validated_data)

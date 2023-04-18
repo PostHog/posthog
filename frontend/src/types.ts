@@ -2007,7 +2007,7 @@ export interface FeatureType {
 }
 
 export interface NewFeatureType extends Omit<FeatureType, 'id' | 'created_at' | 'feature_flag'> {
-    feature_flag_key: string
+    feature_flag_id: number | undefined
 }
 
 export interface UserBlastRadiusType {

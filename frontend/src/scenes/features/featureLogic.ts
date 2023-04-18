@@ -1,9 +1,8 @@
-import { actions, afterMount, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { FeatureType, NewFeatureType } from '~/types'
 import type { featureLogicType } from './featureLogicType'
@@ -14,7 +13,7 @@ const NEW_FEATURE: NewFeatureType = {
     stage: 'alpha',
     image_url: '',
     documentation_url: '',
-    feature_flag_key: '',
+    feature_flag_id: undefined,
 }
 
 export interface FeatureLogicProps {
@@ -28,6 +27,7 @@ export const featureLogic = kea<featureLogicType>([
     key(({ id }) => id),
     actions({
         cancel: true,
+        editFeature: (editing: boolean) => ({ editing }),
     }),
     loaders(({ props }) => ({
         feature: {
@@ -42,8 +42,6 @@ export const featureLogic = kea<featureLogicType>([
             defaults: { ...NEW_FEATURE } as NewFeatureType | FeatureType,
             errors: (payload) => ({
                 name: !payload.name ? 'You need to set a name' : undefined,
-                feature_flag_key:
-                    'feature_flag_key' in payload ? validateFeatureFlagKey(payload.feature_flag_key) : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 await breakpoint()
@@ -56,6 +54,14 @@ export const featureLogic = kea<featureLogicType>([
             },
         },
     })),
+    reducers({
+        isEditingFeature: [
+            false,
+            {
+                editFeature: (_, { editing }) => editing,
+            },
+        ],
+    }),
     selectors({
         mode: [(_, p) => [p.id], (id): 'view' | 'edit' => (id === 'new' ? 'edit' : 'view')],
     }),
@@ -69,5 +75,7 @@ export const featureLogic = kea<featureLogicType>([
         if (props.id !== 'new') {
             await actions.loadFeature()
         }
+
+        actions.editFeature(props.id === 'new')
     }),
 ])
