@@ -37,7 +37,7 @@ export const featureLogic = kea<featureLogicType>([
             },
         },
     })),
-    forms(({ props }) => ({
+    forms(({ props, actions }) => ({
         feature: {
             defaults: { ...NEW_FEATURE } as NewFeatureType | FeatureType,
             errors: (payload) => ({
@@ -51,6 +51,8 @@ export const featureLogic = kea<featureLogicType>([
                 } else {
                     await api.features.update(props.id, payload as FeatureType)
                 }
+
+                actions.resetFeature()
             },
         },
     })),

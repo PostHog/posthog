@@ -20,7 +20,7 @@ const STAGES_IN_ORDER: Record<FeatureType['stage'], number> = {
 }
 
 export function Features(): JSX.Element {
-    const { features } = useValues(featuresLogic)
+    const { features, featuresLoading } = useValues(featuresLogic)
 
     return (
         <>
@@ -35,6 +35,7 @@ export function Features(): JSX.Element {
                 delimited
             />
             <LemonTable
+                loading={featuresLoading}
                 columns={[
                     {
                         title: 'Name',
@@ -45,7 +46,9 @@ export function Features(): JSX.Element {
                                     <Link to={urls.feature(feature.id)}>
                                         <div className="row-name">{feature.name}</div>
                                     </Link>
-                                    {feature.description && <div className="row-description">{feature.description}</div>}
+                                    {feature.description && (
+                                        <div className="row-description">{feature.description}</div>
+                                    )}
                                 </>
                             )
                         },

@@ -107,6 +107,7 @@ class FeatureSerializerCreateOnly(FeatureSerializer):
         feature: Feature = super().create(validated_data)
         feature_flag.filters = {
             "groups": [
+                *feature_flag.filters["groups"],
                 {
                     "properties": [
                         {
@@ -117,7 +118,7 @@ class FeatureSerializerCreateOnly(FeatureSerializer):
                         }
                     ],
                     "rollout_percentage": 100,
-                }
+                },
             ],
             "payloads": {},
             "multivariate": None,

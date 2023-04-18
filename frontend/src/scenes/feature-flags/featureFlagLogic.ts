@@ -127,7 +127,7 @@ export function validateFeatureFlagKey(key: string): string | undefined {
 }
 
 export interface FeatureFlagLogicProps {
-    id: number | 'new'
+    id: number | 'new' | 'link'
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
@@ -462,7 +462,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
-                if (props.id && props.id !== 'new') {
+                if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
                         const retrievedFlag: FeatureFlagType = await api.get(
                             `api/projects/${values.currentTeamId}/feature_flags/${props.id}`

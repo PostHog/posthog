@@ -83,10 +83,11 @@ export function Feature(): JSX.Element {
         setIsModalOpen(!isModalOpen)
     }
 
+    console.log(feature)
     return (
         <Form formKey="feature" logic={featureLogic}>
             <PageHeader
-                title={'New Feature'}
+                title={isEditingFeature && !('id' in feature) ? 'New Feature' : feature.name}
                 buttons={
                     !featureLoading ? (
                         isEditingFeature ? (
@@ -127,9 +128,11 @@ export function Feature(): JSX.Element {
             />
             <div className={clsx('flex', 'flex-row', 'gap-4', isEditingFeature ? 'max-w-160' : null)}>
                 <div className="flex flex-col flex-1 gap-4">
-                    <Field name="name" label="Name">
-                        <LemonInput data-attr="feature-name" />
-                    </Field>
+                    {isEditingFeature && !('id' in feature) && (
+                        <Field name="name" label="Name">
+                            <LemonInput data-attr="feature-name" />
+                        </Field>
+                    )}
                     {'feature_flag' in feature ? (
                         <PureField label="Connected Feature flag">
                             <div>
@@ -282,7 +285,7 @@ interface FlagSelectorProps {
 function FlagSelector({ value, onChange }: FlagSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
-    const { featureFlag } = useValues(featureFlagLogic({ id: value || 'new' }))
+    const { featureFlag } = useValues(featureFlagLogic({ id: value || 'link' }))
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         groupType: TaxonomicFilterGroupType.FeatureFlags,
