@@ -38,6 +38,7 @@ class MacroExpander(CloningVisitor):
         return node
 
     def visit_join_expr(self, node: ast.JoinExpr):
+        node = super().visit_join_expr(node)
         if len(self.scopes) > 0 and isinstance(node.table, ast.Field):
             for scope in reversed(self.scopes):
                 if scope.macros and len(node.table.chain) == 1 and node.table.chain[0] in scope.macros:
