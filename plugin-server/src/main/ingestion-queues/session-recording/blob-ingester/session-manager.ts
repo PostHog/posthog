@@ -18,6 +18,8 @@ export const counterS3FilesWritten = new Counter({
     labelNames: ['partition_key'],
 })
 
+const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
+
 // The buffer is a list of messages grouped
 type SessionBuffer = {
     id: string
@@ -60,15 +62,22 @@ export class SessionManager {
     }
 
     public async flushIfNeccessary(): Promise<void> {
-        const capacity = this.buffer.size / (this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024)
+        const bufferSizeKb = this.buffer.size / 1024
+        const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
+
+        const capacity = bufferSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
+        const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
+
         status.info(
-            `Buffer ${this.sessionId}:: capacity: ${(capacity * 100).toFixed(2)}% count: ${
-                this.buffer.count
-            } ${Math.round(this.buffer.size / 1024)}KB chunks: ${this.chunks.size})`
+            `Buffer ${this.sessionId}:: capacity: ${(capacity * 100).toFixed(2)}% (${(gzippedCapacity * 100).toFixed(
+                2
+            )}%): count: ${this.buffer.count} ${Math.round(bufferSizeKb)}KB (~ ${Math.round(gzipSizeKb)}KB) chunks: ${
+                this.chunks.size
+            })`
         )
 
         const shouldFlush =
-            capacity > 1 ||
+            gzippedCapacity > 1 ||
             Date.now() - this.buffer.createdAt.getTime() >=
                 this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
 
