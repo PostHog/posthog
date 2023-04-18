@@ -17,6 +17,7 @@
  */
 
 import { Consumer } from 'kafkajs'
+
 import { status } from '../../../../utils/status'
 
 export class OffsetManager {

@@ -58,14 +58,22 @@ export class SessionRecordingBlobIngester {
         if (!this.sessions.has(key)) {
             const { partition, topic } = event.metadata
 
-            const sessionManager = new SessionManager(team_id, session_id, partition, topic, async (offsets) => {
-                await this.offsetManager?.removeOffsets(topic, partition, offsets)
+            const sessionManager = new SessionManager(
+                this.serverConfig,
+                this.objectStorage.s3,
+                team_id,
+                session_id,
+                partition,
+                topic,
+                async (offsets) => {
+                    await this.offsetManager?.removeOffsets(topic, partition, offsets)
 
-                // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-                if (sessionManager.isEmpty) {
-                    this.sessions.delete(key)
+                    // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
+                    if (sessionManager.isEmpty) {
+                        this.sessions.delete(key)
+                    }
                 }
-            })
+            )
 
             this.sessions.set(key, sessionManager)
         }

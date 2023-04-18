@@ -1,3 +1,4 @@
+import { Upload } from '@aws-sdk/lib-storage'
 import { randomUUID } from 'crypto'
 import { createReadStream, mkdirSync, writeFileSync } from 'fs'
 import { appendFile, rm } from 'fs/promises'
@@ -5,9 +6,9 @@ import path from 'path'
 import { Counter } from 'prom-client'
 import * as zlib from 'zlib'
 
+import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
-import { config } from './config'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
 
@@ -33,7 +34,8 @@ export class SessionManager {
     flushBuffer?: SessionBuffer
 
     constructor(
-        public readonly objectStorage: ObjectStorage['s3'],
+        public readonly serverConfig: PluginsServerConfig,
+        public readonly s3Client: ObjectStorage['s3'],
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
@@ -50,7 +52,7 @@ export class SessionManager {
             await this.addToChunks(message)
         }
 
-        const capacity = this.buffer.size / (config.sessions.maxEventGroupKb * 1024)
+        const capacity = this.buffer.size / (this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024)
         status.info(
             `Buffer ${this.sessionId}:: capacity: ${(capacity * 100).toFixed(2)}% count: ${
                 this.buffer.count
@@ -59,7 +61,8 @@ export class SessionManager {
 
         const shouldFlush =
             capacity > 1 ||
-            Date.now() - this.buffer.createdAt.getTime() >= config.sessions.maxEventGroupAgeSeconds * 1000
+            Date.now() - this.buffer.createdAt.getTime() >=
+                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
 
         if (shouldFlush) {
             status.info(`Flushing buffer ${this.sessionId}...`)
@@ -85,16 +88,16 @@ export class SessionManager {
         this.buffer = this.createBuffer()
 
         try {
-            const baseKey = `${config.s3.sessionRecordingFolder}/team_id/${this.teamId}/session_id/${this.sessionId}`
+            const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
             const dataKey = `${baseKey}/data/${this.flushBuffer.createdAt.getTime()}` // TODO: Change to be based on events times
 
             // TODO should only compress over some threshold? Depends how many uncompressed files we see below c200kb
             const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
 
             const parallelUploads3 = new Upload({
-                client: s3Client,
+                client: this.s3Client,
                 params: {
-                    Bucket: config.s3.bucket,
+                    Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
                     Key: dataKey,
                     Body: fileStream,
                 },
@@ -130,12 +133,15 @@ export class SessionManager {
             count: 0,
             size: 0,
             createdAt: new Date(),
-            file: path.join(config.sessions.directory, `${this.teamId}.${this.sessionId}.${id}.jsonl`),
+            file: path.join(
+                this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY,
+                `${this.teamId}.${this.sessionId}.${id}.jsonl`
+            ),
             offsets: [],
         }
 
         // NOTE: We should move this to do once on startup
-        mkdirSync(config.sessions.directory, { recursive: true })
+        mkdirSync(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true })
         // NOTE: We may want to figure out how to safely do this async
         writeFileSync(this.buffer.file, '', 'utf-8')
 

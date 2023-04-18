@@ -7,8 +7,12 @@ import { compressToString } from './utils'
 describe('session-manager', () => {
     let sessionManager: SessionManager
     const mockFinish = jest.fn()
+    const mockS3Client: any = {
+        send: jest.fn(),
+    }
+
     beforeEach(() => {
-        sessionManager = new SessionManager(1, 'session_id_1', 1, 'topic', mockFinish)
+        sessionManager = new SessionManager(mockS3Client, 1, 'session_id_1', 1, 'topic', mockFinish)
         mockFinish.mockClear()
     })
 

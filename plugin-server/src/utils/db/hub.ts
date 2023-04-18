@@ -15,7 +15,7 @@ import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
-import { ObjectStorage, connectObjectStorage } from '../../main/services/object_storage'
+import { getObjectStorage } from '../../main/services/object_storage'
 import {
     EnqueuedPluginJob,
     Hub,
@@ -161,12 +161,11 @@ export async function createHub(
 
     status.info('🤔', `Connecting to object storage...`)
 
-    let objectStorage: ObjectStorage['s3']
-    try {
-        objectStorage = connectObjectStorage(serverConfig)
+    const objectStorage = getObjectStorage(serverConfig)
+    if (objectStorage) {
         status.info('👍', 'Object storage ready')
-    } catch (e) {
-        status.warn('🪣', `Object storage could not be created: ${e}`)
+    } else {
+        status.warn('🪣', `Object storage could not be created`)
     }
 
     const promiseManager = new PromiseManager(serverConfig, statsd)
