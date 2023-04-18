@@ -29,7 +29,7 @@ import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
-import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recordings-consumer'
+import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 
