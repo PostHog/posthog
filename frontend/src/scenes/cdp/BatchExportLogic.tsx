@@ -99,7 +99,7 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
             },
         ],
         exportRuns: [
-            [] as BatchExportRunType[] | undefined,
+            [] as BatchExportRunType[],
             {
                 loadExportRuns: async () => {
                     const exportRuns = await Promise.resolve(mockExportRuns)
