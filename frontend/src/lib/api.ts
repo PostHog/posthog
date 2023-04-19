@@ -37,8 +37,6 @@ import {
     RecentPerformancePageView,
     DashboardTemplateType,
     DashboardTemplateEditorType,
-    FeatureType,
-    NewFeatureType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -390,10 +388,6 @@ class ApiRequest {
     // # Features
     public features(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('features')
-    }
-
-    public feature(id: FeatureType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.features(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -1085,24 +1079,6 @@ const api = {
                 .withAction('recordings')
                 .withAction(session_recording_id)
                 .delete()
-        },
-    },
-
-    features: {
-        async get(featureId: FeatureType['id']): Promise<FeatureType> {
-            return await new ApiRequest().feature(featureId).get()
-        },
-        async create(data: NewFeatureType): Promise<FeatureType> {
-            return await new ApiRequest().features().create({ data })
-        },
-        async update(
-            featureId: FeatureType['id'],
-            data: Pick<FeatureType, 'name' | 'description' | 'stage' | 'image_url' | 'documentation_url'>
-        ): Promise<FeatureType> {
-            return await new ApiRequest().feature(featureId).update({ data })
-        },
-        async list(): Promise<PaginatedResponse<FeatureType>> {
-            return await new ApiRequest().features().get()
         },
     },
 

@@ -20,7 +20,6 @@ import {
     IconPinOutline,
     IconPlus,
     IconRecording,
-    IconRocketLaunch,
     IconSettings,
     IconTools,
     IconUnverifiedEvent,
@@ -169,9 +168,6 @@ function Pages(): JSX.Element {
                         to={urls.sessionRecordings()}
                     />
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
-                    {featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT] && (
-                        <PageButton icon={<IconRocketLaunch />} identifier={Scene.Features} to={urls.features()} />
-                    )}
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                         !preflight?.instance_preferences?.disable_paid_fs) && (
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />

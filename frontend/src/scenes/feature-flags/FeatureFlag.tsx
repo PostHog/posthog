@@ -40,7 +40,7 @@ import {
     FeatureFlagGroupType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Field } from 'lib/forms/Field'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -71,6 +71,7 @@ import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { tagsModel } from '~/models/tagsModel'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { ManualReleaseTab, hasManualReleaseCondition } from 'scenes/feature-flags/ManualReleaseTab'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
@@ -96,9 +97,10 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag } = useValues(featureFlagLogic)
+    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag, activeTab } =
+        useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate } =
+    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate, setActiveTab } =
         useActions(featureFlagLogic)
 
     const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
@@ -114,7 +116,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
-    const [activeTab, setActiveTab] = useState(FeatureFlagsTabs.OVERVIEW)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
@@ -535,6 +536,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     {featureFlag.id && (
                                         <Tabs.TabPane tab="History" key="history">
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
+                                        </Tabs.TabPane>
+                                    )}
+                                    {featureFlag.id && (
+                                        <Tabs.TabPane tab="Manual Release" key="manual-release">
+                                            <ManualReleaseTab id={featureFlag.id} />
                                         </Tabs.TabPane>
                                     )}
                                     {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && featureFlag.can_edit && (
@@ -986,6 +992,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
         duplicateConditionSet,
         removeConditionSet,
         addConditionSet,
+        setActiveTab,
     } = useActions(featureFlagLogic)
     const { cohortsById } = useValues(cohortsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -998,46 +1005,16 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
         )
     }
 
-    const isFeaturePreviewCondition = (group: FeatureFlagGroupType): boolean => {
-        return !!(
-            featureFlag.features?.length &&
-            featureFlag.features?.length > 0 &&
-            group.properties.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
-        )
-    }
-
     const renderReleaseCondition = (group: FeatureFlagGroupType, index: number): JSX.Element => {
-        if (isFeaturePreviewCondition(group)) {
+        if (hasManualReleaseCondition(featureFlag, group)) {
             return (
                 <Row justify="space-between" align="middle">
                     <LemonTag type={'default'}>
-                        <div className="text-sm ">Connected to feature preview</div>
+                        <div className="text-sm ">Manual Release Condition</div>
                     </LemonTag>
-                    <LemonButtonWithDropdown
-                        aria-label="more"
-                        data-attr={'feature-flag-feature-list-button'}
-                        status="primary"
-                        dropdown={{
-                            placement: 'bottom-end',
-                            actionable: true,
-                            overlay: (
-                                <>
-                                    {featureFlag.features?.map((feature) => (
-                                        <LemonButton
-                                            key={feature.id}
-                                            onClick={() => router.actions.push('/features/' + feature.id)}
-                                        >
-                                            {feature.name}
-                                        </LemonButton>
-                                    ))}
-                                </>
-                            ),
-                        }}
-                        size="small"
-                        onClick={() => {}}
-                    >
+                    <LemonButton type={'secondary'} onClick={() => setActiveTab(FeatureFlagsTabs.MANUAL_RELEASE)}>
                         Manage
-                    </LemonButtonWithDropdown>
+                    </LemonButton>
                 </Row>
             )
         }
@@ -1167,7 +1144,8 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 'border',
                                 'rounded',
                                 'p-4',
-                                isFeaturePreviewCondition(group) && 'FeatureConditionCard--border--highlight'
+                                hasManualReleaseCondition(featureFlag, group) &&
+                                    'FeatureConditionCard--border--highlight'
                             )}
                         >
                             <Row align="middle" justify="space-between">
@@ -1201,14 +1179,15 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                             noPadding
                                             onClick={() => duplicateConditionSet(index)}
                                         />
-                                        {!isFeaturePreviewCondition(group) && featureFlag.filters.groups.length > 1 && (
-                                            <LemonButton
-                                                icon={<IconDelete />}
-                                                status="muted"
-                                                noPadding
-                                                onClick={() => removeConditionSet(index)}
-                                            />
-                                        )}
+                                        {!hasManualReleaseCondition(featureFlag, group) &&
+                                            featureFlag.filters.groups.length > 1 && (
+                                                <LemonButton
+                                                    icon={<IconDelete />}
+                                                    status="muted"
+                                                    noPadding
+                                                    onClick={() => removeConditionSet(index)}
+                                                />
+                                            )}
                                     </Row>
                                 )}
                             </Row>
@@ -1367,7 +1346,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                 ))}
             </Row>
             {!readOnly && (
-                <LemonButton type="secondary" className="mt-0" onClick={addConditionSet} icon={<IconPlus />}>
+                <LemonButton type="secondary" className="mt-0" onClick={() => addConditionSet()} icon={<IconPlus />}>
                     Add condition set
                 </LemonButton>
             )}

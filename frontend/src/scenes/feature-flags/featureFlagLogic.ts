@@ -22,7 +22,7 @@ import { router, urlToAction } from 'kea-router'
 import { convertPropertyGroupToProperties, deleteWithUndo, sum, toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { teamLogic } from '../teamLogic'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { FeatureFlagsTabs, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
@@ -65,7 +65,6 @@ const NEW_FLAG: FeatureFlagType = {
     rollout_percentage: null,
     ensure_experience_continuity: false,
     experiment_set: null,
-    features: [],
     rollback_conditions: [],
     performed_rollback: false,
     can_edit: true,
@@ -202,8 +201,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         setFeatureFlagMissing: true,
-        addConditionSet: true,
+        addConditionSet: (properties: AnyPropertyFilter[] = [], rolloutPercentage: number = 0) => ({
+            properties,
+            rolloutPercentage,
+        }),
         addRollbackCondition: true,
+        enableManualCondition: true,
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
         removeConditionSet: (index: number) => ({ index }),
         removeRollbackCondition: (index: number) => ({ index }),
@@ -235,6 +238,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setTotalUsers: (count: number) => ({ count }),
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
+        setActiveTab: (tab: FeatureFlagsTabs) => ({ tab }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -278,11 +282,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     return featureFlag
                 },
-                addConditionSet: (state) => {
+                addConditionSet: (state, { properties, rolloutPercentage }) => {
                     if (!state) {
                         return state
                     }
-                    const groups = [...state?.filters.groups, { properties: [], rollout_percentage: 0, variant: null }]
+                    const groups = [
+                        ...state?.filters.groups,
+                        { properties: properties, rollout_percentage: rolloutPercentage, variant: null },
+                    ]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
                 addRollbackCondition: (state) => {
@@ -459,6 +466,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setTotalUsers: (_, { count }) => count,
             },
         ],
+        activeTab: [
+            FeatureFlagsTabs.OVERVIEW as string,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
@@ -528,6 +541,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     })),
     listeners(({ actions, values, props }) => ({
+        enableManualCondition: () => {
+            actions.addConditionSet(
+                [
+                    {
+                        key: '$feature_enrollment/' + values.featureFlag.key,
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.Exact,
+                        value: ['true'],
+                    },
+                ],
+                100
+            )
+            actions.saveFeatureFlag(values.featureFlag)
+        },
         generateUsageDashboard: async () => {
             if (props.id) {
                 await api.create(`api/projects/${values.currentTeamId}/feature_flags/${props.id}/dashboard`)

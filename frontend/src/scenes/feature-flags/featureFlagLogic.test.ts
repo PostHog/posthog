@@ -29,7 +29,6 @@ function generateFeatureFlag(
         rollout_percentage: 0,
         ensure_experience_continuity: false,
         experiment_set: null,
-        features: [],
         rollback_conditions: [],
         performed_rollback: false,
         can_edit: true,

@@ -13,7 +13,6 @@ from . import (
     event_definition,
     exports,
     feature_flag,
-    feature,
     ingestion_warnings,
     instance_settings,
     instance_status,
@@ -80,12 +79,6 @@ project_feature_flags_router = projects_router.register(
     r"feature_flags",
     feature_flag.FeatureFlagViewSet,
     "project_feature_flags",
-    ["team_id"],
-)
-project_features_router = projects_router.register(
-    r"features",
-    feature.FeatureViewSet,
-    "project_features",
     ["team_id"],
 )
 

@@ -2018,7 +2018,6 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_simple_flag: boolean
     rollout_percentage: number | null
     experiment_set: string[] | null
-    features: FeatureType[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -2036,24 +2035,6 @@ export interface FeatureFlagRollbackConditions {
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
-}
-
-export interface FeatureType {
-    /** UUID */
-    id: string
-    feature_flag: FeatureFlagBasicType
-    name: string
-    description: string
-    stage: 'concept' | 'alpha' | 'beta' | 'general-availability'
-    /** Preview image URL. Can be empty. */
-    image_url: string
-    /** Documentation URL. Can be empty. */
-    documentation_url: string
-    created_at: string
-}
-
-export interface NewFeatureType extends Omit<FeatureType, 'id' | 'created_at' | 'feature_flag'> {
-    feature_flag_id: number | undefined
 }
 
 export interface UserBlastRadiusType {

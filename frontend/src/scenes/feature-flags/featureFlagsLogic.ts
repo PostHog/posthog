@@ -12,6 +12,7 @@ export enum FeatureFlagsTabs { // TODO: Rename to singular "FeatureFlagTab" in l
     OVERVIEW = 'overview',
     HISTORY = 'history',
     EXPOSURE = 'exposure',
+    MANUAL_RELEASE = 'manual-release',
 }
 
 export interface FeatureFlagsFilters {
