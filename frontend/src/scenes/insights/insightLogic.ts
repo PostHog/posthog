@@ -1,6 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { promptLogic } from 'lib/logic/promptLogic'
-import { getEventNamesForAction, objectsEqual, sum, toParams, uuid } from 'lib/utils'
+import { getEventNamesForAction, objectsEqual, shouldCancelQuery, sum, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import type { insightLogicType } from './insightLogicType'
@@ -355,7 +355,7 @@ export const insightLogic = kea<insightLogicType>([
                         }
                         response = await getJSONOrThrow(fetchResponse)
                     } catch (e: any) {
-                        if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
+                        if (shouldCancelQuery(e)) {
                             actions.abortQuery({
                                 queryId,
                                 view: insight,
