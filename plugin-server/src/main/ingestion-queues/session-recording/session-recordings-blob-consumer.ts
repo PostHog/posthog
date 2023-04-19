@@ -218,6 +218,17 @@ export class SessionRecordingBlobIngester {
         })
         setupEventHandlers(this.consumer)
 
+        // Somehow here - detect which paritions are being assigned to this consumer
+        // this.consumer.on(this.consumer.events.REBALANCING, (event) => {
+        //     const partitions = this.consumer.getPartitions()
+
+        //     this.sessions.forEach((sessionManager) => {
+        //         if (!partitions.includes(sessionManager.partition)) {
+        //             sessionManager.destroy()
+        //         }
+        //     })
+        // })
+
         await this.consumer.connect()
         await this.consumer.subscribe({ topic: KAFKA_SESSION_RECORDING_EVENTS })
 
