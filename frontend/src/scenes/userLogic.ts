@@ -176,7 +176,6 @@ export const userLogic = kea<userLogicType>([
         hasAvailableFeature: [
             (s) => [s.user],
             (user) => {
-                console.log('features: ', user?.organization?.available_features)
                 return (feature: AvailableFeature) => !!user?.organization?.available_features.includes(feature)
             },
         ],

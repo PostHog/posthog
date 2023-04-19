@@ -59,7 +59,6 @@ export function CodeInstructions({
     const featureFlagKey = featureFlag?.key || 'my-flag'
 
     const { groupTypes } = useValues(groupsModel)
-    console.log('groupTypes', groupTypes)
     const groupType =
         featureFlag?.filters?.aggregation_group_type_index != null
             ? groupTypes[featureFlag?.filters?.aggregation_group_type_index]
