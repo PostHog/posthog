@@ -84,6 +84,10 @@ export function normalizeEvent(event: PluginEvent): PluginEvent {
     if (!['$snapshot', '$performance_event'].includes(event.event)) {
         properties = personInitialAndUTMProperties(properties)
     }
+    if (event.sent_at) {
+        properties['$sent_at'] = event.sent_at
+    }
+
     event.properties = properties
     return event
 }
