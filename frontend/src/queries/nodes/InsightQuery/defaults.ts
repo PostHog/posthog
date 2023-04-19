@@ -9,7 +9,7 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema'
-import { BaseMathType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
+import { BaseMathType, FunnelVizType, InsightType, PathType, RetentionPeriod } from '~/types'
 import { ShownAsValue } from 'lib/constants'
 
 const trendsQueryDefault: TrendsQuery = {
@@ -98,4 +98,16 @@ export const nodeKindToDefaultQuery: Record<InsightNodeKind, InsightQueryNode> =
     [NodeKind.PathsQuery]: pathsQueryDefault,
     [NodeKind.StickinessQuery]: stickinessQueryDefault,
     [NodeKind.LifecycleQuery]: lifecycleQueryDefault,
+}
+
+export const insightTypeToDefaultQuery: Record<
+    Exclude<InsightType, InsightType.SQL | InsightType.JSON>,
+    InsightQueryNode
+> = {
+    [InsightType.TRENDS]: trendsQueryDefault,
+    [InsightType.FUNNELS]: funnelsQueryDefault,
+    [InsightType.RETENTION]: retentionQueryDefault,
+    [InsightType.PATHS]: pathsQueryDefault,
+    [InsightType.STICKINESS]: stickinessQueryDefault,
+    [InsightType.LIFECYCLE]: lifecycleQueryDefault,
 }

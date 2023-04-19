@@ -30,7 +30,7 @@ import {
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { InsightLegendButtonDataExploration } from 'lib/components/InsightLegend/InsightLegendButton'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
 import { FunnelStepsTableDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsTable'
@@ -78,6 +78,7 @@ export function InsightContainer({
         supportsDisplay,
         isUsingSessionAnalysis,
         insightFilter,
+        samplingFactor,
         insightDataLoading,
         erroredQueryId,
         timedOutQueryId,
@@ -191,11 +192,11 @@ export function InsightContainer({
         <>
             {isUsingSessionAnalysis ? (
                 <div className="mb-4">
-                    <AlertMessage type="info">
+                    <LemonBanner type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the
                         set of results.{' '}
                         <a href="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</a>
-                    </AlertMessage>
+                    </LemonBanner>
                 </div>
             ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
@@ -211,11 +212,18 @@ export function InsightContainer({
                         })}
                     >
                         {/*Don't add more than two columns in this row.*/}
-                        {!disableLastComputation && (
-                            <div>
-                                <ComputationTimeWithRefresh />
+                        {(!disableLastComputation || !!samplingFactor) && (
+                            <div className="flex items-center">
+                                {!disableLastComputation && <ComputationTimeWithRefresh />}
+                                {!!samplingFactor ? (
+                                    <span className="text-muted-alt">
+                                        {!disableLastComputation && <span className="mx-1">•</span>}
+                                        Results calculated from {samplingFactor * 100}% of users
+                                    </span>
+                                ) : null}
                             </div>
                         )}
+
                         <div>
                             {isFunnels ? <FunnelCanvasLabelDataExploration /> : null}
                             {isPaths ? <PathCanvasLabel /> : null}

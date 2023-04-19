@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import math
 
+from posthog.hogql.errors import HogQLException
 from posthog.models.utils import UUIDT
 
 # Copied from clickhouse_driver.util.escape, adapted only from single quotes to backquotes.
@@ -66,7 +67,7 @@ class SQLValueEscaper:
         method_name = f"visit_{node.__class__.__name__.lower()}"
         if hasattr(self, method_name):
             return getattr(self, method_name)(node)
-        raise ValueError(f"SQLValueEscaper has no method {method_name}")
+        raise HogQLException(f"SQLValueEscaper has no method {method_name}")
 
     def visit_nonetype(self, value: None):
         return "NULL"

@@ -32,12 +32,13 @@ class MacroExpander(CloningVisitor):
             for scope in reversed(self.scopes):
                 if scope.macros and node.chain[0] in scope.macros:
                     macro = scope.macros[node.chain[0]]
-                    if macro.type == "subquery":
+                    if macro.macro_format == "subquery":
                         return ast.Field(chain=[node.chain[0]])
                     return self.visit(clone_expr(macro.expr))
         return node
 
     def visit_join_expr(self, node: ast.JoinExpr):
+        node = super().visit_join_expr(node)
         if len(self.scopes) > 0 and isinstance(node.table, ast.Field):
             for scope in reversed(self.scopes):
                 if scope.macros and len(node.table.chain) == 1 and node.table.chain[0] in scope.macros:

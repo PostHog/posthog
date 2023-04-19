@@ -14,7 +14,6 @@ import {
     IntegrationType,
     OrganizationType,
     PersonListParams,
-    PersonProperty,
     PersonType,
     PluginLogEntry,
     PropertyDefinition,
@@ -894,10 +893,6 @@ const api = {
     },
 
     persons: {
-        async getProperties(): Promise<PersonProperty[]> {
-            return new ApiRequest().persons().withAction('properties').get()
-        },
-
         async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
             return new ApiRequest().person(id).update({ data: person })
         },

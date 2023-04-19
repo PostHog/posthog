@@ -121,33 +121,21 @@
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.1
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.2
@@ -194,15 +182,11 @@
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE 1 = 1
     AND (pdi.person_id IN
-           (SELECT person_id
+           (SELECT DISTINCT person_id
             FROM cohortpeople
             WHERE team_id = 2
               AND cohort_id = 2
-            GROUP BY person_id,
-                     cohort_id,
-                     team_id,
-                     version
-            HAVING sum(sign) > 0))
+              AND version = 0 ))
   GROUP BY session_recordings.session_id
   ORDER BY start_time DESC
   LIMIT 51
@@ -1183,33 +1167,21 @@
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_cohort_properties
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_cohort_properties.1
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_cohort_properties.2
@@ -1256,15 +1228,11 @@
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE 1 = 1
     AND (pdi.person_id IN
-           (SELECT person_id
+           (SELECT DISTINCT person_id
             FROM cohortpeople
             WHERE team_id = 2
               AND cohort_id = 2
-            GROUP BY person_id,
-                     cohort_id,
-                     team_id,
-                     version
-            HAVING sum(sign) > 0))
+              AND version = 0 ))
   GROUP BY session_recordings.session_id
   ORDER BY start_time DESC
   LIMIT 51

@@ -1,6 +1,6 @@
 import { ElementType } from '~/types'
 import { SelectableElement } from './SelectableElement'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { htmlElementsDisplayLogic } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
@@ -112,13 +112,13 @@ export function HTMLElementsDisplay({
             )}
             {checkUniqueness && (
                 // TODO use the SelectorCount element here?
-                <AlertMessage type={messageStatus}>
+                <LemonBanner type={messageStatus}>
                     {chosenSelectorMatchCount === null ? (
                         <>Choose parts of the HTML below to build a selector</>
                     ) : (
                         <>Matches: {chosenSelectorMatchCount} elements in the page</>
                     )}
-                </AlertMessage>
+                </LemonBanner>
             )}
             <div className="px-4 rounded bg-default">
                 {elements.length ? (

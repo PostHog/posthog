@@ -57,6 +57,7 @@ export function SessionRecordingsPlaylistFilters({
                 { key: 'Last 7 days', values: ['-7d'] },
                 { key: 'Last 21 days', values: ['-21d'] },
             ]}
+            dropdownPlacement="bottom-end"
         />
     )
 

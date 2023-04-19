@@ -10,7 +10,7 @@ import { Counter } from 'prom-client'
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
-import { createHub, createKafkaClient, KafkaConfig } from '../utils/db/hub'
+import { createHub, KafkaConfig } from '../utils/db/hub'
 import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
@@ -90,7 +90,8 @@ export async function startPluginsServer(
     // (default 60 seconds) to allow for the person to be created in the
     // meantime.
     let bufferConsumer: Consumer | undefined
-    let sessionRecordingEventsConsumer: Consumer | undefined
+    let stopSessionRecordingEventsConsumer: (() => void) | undefined
+    let joinSessionRecordingEventsConsumer: ((timeout?: number) => Promise<void>) | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
@@ -131,7 +132,7 @@ export async function startPluginsServer(
             onEventHandlerConsumer?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
-            sessionRecordingEventsConsumer?.disconnect(),
+            stopSessionRecordingEventsConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
         ])
 
@@ -218,7 +219,7 @@ export async function startPluginsServer(
     // health of the plugin-server. These are used by the /_health endpoint
     // to determine if we should trigger a restart of the pod. These should
     // be super lightweight and ideally not do any IO.
-    const healthChecks: { [service: string]: () => Promise<boolean> } = {}
+    const healthChecks: { [service: string]: () => Promise<boolean> | boolean } = {}
 
     try {
         if (!serverConfig.DISABLE_MMDB && capabilities.mmdb) {
@@ -430,20 +431,48 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingIngestion) {
-            const kafka = hub?.kafka ?? createKafkaClient(serverConfig as KafkaConfig)
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const { consumer, isHealthy: isSessionRecordingsHealthy } = await startSessionRecordingEventsConsumer({
+            const {
+                stop,
+                isHealthy: isSessionRecordingsHealthy,
+                join,
+            } = await startSessionRecordingEventsConsumer({
                 teamManager: teamManager,
-                kafka: kafka,
-                partitionsConsumedConcurrently: serverConfig.RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY,
+                kafkaConfig: serverConfig as KafkaConfig,
+                consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
+                consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
+                consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             })
-            sessionRecordingEventsConsumer = consumer
+            stopSessionRecordingEventsConsumer = stop
+            joinSessionRecordingEventsConsumer = join
             healthChecks['session-recordings'] = isSessionRecordingsHealthy
         }
 
         if (capabilities.http) {
             httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer, piscina)
+        }
+
+        // If session recordings consumer is defined, then join it. If join
+        // resolves, then the consumer has stopped and we should shut down
+        // everything else. Ideally we would also join all the other background
+        // tasks as well to ensure we stop the server if we hit any errors and
+        // don't end up with zombie instances, but I'll leave that refactoring
+        // for another time. Note that we have the liveness health checks
+        // already, so in K8s cases zombies should be reaped anyway, albeit not
+        // in the most efficient way.
+        //
+        // When extending to other consumers, we would want to do something like
+        //
+        // ```
+        // try {
+        //      await Promise.race([sessionConsumer.join(), analyticsConsumer.join(), ...])
+        // } finally {
+        //      await closeJobs()
+        // }
+        // ```
+        if (joinSessionRecordingEventsConsumer) {
+            joinSessionRecordingEventsConsumer().catch(closeJobs)
         }
 
         return serverInstance ?? { stop: closeJobs }

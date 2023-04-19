@@ -1,6 +1,7 @@
 from typing import List
 
 from posthog.hogql import ast
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.visitor import TraversingVisitor
 
 
@@ -14,34 +15,36 @@ class AsteriskExpander(TraversingVisitor):
 
         columns: List[ast.Expr] = []
         for column in node.select:
-            if isinstance(column.ref, ast.AsteriskRef):
-                asterisk = column.ref
-                if isinstance(asterisk.table, ast.BaseTableRef):
-                    table = asterisk.table.resolve_database_table()
+            if isinstance(column.type, ast.AsteriskType):
+                asterisk = column.type
+                if isinstance(asterisk.table_type, ast.BaseTableType):
+                    table = asterisk.table_type.resolve_database_table()
                     database_fields = table.get_asterisk()
                     for key in database_fields.keys():
-                        ref = ast.FieldRef(name=key, table=asterisk.table)
-                        columns.append(ast.Field(chain=[key], ref=ref))
-                        node.ref.columns[key] = ref
+                        type = ast.FieldType(name=key, table_type=asterisk.table_type)
+                        columns.append(ast.Field(chain=[key], type=type))
+                        node.type.columns[key] = type
                 elif (
-                    isinstance(asterisk.table, ast.SelectUnionQueryRef)
-                    or isinstance(asterisk.table, ast.SelectQueryRef)
-                    or isinstance(asterisk.table, ast.SelectQueryAliasRef)
+                    isinstance(asterisk.table_type, ast.SelectUnionQueryType)
+                    or isinstance(asterisk.table_type, ast.SelectQueryType)
+                    or isinstance(asterisk.table_type, ast.SelectQueryAliasType)
                 ):
-                    select = asterisk.table
-                    while isinstance(select, ast.SelectQueryAliasRef):
-                        select = select.ref
-                    if isinstance(select, ast.SelectUnionQueryRef):
-                        select = select.refs[0]
-                    if isinstance(select, ast.SelectQueryRef):
+                    select = asterisk.table_type
+                    while isinstance(select, ast.SelectQueryAliasType):
+                        select = select.select_query_type
+                    if isinstance(select, ast.SelectUnionQueryType):
+                        select = select.types[0]
+                    if isinstance(select, ast.SelectQueryType):
                         for name in select.columns.keys():
-                            ref = ast.FieldRef(name=name, table=asterisk.table)
-                            columns.append(ast.Field(chain=[name], ref=ref))
-                            node.ref.columns[name] = ref
+                            type = ast.FieldType(name=name, table_type=asterisk.table_type)
+                            columns.append(ast.Field(chain=[name], type=type))
+                            node.type.columns[name] = type
                     else:
-                        raise ValueError("Can't expand asterisk (*) on subquery")
+                        raise HogQLException("Can't expand asterisk (*) on subquery")
                 else:
-                    raise ValueError(f"Can't expand asterisk (*) on a ref of type {type(asterisk.table).__name__}")
+                    raise HogQLException(
+                        f"Can't expand asterisk (*) on a type of type {type(asterisk.table_type).__name__}"
+                    )
 
             else:
                 columns.append(column)

@@ -296,6 +296,8 @@ export interface InsightsQueryBase extends Node {
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     /** Groups aggregation */
     aggregation_group_type_index?: number
+    /** Sampling rate */
+    samplingFactor?: number | null
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and

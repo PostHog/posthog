@@ -7,7 +7,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
 import { defaultEntityFilterOnFlag, featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { FeatureFlagInstructions, FeatureFlagPayloadInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import {
@@ -46,7 +45,7 @@ import { Field } from 'lib/forms/Field'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { router } from 'kea-router'
@@ -174,13 +173,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         />
                         <LemonDivider />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
-                            <AlertMessage type="warning">
+                            <LemonBanner type="warning">
                                 This feature flag is linked to an experiment. It's recommended to only make changes to
                                 this flag{' '}
                                 <Link to={urls.experiment(featureFlag.experiment_set[0])}>
                                     using the experiment creation screen.
                                 </Link>
-                            </AlertMessage>
+                            </LemonBanner>
                         )}
                         <Row gutter={16} style={{ marginBottom: 32 }}>
                             <Col span={12} className="space-y-4">
@@ -291,23 +290,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     )}
                                 </Field>
                             </Col>
-                            {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                                <Col span={12}>
-                                    <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                                </Col>
-                            )}
                         </Row>
                         <LemonDivider />
                         <FeatureFlagRollout />
                         <LemonDivider />
                         <FeatureFlagReleaseConditions />
-                        {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                            <>
-                                <LemonDivider />
-                                <FeatureFlagCodeExample featureFlag={featureFlag} />
-                                <LemonDivider />
-                            </>
-                        )}
+                        <LemonDivider />
+                        <FeatureFlagCodeExample featureFlag={featureFlag} />
+                        <LemonDivider />
                         {isNewFeatureFlag && (
                             <>
                                 <div>
@@ -522,19 +512,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <Col span={11} className="pl-4">
                                                 <RecentFeatureFlagInsights />
                                                 <div className="my-4" />
-                                                {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                                                    <FeatureFlagInstructions
-                                                        featureFlagKey={featureFlag.key || 'my-flag'}
-                                                    />
-                                                )}
                                             </Col>
                                         </Row>
-                                        {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                                            <>
-                                                <LemonDivider className="mb-4" />
-                                                <FeatureFlagCodeExample featureFlag={featureFlag} />
-                                            </>
-                                        )}
+                                        <LemonDivider className="mb-4" />
+                                        <FeatureFlagCodeExample featureFlag={featureFlag} />
                                     </Tabs.TabPane>
                                     {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
                                         <Tabs.TabPane
@@ -672,7 +653,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
     const { hasAvailableFeature } = useValues(userLogic)
     const { upgradeLink } = useValues(billingLogic)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
         <>
@@ -856,11 +836,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     </Field>
                                 </Group>
                             </Col>
-                            {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
-                                <Col span={12}>
-                                    <FeatureFlagPayloadInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                                </Col>
-                            )}
                         </Row>
                     )}
                 </div>
@@ -1239,7 +1214,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                             </Row>
                             <LemonDivider className="my-3" />
                             {!readOnly && hasNonInstantProperty(group.properties) && (
-                                <AlertMessage type="info" className="mt-3 mb-3">
+                                <LemonBanner type="info" className="mt-3 mb-3">
                                     These properties aren't immediately available on first page load for unidentified
                                     persons. This feature flag requires that at least one event is sent prior to
                                     becoming available to your product or website.{' '}
@@ -1250,7 +1225,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         {' '}
                                         Learn more about how to make feature flags available instantly.
                                     </a>
-                                </AlertMessage>
+                                </LemonBanner>
                             )}
 
                             {readOnly ? (

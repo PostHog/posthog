@@ -10,7 +10,7 @@ export const HTTP_SERVER_PORT = 6738
 prometheus.collectDefaultMetrics()
 
 export function createHttpServer(
-    healthChecks: { [service: string]: () => Promise<boolean> },
+    healthChecks: { [service: string]: () => Promise<boolean> | boolean },
     analyticsEventsIngestionConsumer?: IngestionConsumer,
     piscina?: Piscina
 ): Server {
@@ -65,7 +65,7 @@ export function createHttpServer(
             if (statusCode === 200) {
                 status.info('💚', 'Server liveness check succeeded')
             } else {
-                status.info('💔', 'Server liveness check failed', checkResults)
+                status.info('💔', 'Server liveness check failed', checkResultsMapping)
             }
 
             res.end(JSON.stringify({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping }))

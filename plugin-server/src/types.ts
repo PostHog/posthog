@@ -100,6 +100,9 @@ export interface PluginsServerConfig {
     KAFKA_SASL_MECHANISM: KafkaSaslMechanism | null
     KAFKA_SASL_USER: string | null
     KAFKA_SASL_PASSWORD: string | null
+    KAFKA_CONSUMPTION_MAX_BYTES: number
+    KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
+    KAFKA_CONSUMPTION_MAX_WAIT_MS: number
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
@@ -129,6 +132,7 @@ export interface PluginsServerConfig {
     JOB_QUEUE_GRAPHILE_URL: string // use a different postgres connection in the graphile worker
     JOB_QUEUE_GRAPHILE_SCHEMA: string // the postgres schema that the graphile worker
     JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean // enable this to increase job queue throughput if not using pgbouncer
+    JOB_QUEUE_GRAPHILE_CONCURRENCY: number // concurrent jobs per pod
     JOB_QUEUE_S3_AWS_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_REGION: string

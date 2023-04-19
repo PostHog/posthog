@@ -19,7 +19,6 @@ import {
     FunnelStep,
     SecondaryExperimentMetric,
     SignificanceCode,
-    SecondaryMetricAPIResult,
 } from '~/types'
 import type { experimentLogicType } from './experimentLogicType'
 import { router, urlToAction } from 'kea-router'
@@ -63,7 +62,7 @@ export interface ExperimentLogicProps {
 
 interface SecondaryMetricResult {
     insightType: InsightType
-    result: number
+    result?: number
 }
 
 export interface TabularSecondaryMetricResults {
@@ -370,7 +369,10 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && actions.reportExperimentArchived(values.experiment)
         },
         updateExperimentGoal: async ({ filters }) => {
-            actions.updateExperiment({ filters })
+            // We never want to update global properties in the experiment
+            const filtersToUpdate = { ...filters }
+            delete filtersToUpdate.properties
+            actions.updateExperiment({ filters: filtersToUpdate })
             actions.closeExperimentGoalModal()
         },
         updateExperimentSecondaryMetrics: async ({ metrics }) => {
@@ -384,6 +386,9 @@ export const experimentLogic = kea<experimentLogicType>([
         resetRunningExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null })
             values.experiment && actions.reportExperimentReset(values.experiment)
+
+            actions.loadExperimentResultsSuccess(null)
+            actions.loadSecondaryMetricResultsSuccess([])
         },
         updateExperimentSuccess: async ({ experiment }) => {
             actions.updateExperiments(experiment)
@@ -535,7 +540,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         secondaryMetricResults: [
-            null as SecondaryMetricAPIResult[] | null,
+            null as Record<string, number>[] | null,
             {
                 loadSecondaryMetricResults: async () => {
                     return await Promise.all(
