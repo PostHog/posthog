@@ -18,6 +18,7 @@ import {
 import { FlaggedFeature } from '../FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { HedgehogBuddyAccessory } from './components/AccessoryButton'
+import './HedgehogBuddy.scss'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20
@@ -285,7 +286,7 @@ export class HedgehogActor {
         const accessoryPosition = this.animation.accessoryPositions?.[this.animationFrame]
         return (
             <div
-                id="hedgehog"
+                className="HedgehogBuddy"
                 onMouseDown={() => {
                     let moved = false
                     const onMouseMove = (e: any): void => {
@@ -316,7 +317,6 @@ export class HedgehogActor {
                     transition: !this.isDragging ? `all ${1000 / FPS}ms` : undefined,
                     transform: `scaleX(${this.direction === 'right' ? 1 : -1})`,
                     cursor: 'pointer',
-                    zIndex: 1001,
                     margin: 0,
                 }}
             >
@@ -454,7 +454,7 @@ export function HedgehogBuddy({
             placement="top"
             overlay={
                 popoverOverlay || (
-                    <div className="HedgehoygBuddyPopover p-2 max-w-140">
+                    <div className="HedgehogBuddyPopover p-2 max-w-140">
                         <h3>Hi, I'm Max!</h3>
                         <p>
                             Don't mind me. I'm just here to keep you company.
