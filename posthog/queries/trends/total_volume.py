@@ -15,6 +15,7 @@ from posthog.models.entity import Entity
 from posthog.models.event.sql import NULL_SQL
 from posthog.models.filters import Filter
 from posthog.models.team import Team
+from posthog.queries.event_query import EventQuery
 from posthog.queries.trends.sql import (
     ACTIVE_USERS_AGGREGATE_SQL,
     ACTIVE_USERS_SQL,
@@ -43,17 +44,23 @@ from posthog.utils import PersonOnEventsMode, encode_get_request_params, generat
 
 
 class TrendsTotalVolume:
+    DISTINCT_ID_TABLE_ALIAS = EventQuery.DISTINCT_ID_TABLE_ALIAS
+    EVENT_TABLE_ALIAS = EventQuery.EVENT_TABLE_ALIAS
+    PERSON_ID_OVERRIDES_TABLE_ALIAS = EventQuery.PERSON_ID_OVERRIDES_TABLE_ALIAS
+
     def _total_volume_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
 
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
+
+        person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        if team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
+        elif team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+            person_id_alias = "person_id"
+
         aggregate_operation, join_condition, math_params = process_math(
-            entity,
-            team,
-            event_table_alias=TrendsEventQuery.EVENT_TABLE_ALIAS,
-            person_id_alias=f"person_id"
-            if team.person_on_events_mode != PersonOnEventsMode.DISABLED
-            else "pdi.person_id",
+            entity, team, event_table_alias=TrendsEventQuery.EVENT_TABLE_ALIAS, person_id_alias=person_id_alias
         )
 
         trend_event_query = TrendsEventQuery(

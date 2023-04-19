@@ -251,11 +251,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         {!!featureFlags[FEATURE_FLAGS.SAMPLING] ? (
                             <>
                                 <Tooltip
-                                    title={
-                                        !!globalInsightFilters.sampling_factor
-                                            ? 'Turning on lightning mode will automatically enable 10% sampling for all insights you refresh, speeding up the calculation of results'
-                                            : ''
-                                    }
+                                    title="Turning on fast mode will automatically enable 10% sampling for all insights you refresh, speeding up the calculation of results"
                                     placement="bottom"
                                 >
                                     <div>

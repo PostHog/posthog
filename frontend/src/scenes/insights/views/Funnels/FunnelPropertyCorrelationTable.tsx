@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import { Col, ConfigProvider, Row, Table } from 'antd'
+import { Link } from 'lib/lemon-ui/Link'
+import { Col, ConfigProvider, Row, Table, Empty } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -14,36 +15,32 @@ import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 import { IconSelectProperties } from 'lib/lemon-ui/icons'
 import './FunnelCorrelationTable.scss'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
 import { PropertyCorrelationActionsCell } from './CorrelationActionsCell'
 import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
 import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
 import { funnelPropertyCorrelationLogic } from 'scenes/funnels/funnelPropertyCorrelationLogic'
 import { Noun } from '~/models/groupsModel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
+import { useState } from 'react'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export function FunnelPropertyCorrelationTableDataExploration(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { steps, querySource, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
-    const { loadedPropertyCorrelationsTableOnce, propertyNames, allProperties } = useValues(
-        funnelPropertyCorrelationLogic(insightProps)
-    )
-    const { loadPropertyCorrelations, setPropertyNames } = useActions(funnelPropertyCorrelationLogic(insightProps))
+    const { loadedPropertyCorrelationsTableOnce } = useValues(funnelPropertyCorrelationLogic(insightProps))
+    const { loadPropertyCorrelations } = useActions(funnelPropertyCorrelationLogic(insightProps))
 
     // Load correlations only if this component is mounted, and then reload if the query change
     useEffect(() => {
         // We only automatically refresh results when the query changes after the user has manually asked for the first results to be loaded
         if (loadedPropertyCorrelationsTableOnce) {
-            if (propertyNames.length === 0) {
-                setPropertyNames(allProperties)
-            }
-
             loadPropertyCorrelations({})
         }
     }, [querySource])
@@ -60,19 +57,13 @@ export function FunnelPropertyCorrelationTableDataExploration(): JSX.Element | n
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { steps, filters, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
-    const { loadedPropertyCorrelationsTableOnce, propertyNames, allProperties } = useValues(
-        funnelPropertyCorrelationLogic(insightProps)
-    )
-    const { loadPropertyCorrelations, setPropertyNames } = useActions(funnelPropertyCorrelationLogic(insightProps))
+    const { loadedPropertyCorrelationsTableOnce } = useValues(funnelPropertyCorrelationLogic(insightProps))
+    const { loadPropertyCorrelations } = useActions(funnelPropertyCorrelationLogic(insightProps))
 
     // Load correlations only if this component is mounted, and then reload if filters change
     useEffect(() => {
         // We only automatically refresh results when filters change after the user has manually asked for the first results to be loaded
         if (loadedPropertyCorrelationsTableOnce) {
-            if (propertyNames.length === 0) {
-                setPropertyNames(allProperties)
-            }
-
             loadPropertyCorrelations({})
         }
     }, [filters])
@@ -102,18 +93,16 @@ export function FunnelPropertyCorrelationTableComponent({
     const {
         propertyCorrelationValues,
         propertyCorrelationTypes,
-        excludedPropertyNames,
         propertyCorrelationsLoading,
-        inversePropertyNames,
         propertyNames,
-        allProperties,
         loadedPropertyCorrelationsTableOnce,
     } = useValues(funnelPropertyCorrelationLogic(insightProps))
-    const { setPropertyCorrelationTypes, setPropertyNames, loadPropertyCorrelations } = useActions(
+    const { setPropertyCorrelationTypes, setPropertyNames, setAllProperties } = useActions(
         funnelPropertyCorrelationLogic(insightProps)
     )
     const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
     const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
+    const [isPropertiesOpen, setIsPropertiesOpen] = useState(false as boolean)
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
@@ -204,18 +193,49 @@ export function FunnelPropertyCorrelationTableComponent({
                     </Col>
                     <Col className="table-options">
                         <Row style={{ display: 'contents' }}>
-                            {allProperties.length > 0 && (
-                                <>
-                                    <p className="title">PROPERTIES </p>
-                                    <PropertyNamesSelect
-                                        value={new Set(propertyNames)}
-                                        onChange={(selectedProperties: string[]) =>
-                                            setPropertyNames(selectedProperties)
-                                        }
-                                        allProperties={inversePropertyNames(excludedPropertyNames || [])}
-                                    />
-                                </>
-                            )}
+                            <>
+                                <p className="title">PROPERTIES </p>
+                                <Popover
+                                    visible={isPropertiesOpen}
+                                    onClickOutside={() => setIsPropertiesOpen(false)}
+                                    overlay={
+                                        <div className="p-4">
+                                            <PersonPropertySelect
+                                                onChange={setPropertyNames}
+                                                selectedProperties={
+                                                    propertyNames.length === 1 && propertyNames[0] === '$all'
+                                                        ? []
+                                                        : propertyNames
+                                                }
+                                                addText="Add properties"
+                                            />
+                                            <br />
+                                            {propertyNames.length === 1 && propertyNames[0] === '$all' ? (
+                                                <>All properties selected</>
+                                            ) : (
+                                                <LemonButton
+                                                    size="small"
+                                                    type="primary"
+                                                    onClick={() => setAllProperties()}
+                                                >
+                                                    Select all properties
+                                                </LemonButton>
+                                            )}
+                                        </div>
+                                    }
+                                >
+                                    <LemonButton size="small" onClick={() => setIsPropertiesOpen(true)}>
+                                        {propertyNames.length === 1 && propertyNames[0] === '$all' ? (
+                                            <>All properties selected</>
+                                        ) : (
+                                            <>
+                                                {propertyNames.length} propert{propertyNames.length === 1 ? 'y' : 'ies'}{' '}
+                                                selected
+                                            </>
+                                        )}
+                                    </LemonButton>
+                                </Popover>
+                            </>
                         </Row>
                         <Row style={{ display: 'contents' }}>
                             <p className="title" style={{ marginLeft: 8 }}>
@@ -264,14 +284,27 @@ export function FunnelPropertyCorrelationTableComponent({
                     </Col>
                 </Row>
                 <ConfigProvider
-                    renderEmpty={() => (
-                        <FunnelCorrelationTableEmptyState
-                            infoMessage="Correlated properties highlights properties users have that are likely to have affected their conversion
-                        rate within the funnel."
-                            showLoadResultsButton={!loadedPropertyCorrelationsTableOnce}
-                            loadResults={() => loadPropertyCorrelations({})}
-                        />
-                    )}
+                    renderEmpty={() =>
+                        loadedPropertyCorrelationsTableOnce ? (
+                            <Empty />
+                        ) : (
+                            <p style={{ margin: 'auto', maxWidth: 500 }}>
+                                Correlated properties highlights properties users have that are likely to have affected
+                                their conversion rate within the funnel.{' '}
+                                <Link to="https://posthog.com/manual/correlation">
+                                    Learn more about correlation analysis.
+                                </Link>
+                                <br />
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => setIsPropertiesOpen(true)}
+                                    className="m-auto"
+                                >
+                                    Select properties
+                                </LemonButton>
+                            </p>
+                        )
+                    }
                 >
                     <Table
                         dataSource={propertyCorrelationValues}

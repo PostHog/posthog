@@ -4,7 +4,7 @@ import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
@@ -21,6 +21,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Billing as BillingTest } from './test/Billing'
 import { Field, Form } from 'kea-forms'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -37,6 +38,7 @@ export function Billing(): JSX.Element {
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const cloudOrDev = preflight?.cloud || preflight?.is_debug
+    const { openSupportForm } = useActions(supportLogic)
 
     useEffect(() => {
         if (billing) {
@@ -63,30 +65,26 @@ export function Billing(): JSX.Element {
     }
 
     if (!billing && !billingLoading) {
-        const supportLink = (
-            <Link
-                target="blank"
-                to="https://posthog.com/support?utm_medium=in-product&utm_campaign=billing-service-unreachable"
-            >
-                {' '}
-                contact support{' '}
-            </Link>
-        )
         return (
             <div className="space-y-4">
                 <BillingPageHeader />
-                <AlertMessage type="error">
-                    There was an issue retrieving your current billing information. If this message persists please
-                    {supportLink}.
-                </AlertMessage>
+                <LemonBanner type="error">
+                    There was an issue retrieving your current billing information. If this message persists please{' '}
+                    <Link
+                        onClick={() => {
+                            openSupportForm('bug', 'billing')
+                        }}
+                    >
+                        submit a bug report
+                    </Link>
+                    .
+                </LemonBanner>
 
                 {!cloudOrDev ? (
-                    <AlertMessage type="info">
-                        Please ensure your instance is able to reach <b>https://billing.posthog.com</b>
-                        <br />
-                        If this is not possible, please {supportLink} about licensing options for "air-gapped"
-                        instances.
-                    </AlertMessage>
+                    <LemonBanner type="info">
+                        There was an issue retrieving your current billing information. If this message persists please
+                        contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link>.
+                    </LemonBanner>
                 ) : null}
             </div>
         )
@@ -98,9 +96,9 @@ export function Billing(): JSX.Element {
         <div ref={ref}>
             <BillingPageHeader />
             {billing?.free_trial_until ? (
-                <AlertMessage type="success" className="mb-2">
+                <LemonBanner type="success" className="mb-2">
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
-                </AlertMessage>
+                </LemonBanner>
             ) : null}
             {!billing?.has_active_subscription && cloudOrDev && (
                 <>

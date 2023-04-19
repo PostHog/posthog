@@ -16,10 +16,8 @@ import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ThirtyDayQueryCountTitle } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: PropertyDefinitionsTable,
@@ -33,7 +31,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -96,9 +93,9 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 filters.type === 'event' &&
                 !propertyDefinitionsLoading && (
                     <div className="mb-4">
-                        <AlertMessage type="warning">
+                        <LemonBanner type="warning">
                             We haven't been able to get usage and volume data yet. Please check back later.
-                        </AlertMessage>
+                        </LemonBanner>
                     </div>
                 )
             )}
@@ -110,13 +107,11 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     onChange={(e) => setFilters({ property: e || '' })}
                     value={filters.property}
                 />
-                {featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS] && (
-                    <LemonSelect
-                        options={propertyTypeOptions}
-                        value={`${filters.type}::${filters.group_type_index ?? ''}`}
-                        onSelect={setPropertyType}
-                    />
-                )}
+                <LemonSelect
+                    options={propertyTypeOptions}
+                    value={`${filters.type}::${filters.group_type_index ?? ''}`}
+                    onSelect={setPropertyType}
+                />
             </div>
 
             <LemonTable

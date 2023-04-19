@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react'
 import { ActionFilter, ActionFilterProps } from './ActionFilter'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
@@ -19,7 +18,6 @@ export default {
 }
 
 const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<ActionFilterProps>) => {
-    useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
