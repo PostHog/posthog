@@ -123,7 +123,7 @@ export function NewConnectionModal(): JSX.Element {
                             connectionChoice={connectionChoice}
                             onClick={() => {
                                 if (connectionChoice.type === ConnectionDestinationEnum.BatchExport) {
-                                    push(urls.cdpBatchExport(connectionChoice.id))
+                                    push(urls.cdpNewBatchExport(connectionChoice.id))
                                 } else {
                                     console.error('Not implemented')
                                 }

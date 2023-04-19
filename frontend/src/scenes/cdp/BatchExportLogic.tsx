@@ -18,6 +18,7 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import type { BatchExportLogicType } from './BatchExportLogicType'
+import { urlToAction } from 'kea-router'
 
 interface BatchExportLogicProps {
     id: string
@@ -47,7 +48,7 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
         values: [teamLogic, ['timezone']],
     }),
     props({} as BatchExportLogicProps),
-    key((props) => props.id ?? 'default'),
+    key((props) => props.id ?? 'new'),
     actions({
         setTab: (tab: BatchExportTabsType) => ({ tab }),
         setEditingSecret: (editingSecret: boolean) => ({ editingSecret }),
@@ -188,4 +189,12 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
         actions.loadExportRuns()
         actions.loadBatchExportSettings()
     }),
+    urlToAction(({ actions }) => ({
+        [urls.featureFlags()]: async (_, searchParams) => {
+            const choiceId = searchParams['choiceId']
+            if (choiceId) {
+                actions.setConnectionChoice(choiceId)
+            }
+        },
+    })),
 ])

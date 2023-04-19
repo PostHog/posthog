@@ -380,4 +380,5 @@ export const routes: Record<string, Scene> = {
     [urls.issues()]: Scene.Issues,
     [urls.cdp()]: Scene.CDP,
     [urls.cdpBatchExport(':id')]: Scene.CDPBatchExport,
+    [urls.cdpNewBatchExport()]: Scene.CDPBatchExport,
 }

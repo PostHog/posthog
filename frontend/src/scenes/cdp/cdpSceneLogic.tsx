@@ -6,7 +6,7 @@ import { mockConnectionChoices, mockConnections } from './mocks'
 import type { CDPSceneLogicType } from './CDPSceneLogicType'
 
 export const CDPSceneLogic = kea<CDPSceneLogicType>([
-    path(['scenes', 'cdp', 'cdpSceneLogic']),
+    path(['scenes', 'cdp', 'CDPSceneLogic']),
     actions({
         openNewConnectionModal: true,
         closeNewConnectionModal: true,

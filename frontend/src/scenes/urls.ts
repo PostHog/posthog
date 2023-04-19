@@ -147,5 +147,6 @@ export const urls = {
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
     cdp: (): string => '/cdp',
-    cdpBatchExport: (id: string): string => `/cdp/batchExport/${id}`, // TODO change a query param
+    cdpBatchExport: (id?: string): string => `/cdp/batchExport/${id}`,
+    cdpNewBatchExport: (choiceId?: string): string => `/cdp/batchExport${!!choiceId ? `?choiceId=${choiceId}` : ''}`,
 }
