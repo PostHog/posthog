@@ -18,32 +18,26 @@ describe('session-recordings-consumer', () => {
     beforeEach(() => {
         postgres = new Pool({ connectionString: defaultConfig.DATABASE_URL })
         teamManager = new TeamManager(postgres, {} as any)
-        eachBachWithDependencies = eachBatch({ groupId: 'asdf', producer, teamManager })
+        eachBachWithDependencies = eachBatch({ producer, teamManager })
     })
 
     afterEach(() => {
         jest.clearAllMocks()
     })
 
-    test('eachBatch throws on recoverable KafkaJS errors', async () => {
+    test('eachBatch throws on recoverable Kafka errors', async () => {
         const organizationId = await createOrganization(postgres)
         const teamId = await createTeam(postgres, organizationId)
         const error = new LibrdKafkaError({ message: 'test', code: 1, errno: 1, origin: 'test', isRetriable: true })
         producer.produce.mockImplementation((topic, partition, message, key, timestamp, cb) => cb(error))
         producer.flush.mockImplementation((timeout, cb) => cb(null))
         await expect(
-            eachBachWithDependencies({
-                batch: {
-                    topic: 'test',
-                    messages: [
-                        {
-                            key: 'test',
-                            value: JSON.stringify({ team_id: teamId, data: JSON.stringify({ event: '$snapshot' }) }),
-                        },
-                    ],
-                } as any,
-                heartbeat: jest.fn(),
-            })
+            eachBachWithDependencies([
+                {
+                    key: 'test',
+                    value: JSON.stringify({ team_id: teamId, data: JSON.stringify({ event: '$snapshot' }) }),
+                },
+            ])
         ).rejects.toEqual(error)
     })
 
@@ -53,18 +47,12 @@ describe('session-recordings-consumer', () => {
         const error = new LibrdKafkaError({ message: 'test', code: 1, errno: 1, origin: 'test', isRetriable: false })
         producer.produce.mockImplementation((topic, partition, message, key, timestamp, cb) => cb(error))
         producer.flush.mockImplementation((timeout, cb) => cb(null))
-        await eachBachWithDependencies({
-            batch: {
-                topic: 'test',
-                messages: [
-                    {
-                        key: 'test',
-                        value: JSON.stringify({ team_id: teamId, data: JSON.stringify({ event: '$snapshot' }) }),
-                    },
-                ],
-            } as any,
-            heartbeat: jest.fn(),
-        })
+        await eachBachWithDependencies([
+            {
+                key: 'test',
+                value: JSON.stringify({ team_id: teamId, data: JSON.stringify({ event: '$snapshot' }) }),
+            },
+        ])
 
         // Should have send to the DLQ.
         expect(producer.produce).toHaveBeenCalledTimes(1)
