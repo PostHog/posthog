@@ -28,7 +28,7 @@ import { getCookie } from 'lib/api'
 const PH_CURRENT_INSTANCE = 'ph_current_instance'
 const IS_LOGGED_IN = 'is-logged-in'
 
-const REDIRECT_TIMEOUT = 3000
+const REDIRECT_TIMEOUT = 2500
 
 const SUBDOMAIN_TO_NAME = {
     eu: 'EU cloud',
@@ -68,25 +68,28 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
         const newUrl = new URL(window.location.href)
         newUrl.hostname = newUrl.hostname.replace(currentSubdomain, loggedInSubdomain)
 
-        const redirectTimeout = setTimeout(() => {
-            window.location.assign(newUrl)
-        }, REDIRECT_TIMEOUT)
+        let cancelClicked = false
+
+        const closeToastAction = (): void => {
+            console.log('redirecting to', newUrl.href)
+            if (cancelClicked) {
+                return
+            }
+            window.location.assign(newUrl.href)
+        }
 
         lemonToast.info('Redirecting to your logged in account on the ' + SUBDOMAIN_TO_NAME[loggedInSubdomain], {
             button: {
                 label: 'Cancel',
                 action: () => {
-                    clearTimeout(redirectTimeout)
+                    console.log('cancel clicked')
+                    cancelClicked = true
                 },
             },
-            // don't pause it would give the impression that the redirect has been paused, which it hasn't
-            // could instead do a callback on hover action and then restart the timeout from where it left off after
-            pauseOnHover: false,
+            onClose: closeToastAction,
+            // we want to force the user to click the cancel button as otherwise the default close will still redirect
+            closeButton: false,
             autoClose: REDIRECT_TIMEOUT,
         })
-
-        return () => {
-            clearTimeout(redirectTimeout)
-        }
     }
 }
