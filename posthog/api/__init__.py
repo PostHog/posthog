@@ -9,6 +9,7 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
+    batch_exports,
     dead_letter_queue,
     event_definition,
     exports,
@@ -22,6 +23,7 @@ from . import (
     organization_domain,
     organization_invite,
     organization_member,
+    person_communication,
     personal_api_key,
     plugin,
     plugin_log_entry,
@@ -34,7 +36,6 @@ from . import (
     team,
     uploaded_media,
     user,
-    person_communication,
 )
 from .dashboards import dashboard, dashboard_templates
 
@@ -107,6 +108,11 @@ app_metrics_router.register(
     "historical_exports",
     ["team_id", "plugin_config_id"],
 )
+
+batch_exports_router = projects_router.register(
+    r"batch_exports", batch_exports.ExportScheduleViewSet, "batch_exports", ["team_id"]
+)
+
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
@@ -196,9 +202,15 @@ projects_router.register(
 
 if EE_AVAILABLE:
     from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
-    from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
+    from ee.clickhouse.views.groups import (
+        ClickhouseGroupsTypesView,
+        ClickhouseGroupsView,
+    )
     from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
-    from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
+    from ee.clickhouse.views.person import (
+        EnterprisePersonViewSet,
+        LegacyEnterprisePersonViewSet,
+    )
 
     projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
     projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
