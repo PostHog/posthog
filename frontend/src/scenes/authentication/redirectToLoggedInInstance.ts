@@ -36,12 +36,7 @@ const SUBDOMAIN_TO_NAME = {
 }
 
 export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
-    console.log('current url', window.location.href)
-
     const currentSubdomain = window.location.hostname.split('.')[0]
-
-    const currentCookie = document.cookie
-    console.log('current cookie', currentCookie)
 
     const loggedInSubdomain = getCookie(PH_CURRENT_INSTANCE)
         ?.replace('http://', '')
@@ -71,7 +66,6 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
         let cancelClicked = false
 
         const closeToastAction = (): void => {
-            console.log('redirecting to', newUrl.href)
             if (cancelClicked) {
                 return
             }
@@ -82,7 +76,6 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
             button: {
                 label: 'Cancel',
                 action: () => {
-                    console.log('cancel clicked')
                     cancelClicked = true
                 },
             },
