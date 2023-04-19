@@ -11,7 +11,7 @@ const dateOptionsMap = {
     d: 'days',
 } as const
 
-export type DateOption = (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
+export type DateOption = typeof dateOptionsMap[keyof typeof dateOptionsMap]
 
 export type RollingDateFilterLogicPropsType = {
     selected?: boolean
