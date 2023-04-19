@@ -60,7 +60,7 @@ export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: st
     // so we need to make sure we don't publish any metrics for other
     // partitions, otherwise we can end up with ghost readings.
     //
-    // We also need to conside the case where we have a partition that
+    // We also need to consider the case where we have a partition that
     // has reached EOF, in which case we want to record the current time
     // as opposed to the timestamp of the current message (as in this
     // case, no such message exists).
