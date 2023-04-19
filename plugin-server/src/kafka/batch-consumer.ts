@@ -65,6 +65,7 @@ export const startBatchConsumer = async ({
         'enable.partition.eof': true,
         'queued.min.messages': 100000, // 100000 is the default
         'queued.max.messages.kbytes': 1048576, // 1048576 is the default
+        'partition.assignment.strategy': 'roundrobin', // KafkaJS uses round robin, and we need to be compatible with it.
         rebalance_cb: true,
         offset_commit_cb: true,
     })
