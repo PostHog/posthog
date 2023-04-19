@@ -65,8 +65,9 @@ class FeatureSerializerCreateOnly(FeatureSerializer):
             "documentation_url",
             "created_at",
             "feature_flag_id",
+            "feature_flag",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "feature_flag", "created_at"]
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]

@@ -1059,7 +1059,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             rollout_percentage=0,
             created_by=self.user,
         )
-        Feature.objects.create(
+        feature = Feature.objects.create(
             team=self.team,
             name="Sprocket",
             description="A fancy new sprocket.",
@@ -1078,6 +1078,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 response.json()["featurePreviews"],
                 [
                     {
+                        "id": str(feature.id),
                         "name": "Sprocket",
                         "description": "A fancy new sprocket.",
                         "stage": "beta",
