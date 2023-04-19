@@ -208,7 +208,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-        return queryset.prefetch_related("created_by").order_by("-created_at")
+        return queryset.prefetch_related("created_by", "team").order_by("-created_at")
 
     @action(
         methods=["GET"],

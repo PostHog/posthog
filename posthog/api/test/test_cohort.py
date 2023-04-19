@@ -13,10 +13,17 @@ from posthog.api.test.test_exports import TestExportMixin
 from posthog.models import FeatureFlag, Person
 from posthog.models.cohort import Cohort
 from posthog.models.team.team import Team
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    QueryMatchingTest,
+)
 
 
-class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest):
+class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_and_calculating(self, patch_calculate_cohort, patch_capture):
@@ -85,6 +92,34 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest):
                 "updated_by_creator": True,
             },
         )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_list_cohorts_is_not_nplus1(self, patch_calculate_cohort, patch_capture):
+        self.team.app_urls = ["http://somewebsite.com"]
+        self.team.save()
+        Person.objects.create(team=self.team, properties={"team_id": 5})
+        Person.objects.create(team=self.team, properties={"team_id": 6})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        with self.assertNumQueries(8):
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
+            assert len(response.json()["results"]) == 1
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        with self.assertNumQueries(8):
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
+            assert len(response.json()["results"]) == 2
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload(self, patch_calculate_cohort_from_list):
