@@ -1668,7 +1668,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"/api/projects/{self.team.id}/insights/{insight.id}/",
         )
 
-        self.assertEqual(response.status_code, 403, response.json())
+        self.assertEqual(response.status_code, 401, response.json())
         self.assertEqual(response.json(), self.unauthenticated_response())
 
     def test_logged_out_user_can_retrieve_insight_with_correct_insight_sharing_access_token(self) -> None:
@@ -1707,7 +1707,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
         )
 
-        self.assertEqual(response_invalid_token.status_code, 403, response_invalid_token.json())
+        self.assertEqual(response_invalid_token.status_code, 401, response_invalid_token.json())
         self.assertEqual(
             response_invalid_token.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
@@ -1740,7 +1740,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
         )
 
-        self.assertEqual(response.status_code, 403, response.json())
+        self.assertEqual(response.status_code, 401, response.json())
         self.assertEqual(
             response.json(), self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed")
         )
@@ -1777,7 +1777,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
         )
 
-        self.assertEqual(response_incorrect_token.status_code, 403, response_incorrect_token.json())
+        self.assertEqual(response_incorrect_token.status_code, 401, response_incorrect_token.json())
         self.assertEqual(
             response_incorrect_token.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),

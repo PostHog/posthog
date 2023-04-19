@@ -525,10 +525,10 @@ class InsightViewSet(
         TeamMemberAccessPermission,
     ]
     authentication_classes = [
-        SharingAccessTokenAuthentication,
         PersonalAPIKeyAuthentication,
         authentication.BasicAuthentication,
         authentication.SessionAuthentication,
+        SharingAccessTokenAuthentication,
     ]
     throttle_classes = [
         ClickHouseBurstRateThrottle,
