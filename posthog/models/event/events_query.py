@@ -103,8 +103,6 @@ def run_events_query(
         parsed_date = isoparse(after)
     except ValueError:
         parsed_date = relative_date_parse(after)
-    # parsed date does not include milliseconds, so add one second
-    parsed_date = parsed_date + timedelta(seconds=1)
     where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
 
     # where & having
