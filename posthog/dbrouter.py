@@ -1,5 +1,6 @@
 from posthog.settings.data_stores import READ_REPLICA_OPT_IN
 
+
 class ReplicaRouter:
     def __init__(self, opt_in=None):
         self.opt_in = opt_in if opt_in else READ_REPLICA_OPT_IN
@@ -9,7 +10,7 @@ class ReplicaRouter:
 
     This adds opt-in routing for models, pointing them to the read replica.
 
-    Many examples show several configured replicas. We use Aurora, 
+    Many examples show several configured replicas. We use Aurora,
     so already have a load-balanced reader endpoint that handles this for us.
     Hence our database config has a single write endpoint, and single read endpoint.
 
@@ -17,6 +18,7 @@ class ReplicaRouter:
     from the writer to reader instance. This means that you will face consistency issues if you
     immediately try and read a model you have just written.
     """
+
     def db_for_read(self, model, **hints):
         """
         Reads go to the replica endpoint, but only if opted in
