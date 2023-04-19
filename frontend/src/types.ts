@@ -320,6 +320,10 @@ export interface TeamType extends TeamBasicType {
     groups_on_events_querying_enabled: boolean
 }
 
+// This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
+// scenes, so not worth the refactor to use the `isAuthenticatedTeam()` check
+export type TeamPublicType = Partial<TeamType> & Pick<TeamType, 'id' | 'uuid' | 'name' | 'timezone'>
+
 export interface ActionType {
     count?: number
     created_at: string
@@ -2349,7 +2353,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
     current_user: UserType | null
-    current_team: TeamType | null
+    current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
     default_event_name: string
     persisted_feature_flags?: string[]
