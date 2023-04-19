@@ -68,7 +68,7 @@ export const startBatchConsumer = async ({
 
     instrumentConsumerMetrics(consumer, groupId)
 
-    let isShuttingDown = true
+    let isShuttingDown = false
     let lastLoopTime = Date.now()
 
     // Before subscribing, we need to ensure that the topic exists. We don't
@@ -113,7 +113,7 @@ export const startBatchConsumer = async ({
         }, statusLogMilliseconds)
 
         try {
-            while (isShuttingDown) {
+            while (!isShuttingDown) {
                 lastLoopTime = Date.now()
 
                 status.debug('🔁', 'main_loop_consuming')
@@ -160,7 +160,7 @@ export const startBatchConsumer = async ({
 
         // First we signal to the mainLoop that we should be stopping. The main
         // loop should complete one loop, flush the producer, and store it's offsets.
-        isShuttingDown = false
+        isShuttingDown = true
 
         // Wait for the main loop to finish, but only give it 30 seconds
         await join(30000)
