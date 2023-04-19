@@ -6,7 +6,7 @@ export const ensureTopicExists = async (adminClient: IAdminClient, topic: string
     // Ensures that a topic exists. If it doesn't, it will be created. If it
     // does, this is a no-op. We use -1 for the number of partitions and
     // replication factor as this will use the default values configured in
-    // the Kafka borker config.
+    // the Kafka broker config.
     return await new Promise((resolve, reject) =>
         adminClient.createTopic({ topic, num_partitions: -1, replication_factor: -1 }, (error: LibrdKafkaError) => {
             if (error) {
