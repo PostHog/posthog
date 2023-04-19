@@ -36,6 +36,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
+    flush_persons_and_events,
     snapshot_clickhouse_queries,
     snapshot_postgres_queries,
 )
@@ -1684,6 +1685,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             distinct_id="person1",
             timestamp=timezone.now() - timedelta(days=5),
         )
+        flush_persons_and_events()
         insight = Insight.objects.create(
             name="Foobar",
             filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
@@ -1758,6 +1760,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             distinct_id="person1",
             timestamp=timezone.now() - timedelta(days=5),
         )
+        flush_persons_and_events()
         insight = Insight.objects.create(
             name="Foobar",
             filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
