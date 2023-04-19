@@ -15,7 +15,7 @@ export const ensureTopicExists = async (adminClient: IAdminClient, topic: string
                     // to error.
                     resolve(adminClient)
                 } else {
-                    status.error('🔥', 'Failed to create topic', { error })
+                    status.error('🔥', 'Failed to create topic', { topic, error })
                     reject(error)
                 }
             } else {
