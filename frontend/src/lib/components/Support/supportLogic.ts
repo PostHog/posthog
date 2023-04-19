@@ -160,7 +160,7 @@ export const supportLogic = kea<supportLogicType>([
                     }
                     posthog.capture('support_ticket', properties)
                     lemonToast.success(
-                        "Form submitted. Note that we're using aggregate bug reports for prioritization and won't get back to everyone individually, but if we do it will be via email."
+                        "Got it! The relevant team will check it out and aim to respond via email if necessary."
                     )
                 })
                 .catch((err) => {
