@@ -47,7 +47,7 @@ export const createKafkaConsumer = async (config: ConsumerGlobalConfig) => {
                 status.error('⚠️', 'connect_error', { error: error })
                 reject(error)
             } else {
-                status.info('📝', 'librdkafka consumer connected', { error, brokers: data?.brokers })
+                status.info('📝', 'librdkafka consumer connected', { brokers: data?.brokers })
                 resolve(consumer)
             }
         })
