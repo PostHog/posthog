@@ -9,8 +9,6 @@ import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '../navigationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-const MOCK_CLOUD_ANNOUNCEMENT = 'This is a cloud announcement'
-
 describe('announcementLogic', () => {
     let logic: ReturnType<typeof announcementLogic.build>
 
