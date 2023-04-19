@@ -100,7 +100,7 @@ CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     "toFloat": ("toFloat64OrNull", 1, 1),
     "toDecimal": ("toDecimal64OrNull", 1, 1),
     "toDate": ("toDateOrNull", 1, 1),
-    "toDateTime": ("toDateTimeOrNull", 1, 1),
+    "toDateTime": ("toDateTime64OrNull", 1, 1),
     "toUUID": ("toUUIDOrNull", 1, 1),
     "toString": ("toString", 1, 1),
     "toJSONString": ("toJSONString", 1, 1),
@@ -146,9 +146,8 @@ CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     "dateSub": ("dateSub", 3, 3),
     "timeStampAdd": ("timeStampAdd", 2, 2),
     "timeStampSub": ("timeStampSub", 2, 2),
-    "now": ("now", 0, 0),
-    "NOW": ("now", 0, 0),
-    "now64": ("now64", 1, 1),
+    "now": ("now64", 0, 0),
+    "NOW": ("now64", 0, 0),
     "nowInBlock": ("nowInBlock", 1, 1),
     "today": ("today", 0, 0),
     "yesterday": ("yesterday", 0, 0),
@@ -504,7 +503,7 @@ HOGQL_AGGREGATIONS = {
     "argMin": 2,
     # TODO: more aggregate functions?
 }
-ADD_TIMEZONE_TO_FUNCTIONS = ("now", "now64", "NOW", "toDateTime")
+ADD_TIMEZONE_TO_FUNCTIONS = ("now", "NOW", "toDateTime")
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
 

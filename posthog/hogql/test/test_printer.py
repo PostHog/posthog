@@ -515,7 +515,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
             self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
-            f"SELECT now(%(hogql_val_0)s), toDateTimeOrNull(toTimezone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTimeOrNull(%(hogql_val_3)s, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime64OrNull(toTimezone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTime64OrNull(%(hogql_val_3)s, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
         )
         self.assertEqual(
             context.values,
@@ -534,7 +534,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
             self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
-            f"SELECT now(%(hogql_val_0)s), toDateTimeOrNull(toTimezone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTimeOrNull(%(hogql_val_3)s, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime64OrNull(toTimezone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTime64OrNull(%(hogql_val_3)s, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 65535",
         )
         self.assertEqual(
             context.values,

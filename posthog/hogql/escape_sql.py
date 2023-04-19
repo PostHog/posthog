@@ -107,7 +107,7 @@ class SQLValueEscaper:
         datetime_string = value.astimezone(ZoneInfo(self._timezone)).strftime("%Y-%m-%d %H:%M:%S.%f")
         if self._dialect == "hogql":
             return f"toDateTime({self.visit(datetime_string)})"  # no timezone for hogql
-        return f"toDateTime64({self.visit(datetime_string)}, 3, {self.visit(self._timezone)})"
+        return f"toDateTime64({self.visit(datetime_string)}, 6, {self.visit(self._timezone)})"
 
     def visit_date(self, value: date):
         return f"toDate({self.visit(value.strftime('%Y-%m-%d'))})"
