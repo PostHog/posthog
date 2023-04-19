@@ -10,11 +10,12 @@ import { status } from '../utils/status'
 // Kafka production related functions using node-rdkafka.
 export const createKafkaProducer = async (config: ProducerGlobalConfig) => {
     const producer = new RdKafkaProducer({
-        // milliseconds to wait before sending a batch. The default is 0, which
-        // means that messages are sent as soon as possible. This does not mean
-        // that there will only be one message per batch, as the producer will
-        // attempt to fill batches up to the batch size while the number of
-        // Kafka inflight requests is saturated, by default 5 inflight requests.
+        // milliseconds to wait after the most recently added message before
+        // sending a batch. The default is 0, which means that messages are sent
+        // as soon as possible. This does not mean that there will only be one
+        // message per batch, as the producer will attempt to fill batches up to
+        // the batch size while the number of Kafka inflight requests is
+        // saturated, by default 5 inflight requests.
         'linger.ms': 20,
         // The default is 16kb. 1024kb also seems quite small for our use case
         // but at least larger than the default.
