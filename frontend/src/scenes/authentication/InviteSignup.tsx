@@ -140,7 +140,7 @@ function ErrorView(): JSX.Element | null {
     }
 
     return (
-        <BridgePage view="signup-error" hedgehog message="Oops!" footer={<SupportModalLink />}>
+        <BridgePage view="signup-error" hedgehog message="Oops!" footer={<SupportModalLink target="signup" />}>
             <h2>{ErrorMessages[error.code].title}</h2>
             <div className="error-message">{ErrorMessages[error.code].detail}</div>
             <LemonDivider dashed className="my-4" />
@@ -242,7 +242,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                     </div>
                 </div>
             }
-            footer={<SupportModalLink name={invite.first_name} email={invite.target_email} />}
+            footer={<SupportModalLink name={invite.first_name} email={invite.target_email} target="signup" />}
         >
             <h2 className="text-center">Create your PostHog account</h2>
             <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
