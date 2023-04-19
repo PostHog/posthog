@@ -8,7 +8,6 @@ import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
 import { posthog } from '~/toolbar/posthog'
 import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
-import { toolbarLogic } from '../toolbarLogic'
 import { HedgehogButton } from './HedgehogButton'
 
 export function DraggableButton(): JSX.Element {
