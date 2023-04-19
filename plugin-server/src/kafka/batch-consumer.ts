@@ -37,6 +37,10 @@ export const startBatchConsumer = async ({
     // to Kafka. We commit offsets after each batch has been processed,
     // disabling the default auto commit behaviour.
     //
+    // The general purpose of processing in batches is that it allows e.g. some
+    // optimisations to be made to database queries, or batching production to
+    // Kafka.
+    //
     // Note that we do not handle any pre-fetching explicitly, rather
     // node-rdkafka will fill it's own internal queue of messages as fast as it
     // can, and we will consume from that queue periodicatlly. Prefetching will

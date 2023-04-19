@@ -18,7 +18,7 @@ describe('session-recordings-consumer', () => {
     beforeEach(() => {
         postgres = new Pool({ connectionString: defaultConfig.DATABASE_URL })
         teamManager = new TeamManager(postgres, {} as any)
-        eachBachWithDependencies = eachBatch({ groupId: 'asdf', producer, teamManager })
+        eachBachWithDependencies = eachBatch({ producer, teamManager })
     })
 
     afterEach(() => {
