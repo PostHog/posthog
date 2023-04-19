@@ -286,8 +286,8 @@
                           WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
                        WHERE team_id = 2
                          AND event IN ['$autocapture', 'user signed up', '$autocapture', '$autocapture']
-                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2023-03-17 00:00:00', 'UTC')
-                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-03-24 23:59:59', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-01 23:59:59', 'UTC')
                          AND notEmpty(e.person_id)
                          AND (step_0 = 1
                               OR step_1 = 1
@@ -378,33 +378,21 @@
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.1
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
@@ -444,12 +432,11 @@
                         pdi.person_id as person_id ,
                         if(event = 'user signed up'
                            AND (person_id IN
-                                  (SELECT person_id
+                                  (SELECT DISTINCT person_id
                                    FROM cohortpeople
                                    WHERE team_id = 2
                                      AND cohort_id = 2
-                                   GROUP BY person_id, cohort_id, team_id, version
-                                   HAVING sum(sign) > 0)), 1, 0) as step_0,
+                                     AND version = 0 )), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1

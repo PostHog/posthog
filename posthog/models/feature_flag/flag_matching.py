@@ -1,9 +1,11 @@
 import hashlib
 from dataclasses import dataclass
 from enum import Enum
+import time
+import structlog
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from django.db import DatabaseError
+from django.db import DatabaseError, IntegrityError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
@@ -25,6 +27,8 @@ from .feature_flag import (
     get_feature_flags_for_team_in_cache,
     set_feature_flags_for_team_in_cache,
 )
+
+logger = structlog.get_logger(__name__)
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
@@ -390,13 +394,29 @@ class FeatureFlagMatcher:
         return current_match, current_index
 
 
-def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:
+def get_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str]) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
-    with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
-        for feature_flag, override in FeatureFlagHashKeyOverride.objects.filter(
-            person_id=person_id, team=team_id
-        ).values_list("feature_flag_key", "hash_key"):
-            feature_flag_to_key_overrides[feature_flag] = override
+
+    # Priority to the first distinctID's values, to keep this function deterministic
+
+    person_and_distinct_ids = list(
+        PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team_id=team_id).values_list(
+            "person_id", "distinct_id"
+        )
+    )
+
+    person_id_to_distinct_id = {person_id: distinct_id for person_id, distinct_id in person_and_distinct_ids}
+
+    person_ids = list(person_id_to_distinct_id.keys())
+
+    for feature_flag, override, _ in sorted(
+        FeatureFlagHashKeyOverride.objects.filter(person_id__in=person_ids, team_id=team_id).values_list(
+            "feature_flag_key", "hash_key", "person_id"
+        ),
+        key=lambda x: 1 if person_id_to_distinct_id.get(x[2], "") == distinct_ids[0] else -1,
+        # We want the highest priority to go last in sort order, so it's the latest update in the dict
+    ):
+        feature_flag_to_key_overrides[feature_flag] = override
 
     return feature_flag_to_key_overrides
 
@@ -406,7 +426,7 @@ def _get_all_feature_flags(
     feature_flags: List[FeatureFlag],
     team_id: int,
     distinct_id: str,
-    person_id: Optional[int] = None,
+    person_overrides: Optional[Dict[str, str]] = None,
     groups: Dict[GroupTypeName, str] = {},
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
@@ -414,18 +434,13 @@ def _get_all_feature_flags(
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
     cache = FlagsMatcherCache(team_id)
 
-    if person_id is not None:
-        overrides = hash_key_overrides(team_id, person_id)
-    else:
-        overrides = {}
-
     if feature_flags:
         return FeatureFlagMatcher(
             feature_flags,
             distinct_id,
             groups,
             cache,
-            overrides,
+            person_overrides or {},
             property_value_overrides,
             group_property_value_overrides,
             skip_experience_continuity_flags,
@@ -462,15 +477,46 @@ def get_all_feature_flags(
             group_property_value_overrides=group_property_value_overrides,
         )
 
+    # For flags with experience continuity enabled, we want a consistent distinct_id that doesn't change,
+    # no matter what other distinct_ids the user has.
+    # FeatureFlagHashKeyOverride stores a distinct_id (hash_key_override) given a flag, person_id, and team_id.
+
+    # This is the write-path for experience continuity flags. When a hash_key_override is sent to decide,
+    # we want to store it in the database, and then use it in the read-path to get flags with experience continuity enabled.
+    if hash_key_override is not None:
+        try:
+            hash_key_override = str(hash_key_override)
+
+            # :TRICKY: There are a few cases for write we need to handle:
+            # 1. Ingestion delay causing the person to not have been created yet or the distinct_id not yet associated
+            # 2. Merging of two different already existing persons, which results in 1 person_id being deleted and ff hash key overrides to be moved.
+            # 3. Person being deleted via UI or API (this is rare)
+            #
+            # In all cases, we simply try to find all personIDs associated with the distinct_id
+            # and the hash_key_override, and add overrides for all these personIDs.
+            # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
+            # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L696 (addFeatureFlagHashKeysForMergedPerson)
+
+            set_feature_flag_hash_key_overrides(team_id, [distinct_id, hash_key_override], hash_key_override)
+
+        except Exception as e:
+            # If the database is in read-only mode, we can't handle experience continuity flags,
+            # since the set_feature_flag_hash_key_overrides call will fail.
+
+            # For this case, and for any other case, do not error out on decide, just continue assuming continuity couldn't happen.
+            capture_exception(e)
+
+    # This is the read-path for experience continuity. We need to get the overrides, and to do that, we get the person_id.
     try:
+        person_overrides = {}
         with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
-            person_id = (
-                PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team_id)
-                .values_list("person_id", flat=True)
-                .first()
-            )
-    except DatabaseError:
-        # database is down, we can't handle experience continuity flags.
+            target_distinct_ids = [distinct_id]
+            if hash_key_override is not None:
+                target_distinct_ids.append(str(hash_key_override))
+            person_overrides = get_feature_flag_hash_key_overrides(team_id, target_distinct_ids)
+
+    except Exception:
+        # database is down, we can't handle experience continuity flags at all.
         # Treat this same as if there are no experience continuity flags.
         # This automatically sets 'errorsWhileComputingFlags' to True.
         return _get_all_feature_flags(
@@ -483,78 +529,67 @@ def get_all_feature_flags(
             skip_experience_continuity_flags=True,
         )
 
-    # setting overrides only when we get an override
-    if hash_key_override is not None:
-        # make the entire hash key override logic a single transaction
-        # with a small timeout
-        try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
-                if person_id is None:
-                    # :TRICKY: Some ingestion delays may mean that `$identify` hasn't yet created
-                    # the new person on which decide was called.
-                    # In this case, we can try finding the person_id for the old distinct id.
-                    # This is safe, since once `$identify` is processed, it would only add the distinct_id to this
-                    # existing person. If, because of race conditions, a person merge is called for later,
-                    # then https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
-                    # will take care of it^.
-                    person_id = (
-                        PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team_id)
-                        .values_list("person_id", flat=True)
-                        .first()
-                    )
-                    # If even this old person doesn't exist yet, we're facing severe ingestion delays
-                    # and there's not much we can do, since all person properties based feature flags
-                    # would fail server side anyway.
-
-                if person_id is not None:
-                    set_feature_flag_hash_key_overrides(all_feature_flags, team_id, person_id, hash_key_override)
-
-        except Exception as e:
-            # If the database is in read-only mode, we can't handle experience continuity flags,
-            # since the set_feature_flag_hash_key_overrides call will fail.
-
-            # For this case, and for any other case, do not error out on decide, we can handle it!
-            capture_exception(e)
-
-    # :TRICKY: Consistency matters only when personIDs exist
-    # as overrides are stored on personIDs.
-    # We can optimise by not going down this path when person_id doesn't exist, or
-    # no flags have experience continuity enabled
     return _get_all_feature_flags(
         all_feature_flags,
         team_id,
         distinct_id,
-        person_id,
+        person_overrides,
         groups=groups,
         property_value_overrides=property_value_overrides,
         group_property_value_overrides=group_property_value_overrides,
     )
 
 
-def set_feature_flag_hash_key_overrides(
-    feature_flags: List[FeatureFlag], team_id: int, person_id: int, hash_key_override: str
-) -> None:
-    existing_flag_overrides = set(
-        FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id).values_list(
-            "feature_flag_key", flat=True
-        )
-    )
-    new_overrides = []
-    for feature_flag in feature_flags:
-        if feature_flag.ensure_experience_continuity and feature_flag.key not in existing_flag_overrides:
-            new_overrides.append(
-                FeatureFlagHashKeyOverride(
-                    team_id=team_id,
-                    person_id=person_id,
-                    feature_flag_key=feature_flag.key,
-                    hash_key=hash_key_override,
-                )
-            )
+def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], hash_key_override: str) -> None:
+    # As a product decision, the first override wins, i.e consistency matters for the first walkthrough.
+    # Thus, we don't need to do upserts here.
 
-    if new_overrides:
-        # :TRICKY: regarding the ignore_conflicts parameter:
-        # This can happen if the same person is being processed by multiple workers
-        # / we got multiple requests for the same person
-        # at the same time. In this case, we can safely ignore the error.
-        # We don't want to return an error response for `/decide` just because of this.
-        FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides, ignore_conflicts=True)
+    # We have retries for race conditions with person merging and deletion, if a person is deleted, retry, because
+    # the distinct IDs might have moved to the new person, without the appropriate overrides.
+    max_retries = 2
+    retry_delay = 0.1  # seconds
+
+    for retry in range(max_retries):
+        try:
+            # make the entire hash key override logic a single transaction
+            # with a small timeout
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as cursor:
+                query = """
+                    WITH target_person_ids AS (
+                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+                    ),
+                    existing_overrides AS (
+                        SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
+                        WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
+                    ),
+                    flags_to_override AS (
+                        SELECT key FROM posthog_featureflag WHERE team_id = %(team_id)s AND ensure_experience_continuity = TRUE AND active = TRUE AND deleted = FALSE
+                        AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+                    )
+                    INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+                        SELECT team_id, person_id, key, %(hash_key_override)s
+                        FROM flags_to_override, target_person_ids
+                        WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = %(team_id)s)
+                        ON CONFLICT DO NOTHING
+                """
+                # The EXISTS clause is to make sure we don't try to add overrides for deleted persons, as this results in erroring out.
+
+                # :TRICKY: regarding the ON CONFLICT DO NOTHING clause:
+                # This can happen if the same person is being processed by multiple workers
+                # / we got multiple requests for the same person at the same time. In this case, we can safely ignore the error
+                # because they're all trying to add the same overrides.
+                # We don't want to return an error response for `/decide` just because of this.
+                # There can be cases where it's a different override (like a person on two different browser sending the same request at the same time),
+                # but we don't care about that case because first override wins.
+                cursor.execute(query, {"team_id": team_id, "distinct_ids": tuple(distinct_ids), "hash_key_override": hash_key_override})  # type: ignore
+
+            break
+
+        except IntegrityError as e:
+            if "violates foreign key constraint" in str(e) and retry < max_retries - 1:
+                # This can happen if a person is deleted while we're trying to add overrides for it.
+                # This is the only case when we retry.
+                logger.info("Retrying set_feature_flag_hash_key_overrides due to person deletion", exc_info=True)
+                time.sleep(retry_delay)
+            else:
+                raise e

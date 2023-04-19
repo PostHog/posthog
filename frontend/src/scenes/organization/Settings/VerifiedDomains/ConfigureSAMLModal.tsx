@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { Field } from 'lib/forms/Field'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -50,10 +50,10 @@ export function ConfigureSAMLModal(): JSX.Element {
                         />
                     </Field>
                     {!samlReady && (
-                        <AlertMessage type="info">
+                        <LemonBanner type="info">
                             SAML will not be enabled unless you enter all attributes above. However you can still
                             settings as draft.
-                        </AlertMessage>
+                        </LemonBanner>
                     )}
                 </LemonModal.Content>
                 <LemonModal.Footer>

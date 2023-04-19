@@ -22,7 +22,7 @@ import {
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { eventWithTime } from 'rrweb/typings/types'
+import { eventWithTime } from '@rrweb/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import {
     getPlayerPositionFromEpochTime,

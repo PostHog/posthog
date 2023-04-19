@@ -51,8 +51,9 @@ interface BreadcrumbProps {
 function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
     const [popoverShown, setPopoverShown] = useState(false)
 
-    let breadcrumbContent = (
-        <div
+    const Component = breadcrumb.path ? Link : 'div'
+    const breadcrumbContent = (
+        <Component
             className={clsx(
                 'Breadcrumbs3000__breadcrumb',
                 (breadcrumb.path || breadcrumb.popover) && 'Breadcrumbs3000__breadcrumb--actionable',
@@ -62,16 +63,13 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
                 breadcrumb.popover && setPopoverShown(!popoverShown)
             }}
             data-attr={`breadcrumb-${index}`}
+            to={breadcrumb.path}
         >
             {breadcrumb.symbol}
             <span>{breadcrumb.name}</span>
             {breadcrumb.popover && <IconArrowDropDown />}
-        </div>
+        </Component>
     )
-
-    if (breadcrumb.path) {
-        breadcrumbContent = <Link to={breadcrumb.path}>{breadcrumbContent}</Link>
-    }
 
     if (breadcrumb.popover) {
         return (

@@ -1,6 +1,7 @@
 import re
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
+from posthog.models.filters.mixins.utils import process_bool
 
 import structlog
 from django.http import HttpRequest, JsonResponse
@@ -141,7 +142,12 @@ def get_decide(request: HttpRequest):
                     ),
                 )
 
-            property_overrides = get_geoip_properties(get_ip_address(request))
+            property_overrides = {}
+            geoip_enabled = process_bool(data.get("geoip_disable")) is False
+
+            if geoip_enabled:
+                property_overrides = get_geoip_properties(get_ip_address(request))
+
             all_property_overrides: Dict[str, Union[str, int]] = {
                 **property_overrides,
                 **(data.get("person_properties") or {}),
@@ -149,7 +155,7 @@ def get_decide(request: HttpRequest):
 
             feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
                 team.pk,
-                data["distinct_id"],
+                str(data["distinct_id"]),
                 data.get("groups") or {},
                 hash_key_override=data.get("$anon_distinct_id"),
                 property_value_overrides=all_property_overrides,

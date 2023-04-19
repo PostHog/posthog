@@ -73,6 +73,7 @@ jobs:
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
+                        - frontend/public/email/*
 
     backend-code-quality:
         needs: changes
@@ -210,6 +211,10 @@ jobs:
 
             - name: Run migrations up to master
               run: |
+                  # We need to ensure we have requirements for the master branch
+                  # now also, so we can run migrations up to master.
+                  python -m pip install -r requirements-dev.txt
+                  python -m pip install -r requirements.txt
                   python manage.py migrate
 
             - uses: actions/checkout@v3
@@ -220,8 +225,11 @@ jobs:
                   git fetch origin master
                   # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
                   # With `--name-status` we get the same, but including a column for status, respectively: A, D, M
-                  # In this check we exclusively care about files that were added (A) in posthog/migrations/
-                  git diff --name-status origin/master..HEAD | grep "A\sposthog/migrations/" | awk '{print $2}' | python manage.py test_migrations_are_safe
+                  # In this check we exclusively care about files that were
+                  # added (A) in posthog/migrations/. We also want to ignore
+                  # initial migrations (0001_*) as these are guaranteed to be
+                  # run on initial setup where there is no data.
+                  git diff --name-status origin/master..HEAD | grep "A\sposthog/migrations/" | awk '{print $2}' | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
 
     django:
         needs: changes

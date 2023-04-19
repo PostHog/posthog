@@ -23,5 +23,5 @@ class Migration(migrations.Migration):
             name="events",
             field=models.ManyToManyField(blank=True, to="posthog.Event"),
         ),
-        migrations.RunPython(migrate_to_precalculate_actions, rollback),
+        migrations.RunPython(migrate_to_precalculate_actions, rollback, elidable=True),
     ]

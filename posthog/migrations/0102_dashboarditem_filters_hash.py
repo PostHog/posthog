@@ -35,5 +35,5 @@ class Migration(migrations.Migration):
             name="filters_hash",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
-        migrations.RunPython(forward, reverse),
+        migrations.RunPython(forward, reverse, elidable=True),
     ]

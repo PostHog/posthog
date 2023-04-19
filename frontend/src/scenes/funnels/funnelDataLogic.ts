@@ -1,4 +1,4 @@
-import { kea, path, props, key, connect, selectors } from 'kea'
+import { kea, path, props, key, connect, selectors, actions, reducers } from 'kea'
 import {
     FilterType,
     FunnelResultType,
@@ -51,7 +51,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         values: [
             insightVizDataLogic(props),
             [
-                'querySource',
+                'querySource as vizQuerySource',
                 'insightFilter',
                 'funnelsFilter',
                 'breakdown',
@@ -66,7 +66,25 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
 
+    actions({
+        hideSkewWarning: true,
+    }),
+
+    reducers({
+        skewWarningHidden: [
+            false,
+            {
+                hideSkewWarning: () => true,
+            },
+        ],
+    }),
+
     selectors(({ props }) => ({
+        querySource: [
+            (s) => [s.vizQuerySource],
+            (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
+        ],
+
         isStepsFunnel: [
             (s) => [s.funnelsFilter],
             (funnelsFilter): boolean | null => {
@@ -370,6 +388,13 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (s) => [s.insightDataError],
             (insightDataError): boolean => {
                 return !(insightDataError?.status === 400 && insightDataError?.type === 'validation_error')
+            },
+        ],
+
+        isSkewed: [
+            (s) => [s.conversionMetrics, s.skewWarningHidden],
+            (conversionMetrics, skewWarningHidden): boolean => {
+                return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
             },
         ],
     })),

@@ -464,9 +464,10 @@ export const keyMapping: KeyMappingInterface = {
             hide: true,
         },
         $time: {
-            label: 'Time',
-            description: 'Time as given by the client.',
+            label: 'Timestamp (seconds)',
+            description: 'Time as given by the client, seconds since epoch.',
             hide: true,
+            examples: ['1681211521.345'],
         },
         $device_id: {
             label: 'Device ID',

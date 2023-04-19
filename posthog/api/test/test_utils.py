@@ -1,20 +1,15 @@
 import json
 from typing import Any, cast
-from unittest.mock import patch
 
 from django.http import HttpRequest
-from django.http.response import JsonResponse
 from django.test.client import RequestFactory
 from rest_framework import status
 
-from posthog.api.test.test_capture import mocked_get_ingest_context_from_token
 from posthog.api.utils import (
-    EventIngestionContext,
     PaginationMode,
     check_definition_ids_inclusion_field_sql,
     format_paginated_url,
     get_data,
-    get_event_ingestion_context,
     get_target_entity,
     safe_clickhouse_string,
 )
@@ -27,52 +22,6 @@ def return_true():
 
 
 class TestUtils(BaseTest):
-    def test_get_team(self):
-        # No data at all
-        ingestion_context, db_error, error_response = get_event_ingestion_context(HttpRequest(), {}, "")
-
-        self.assertEqual(ingestion_context, None)
-        self.assertEqual(db_error, None)
-        self.assertEqual(type(error_response), JsonResponse)
-        self.assertEqual(error_response.status_code, status.HTTP_401_UNAUTHORIZED)  # type: ignore
-        self.assertEqual("Project API key invalid" in json.loads(error_response.getvalue())["detail"], True)  # type: ignore
-
-        # project_id exists but is invalid: should look for a personal API key and fail
-        ingestion_context, db_error, error_response = get_event_ingestion_context(
-            HttpRequest(), {"project_id": 438483483}, ""
-        )
-
-        self.assertEqual(ingestion_context, None)
-        self.assertEqual(db_error, None)
-        self.assertEqual(type(error_response), JsonResponse)
-        self.assertEqual(error_response.status_code, status.HTTP_401_UNAUTHORIZED)  # type: ignore
-        self.assertEqual(json.loads(error_response.getvalue())["detail"], "Invalid Personal API key.")  # type: ignore
-
-        # Correct token
-        ingestion_context, db_error, error_response = get_event_ingestion_context(
-            HttpRequest(), {}, self.team.api_token
-        )
-
-        self.assertEqual(ingestion_context, EventIngestionContext(team_id=self.team.pk, anonymize_ips=False))
-        self.assertEqual(db_error, None)
-        self.assertEqual(error_response, None)
-
-        get_team_from_token_patcher = patch(
-            "posthog.api.utils.get_event_ingestion_context_for_token", side_effect=mocked_get_ingest_context_from_token
-        )
-        get_team_from_token_patcher.start()
-
-        # Postgres fetch team error
-        ingestion_context, db_error, error_response = get_event_ingestion_context(
-            HttpRequest(), {}, self.team.api_token
-        )
-
-        self.assertEqual(ingestion_context, None)
-        self.assertEqual(db_error, "Exception('test exception')")
-        self.assertEqual(error_response, None)
-
-        get_team_from_token_patcher.stop()
-
     def test_get_data(self):
         # No data in request
         data, error_response = get_data(HttpRequest())

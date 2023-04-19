@@ -289,7 +289,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            query = EventsQuery(select=["event", "person", "person"])
+            query = EventsQuery(select=["event", "person", "person -- P"])
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
             self.assertEqual(response["results"][0][1], {"distinct_id": "4"})

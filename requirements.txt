@@ -73,8 +73,6 @@ cssselect==1.1.0
     # via toronado
 cssutils==1.0.2
     # via toronado
-dataclasses-json==0.5.7
-    # via -r requirements.in
 defusedxml==0.6.0
     # via
     #   -r requirements.in
@@ -208,12 +206,6 @@ lxml==4.6.5
     #   xmlsec
 lzstring==1.0.4
     # via -r requirements.in
-marshmallow==3.15.0
-    # via
-    #   dataclasses-json
-    #   marshmallow-enum
-marshmallow-enum==1.5.1
-    # via dataclasses-json
 maxminddb==2.2.0
     # via geoip2
 mimesis==5.2.1
@@ -226,8 +218,6 @@ multidict==6.0.2
     # via
     #   aiohttp
     #   yarl
-mypy-extensions==0.4.3
-    # via typing-inspect
 numpy==1.23.3
     # via -r requirements.in
 oauthlib==3.1.0
@@ -237,9 +227,7 @@ oauthlib==3.1.0
 outcome==1.1.0
     # via trio
 packaging==21.3
-    # via
-    #   marshmallow
-    #   redis
+    # via redis
 parso==0.8.1
     # via -r requirements.in
 pexpect==4.7.0

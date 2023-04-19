@@ -5,13 +5,17 @@ import { HogQLQuery } from '~/queries/schema'
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 
 function formatSQL(sql: string): string {
-    return format(sql, {
-        language: 'mysql',
-        tabWidth: 2,
-        keywordCase: 'preserve',
-        linesBetweenQueries: 2,
-        indentStyle: 'tabularRight',
-    })
+    try {
+        return format(sql, {
+            language: 'mysql',
+            tabWidth: 2,
+            keywordCase: 'preserve',
+            linesBetweenQueries: 2,
+            indentStyle: 'tabularRight',
+        })
+    } catch (e) {
+        return sql
+    }
 }
 export interface HogQLQueryEditorLogicProps {
     key: number

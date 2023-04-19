@@ -2,30 +2,51 @@ import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconClose } from 'lib/lemon-ui/icons'
-import React, { useEffect } from 'react'
-import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
+import React from 'react'
 import { navigation3000Logic } from '../navigationLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
-import { SidebarAccordion } from './SidebarAccordion'
+import { SidebarAccordion, SidebarList } from './SidebarAccordion'
+import { Accordion, BasicListItem, ExtendedListItem } from '../types'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 
 export function Sidebar(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
     const {
         sidebarWidth: width,
         isSidebarShown: isShown,
         isResizeInProgress,
         sidebarOverslideDirection: overslideDirection,
         isSidebarKeyboardShortcutAcknowledged,
+        activeNavbarItem,
     } = useValues(navigation3000Logic)
     const { beginResize } = useActions(navigation3000Logic)
-    const { recentInsights, recentInsightsLoading } = useValues(projectHomepageLogic)
-    const { loadRecentInsights } = useActions(projectHomepageLogic)
 
-    useEffect(() => {
-        loadRecentInsights()
-    }, [])
+    const { contents, activeListItemKey } = useValues(activeNavbarItem.pointer)
+
+    const isLoading = true
+
+    const content: JSX.Element | null =
+        contents.length > 0 ? (
+            'items' in contents[0] ? (
+                <>
+                    {(contents as Accordion[]).map((accordion) => (
+                        <SidebarAccordion
+                            key={accordion.title}
+                            title={accordion.title}
+                            items={accordion.items}
+                            // TODO loading={accordion.loading}
+                            activeItemKey={activeListItemKey}
+                        />
+                    ))}
+                </>
+            ) : (
+                <SidebarList
+                    items={contents as BasicListItem[] | ExtendedListItem[]}
+                    activeItemKey={activeListItemKey}
+                />
+            )
+        ) : isLoading ? (
+            <SpinnerOverlay />
+        ) : null
 
     return (
         <div
@@ -44,36 +65,9 @@ export function Sidebar(): JSX.Element {
         >
             <div className="Sidebar3000__content">
                 <div className="Sidebar3000__header">
-                    <h4>{currentTeam?.name}</h4>
+                    <h3>{activeNavbarItem?.label}</h3>
                 </div>
-                <div className="Sidebar3000__main">
-                    <SidebarAccordion
-                        title="Last viewed insights"
-                        items={recentInsights.slice(0, 5).map((insight) => ({
-                            key: insight.id,
-                            title: insight.name || insight.derived_name || `Insight #${insight.id}`,
-                            richTitle: insight.name || <i>{insight.derived_name}</i> || `Insight #${insight.id}`,
-                            url: urls.insightView(insight.short_id),
-                        }))}
-                        loading={recentInsightsLoading}
-                    />
-                    <SidebarAccordion
-                        title="Newly seen persons"
-                        items={
-                            [
-                                /* TODO */
-                            ]
-                        }
-                    />
-                    <SidebarAccordion
-                        title="Recent recordings"
-                        items={
-                            [
-                                /* TODO */
-                            ]
-                        }
-                    />
-                </div>
+                <div className="Sidebar3000__lists">{content}</div>
                 {!isSidebarKeyboardShortcutAcknowledged && <SidebarKeyboardShortcut />}
             </div>
             <div
