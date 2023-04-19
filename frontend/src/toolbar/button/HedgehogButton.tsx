@@ -19,7 +19,6 @@ export function HedgehogButton(): JSX.Element {
 
     useEffect(() => {
         if (heatmapEnabled) {
-            // TODO: Change to fire
             actorRef.current?.setAnimation('heatmaps')
         }
     }, [heatmapEnabled])

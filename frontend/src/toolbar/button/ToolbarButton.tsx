@@ -118,7 +118,13 @@ export function ToolbarButton(): JSX.Element {
             content={!hedgehogMode ? <HogLogo style={{ width: 45, cursor: 'pointer' }} /> : <></>}
             {...clickEvents}
             onMouseOver={isAuthenticated ? undefined : () => setExtensionPercentage(1)}
-            style={{ borderRadius: 10, height: 46, marginTop: -23, pointerEvents: 'none', display: 'none' }}
+            style={{
+                borderRadius: 10,
+                height: 46,
+                marginTop: -23,
+                pointerEvents: hedgehogMode ? 'none' : undefined,
+                display: hedgehogMode ? 'none' : 'flex',
+            }}
             zIndex={3}
         >
             <Circle
