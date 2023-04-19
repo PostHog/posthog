@@ -34,6 +34,20 @@ class TestMacroExpander(BaseTest):
             parse_select("select timestamp from (select * from events) my_table"),
         )
 
+    def test_macros_subquery_deep(self):
+        self.assertEqual(
+            expand_macros(
+                parse_select(
+                    "with my_table as (select * from events), "
+                    "other_table as (select * from (select * from (select * from my_table))) "
+                    "select * from other_table"
+                )
+            ),
+            parse_select(
+                "select * from (select * from (select * from (select * from (select * from events) as my_table))) as other_table"
+            ),
+        )
+
     def test_macros_subquery_recursion(self):
         query = "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
         self.assertEqual(

@@ -126,7 +126,7 @@ def select_from_persons_table(requested_fields: Dict[str, Any]):
         select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),
         group_by=[id],
         having=ast.CompareOperation(
-            op=ast.CompareOperationType.Eq,
+            op=ast.CompareOperationOp.Eq,
             left=argmax_version(ast.Field(chain=["is_deleted"])),
             right=ast.Constant(value=0),
         ),
@@ -142,7 +142,7 @@ def join_with_persons_table(from_table: str, to_table: str, requested_fields: Di
     join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table
     join_expr.constraint = ast.CompareOperation(
-        op=ast.CompareOperationType.Eq,
+        op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=[from_table, "person_id"]),
         right=ast.Field(chain=[to_table, "id"]),
     )
@@ -203,7 +203,7 @@ def select_from_person_distinct_ids_table(requested_fields: Dict[str, Any]):
         select_from=ast.JoinExpr(table=ast.Field(chain=["raw_person_distinct_ids"])),
         group_by=[distinct_id],
         having=ast.CompareOperation(
-            op=ast.CompareOperationType.Eq,
+            op=ast.CompareOperationOp.Eq,
             left=argmax_version(ast.Field(chain=["is_deleted"])),
             right=ast.Constant(value=0),
         ),
@@ -219,7 +219,7 @@ def join_with_person_distinct_ids_table(from_table: str, to_table: str, requeste
     join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table
     join_expr.constraint = ast.CompareOperation(
-        op=ast.CompareOperationType.Eq,
+        op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=[from_table, "distinct_id"]),
         right=ast.Field(chain=[to_table, "distinct_id"]),
     )

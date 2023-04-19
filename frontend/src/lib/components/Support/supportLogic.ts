@@ -13,7 +13,7 @@ function getSessionReplayLink(): string {
         Math.floor((new Date().getTime() - (posthog?.sessionManager?._sessionStartTimestamp || 0)) / 1000) - LOOK_BACK,
         0
     )
-    const link = `${window.location.origin}/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
+    const link = `https://app.posthog.com/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
     return `\nSession replay: ${link}`
 }
 

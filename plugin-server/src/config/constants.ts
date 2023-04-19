@@ -10,11 +10,3 @@ export const KAFKAJS_LOG_LEVEL_MAPPING = {
     WARN: logLevel.WARN,
     ERROR: logLevel.ERROR,
 }
-
-export const RDKAFKA_LOG_LEVEL_MAPPING = {
-    NOTHING: 0,
-    DEBUG: 7,
-    INFO: 6,
-    WARN: 4,
-    ERROR: 3,
-}
