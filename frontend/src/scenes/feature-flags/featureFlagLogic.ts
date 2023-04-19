@@ -65,6 +65,7 @@ const NEW_FLAG: FeatureFlagType = {
     rollout_percentage: null,
     ensure_experience_continuity: false,
     experiment_set: null,
+    features: [],
     rollback_conditions: [],
     performed_rollback: false,
     can_edit: true,
