@@ -554,7 +554,7 @@ class InsightViewSet(
 
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
-        context["is_shared"] = bool(self.request.GET["sharing_access_token"])
+        context["is_shared"] = bool(self.request.GET.get("sharing_access_token"))
         return context
 
     def get_permissions(self):
