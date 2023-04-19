@@ -15,7 +15,7 @@ import {
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router, urlToAction } from 'kea-router'
-import { clearDOMTextSelection, isUserLoggedIn, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, isUserLoggedIn, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
@@ -988,7 +988,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 } catch (e: any) {
                     if (isBreakpoint(e)) {
                         cancelled = true
-                    } else if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
+                    } else if (shouldCancelQuery(e)) {
                         if (!cancelled) {
                             // cancel all insight requests for this query in one go
                             actions.abortQuery({ dashboardQueryId: dashboardQueryId, queryId: queryId, queryStartTime })

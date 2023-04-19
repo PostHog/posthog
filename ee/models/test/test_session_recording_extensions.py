@@ -51,7 +51,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
         persist_recording(recording.session_id, recording.team_id)
         recording.refresh_from_db()
 
-        assert recording.object_storage_path == f"/session_recordings/team-{self.team.pk}/session-s1"
+        assert recording.object_storage_path == f"session_recordings_lts/team-{self.team.pk}/session-s1"
         assert recording.start_time == recording.created_at - timedelta(hours=48)
         assert recording.end_time == recording.created_at - timedelta(hours=46)
 
