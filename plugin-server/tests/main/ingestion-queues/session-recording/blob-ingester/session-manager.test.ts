@@ -72,7 +72,6 @@ describe('session-manager', () => {
         expect(sessionManager.flushBuffer).toEqual(undefined)
         expect(sessionManager.buffer.count).toEqual(1)
     })
-    offsets: [1]
 
     it('chunks incoming messages', async () => {
         const events = createChunkedIncomingRecordingMessage(3, {
