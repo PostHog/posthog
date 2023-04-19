@@ -47,11 +47,6 @@ class CanEditFeatureFlag(BasePermission):
             return can_user_edit_feature_flag(request, feature_flag)
 
 
-class FeaturePreviewSerializer(serializers.ModelSerializer):
-    class Meta:
-        fields = ["id", "name"]
-
-
 class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     # :TRICKY: Needed for backwards compatibility
@@ -60,7 +55,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     rollout_percentage = serializers.SerializerMethodField()
 
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
-    features: serializers.PrimaryKeyRelatedField = serializers.SerializerMethodField()
+    features: serializers.SerializerMethodField = serializers.SerializerMethodField()
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
 
     name = serializers.CharField(
@@ -107,7 +102,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             and feature_flag.aggregation_group_type_index is None
         )
 
-    def get_features(self, feature_flag: FeatureFlag) -> List[Dict[str, Any]]:
+    def get_features(self, feature_flag: FeatureFlag) -> Dict:
         from posthog.api.feature import FeaturePreviewSerializer
 
         return FeaturePreviewSerializer(feature_flag.features, many=True).data
