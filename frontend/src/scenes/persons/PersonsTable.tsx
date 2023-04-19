@@ -31,7 +31,7 @@ export function PersonsTable({
     loadPrevious,
     loadNext,
     compact,
-    extraColumns
+    extraColumns,
 }: PersonsTableType): JSX.Element {
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { loadPersons } = useActions(personsLogic)
@@ -46,25 +46,25 @@ export function PersonsTable({
         },
         ...(!compact
             ? ([
-                {
-                    title: 'ID',
-                    key: 'id',
-                    render: function Render(_, person: PersonType) {
-                        return (
-                            <div className={'overflow-hidden'}>
-                                {person.distinct_ids.length && (
-                                    <CopyToClipboardInline
-                                        explicitValue={person.distinct_ids[0]}
-                                        iconStyle={{ color: 'var(--primary)' }}
-                                        description="person distinct ID"
-                                    >
-                                        {person.distinct_ids[0]}
-                                    </CopyToClipboardInline>
-                                )}
-                            </div>
-                        )
-                    },
-                },
+                  {
+                      title: 'ID',
+                      key: 'id',
+                      render: function Render(_, person: PersonType) {
+                          return (
+                              <div className={'overflow-hidden'}>
+                                  {person.distinct_ids.length && (
+                                      <CopyToClipboardInline
+                                          explicitValue={person.distinct_ids[0]}
+                                          iconStyle={{ color: 'var(--primary)' }}
+                                          description="person distinct ID"
+                                      >
+                                          {person.distinct_ids[0]}
+                                      </CopyToClipboardInline>
+                                  )}
+                              </div>
+                          )
+                      },
+                  },
                   {
                       title: 'First seen',
                       dataIndex: 'created_at',
