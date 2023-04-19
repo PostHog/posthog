@@ -16,6 +16,7 @@ from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
+from .export import ExportDestination, ExportRun, ExportSchedule
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
@@ -67,6 +68,9 @@ __all__ = [
     "EventProperty",
     "Experiment",
     "ExportedAsset",
+    "ExportDestination",
+    "ExportRun",
+    "ExportSchedule",
     "FeatureFlag",
     "Filter",
     "Group",

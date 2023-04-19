@@ -5,7 +5,6 @@ from posthog.test.base import APIBaseTest
 
 
 class TestOrganizationAPI(APIBaseTest):
-
     # Retrieving organization
 
     def test_get_current_organization(self):

@@ -8,7 +8,11 @@ from django.urls import URLPattern, include, path, re_path
 from django.views.decorators import csrf
 from django.views.decorators.csrf import csrf_exempt
 from django_prometheus.exports import ExportToDjangoView
-from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -35,7 +39,14 @@ from posthog.demo.legacy import demo_route
 from posthog.models import User
 
 from .utils import render_template
-from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
+from .views import (
+    health,
+    login_required,
+    preflight_check,
+    robots_txt,
+    security_txt,
+    stats,
+)
 from .year_in_posthog import year_in_posthog
 
 ee_urlpatterns: List[Any] = []
@@ -181,7 +192,6 @@ if settings.DEBUG:
     urlpatterns.append(path("_metrics", ExportToDjangoView))
 
 if settings.TEST:
-
     # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
