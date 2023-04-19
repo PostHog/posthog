@@ -30,29 +30,36 @@ function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLin
     )
 }
 
+export interface CodeInstructionsProps {
+    options: InstructionOption[]
+    selectedLanguage?: string
+    featureFlag?: FeatureFlagType
+    dataAttr?: string
+    showLocalEval?: boolean
+    showBootstrap?: boolean
+}
+
 export function CodeInstructions({
     options,
     selectedLanguage,
     featureFlag,
     dataAttr = '',
-}: {
-    options: InstructionOption[]
-    selectedLanguage?: string
-    featureFlag?: FeatureFlagType
-    dataAttr?: string
-}): JSX.Element {
+    showLocalEval = false,
+    showBootstrap = false,
+}: CodeInstructionsProps): JSX.Element {
     const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
     const [bootstrapOption, setBootstrapOption] = useState(BOOTSTRAPPING_OPTIONS[0])
     const [showPayloadCode, setShowPayloadCode] = useState(Object.keys(featureFlag?.filters.payloads || {}).length > 0)
-    const [showLocalEvalCode, setShowLocalEvalCode] = useState(false)
-    const [showBootstrapCode, setShowBootstrapCode] = useState(false)
+    const [showLocalEvalCode, setShowLocalEvalCode] = useState(showLocalEval)
+    const [showBootstrapCode, setShowBootstrapCode] = useState(showBootstrap)
 
     const multivariantFlag = !!featureFlag?.filters.multivariate?.variants
 
     const featureFlagKey = featureFlag?.key || 'my-flag'
 
     const { groupTypes } = useValues(groupsModel)
+    console.log('groupTypes', groupTypes)
     const groupType =
         featureFlag?.filters?.aggregation_group_type_index != null
             ? groupTypes[featureFlag?.filters?.aggregation_group_type_index]
@@ -104,7 +111,11 @@ export function CodeInstructions({
     useEffect(() => {
         if (selectedLanguage) {
             selectOption(selectedLanguage)
+        } else {
+            // When flag definition changes, de-select any options that can't be selected anymore
+            selectOption(selectedOption.value)
         }
+
         if (
             Object.keys(featureFlag?.filters.payloads || {}).length > 0 &&
             Object.values(featureFlag?.filters.payloads || {}).some((value) => value)
@@ -114,9 +125,6 @@ export function CodeInstructions({
             setShowPayloadCode(false)
         }
 
-        if (featureFlag?.filters.multivariate?.variants || !featureFlag?.filters.multivariate) {
-            selectOption(selectedOption.value)
-        }
         if (featureFlag?.ensure_experience_continuity) {
             setShowLocalEvalCode(false)
         }
@@ -261,12 +269,6 @@ export function CodeInstructions({
     )
 }
 
-export function FeatureFlagInstructions({
-    language,
-    featureFlag,
-}: {
-    featureFlag: FeatureFlagType
-    language?: string
-}): JSX.Element {
-    return <CodeInstructions options={OPTIONS} selectedLanguage={language} featureFlag={featureFlag} />
+export function FeatureFlagInstructions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    return <CodeInstructions options={OPTIONS} featureFlag={featureFlag} />
 }
