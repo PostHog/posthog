@@ -508,7 +508,7 @@ export function EventsTable({
                     loadingSkeletonRows={20}
                     emptyState={
                         isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) ||
-                          eventFilter ? (
+                          (eventFilter && !(properties.sceneUrl === urls.events())) ? (
                             emptyPrompt
                         ) : (
                             <>
