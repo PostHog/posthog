@@ -67,9 +67,12 @@ export class SessionManager {
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
 
         status.info(
-            `Buffer ${this.sessionId}:: capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${
-                this.buffer.count
-            } ${Math.round(bufferSizeKb)}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size})`
+            '🚽',
+            `Buffer ${this.sessionId}:: buffer size: ${
+                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
+            }kb capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${this.buffer.count} ${Math.round(
+                bufferSizeKb
+            )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size})`
         )
 
         const shouldFlush =
