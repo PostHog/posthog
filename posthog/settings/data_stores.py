@@ -100,6 +100,7 @@ else:
 read_host = os.getenv("POSTHOG_POSTGRES_READ_HOST")
 if read_host:
     DATABASES["replica"] = postgres_config(read_host)
+    DATABASE_ROUTERS = ["posthog.dbrouter.ReplicaRouter"]
 
 if JOB_QUEUE_GRAPHILE_URL:
     DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
@@ -110,6 +111,7 @@ if JOB_QUEUE_GRAPHILE_URL:
 # Immediately reading after writing may not return consistent data if done in <100ms
 # Please edit the below and add your models
 READ_REPLICA_OPT_IN = []
+
 
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB = "posthog_test"
