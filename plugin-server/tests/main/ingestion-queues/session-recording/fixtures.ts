@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 
 import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/blob-ingester/types'
 import { compressToString } from '../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
-import jsonInitialSnapshot from './data/snapshot-full.json'
 import jsonFullSnapshot from './data/snapshot-full.json'
 
 export function createIncomingRecordingMessage(data: Partial<IncomingRecordingMessage> = {}): IncomingRecordingMessage {
