@@ -37,7 +37,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
 
     actionToUrl(({ values }) => {
         return {
-            setTab: () => [urls.sessionRecordings(values.tab), router.values.searchParams],
+            setTab: () => [urls.replay(values.tab), router.values.searchParams],
         }
     }),
 
@@ -48,8 +48,8 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
                 const breadcrumbs: Breadcrumb[] = []
                 if (tab !== SessionRecordingsTabs.Recent) {
                     breadcrumbs.push({
-                        name: 'Recordings',
-                        path: urls.sessionRecordings(),
+                        name: 'Replay',
+                        path: urls.replay(),
                     })
                 }
                 breadcrumbs.push({
@@ -63,7 +63,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
 
     urlToAction(({ actions, values }) => {
         return {
-            '/recordings/:tab': ({ tab }) => {
+            '/replay/:tab': ({ tab }) => {
                 if (tab !== values.tab) {
                     actions.setTab(tab as SessionRecordingsTabs)
                 }

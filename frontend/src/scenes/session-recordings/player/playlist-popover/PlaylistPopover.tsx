@@ -107,7 +107,7 @@ export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.El
 
                                         <LemonButton
                                             icon={<IconOpenInNew />}
-                                            to={urls.sessionRecordingPlaylist(playlist.short_id)}
+                                            to={urls.replayPlaylist(playlist.short_id)}
                                             targetBlank
                                         />
                                     </div>

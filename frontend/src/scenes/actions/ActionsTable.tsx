@@ -155,7 +155,7 @@ export function ActionsTable(): JSX.Element {
                                 <LemonButton
                                     status="stealth"
                                     to={
-                                        combineUrl(urls.sessionRecordings(), {
+                                        combineUrl(urls.replay(), {
                                             filters: {
                                                 actions: [
                                                     {

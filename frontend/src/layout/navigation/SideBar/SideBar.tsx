@@ -162,11 +162,7 @@ function Pages(): JSX.Element {
                             onClick: hideSideBarMobile,
                         }}
                     />
-                    <PageButton
-                        icon={<IconRecording />}
-                        identifier={Scene.SessionRecordings}
-                        to={urls.sessionRecordings()}
-                    />
+                    <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                         !preflight?.instance_preferences?.disable_paid_fs) && (

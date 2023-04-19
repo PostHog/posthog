@@ -44,10 +44,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             render: function Render(name, { short_id, derived_name, description }) {
                 return (
                     <>
-                        <Link
-                            className={clsx('font-semibold', !name && 'italic')}
-                            to={urls.sessionRecordingPlaylist(short_id)}
-                        >
+                        <Link className={clsx('font-semibold', !name && 'italic')} to={urls.replayPlaylist(short_id)}>
                             {name || derived_name || '(Untitled)'}
                         </Link>
                         {description ? <div className="truncate">{description}</div> : null}

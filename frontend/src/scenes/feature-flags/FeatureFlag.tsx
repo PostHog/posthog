@@ -439,7 +439,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
                                                     <>
                                                         <LemonButton
-                                                            to={urls.sessionRecordings(SessionRecordingsTabs.Recent, {
+                                                            to={urls.replay(SessionRecordingsTabs.Recent, {
                                                                 events: defaultEntityFilterOnFlag(featureFlag.key)
                                                                     .events,
                                                             })}

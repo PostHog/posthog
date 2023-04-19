@@ -64,7 +64,7 @@ export function SessionsRecordings(): JSX.Element {
                 activeKey={tab}
                 animated={false}
                 style={{ borderColor: '#D9D9D9' }}
-                onChange={(t) => router.actions.push(urls.sessionRecordings(t as SessionRecordingsTabs))}
+                onChange={(t) => router.actions.push(urls.replay(t as SessionRecordingsTabs))}
             >
                 {Object.values(SessionRecordingsTabs).map((value) => (
                     <Tabs.TabPane tab={humanFriendlyTabName(value)} key={value} />

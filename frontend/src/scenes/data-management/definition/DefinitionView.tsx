@@ -168,7 +168,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     <LemonButton
                                         type="secondary"
                                         to={
-                                            combineUrl(urls.sessionRecordings(), {
+                                            combineUrl(urls.replay(), {
                                                 filters: {
                                                     events: [
                                                         {

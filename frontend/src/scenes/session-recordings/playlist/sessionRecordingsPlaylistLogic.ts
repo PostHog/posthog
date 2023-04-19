@@ -55,7 +55,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 deletePlaylist: async () => {
                     if (values.playlist) {
                         return deletePlaylist(values.playlist, () => {
-                            router.actions.replace(urls.sessionRecordings(SessionRecordingsTabs.Playlists))
+                            router.actions.replace(urls.replay(SessionRecordingsTabs.Playlists))
                         })
                     }
                     return null
@@ -97,15 +97,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (playlist): Breadcrumb[] => [
                 {
                     name: 'Recordings',
-                    path: urls.sessionRecordings(),
+                    path: urls.replay(),
                 },
                 {
                     name: 'Playlists',
-                    path: urls.sessionRecordings(SessionRecordingsTabs.Playlists),
+                    path: urls.replay(SessionRecordingsTabs.Playlists),
                 },
                 {
                     name: playlist?.name || playlist?.derived_name || '(Untitled)',
-                    path: urls.sessionRecordingPlaylist(playlist?.short_id || ''),
+                    path: urls.replayPlaylist(playlist?.short_id || ''),
                 },
             ],
         ],

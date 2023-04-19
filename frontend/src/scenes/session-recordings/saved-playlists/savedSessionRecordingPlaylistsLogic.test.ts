@@ -111,7 +111,7 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
 
         describe('is set by setSavedPlaylistsFilters and loads filtered results and sets the url', () => {
             beforeEach(() => {
-                router.actions.push(urls.sessionRecordings(SessionRecordingsTabs.Playlists))
+                router.actions.push(urls.replay(SessionRecordingsTabs.Playlists))
             })
 
             const params = {
@@ -144,7 +144,7 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
         })
 
         it('reads filters from the URL', async () => {
-            router.actions.push(urls.sessionRecordings(SessionRecordingsTabs.Playlists), {
+            router.actions.push(urls.replay(SessionRecordingsTabs.Playlists), {
                 order: 'last_modified_at',
                 search: 'blah',
                 createdBy: 1,

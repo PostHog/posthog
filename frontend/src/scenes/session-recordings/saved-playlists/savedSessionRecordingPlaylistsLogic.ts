@@ -205,11 +205,11 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                   }
               ]
             | void => {
-            if (router.values.location.pathname === urls.sessionRecordings(SessionRecordingsTabs.Playlists)) {
+            if (router.values.location.pathname === urls.replay(SessionRecordingsTabs.Playlists)) {
                 const nextValues = values.filters
                 const urlValues = objectClean(router.values.searchParams)
                 if (!objectsEqual(nextValues, urlValues)) {
-                    return [urls.sessionRecordings(SessionRecordingsTabs.Playlists), nextValues, {}, { replace: false }]
+                    return [urls.replay(SessionRecordingsTabs.Playlists), nextValues, {}, { replace: false }]
                 }
             }
         }
@@ -219,7 +219,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.sessionRecordings(SessionRecordingsTabs.Playlists)]: async (_, searchParams) => {
+        [urls.replay(SessionRecordingsTabs.Playlists)]: async (_, searchParams) => {
             const currentFilters = values.filters
             const nextFilters = objectClean(searchParams)
             if (!objectsEqual(currentFilters, nextFilters)) {

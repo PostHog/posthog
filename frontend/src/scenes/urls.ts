@@ -65,12 +65,12 @@ export const urls = {
         return `/web-performance/waterfall${queryParams}`
     },
 
-    sessionRecordings: (tab?: SessionRecordingsTabs, filters?: Partial<FilterType>): string =>
-        combineUrl(tab ? `/recordings/${tab}` : '/recordings/recent', filters ? { filters } : {}).url,
-    sessionRecordingPlaylist: (id: string, filters?: Partial<FilterType>): string =>
-        combineUrl(`/recordings/playlists/${id}`, filters ? { filters } : {}).url,
-    sessionRecording: (id: string, filters?: Partial<FilterType>): string =>
-        combineUrl(`/recordings/${id}`, filters ? { filters } : {}).url,
+    replay: (tab?: SessionRecordingsTabs, filters?: Partial<FilterType>): string =>
+        combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
+    replayPlaylist: (id: string, filters?: Partial<FilterType>): string =>
+        combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
+    replaySingle: (id: string, filters?: Partial<FilterType>): string =>
+        combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
     person: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     persons: (): string => '/persons',

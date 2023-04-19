@@ -32,16 +32,14 @@ export default {
 
 export function RecordingsList(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.sessionRecordings())
+        router.actions.push(urls.replay())
     }, [])
     return <App />
 }
 
 export function Recording(): JSX.Element {
     useEffect(() => {
-        router.actions.push(
-            combineUrl(urls.sessionRecordings(), undefined, { sessionRecordingId: recordings[0].id }).url
-        )
+        router.actions.push(combineUrl(urls.replay(), undefined, { sessionRecordingId: recordings[0].id }).url)
     }, [])
     return <App />
 }
