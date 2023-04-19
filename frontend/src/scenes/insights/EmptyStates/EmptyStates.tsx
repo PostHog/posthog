@@ -143,7 +143,8 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                                     }}
                                 >
                                     Submit a bug report
-                                </Link>.
+                                </Link>
+                                .
                             </li>
                         </ol>
                     </div>
