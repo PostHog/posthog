@@ -15,6 +15,7 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import RegionSelect from './RegionSelect'
 import SupportForm from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { IconBugShield } from 'lib/lemon-ui/icons'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -71,6 +72,21 @@ export function Login(): JSX.Element {
                     Welcome to
                     <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
                 </>
+            }
+            footer={
+                <div className="text-center">
+                    <LemonButton
+                        onClick={() => {
+                            openSupportLoggedOutForm(null, null, 'bug', 'login')
+                        }}
+                        status="stealth"
+                        icon={<IconBugShield />}
+                        size="small"
+                    >
+                        <span className="text-muted">Report an issue</span>
+                    </LemonButton>
+                    <SupportForm loggedIn={false} />
+                </div>
             }
         >
             <div className="space-y-2">
@@ -145,16 +161,6 @@ export function Login(): JSX.Element {
                         </Link>
                     </div>
                 )}
-                <div className="font-bold text-center">
-                    <Link
-                        onClick={() => {
-                            openSupportLoggedOutForm(null, null, 'bug', 'login')
-                        }}
-                    >
-                        Bug Report Form
-                    </Link>
-                    <SupportForm loggedIn={false} />
-                </div>
                 <SocialLoginButtons caption="Or log in with" topDivider />
             </div>
         </BridgePage>

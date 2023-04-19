@@ -12,7 +12,7 @@ import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { IconCheckCircleOutline, IconErrorOutline } from 'lib/lemon-ui/icons'
+import { IconBugShield, IconCheckCircleOutline, IconErrorOutline } from 'lib/lemon-ui/icons'
 import SupportForm from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 
@@ -24,11 +24,27 @@ export const scene: SceneExport = {
 export function PasswordReset(): JSX.Element {
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { requestPasswordResetSucceeded, requestPasswordResetManualErrors } = useValues(passwordResetLogic)
-
-    console.log(requestPasswordResetManualErrors, 'the errors initially')
+    const { openSupportLoggedOutForm } = useActions(supportLogic)
 
     return (
-        <BridgePage view="password-reset">
+        <BridgePage
+            view="password-reset"
+            footer={
+                <div className="text-center">
+                    <LemonButton
+                        onClick={() => {
+                            openSupportLoggedOutForm(null, null, 'bug', 'login')
+                        }}
+                        status="stealth"
+                        icon={<IconBugShield />}
+                        size="small"
+                    >
+                        <span className="text-muted">Report an issue</span>
+                    </LemonButton>
+                    <SupportForm loggedIn={false} />
+                </div>
+            }
+        >
             {requestPasswordResetManualErrors?.code === 'throttled' ? (
                 <div className="text-center ">
                     <IconErrorOutline className="text-5xl text-danger" />
@@ -88,7 +104,6 @@ function EmailUnavailable(): JSX.Element {
 
 function ResetForm(): JSX.Element {
     const { isRequestPasswordResetSubmitting } = useValues(passwordResetLogic)
-    const { openSupportLoggedOutForm } = useActions(supportLogic)
 
     return (
         <Form logic={passwordResetLogic} formKey={'requestPasswordReset'} className="space-y-4" enableFormOnSubmit>
@@ -115,17 +130,6 @@ function ResetForm(): JSX.Element {
             >
                 Continue
             </LemonButton>
-            <LemonDivider dashed className="my-4" />
-            <div className="font-bold text-center">
-                <Link
-                    onClick={() => {
-                        openSupportLoggedOutForm(null, null, 'bug', 'login')
-                    }}
-                >
-                    Bug Report Form
-                </Link>
-                <SupportForm loggedIn={false} />
-            </div>
         </Form>
     )
 }
