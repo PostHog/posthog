@@ -721,7 +721,11 @@ body {
         animation-duration: 0ms !important;
         animation-iteration-count: 1 !important;
     }
-    ::-webkit-scrollbar {
+    // Hide some parts of the UI that were causing flakiness
+    ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers 
+    .LemonTabs__bar::after, // Active tab slider
+    .scrollable::after, // Scrollability indicators
+    .scrollable::before {
         display: none;
     }
 }
