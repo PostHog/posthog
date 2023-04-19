@@ -160,7 +160,7 @@ export const supportLogic = kea<supportLogicType>([
                     }
                     posthog.capture('support_ticket', properties)
                     lemonToast.success(
-                        "Got it! The relevant team will check it out and aim to respond via email if necessary."
+                        'Got it! The relevant team will check it out and aim to respond via email if necessary.'
                     )
                 })
                 .catch((err) => {
