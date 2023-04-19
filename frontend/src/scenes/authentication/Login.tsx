@@ -134,7 +134,7 @@ export function Login(): JSX.Element {
                             center
                             loading={isLoginSubmitting || precheckResponseLoading}
                         >
-                            Log in
+                            Log in NOW
                         </LemonButton>
                     ) : (
                         <SSOEnforcedLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />

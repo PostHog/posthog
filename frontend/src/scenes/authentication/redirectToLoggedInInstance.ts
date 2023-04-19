@@ -27,6 +27,7 @@ const US_SUBDOMAIN = 'app'
 const NEXT_URL_PARAM = 'next'
 
 export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
+    debugger
     const urlParams = new URLSearchParams(window.location.search)
     if (!urlParams.get(NEXT_URL_PARAM) || urlParams.get(NEXT_URL_PARAM) == '/') {
         return // no next param, so return early
@@ -34,7 +35,10 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
 
     const currentSubdomain = window.location.hostname.split('.')[0]
 
-    const phCurrentInstance = getCookie(PH_CURRENT_INSTANCE)
+    const currentCookie = document.cookie
+    console.log('current cookie', currentCookie)
+
+    const loggedInSubdomain = getCookie(PH_CURRENT_INSTANCE)
         ?.split('.')[0]
         ?.replace('https://', '')
         ?.replace('http://', '')
@@ -45,24 +49,32 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
     // however I can't find the code where it is set and removed so potentially unreliable
     const isLoggedIn = getCookie(IS_LOGGED_IN)
 
-    if (!phCurrentInstance || !isLoggedIn) {
+    if (!loggedInSubdomain || !isLoggedIn) {
         return // not logged into another subdomain
     }
 
-    if (phCurrentInstance !== US_SUBDOMAIN && phCurrentInstance !== EU_SUBDOMAIN) {
+    if (loggedInSubdomain !== US_SUBDOMAIN && loggedInSubdomain !== EU_SUBDOMAIN) {
         return // don't redirect to invalid subdomains
     }
 
-    const loggedIntoOtherSubdomain = phCurrentInstance !== currentSubdomain
+    const loggedIntoOtherSubdomain = loggedInSubdomain !== currentSubdomain
 
     if (loggedIntoOtherSubdomain) {
         const newUrl = new URL(window.location.href)
-        newUrl.hostname = newUrl.hostname.replace(currentSubdomain, phCurrentInstance)
+
+        if (newUrl.hostname.split('.').length > 1) {
+            console.log('redirecting to', newUrl.hostname.replace(currentSubdomain, loggedInSubdomain))
+            newUrl.hostname = newUrl.hostname.replace(currentSubdomain, loggedInSubdomain)
+        } else {
+            // if there is no subdomain, add one (useful for the cypress tests)
+            console.log('redirecting to base url', loggedInSubdomain + '.' + newUrl.hostname)
+            newUrl.hostname = loggedInSubdomain + '.' + newUrl.hostname + newUrl.port ? ':' + newUrl.port : ''
+        }
         const redirectTimeout = setTimeout(() => {
             window.location.assign(newUrl)
         }, REDIRECT_TIMEOUT)
 
-        lemonToast.info('Redirecting to ' + (phCurrentInstance == US_SUBDOMAIN ? 'the US cloud' : 'the EU cloud'), {
+        lemonToast.info('Redirecting to ' + (loggedInSubdomain == US_SUBDOMAIN ? 'the US cloud' : 'the EU cloud'), {
             button: {
                 label: 'Cancel',
                 action: () => {
