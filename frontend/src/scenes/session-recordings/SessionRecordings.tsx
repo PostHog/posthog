@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tabs } from 'antd'
 import { SessionRecordingsTabs } from '~/types'
@@ -72,7 +72,7 @@ export function SessionsRecordings(): JSX.Element {
             </Tabs>
             {recordingsDisabled ? (
                 <div className="mb-4">
-                    <AlertMessage
+                    <LemonBanner
                         type="info"
                         action={{
                             type: 'secondary',
@@ -82,7 +82,7 @@ export function SessionsRecordings(): JSX.Element {
                         }}
                     >
                         Session recordings are currently disabled for this project.
-                    </AlertMessage>
+                    </LemonBanner>
                 </div>
             ) : null}
             {!tab ? (

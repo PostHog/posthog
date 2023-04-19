@@ -62,24 +62,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
-    def test_person_property_names(self) -> None:
-        _create_person(
-            distinct_ids=["person_1"], team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"}
-        )
-        _create_person(distinct_ids=["person_2"], team=self.team, properties={"random_prop": "asdf"})
-        _create_person(distinct_ids=["person_3"], team=self.team, properties={"random_prop": "asdf"})
-        flush_persons_and_events()
-
-        response = self.client.get("/api/person/properties/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(response_data[0]["name"], "random_prop")
-        self.assertEqual(response_data[0]["count"], 2)
-        self.assertEqual(response_data[2]["name"], "$os")
-        self.assertEqual(response_data[2]["count"], 1)
-        self.assertEqual(response_data[1]["name"], "$browser")
-        self.assertEqual(response_data[1]["count"], 1)
-
     @also_test_with_materialized_columns(person_properties=["random_prop"])
     @snapshot_clickhouse_queries
     def test_person_property_values(self):

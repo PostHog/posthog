@@ -224,10 +224,6 @@ class Team(UUIDClassicModel):
                 send_feature_flag_events=False,
             )
 
-        # If the async migration is not complete, don't enable actor on events querying.
-        if not actor_on_events_ready():
-            return False
-
         # on self-hosted, use the instance setting
         return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
 

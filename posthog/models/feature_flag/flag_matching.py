@@ -549,7 +549,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
     max_retries = 2
     retry_delay = 0.1  # seconds
 
-    for _ in range(max_retries):
+    for retry in range(max_retries):
         try:
             # make the entire hash key override logic a single transaction
             # with a small timeout
@@ -586,7 +586,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
             break
 
         except IntegrityError as e:
-            if "violates foreign key constraint" in str(e):
+            if "violates foreign key constraint" in str(e) and retry < max_retries - 1:
                 # This can happen if a person is deleted while we're trying to add overrides for it.
                 # This is the only case when we retry.
                 logger.info("Retrying set_feature_flag_hash_key_overrides due to person deletion", exc_info=True)

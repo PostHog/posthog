@@ -1,5 +1,4 @@
 import { InsightTooltip } from './InsightTooltip'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { useMountedLogic } from 'kea'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
@@ -134,7 +133,6 @@ export default {
 } as ComponentMeta<typeof InsightTooltip>
 
 const BasicTemplate: ComponentStory<typeof InsightTooltip> = (props: InsightTooltipProps) => {
-    useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
 
     return <InsightTooltip {...props} />
@@ -149,7 +147,6 @@ Columns.args = {
 }
 
 export function InWrapper(): JSX.Element {
-    useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
 
     return (

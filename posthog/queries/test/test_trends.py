@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch, ANY
@@ -7,6 +8,7 @@ from urllib.parse import parse_qsl, urlparse
 import pytz
 from django.conf import settings
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
@@ -40,6 +42,7 @@ from posthog.test.base import (
     _create_person,
     also_test_with_different_timezones,
     also_test_with_materialized_columns,
+    create_person_id_override_by_distinct_id,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
@@ -4929,7 +4932,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "key_2", "value": "value_2", "type": "person"}]}],
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        # try different versions
+        cohort1.calculate_people_ch(pending_version=1)
         cohort2.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
@@ -5473,6 +5477,61 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response[0]["data"], [1.0])
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @snapshot_clickhouse_queries
+    def test_same_day_with_person_on_events_v2(self):
+        person_id1 = str(uuid.uuid4())
+        person_id2 = str(uuid.uuid4())
+
+        _create_person(team_id=self.team.pk, distinct_ids=["distinctid1"], properties={})
+        _create_person(team_id=self.team.pk, distinct_ids=["distinctid2"], properties={})
+
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="distinctid1",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+            person_id=person_id1,
+        )
+
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="distinctid2",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+            person_id=person_id2,
+        )
+
+        create_person_id_override_by_distinct_id("distinctid1", "distinctid2", self.team.pk)
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [2.0])
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [1.0])
+
     @also_test_with_materialized_columns(event_properties=["email", "name"], person_properties=["email", "name"])
     def test_ilike_regression_with_current_clickhouse_version(self):
         # CH upgrade to 22.3 has this problem: https://github.com/ClickHouse/ClickHouse/issues/36279
@@ -5895,6 +5954,66 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "date_to": "2020-01-12T00:00:00Z",
                     "breakdown": "key",
                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
+                    "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+                }
+            ),
+            self.team,
+        )
+
+        self.assertEqual(len(response), 2)
+        self.assertEqual(response[0]["breakdown_value"], "oh")
+        self.assertEqual(response[0]["count"], 1)
+        self.assertEqual(response[1]["breakdown_value"], "uh")
+        self.assertEqual(response[1]["count"], 1)
+
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @snapshot_clickhouse_queries
+    def test_breakdown_with_filter_groups_person_on_events_v2(self):
+        self._create_groups()
+
+        id1 = str(uuid.uuid4())
+        id2 = str(uuid.uuid4())
+        _create_event(
+            event="sign up",
+            distinct_id="test_breakdown_d1",
+            team=self.team,
+            properties={"key": "oh", "$group_0": "org:7", "$group_1": "company:10"},
+            timestamp="2020-01-02T12:00:00Z",
+            person_id=id1,
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="test_breakdown_d1",
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:5"},
+            timestamp="2020-01-02T12:00:01Z",
+            person_id=id1,
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="test_breakdown_d1",
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:6"},
+            timestamp="2020-01-02T12:00:02Z",
+            person_id=id1,
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="test_breakdown_d2",
+            team=self.team,
+            properties={"key": "uh", "$group_0": "org:6"},
+            timestamp="2020-01-02T12:00:02Z",
+            person_id=id2,
+        )
+
+        create_person_id_override_by_distinct_id("test_breakdown_d1", "test_breakdown_d2", self.team.pk)
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-01T00:00:00Z",
+                    "date_to": "2020-01-12T00:00:00Z",
+                    "breakdown": "key",
+                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0, "math": "dau"}],
                     "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
                 }
             ),
