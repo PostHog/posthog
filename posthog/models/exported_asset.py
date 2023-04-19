@@ -144,7 +144,7 @@ def save_content_to_object_storage(exported_asset: ExportedAsset, content: bytes
         f"task-{exported_asset.id}",
         str(UUIDT()),
     ]
-    object_path = f'{"/".join(path_parts)}'
+    object_path = "/".join(path_parts)
     object_storage.write(object_path, content)
     exported_asset.content_location = object_path
     exported_asset.save(update_fields=["content_location"])

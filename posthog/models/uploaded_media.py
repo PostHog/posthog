@@ -65,7 +65,7 @@ def save_content_to_object_storage(uploaded_media: UploadedMedia, content: bytes
         f"team-{uploaded_media.team.pk}",
         f"media-{uploaded_media.pk}",
     ]
-    object_path = f'{"/".join(path_parts)}'
+    object_path = "/".join(path_parts)
     object_storage.write(object_path, content)
     uploaded_media.media_location = object_path
     uploaded_media.save(update_fields=["media_location"])

@@ -173,7 +173,7 @@ class SessionRecording(UUIDModel):
             f"session-{self.session_id}",
         ]
 
-        return f'{"/".join(path_parts)}'
+        return "/".join(path_parts)
 
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
