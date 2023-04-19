@@ -8,6 +8,8 @@ from rest_framework.views import APIView
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.insight import Insight
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.utils import get_can_create_org
 
 CREATE_METHODS = ["POST", "PUT"]
@@ -244,3 +246,30 @@ class PremiumFeaturePermission(BasePermission):
             raise EnterpriseFeatureException()
 
         return True
+
+
+class HasValidSharingAccessToken(BasePermission):
+    message = "Sharing access token is incorrect for this resource."
+
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        if not isinstance(object, Insight):
+            raise ValueError("HasValidSharingAccessToken is only compatible with Insight objects")
+
+        sharing_access_token = request.query_params.get("sharing_access_token")
+        try:
+            sharing_configuration = SharingConfiguration.objects.get(access_token=sharing_access_token, enabled=True)
+        except SharingConfiguration.DoesNotExist:
+            return False
+
+        if sharing_configuration.insight:
+            return not object.deleted and sharing_configuration.insight == object
+        elif sharing_configuration.dashboard:
+            # Check whether this sharing configuration's dashboard contains this insight
+            return (
+                not object.deleted
+                and sharing_configuration.dashboard.tiles.filter(insight__isnull=False, insight__id=object.id)
+                .exclude(deleted=True, insight__deleted=True)
+                .exists()
+            )
+        else:
+            return False

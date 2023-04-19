@@ -26,8 +26,9 @@ from posthog.models import (
     Person,
     Team,
     User,
+    SharingConfiguration,
+    OrganizationMembership,
 )
-from posthog.models.organization import OrganizationMembership
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -1645,16 +1646,144 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.client.force_login(user2)
         response_team2 = self.client.get(
             f"/api/projects/{self.team.id}/insights/trend/?events={events_filter}",
-            data={"token": user2.team.api_token},
         )
 
         self.assertEqual(response_team1.status_code, 200)
-        self.assertEqual(response_team2.status_code, 200)
+        self.assertEqual(response_team2.status_code, 200, response_team2.json())
         self.assertEqual(response_team1.json()["result"], response_team1_token.json()["result"])
         self.assertNotEqual(len(response_team1.json()["result"]), len(response_team2.json()["result"]))
 
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/insights/trend?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
+
+    def test_logged_out_user_cannot_retrieve_insight(self) -> None:
+        self.client.logout()
+        insight = Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/",
+        )
+
+        self.assertEqual(response.status_code, 403, response.json())
+        self.assertEqual(response.json(), self.unauthenticated_response())
+
+    def test_logged_out_user_can_retrieve_insight_with_correct_insight_sharing_access_token(self) -> None:
+        self.client.logout()
+        _create_person(
+            team=self.team,
+            distinct_ids=["person1"],
+            properties={"email": "person1@test.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person1",
+            timestamp=timezone.now() - timedelta(days=5),
+        )
+        insight = Insight.objects.create(
+            name="Foobar",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+        )
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, insight=insight, enabled=True, access_token="xyz"
+        )
+        other_sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, enabled=True, access_token="klm"
+        )
+
+        response_invalid_token = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token=abc",
+        )
+        response_incorrect_token = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={other_sharing_configuration.access_token}",
+        )
+        response_correct_token = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
+        )
+
+        self.assertEqual(response_invalid_token.status_code, 403, response_invalid_token.json())
+        self.assertEqual(
+            response_invalid_token.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
+        )
+        self.assertEqual(response_incorrect_token.status_code, 403, response_incorrect_token.json())
+        self.assertEqual(
+            response_incorrect_token.json(),
+            self.permission_denied_response("Sharing access token is incorrect for this resource."),
+        )
+        self.assertEqual(response_correct_token.status_code, 200, response_correct_token.json())
+        self.assertDictContainsSubset(
+            {
+                "name": "Foobar",
+            },
+            response_correct_token.json(),
+        )
+
+    def test_logged_out_user_cannot_retrieve_insight_with_disabled_insight_sharing_access_token(self) -> None:
+        self.client.logout()
+        insight = Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+        )
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, insight=insight, enabled=False, access_token="xyz"  # DISABLED!
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
+        )
+
+        self.assertEqual(response.status_code, 403, response.json())
+        self.assertEqual(
+            response.json(), self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed")
+        )
+
+    def test_logged_out_user_can_retrieve_insight_with_correct_dashboard_sharing_access_token(self) -> None:
+        self.client.logout()
+        _create_person(
+            team=self.team,
+            distinct_ids=["person1"],
+            properties={"email": "person1@test.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person1",
+            timestamp=timezone.now() - timedelta(days=5),
+        )
+        insight = Insight.objects.create(
+            name="Foobar",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="Test dashboard")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, insight=insight, enabled=True, access_token="xyz"
+        )
+
+        response_incorrect_token = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token=abc",
+        )
+        response_correct_token = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
+        )
+
+        self.assertEqual(response_incorrect_token.status_code, 403, response_incorrect_token.json())
+        self.assertEqual(
+            response_incorrect_token.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
+        )
+        self.assertEqual(response_correct_token.status_code, 200, response_correct_token.json())
+        self.assertDictContainsSubset({"name": "Foobar"}, response_correct_token.json())
 
     def test_insight_trends_csv(self) -> None:
         with freeze_time("2012-01-14T03:21:34.000Z"):

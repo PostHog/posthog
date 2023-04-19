@@ -12,7 +12,7 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
-from rest_framework import request, serializers, status, viewsets
+from rest_framework import request, serializers, status, viewsets, authentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.parsers import JSONParser
@@ -36,6 +36,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
+from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_insight_result, synchronously_update_cache
 from posthog.caching.insights_api import should_refresh_insight
 from posthog.client import sync_execute
@@ -68,7 +69,11 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed
 from posthog.models.utils import UUIDT
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    HasValidSharingAccessToken,
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths.paths import Paths
@@ -519,6 +524,12 @@ class InsightViewSet(
         ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
     ]
+    authentication_classes = [
+        SharingAccessTokenAuthentication,
+        PersonalAPIKeyAuthentication,
+        authentication.BasicAuthentication,
+        authentication.SessionAuthentication,
+    ]
     throttle_classes = [
         ClickHouseBurstRateThrottle,
         ClickHouseSustainedRateThrottle,
@@ -535,12 +546,21 @@ class InsightViewSet(
     parser_classes = (QuerySchemaParser,)
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
-
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0")
         ):
             return InsightBasicSerializer
         return super().get_serializer_class()
+
+    def get_serializer_context(self) -> Dict[str, Any]:
+        context = super().get_serializer_context()
+        context["is_shared"] = bool(self.request.GET["sharing_access_token"])
+        return context
+
+    def get_permissions(self):
+        if self.action == "retrieve" and self.request.query_params.get("sharing_access_token"):
+            return [HasValidSharingAccessToken()]
+        return super().get_permissions()
 
     def get_queryset(self) -> QuerySet:
         if (
