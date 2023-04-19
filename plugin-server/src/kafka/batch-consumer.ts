@@ -63,6 +63,9 @@ export const startBatchConsumer = async ({
         'fetch.message.max.bytes': consumerMaxBytes,
         'fetch.wait.max.ms': consumerMaxWaitMs,
         'enable.partition.eof': true,
+        'queued.min.messages': 100000, // 100000 is the default
+        'queued.max.messages.kbytes': 1048576, // 1048576 is the default
+        rebalance_cb: true,
         offset_commit_cb: true,
     })
 
