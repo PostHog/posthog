@@ -29,10 +29,11 @@ export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBudd
             type="secondary"
             size="small"
             onClick={onClick}
+            active={accessories.includes(accessory)}
             tooltip={
                 <>
                     {capitalizeFirstLetter(accessoryKey)}
-                    {isUnlocked ? '' : ' (not available)'}
+                    {isUnlocked ? '' : ' (not available - can be unlocked by trying different things in PostHog...)'}
                 </>
             }
         >
