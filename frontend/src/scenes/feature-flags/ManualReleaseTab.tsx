@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import { FeatureFlagGroupType, FeatureFlagType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 import { Persons } from 'scenes/persons/Persons'
-import { IconDelete, IconPlus } from 'lib/lemon-ui/icons'
+import { IconDelete, IconHelpOutline, IconPlus } from 'lib/lemon-ui/icons'
 import { useEffect, useState } from 'react'
 import { LabelInValue, LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple'
 import { useDebouncedCallback } from 'use-debounce'
@@ -105,6 +105,9 @@ function PersonList({ featureFlag, toggleModal, localPersons = [] }: PersonListP
                     },
                 ]}
                 extraSceneActions={[
+                    <LemonButton key="help-button" onClick={() => {}} sideIcon={<IconHelpOutline />}>
+                        Implement public opt-in
+                    </LemonButton>,
                     <LemonButton
                         key={'$feature_enrollment/' + featureFlag.key}
                         type="primary"
