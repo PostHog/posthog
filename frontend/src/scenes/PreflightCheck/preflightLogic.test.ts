@@ -130,7 +130,8 @@ describe('preflightLogic', () => {
                         {
                             id: 'celery',
                             name: 'Background jobs · Celery',
-                            status: 'error',
+                            status: 'warning',
+                            caption: 'Required in production environments',
                         },
                         {
                             id: 'plugins',
@@ -179,8 +180,8 @@ describe('preflightLogic', () => {
                 .toDispatchActions(['loadPreflightSuccess'])
                 .toMatchValues({
                     checksSummary: {
-                        summaryString: '7 successful, 1 warning, 1 error, 1 optional',
-                        summaryStatus: 'error',
+                        summaryString: '7 successful, 2 warnings, 1 optional',
+                        summaryStatus: 'warning',
                     },
                 })
         })
