@@ -19,7 +19,7 @@ export const ensureTopicExists = async (adminClient: IAdminClient, topic: string
                     reject(error)
                 }
             } else {
-                status.info('🔁', 'Created topic')
+                status.info('🔁', 'Created topic', { topic })
                 resolve(adminClient)
             }
         })
