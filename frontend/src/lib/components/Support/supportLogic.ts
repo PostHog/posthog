@@ -17,7 +17,7 @@ function getSessionReplayLink(): string {
         0
     )
     const link = `https://app.posthog.com/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
-    return `\nSession replay: ${link}`
+    return `[Session replay](${link})`
 }
 
 function getDjangoAdminLink(user: UserType | null): string {
@@ -25,8 +25,7 @@ function getDjangoAdminLink(user: UserType | null): string {
         return ''
     }
     const link = `${window.location.origin}/admin/posthog/user/?q=${user.email}`
-    console.log(`\nAdmin link: ${link} (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`)
-    return `\nAdmin link: ${link} (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`
+    return `[Admin](${link}) (Organization: '${user.organization?.name}'; Project: '${user.team?.name}')`
 }
 
 export const TARGET_AREA_TO_NAME = {
@@ -136,18 +135,21 @@ export const supportLogic = kea<supportLogicType>([
             const email = userLogic.values.user?.email
 
             const zendesk_ticket_uuid = uuid()
+            const subject = (kind == 'bug' ? 'Bug Report: ' : 'Feedback: ') + TargetAreaToName[target_area]
             const payload = {
                 request: {
                     requester: { name: name, email: email },
-                    subject: 'Help in-app',
+                    subject: subject,
                     comment: {
                         body:
                             message +
                             `\n\n-----` +
                             `\nKind: ${kind}` +
                             `\nTarget area: ${target_area}` +
-                            `\nInternal link: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
+                            `\nInternal links: [Event](http://go/ticketByUUID/${zendesk_ticket_uuid})` +
+                            ' | ' +
                             getSessionReplayLink() +
+                            ' | ' +
                             getDjangoAdminLink(userLogic.values.user),
                     },
                 },
