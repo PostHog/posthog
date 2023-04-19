@@ -1,4 +1,12 @@
 /**
+ * This will redirect the user to the correct subdomain if they're logged in to a different instance.
+ *
+ * It will only work for app. and eu. subdomains and other subdomains will need to be added manually
+ *
+ * There's an e2e test for this.
+ *
+ * ## Local testing
+ *
  * To test this locally, you can edit your /etc/hosts to add a subdomain redirect
  *
  * Add the following line to your host file:
@@ -9,29 +17,26 @@
  * document.cookie = "is-logged-in=1";
  *
  * Then go to http://app.posthogtest.com:8000/login?next=/apps
- * And you'll be redirected to http://eu.posthogtest.com:8000/apps
+ * And it will update the subdomain, taking you to the following link
+ * http://eu.posthogtest.com:8000/login?next=/apps
  */
 
 import { lemonToast } from '@posthog/lemon-ui'
 import { getCookie } from 'lib/api'
 
+// cookie values
 const PH_CURRENT_INSTANCE = 'ph_current_instance'
-
 const IS_LOGGED_IN = 'is-logged-in'
 
 const REDIRECT_TIMEOUT = 3000
 
-const EU_SUBDOMAIN = 'eu'
-const US_SUBDOMAIN = 'app'
-
-const NEXT_URL_PARAM = 'next'
+const SUBDOMAIN_TO_NAME = {
+    eu: 'EU cloud',
+    app: 'US cloud',
+}
 
 export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
-    debugger
-    const urlParams = new URLSearchParams(window.location.search)
-    if (!urlParams.get(NEXT_URL_PARAM) || urlParams.get(NEXT_URL_PARAM) == '/') {
-        return // no next param, so return early
-    }
+    console.log('current url', window.location.href)
 
     const currentSubdomain = window.location.hostname.split('.')[0]
 
@@ -39,9 +44,9 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
     console.log('current cookie', currentCookie)
 
     const loggedInSubdomain = getCookie(PH_CURRENT_INSTANCE)
-        ?.split('.')[0]
-        ?.replace('https://', '')
         ?.replace('http://', '')
+        ?.replace('https://', '')
+        .split('.')[0]
 
     // when they are logged out, ph_instance is not removed.
     // therefore, use is-logged-in cookie to determine if they are logged in
@@ -53,28 +58,21 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
         return // not logged into another subdomain
     }
 
-    if (loggedInSubdomain !== US_SUBDOMAIN && loggedInSubdomain !== EU_SUBDOMAIN) {
-        return // don't redirect to invalid subdomains
+    if (!SUBDOMAIN_TO_NAME[loggedInSubdomain]) {
+        return // not logged into a valid subdomain
     }
 
     const loggedIntoOtherSubdomain = loggedInSubdomain !== currentSubdomain
 
     if (loggedIntoOtherSubdomain) {
         const newUrl = new URL(window.location.href)
+        newUrl.hostname = newUrl.hostname.replace(currentSubdomain, loggedInSubdomain)
 
-        if (newUrl.hostname.split('.').length > 1) {
-            console.log('redirecting to', newUrl.hostname.replace(currentSubdomain, loggedInSubdomain))
-            newUrl.hostname = newUrl.hostname.replace(currentSubdomain, loggedInSubdomain)
-        } else {
-            // if there is no subdomain, add one (useful for the cypress tests)
-            console.log('redirecting to base url', loggedInSubdomain + '.' + newUrl.hostname)
-            newUrl.hostname = loggedInSubdomain + '.' + newUrl.hostname + newUrl.port ? ':' + newUrl.port : ''
-        }
         const redirectTimeout = setTimeout(() => {
             window.location.assign(newUrl)
         }, REDIRECT_TIMEOUT)
 
-        lemonToast.info('Redirecting to ' + (loggedInSubdomain == US_SUBDOMAIN ? 'the US cloud' : 'the EU cloud'), {
+        lemonToast.info('Redirecting to your logged in account on the ' + SUBDOMAIN_TO_NAME[loggedInSubdomain], {
             button: {
                 label: 'Cancel',
                 action: () => {

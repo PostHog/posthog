@@ -143,55 +143,35 @@
 //     })
 // })
 
-const subdomain = 'app'
-
 describe('Redirect to logged in instance', () => {
     beforeEach(() => {
+        cy.clearAllCookies()
+    })
+    it('Redirects to the EU instance', () => {
         cy.visit('/logout')
 
-        const baseUrl = Cypress.config().baseUrl
-
-        cy.intercept('http://app.posthogtesting.com/**', (req) => {
-            req.url = req.url.replace('http://app.posthogtesting.com', baseUrl)
-        })
-
-        cy.intercept('http://eu.posthogtesting.com/**', (req) => {
-            req.url = req.url.replace('http://eu.posthogtesting.com', baseUrl)
-        })
-
-        cy.intercept(`http://app.localhost:8000/**`, (req) => {
-            req.url = req.url.replace('http://app.localhost:8000', baseUrl)
-        })
-    })
-
-    it('Redirects to logged in instance', () => {
-        // visit the url and mock the document.cookie
         const redirect_path = '/test'
+
         cy.visit(`/login?next=${redirect_path}`)
-        cy.setCookie('ph_current_instance', `${subdomain}.posthog.com`)
+
+        cy.setCookie('ph_current_instance', `eu.posthog.com`)
         cy.setCookie('is-logged-in', '1')
         cy.reload()
 
-        // check the url subdomain starts with app
-        cy.location('hostname').should('include', `${subdomain}.`)
-        // check the url path is correct
-        cy.location('pathname').should('eq', redirect_path)
+        cy.get('[data-attr=info-toast]').should('contain', 'EU cloud')
+    })
 
-        // cy.setCookie('is-logged-in', '1')
+    it('Redirects to the US instance', () => {
+        cy.visit('/logout')
 
-        // cy.getCookie('ph_current_instance').should('have.property', 'value', 'eu.posthog.com')
+        const redirect_path = '/test'
 
-        // cy.reload()
+        cy.visit(`/login?next=${redirect_path}`)
 
-        // cy.visit('/logout')
-        // cy.route('GET', 'https://app.posthog.com/').as('app')
-        // cy.visit('/login')
+        cy.setCookie('ph_current_instance', `app.posthog.com`)
+        cy.setCookie('is-logged-in', '1')
+        cy.reload()
 
-        // // Mock the cookies
-        // cy.setCookie('ph_current_instance', 'eu.posthog.com')
-        // cy.setCookie('is-logged-in', '1')
-        // cy.visit('/login?next=/test')
-
-        // cy.wait(5000)
+        cy.get('[data-attr=info-toast]').should('contain', 'US cloud')
     })
 })
