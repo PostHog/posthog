@@ -110,7 +110,7 @@ if JOB_QUEUE_GRAPHILE_URL:
 # Models using this will likely see better query latency, and better performance.
 # Immediately reading after writing may not return consistent data if done in <100ms
 # Please edit the below and add your models
-READ_REPLICA_OPT_IN = []
+READ_REPLICA_OPT_IN: list = []
 
 
 # Clickhouse Settings
