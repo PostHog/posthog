@@ -55,7 +55,7 @@ def run_events_query(
         # Instead, ask for a tuple with all the columns we want. Later transform this back into a dict.
         if col == "*":
             select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})")
-        elif col == "person":
+        elif col.split("--")[0].strip() == "person":
             # This will be expanded into a followup query
             select_input.append("distinct_id")
         else:
