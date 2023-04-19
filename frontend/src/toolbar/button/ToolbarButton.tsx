@@ -143,12 +143,12 @@ export function ToolbarButton(): JSX.Element {
                 extensionPercentage={extensionPercentage}
                 distance={hedgehogModeDistance}
                 rotation={hedgehogModeRotation}
-                content={<Close style={{ width: 14, height: 14 }} />}
+                content={<span style={{ width: 14, height: 14 }}>🦔</span>}
                 zIndex={extensionPercentage > 0.95 ? 5 : 2}
                 onClick={() => setHedgehogMode(!hedgehogMode)}
                 style={{
                     cursor: 'pointer',
-                    background: '#393939',
+                    background: '#FFF',
                     borderRadius: 6,
                     color: 'white',
                     transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
