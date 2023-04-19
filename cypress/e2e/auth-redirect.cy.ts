@@ -18,7 +18,7 @@ describe('Redirect to other subdomain if logged in', () => {
         // goes to http://eu.localhost:8000/login?next=/test
         // the login page then handles the redirection to /test
 
-        // TODO: ideally the redirect with cypress, but couldn't find a way to do this in a reasonable amount of time
+        // ideally the redirect with cypress, but couldn't find a way to do this in a reasonable amount of time
     })
 
     it('Redirects to the US instance', () => {
@@ -37,6 +37,6 @@ describe('Redirect to other subdomain if logged in', () => {
         // goes to http://eu.localhost:8000/login?next=/test
         // the login page then handles the redirection to /test
 
-        // TODO: ideally the redirect with cypress, but couldn't find a way to do this in a reasonable amount of time
+        // ideally the redirect with cypress, but couldn't find a way to do this in a reasonable amount of time
     })
 })
