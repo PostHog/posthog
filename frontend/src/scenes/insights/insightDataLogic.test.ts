@@ -54,6 +54,7 @@ describe('insightDataLogic', () => {
                     query: q,
                 })
         })
+
         it('sets query when filters is present and override is set', async () => {
             const q = examples.InsightTrendsQuery as TrendsQuery
 
@@ -104,6 +105,7 @@ describe('insightDataLogic', () => {
                                     custom_name: 'Views',
                                     event: '$pageview',
                                     kind: 'EventsNode',
+                                    math: 'total',
                                     name: '$pageview',
                                     properties: [
                                         {

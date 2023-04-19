@@ -124,7 +124,6 @@ export const FEATURE_FLAGS = {
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     HOG_BOOK: 'hog-book', // owner: @pauldambra
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
-    FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
     EXPOSURES_ON_FEATURE_FLAGS: 'exposures-on-feature-flags', // owner: @EDsCODE
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE

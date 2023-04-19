@@ -74,6 +74,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         JOB_QUEUE_GRAPHILE_URL: '',
         JOB_QUEUE_GRAPHILE_SCHEMA: 'graphile_worker',
         JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: false,
+        JOB_QUEUE_GRAPHILE_CONCURRENCY: 1,
         JOB_QUEUE_S3_AWS_ACCESS_KEY: '',
         JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: '',
         JOB_QUEUE_S3_AWS_REGION: 'us-west-1',
