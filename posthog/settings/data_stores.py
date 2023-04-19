@@ -104,6 +104,13 @@ if read_host:
 if JOB_QUEUE_GRAPHILE_URL:
     DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
 
+
+# Opt-in to using the read replica
+# Models using this will likely see better query latency, and better performance.
+# Immediately reading after writing may not return consistent data if done in <100ms
+# Please edit the below and add your models
+READ_REPLICA_OPT_IN = []
+
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB = "posthog_test"
 
