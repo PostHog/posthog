@@ -80,7 +80,19 @@ export function LemonSelectMultiple({
                 onFocus={onFocus}
                 onBlur={onBlur}
                 showAction={['focus']}
-                onChange={(v) => onChange?.(v)}
+                onChange={(v) => {
+                    if (onChange) {
+                        if (labelInValue) {
+                            const typedValues = v as LabelInValue[]
+                            const typedOnChange = onChange as (newValue: LabelInValue[]) => void
+                            typedOnChange(typedValues)
+                        } else {
+                            const typedValues = v as string[]
+                            const typedOnChange = onChange as (newValue: string[]) => void
+                            typedOnChange(typedValues)
+                        }
+                    }
+                }}
                 tokenSeparators={[',']}
                 value={value ? value : []}
                 dropdownRender={(menu) => <div className="LemonSelectMultipleDropdown">{menu}</div>}
