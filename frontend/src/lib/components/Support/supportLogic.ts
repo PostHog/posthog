@@ -6,6 +6,7 @@ import { forms } from 'kea-forms'
 import { UserType } from '~/types'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function getSessionReplayLink(): string {
     const LOOK_BACK = 30
@@ -70,6 +71,7 @@ export const supportLogic = kea<supportLogicType>([
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
         values: [userLogic, ['user']],
+        actions: [eventUsageLogic, ['reportSupportFormSubmitted']],
     })),
     actions(() => ({
         closeSupportForm: () => true,
@@ -163,7 +165,6 @@ export const supportLogic = kea<supportLogicType>([
             })
         },
         openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
-            console.log(`in open support form ${email}`)
             actions.resetSendSupportLoggedOutRequest({
                 name: name ? name : '',
                 email: email ? email : '',
@@ -206,7 +207,7 @@ export const supportLogic = kea<supportLogicType>([
                         zendesk_ticket_id,
                         zendesk_ticket_link: `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`,
                     }
-                    posthog.capture('support_ticket', properties)
+                    actions.reportSupportFormSubmitted(properties)
                 })
                 .catch((err) => {
                     console.log(err)
