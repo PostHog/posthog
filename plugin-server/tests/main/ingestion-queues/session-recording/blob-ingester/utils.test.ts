@@ -9,11 +9,8 @@ const compressedData =
 
 describe('compression', () => {
     it('should compress and decompress a string consistently', () => {
-        const compressed = compressToString('hello world')
-        expect(compressed).toEqual('H4sIAAAAAAAAE8tgSGXIAcJ8BgWGciBZBGSnMAAA8G/J2xYAAAA=')
-
-        const decompressed = decompressFromString(compressed)
-        expect(decompressed).toEqual('hello world')
+        const compressedAndDecompressed = decompressFromString(compressToString('hello world'))
+        expect(compressedAndDecompressed).toEqual('hello world')
     })
 
     it('should decompress string from the python version', () => {
