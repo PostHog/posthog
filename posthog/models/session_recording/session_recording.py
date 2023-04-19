@@ -168,12 +168,12 @@ class SessionRecording(UUIDModel):
 
     def build_object_storage_path(self) -> str:
         path_parts: List[str] = [
-            settings.OBJECT_STORAGE_SESSION_RECORDING_FOLDER,
+            settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER,
             f"team-{self.team_id}",
             f"session-{self.session_id}",
         ]
 
-        return f'/{"/".join(path_parts)}'
+        return f'{"/".join(path_parts)}'
 
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
