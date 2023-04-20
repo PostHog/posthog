@@ -69,9 +69,7 @@ class TestDatabase(BaseTest):
             custom_field_1: BaseModel = SQLExprField(sql="'hello world'")
             custom_field_2: BaseModel = SQLExprField(expr=ast.Call(name="upper", args=[ast.Field(chain=["event"])]))
             custom_field_3: BaseModel = SQLExprField(sql="1 + 2")
-            custom_field_4: BaseModel = SQLExprField(
-                sql="concat(properties.$browser, ' ', properties.$browser_version)"
-            )
+            custom_field_4: BaseModel = SQLExprField(sql="concat(events.event, ' ', properties.$browser_version)")
 
             def clickhouse_table(self):
                 return "events"
@@ -101,13 +99,13 @@ class TestDatabase(BaseTest):
             self.assertEqual(
                 results,
                 [
-                    ("random event", "hello world", "RANDOM EVENT", 3, "Chrome 92"),
+                    ("random event", "hello world", "RANDOM EVENT", 3, "random event 92"),
                 ],
             )
             self.assertEqual(
                 clickhouse_sql,
                 f"SELECT events.event, %(hogql_val_0)s AS custom_field_1, upper(events.event) AS custom_field_2, "
-                f"plus(1, 2) AS custom_field_3, concat(events.`mat_$browser`, %(hogql_val_1)s, "
+                f"plus(1, 2) AS custom_field_3, concat(events.event, %(hogql_val_1)s, "
                 f"replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_2)s), '^\"|\"$', '')) AS custom_field_4 "
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) "
                 f"ORDER BY upper(events.event) AS custom_field_2 ASC "
