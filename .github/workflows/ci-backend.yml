@@ -83,13 +83,13 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
+            # The first step is the only one that should always run. See the `django` job for details.
             - uses: actions/checkout@v3
               with:
                   fetch-depth: 1
                   path: 'current/'
 
             - name: Stop/Start stack with Docker Compose
-              # Make sure we only run on backend changes
               if: needs.changes.outputs.backend == 'true'
               run: |
                   cd current
@@ -179,6 +179,7 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
+            # The first step is the only one that should always run. See the `django` job for details.
             - uses: actions/checkout@v3
 
             - name: Stop/Start stack with Docker Compose
@@ -264,6 +265,9 @@ jobs:
                 group: [1, 2, 3, 4, 5]
 
         steps:
+            # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
+            # All the other ones should rely on `needs.changes.outputs.backend` directly or indirectly, so that they're
+            # effectively skipped if backend code is unchanged. See https://github.com/PostHog/posthog/pull/15174.
             - uses: actions/checkout@v3
               with:
                   fetch-depth: 1
@@ -322,7 +326,8 @@ jobs:
     cloud:
         needs: changes
         timeout-minutes: 30
-        if: github.repository == 'PostHog/posthog'
+        # This workflow may be skipped as a whole (as opposed to the other ones), as it's optional on forks anyway
+        if: github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true'
 
         name: Django tests – Cloud
         runs-on: ubuntu-latest
@@ -332,14 +337,12 @@ jobs:
                   curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
 
             - name: Checkout master
-              if: needs.changes.outputs.backend == 'true'
               uses: actions/checkout@v3
               with:
                   ref: 'master'
                   path: 'master/'
 
             - name: Link posthog-cloud at master
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   cp -r multi_tenancy master/
                   cp -r messaging master/
@@ -347,27 +350,23 @@ jobs:
                   cat requirements.txt >> master/requirements.txt
 
             - name: Stop/Start stack with Docker Compose
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   docker compose -f master/docker-compose.dev.yml down
                   docker compose -f master/docker-compose.dev.yml up -d
 
             - name: Set up Python
-              if: needs.changes.outputs.backend == 'true'
               uses: actions/setup-python@v4
               with:
                   python-version: 3.10.10
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: syphar/restore-virtualenv@v1
-              if: needs.changes.outputs.backend == 'true'
               id: cache-backend-tests
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit == 'false'
 
             - name: Install SAML (python3-saml) dependencies
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
@@ -379,24 +378,20 @@ jobs:
                   python -m pip install -r master/requirements.txt
 
             - name: Wait for Clickhouse & Kafka
-              if: needs.changes.outputs.backend == 'true'
               run: master/bin/check_kafka_clickhouse_up
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
             - name: Run migration on master branch
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   python master/manage.py migrate
 
             - name: Checkout current branch
-              if: needs.changes.outputs.backend == 'true'
               uses: actions/checkout@v3
               with:
                   path: 'current/'
 
             - name: Install requirements.txt dependencies with pip at current branch
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   cd current
                   python -m pip install --upgrade pip
@@ -404,7 +399,6 @@ jobs:
                   python -m pip install freezegun fakeredis pytest pytest-mock pytest-django syrupy
 
             - name: Link posthog-cloud at current branch
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   cp current/ee/conftest.py multi_tenancy/conftest.py
                   cp current/ee/conftest.py messaging/conftest.py
@@ -414,14 +408,12 @@ jobs:
                   cat requirements.txt >> current/requirements.txt
 
             - name: Check migrations
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   cd current
                   python manage.py makemigrations --check --dry-run
                   python manage.py migrate
 
             - name: Set up needed files
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   cd current
                   mkdir -p frontend/dist
@@ -431,7 +423,6 @@ jobs:
                   touch frontend/dist/exporter.html
 
             - name: Run cloud tests (posthog-cloud)
-              if: needs.changes.outputs.backend == 'true'
               run: |
                   source .env.template
                   cd current
@@ -441,6 +432,7 @@ jobs:
         name: Async migrations tests
         runs-on: ubuntu-latest
         steps:
+            # The first step is the only one that should always run. See the `django` job for details.
             - name: 'Checkout repo'
               uses: actions/checkout@v3
               with:
