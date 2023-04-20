@@ -8,7 +8,13 @@ from aiohttp import ClientSession
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.temporal.workflows.base import PostHogWorkflow
+from posthog.temporal.workflows.base import (
+    CreateExportRunInputs,
+    PostHogWorkflow,
+    UpdateExportRunStatusInputs,
+    create_export_run,
+    update_export_run_status,
+)
 
 INSERT_INTO_S3_QUERY_TEMPLATE = Template(
     """
@@ -79,7 +85,7 @@ def prepare_template_vars(inputs: S3InsertInputs):
 @activity.defn
 async def insert_into_s3_activity(inputs: S3InsertInputs):
     """Activity that runs a INSERT INTO query in ClickHouse targetting an S3 table function."""
-    activity.logger.info(f"Running S3 export batch {inputs.data_interval_start} - {inputs.data_interval_end}")
+    activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
     if inputs.table_name not in TABLE_PARTITION_KEYS:
         raise ValueError(f"Unsupported table {inputs.table_name}")
@@ -111,11 +117,11 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         if count is None or count == 0:
             activity.logger.info(
-                f"Nothing to export in batch {inputs.data_interval_start} - {inputs.data_interval_end}. Exiting."
+                "Nothing to export in batch %s - %s. Exiting.", inputs.data_interval_start, inputs.data_interval_end
             )
             return
 
-        activity.logger.info(f"Exporting {count} rows to S3")
+        activity.logger.info("Exporting %s rows to S3", count)
 
         template_vars = prepare_template_vars(inputs)
         s3_url = build_s3_url(inputs.bucket_name, inputs.region, inputs.key_template, **template_vars)
@@ -188,7 +194,7 @@ class S3ExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: S3ExportInputs):
         """Workflow implementation to export data to S3 bucket."""
-        workflow.logger.info(f"Starting S3 export")
+        workflow.logger.info("Starting S3 export")
 
         data_interval_end_str = inputs.data_interval_end or workflow.info.search_attributes.get(
             "TemporalScheduledStartTime"
@@ -196,6 +202,15 @@ class S3ExportWorkflow(PostHogWorkflow):
         data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
 
         data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
+
+        create_export_run_inputs = CreateExportRunInputs(
+            team_id=inputs.team_id,
+            data_interval_start=data_interval_start.isoformat(),
+            data_interval_end=data_interval_end.isoformat(),
+        )
+        run_id = await workflow.execute_activity(create_export_run, create_export_run_inputs)
+
+        update_inputs = UpdateExportRunStatusInputs(run_id=run_id, status="Completed")
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
@@ -210,11 +225,16 @@ class S3ExportWorkflow(PostHogWorkflow):
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
         )
-
-        await workflow.execute_activity(
-            insert_into_s3_activity,
-            insert_inputs,
-            start_to_close_timeout=dt.timedelta(seconds=60),
-            schedule_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=1),
-        )
+        try:
+            await workflow.execute_activity(
+                insert_into_s3_activity,
+                insert_inputs,
+                start_to_close_timeout=dt.timedelta(seconds=60),
+                schedule_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception as e:
+            workflow.logger.exception("S3 Export failed.", exc_info=e)
+            update_inputs.status = "Failed"
+        finally:
+            await workflow.execute_activity(update_export_run_status, update_inputs)

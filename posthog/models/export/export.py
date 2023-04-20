@@ -1,6 +1,6 @@
 import datetime as dt
 from dataclasses import asdict
-from typing import Any, Optional, Type
+from typing import Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -8,8 +8,6 @@ from temporalio.client import ScheduleCalendarSpec, ScheduleIntervalSpec, Schedu
 
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
-from posthog.temporal.workflows import S3ExportInputs, S3ExportWorkflow
-from posthog.temporal.workflows.base import PostHogWorkflow
 
 
 class ExportDestination(UUIDModel):
@@ -20,18 +18,12 @@ class ExportDestination(UUIDModel):
 
         S3 = "S3"
 
-    destinations_to_workflows = {
-        Destination.S3: (S3ExportWorkflow, S3ExportInputs),
-    }
     name: models.TextField = models.TextField()
     type: models.CharField = models.CharField(choices=Destination.choices, max_length=64)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     last_updated_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     config: models.JSONField = models.JSONField(default=dict, blank=True)
-
-    def get_temporal_workflow(self) -> tuple[Type[PostHogWorkflow], Any]:
-        return self.destinations_to_workflows[self.type]
 
 
 class ExportScheduleManager(models.Manager):
@@ -92,6 +84,7 @@ class ExportSchedule(UUIDModel):
     """The Schedule an Export will follow."""
 
     objects: ExportScheduleManager = ExportScheduleManager()
+
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     last_updated_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
@@ -121,6 +114,29 @@ class ExportSchedule(UUIDModel):
         )
 
 
+class ExportRunManager(models.Manager):
+    def create(self, team_id: int, schedule_name: str, data_interval_start: str, data_interval_end: str) -> "ExportRun":
+        schedule = ExportSchedule.objects.filter(team__pk=team_id, name=schedule_name)[0]
+        run = ExportRun(
+            schedule=schedule,
+            status=ExportRun.Status.RUNNING,
+            data_interval_start=dt.datetime.fromisoformat(data_interval_start),
+            data_interval_end=dt.datetime.fromisoformat(data_interval_end),
+        )
+        run.save()
+
+        return run
+
+    def update_status(self, run_id: str, status: str):
+        runs = ExportRun.objects.filter(run_id=run_id)
+        if not runs.exists():
+            raise ValueError(f"ExportRun with id {run_id} not found.")
+
+        run = runs[0]
+        run.status = status
+        run.save()
+
+
 class ExportRun(UUIDModel):
     """Model to represent an instance of an Export."""
 
@@ -138,10 +154,14 @@ class ExportRun(UUIDModel):
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
 
+    objects: ExportRunManager = ExportRunManager()
+
     schedule: models.ForeignKey = models.ForeignKey("ExportSchedule", on_delete=models.CASCADE)
     status: models.CharField = models.CharField(choices=Status.choices, max_length=64)
     opened_at: models.DateTimeField = models.DateTimeField(null=True)
     closed_at: models.DateTimeField = models.DateTimeField(null=True)
+    data_interval_start: models.DateTimeField = models.DateTimeField()
+    data_interval_end: models.DateTimeField = models.DateTimeField()
 
     def is_open(self) -> bool:
         """Check whether this Workflow is currently open."""
