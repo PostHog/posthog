@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
+from posthog.hogql.errors import HogQLException
 from posthog.models.utils import UUIDT
 from posthog.queries.insight import insight_sync_execute
 from django.test import override_settings
@@ -109,4 +110,36 @@ class TestDatabase(BaseTest):
                 f"FROM events WHERE equals(events.team_id, {self.team.pk}) "
                 f"ORDER BY upper(events.event) AS custom_field_2 ASC "
                 f"LIMIT 1",
+            )
+
+    def test_sql_expr_broken_field(self):
+        class EventsTable(Table):
+            event: StringDatabaseField = StringDatabaseField(name="event")
+            team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+            properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
+            custom_field_2: BaseModel = SQLExprField(sql="upper(eve")
+
+            def clickhouse_table(self):
+                return "events"
+
+            def hogql_table(self):
+                return "events"
+
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+            database = create_hogql_database(self.team.pk)
+            database.events = EventsTable()
+            clickhouse_context = HogQLContext(
+                database=database,
+                team_id=self.team.pk,
+                enable_select_queries=True,
+            )
+
+            with self.assertRaises(HogQLException) as e:
+                query = parse_select("select event, custom_field_2 from events order by custom_field_2 limit 1")
+                print_ast(query, context=clickhouse_context, dialect="clickhouse")
+
+            self.assertEqual(
+                str(e.exception),
+                "Error parsing SQL field \"upper(eve\": Syntax error at line 1, column 9: no viable alternative at input 'upper(eve'",
             )

@@ -115,7 +115,10 @@ class SQLExprField(BaseModel):
     def parse_expr(self):
         from posthog.hogql.parser import parse_expr
 
-        return parse_expr(self.sql)
+        try:
+            return parse_expr(self.sql)
+        except Exception as e:
+            raise HogQLException(f'Error parsing SQL field "{self.sql}": {e}')
 
 
 def select_from_persons_table(requested_fields: Dict[str, Any]):
@@ -292,6 +295,12 @@ class EventsTable(Table):
     distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
     elements_chain: StringDatabaseField = StringDatabaseField(name="elements_chain")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    custom_field_1: BaseModel = SQLExprField(sql="'hello world'")
+    custom_field_2: BaseModel = SQLExprField(sql="upper(event)")
+    custom_field_3: BaseModel = SQLExprField(sql="1 + 2")
+    custom_field_4: BaseModel = SQLExprField(
+        sql="concat(properties.$browser, ' ', toString(properties.$browser_version))"
+    )
 
     # lazy table that adds a join to the persons table
     pdi: LazyJoin = LazyJoin(
