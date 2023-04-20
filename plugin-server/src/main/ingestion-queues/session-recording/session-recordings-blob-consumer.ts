@@ -172,7 +172,7 @@ export class SessionRecordingBlobIngester {
     public async start(): Promise<void> {
         status.info('🔁', 'Starting session recordings blob consumer')
 
-        // Currently we can't reuse any files stored on disk so we opt to delete them all
+        // Currently we can't reuse any files stored on disk, so we opt to delete them all
 
         rmSync(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
         mkdirSync(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true })
@@ -201,31 +201,46 @@ export class SessionRecordingBlobIngester {
 
         this.offsetManager = new OffsetManager(this.batchConsumer.consumer)
 
-        this.batchConsumer.consumer.on('rebalance', (event) => {
-            /**
-             * This event is received when the consumer group _starts_ rebalancing.
-             * During the rebalance process, consumers within the group stop processing messages temporarily.
-             * They cannot receive or process events until the rebalance is completed
-             * and the new partition assignments have been made.
-             *
-             * Since that means session managers don't know they will still be assigned to a partition
-             * They must stop flushing sessions to S3 until the rebalance is complete.
-             */
-            status.debug('⚖️', 'Blob ingestion consumer rebalancing', { event })
-            this.sessions.forEach((session) => session.pauseFlushing())
-        })
+        // NOTE: Do we need to pause when the rebalancing starts??
+        // this.batchConsumer.consumer.on('rebalance', (event) => {
+        //     /**
+        //      * This event is received when the consumer group _starts_ rebalancing.
+        //      * During the rebalance process, consumers within the group stop processing messages temporarily.
+        //      * They cannot receive or process events until the rebalance is completed
+        //      * and the new partition assignments have been made.
+        //      *
+        //      * Since that means session managers don't know they will still be assigned to a partition
+        //      * They must stop flushing sessions to S3 until the rebalance is complete.
+        //      */
+        //     status.info('⚖️', 'Blob ingestion consumer rebalancing', { event })
+        //     this.sessions.forEach((session) => session.pauseFlushing())
+        // })
 
-        // TODO: This used to be group_join - subscribed is probably not right.
-        this.batchConsumer.consumer.on('subscribed', (event) => {
+        this.batchConsumer.consumer.on('rebalance', async (err, assignments) => {
             /**
              * group_join is received whenever a consumer has new partition assigments.
              * e.g. on start or rebalance complete.
              *
              * Since we may have paused flushing sessions on rebalance, we need to resume them here.
              */
-            status.debug('🏘️', 'Blob ingestion consumer joining group', { event })
+            status.info('🏘️', 'Blob ingestion consumer joining group')
             // TODO: this has to be paired with removing sessions for partitions no longer assigned to this consumer
-            this.sessions.forEach((session) => session.resumeFlushing())
+
+            if (err) {
+                status.error('⚠️', 'Blob ingestion consumer failed to join group', { err })
+                // TODO: What do we do here - fataly error out?
+                return
+            }
+
+            const partitions = assignments.map((assignment) => assignment.partition)
+
+            // TODO: Iterate over offsetmanager and remove all no longer tracked partitions
+
+            await Promise.all(
+                [...this.sessions.values()]
+                    .filter((session) => !partitions.includes(session.partition))
+                    .map((session) => session.destroy())
+            )
         })
 
         // Make sure to disconnect the producer after we've finished consuming.

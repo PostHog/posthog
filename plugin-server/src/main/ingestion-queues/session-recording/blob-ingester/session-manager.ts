@@ -34,7 +34,6 @@ export class SessionManager {
     chunks: Map<string, IncomingRecordingMessage[]> = new Map()
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
-    private flushingPaused = false
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -67,14 +66,6 @@ export class SessionManager {
         return this.buffer.count === 0 && this.chunks.size === 0
     }
 
-    public pauseFlushing() {
-        this.flushingPaused = true
-    }
-
-    public resumeFlushing() {
-        this.flushingPaused = false
-    }
-
     public async flushIfNeccessary(shouldLog = false): Promise<void> {
         const bufferSizeKb = this.buffer.size / 1024
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
@@ -87,18 +78,16 @@ export class SessionManager {
                     this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
                 }kb capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${this.buffer.count} ${Math.round(
                     bufferSizeKb
-                )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size}) flushingIsPaused: ${
-                    this.flushingPaused
-                }`
+                )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size})`
             )
         }
 
-        const shouldFlush =
+        const readyToFlush =
             gzippedCapacity > 1 ||
             Date.now() - this.buffer.createdAt.getTime() >=
                 this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
 
-        if (!this.flushingPaused && shouldFlush) {
+        if (readyToFlush) {
             status.info('🚽', `Flushing buffer ${this.sessionId}...`)
             await this.flush()
         }
@@ -111,11 +100,6 @@ export class SessionManager {
     public async flush(): Promise<void> {
         if (this.flushBuffer) {
             status.warn('⚠️', "Flush called but we're already flushing")
-            return
-        }
-
-        if (this.flushingPaused) {
-            status.warn('⚠️', 'Flush called but flushing is paused')
             return
         }
 
@@ -158,6 +142,7 @@ export class SessionManager {
             const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
 
+            status.debug('🚽', `Flushed buffer ${this.sessionId} (removing offsets: ${offsets})`)
             // TODO: Sync the last processed offset to redis
             this.onFinish(offsets)
         }
@@ -235,6 +220,8 @@ export class SessionManager {
 
     public destroy(): Promise<void> {
         // TODO: Should we delete the buffer files??
+        status.debug('␡', `Destroying session manager ${this.sessionId}`)
+        // TODO: We need to not just destroy the manager but also ensure all the tracked offsets are dropped
         this.onFinish([])
 
         return Promise.resolve()
