@@ -16,7 +16,7 @@ export function History(): JSX.Element {
             <ActivityLog
                 scope={ActivityScope.DATA_MANAGEMENT}
                 caption={
-                    'Only actions taken in the UI are captured in History. E.g. automatic creation of definitions by ingestion are not shown here'
+                    'Only actions taken in the UI are captured in History. Automatic creation of definitions by ingestion is not shown here.'
                 }
             />
         </div>
