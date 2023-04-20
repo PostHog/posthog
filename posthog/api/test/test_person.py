@@ -235,6 +235,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": str(person.uuid),
                         "short_id": None,
                     },
@@ -317,6 +318,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         ],
                         "name": str(person1.uuid),
                         "trigger": None,
+                        "type": None,
                         "short_id": None,
                     },
                     "created_at": "2021-08-25T22:09:14.252000Z",
@@ -515,6 +517,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": None,
                         "short_id": None,
                     },
