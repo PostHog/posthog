@@ -91,6 +91,7 @@ class Resolver(CloningVisitor):
         for expr in node.select or []:
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
+
                 self._expand_asterisk_columns(new_node, new_expr.type)
             else:
                 # not an asterisk
@@ -316,7 +317,6 @@ class Resolver(CloningVisitor):
                 # which is handled in visit_join_expr. Referring to it here means we want to access its value.
                 if macro.macro_format == "subquery":
                     return ast.Field(chain=node.chain)
-                #     type = ast.Field(chain=)
                 return self.visit(clone_expr(macro.expr))
 
         if not type:
