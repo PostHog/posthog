@@ -28,13 +28,14 @@ def get_list(text: str) -> List[str]:
         return []
     return [item.strip() for item in text.split(",")]
 
+
 def str_to_class(path: str) -> type:
     """Take a string like posthog.models.person.Person and turn it into a class
 
-        Django provides a super useful function to do this! get_model. However, it requires
-        that models are loaded. I'd like to load the class up-front, which happens before the
-        models are loaded. Otherwise, we'd need to do so _after_ the dbrouter is instantiated,
-        which isn't great.
+    Django provides a super useful function to do this! get_model. However, it requires
+    that models are loaded. I'd like to load the class up-front, which happens before the
+    models are loaded. Otherwise, we'd need to do so _after_ the dbrouter is instantiated,
+    which isn't great.
     """
 
     # We need to determine the module portion of the path, and the classname portion
