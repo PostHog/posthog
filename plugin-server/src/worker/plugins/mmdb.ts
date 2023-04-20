@@ -1,5 +1,6 @@
 import { Reader, ReaderModel } from '@maxmind/geoip2-node'
 import { DateTime } from 'luxon'
+import * as schedule from 'node-schedule'
 import prettyBytes from 'pretty-bytes'
 import { brotliDecompress } from 'zlib'
 
@@ -18,6 +19,13 @@ enum MMDBFileStatus {
     Idle = 'idle',
     Fetching = 'fetching',
     Unavailable = 'unavailable',
+}
+
+export async function setupMmdb(hub: Hub) {
+    if (!hub.DISABLE_MMDB && hub.capabilities.mmdb) {
+        hub.mmdb = (await prepareMmdb(hub)) ?? undefined
+        schedule.scheduleJob('0 */4 * * *', async () => await performMmdbStalenessCheck(hub))
+    }
 }
 
 /** Check if MMDB is being currently fetched by any other plugin server worker in the cluster. */
