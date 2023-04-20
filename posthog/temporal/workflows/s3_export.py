@@ -12,7 +12,7 @@ from posthog.temporal.workflows.base import PostHogWorkflow
 
 INSERT_INTO_S3_QUERY_TEMPLATE = Template(
     """
-    INSERT INTO FUNCTION s3({path}, $authentication {file_format})
+    INSERT INTO FUNCTION s3({path}, $auth {file_format})
     $partition_clause
     """
 )
@@ -44,7 +44,7 @@ class S3InsertInputs:
 
     bucket_name: str
     region: str
-    file_name_prefix: str
+    key_template: str
     team_id: int
     data_interval_start: str
     data_interval_end: str
@@ -55,14 +55,25 @@ class S3InsertInputs:
     aws_secret_access_key: str | None = None
 
 
-def build_s3_url(bucket: str, region: str, file_name_prefix: str, partition_key: str):
+def build_s3_url(bucket: str, region: str, key_template: str, **template_vars):
     """Form a S3 URL given input parameters.
 
     ClickHouse requires an S3 URL with http scheme.
     """
-    if partition_key:
-        file_name_prefix += "_{_partition_id}"
-    return f"https://s3.{region}.amazonaws.com/{bucket}/{file_name_prefix}"
+    if not template_vars:
+        key = key_template
+    else:
+        key = key_template.format(**template_vars)
+
+    return f"https://s3.{region}.amazonaws.com/{bucket}/{key}"
+
+
+def prepare_template_vars(inputs: S3InsertInputs):
+    return {
+        "partition_id": "{_partition_id}",
+        "table_name": inputs.table_name,
+        "file_format": inputs.file_format,
+    }
 
 
 @activity.defn
@@ -73,10 +84,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     if inputs.table_name not in TABLE_PARTITION_KEYS:
         raise ValueError(f"Unsupported table {inputs.table_name}")
 
-    if inputs.partition_key not in TABLE_PARTITION_KEYS[inputs.table_name]:
-        raise ValueError(f"Unsupported partition_key {inputs.partition_key}")
-
     if inputs.partition_key:
+        if inputs.partition_key not in TABLE_PARTITION_KEYS[inputs.table_name]:
+            raise ValueError(f"Unsupported partition_key {inputs.partition_key}")
         partition_clause = f"PARTITION BY {inputs.partition_key}"
     else:
         partition_clause = ""
@@ -86,10 +96,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     else:
         auth = ""
 
-    query_template = Template(INSERT_INTO_S3_QUERY_TEMPLATE.template + SELECT_QUERY_TEMPLATE.template)
-
-    activity.logger.debug(query_template.template)
-
     async with ClientSession() as s:
         client = ChClient(s)
 
@@ -97,8 +103,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             SELECT_QUERY_TEMPLATE.substitute(table_name=inputs.table_name, fields="count(*)"),
             params={
                 "team_id": inputs.team_id,
-                "data_interval_start": inputs.data_interval_start,
-                "data_interval_end": inputs.data_interval_end,
+                "data_interval_start": dt.datetime.fromisoformat(inputs.data_interval_start),
+                "data_interval_end": dt.datetime.fromisoformat(inputs.data_interval_end),
             },
         )
         count = count[0]
@@ -111,10 +117,15 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         activity.logger.info(f"Exporting {count} rows to S3")
 
-        s3_url = build_s3_url(inputs.bucket_name, inputs.region, inputs.file_name_prefix, inputs.partition_key)
+        template_vars = prepare_template_vars(inputs)
+        s3_url = build_s3_url(inputs.bucket_name, inputs.region, inputs.key_template, **template_vars)
+
+        query_template = Template(INSERT_INTO_S3_QUERY_TEMPLATE.template + SELECT_QUERY_TEMPLATE.template)
+
+        activity.logger.debug(query_template.template)
 
         await client.execute(
-            query_template.substitute(
+            query_template.safe_substitute(
                 table_name=inputs.table_name, fields="*", auth=auth, partition_clause=partition_clause
             ),
             params={
@@ -148,7 +159,7 @@ class S3ExportInputs:
 
     bucket_name: str
     region: str
-    file_name_prefix: str
+    key_template: str
     batch_window_size: int
     team_id: int
     table_name: str = "events"
@@ -189,7 +200,7 @@ class S3ExportWorkflow(PostHogWorkflow):
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
             region=inputs.region,
-            file_name_prefix=inputs.file_name_prefix,
+            key_template=inputs.key_template,
             partition_key=inputs.partition_key,
             table_name=inputs.table_name,
             team_id=inputs.team_id,

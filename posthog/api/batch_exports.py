@@ -58,6 +58,11 @@ class ExportDestinationSerializer(serializers.ModelSerializer):
 
 
 class ExportScheduleSerializer(serializers.ModelSerializer):
+    """Serializer for an ExportSchedule model.
+
+    This Serializer holds the responsibility of interacting with Temporal when required.
+    """
+
     destination = ExportDestinationSerializer()
 
     class Meta:
