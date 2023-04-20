@@ -110,15 +110,28 @@ class SQLExprField(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    sql: str
+    sql: Optional[str] = None
+    expr: Optional[BaseModel] = None  # no typing due to circular issues
 
-    def parse_expr(self):
+    def get_expr(self):
         from posthog.hogql.parser import parse_expr
+        from posthog.hogql.visitor import clone_expr
+        from posthog.hogql import ast
 
-        try:
-            return parse_expr(self.sql)
-        except Exception as e:
-            raise HogQLException(f'Error parsing SQL field "{self.sql}": {e}')
+        if self.sql and self.expr:
+            raise HogQLException("Cannot have both SQL and expr fields set.")
+
+        if self.sql:
+            try:
+                return parse_expr(self.sql)
+            except Exception as e:
+                raise HogQLException(f'Error parsing SQL field "{self.sql}": {e}')
+        elif self.expr:
+            if not isinstance(self.expr, ast.Expr):
+                raise HogQLException(f"expr field must be of type ast.Expr, not {type(self.expr).__name__}")
+            return clone_expr(self.expr)
+
+        raise HogQLException("SQLExprField must have either sql or expr field set.")
 
 
 def select_from_persons_table(requested_fields: Dict[str, Any]):

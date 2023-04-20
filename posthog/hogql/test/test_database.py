@@ -60,12 +60,14 @@ class TestDatabase(BaseTest):
             assert json.dumps(serialized_database, indent=4) == self.snapshot
 
     def test_sql_expr_fields(self):
+        from posthog.hogql import ast
+
         class EventsTable(Table):
             event: StringDatabaseField = StringDatabaseField(name="event")
             team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
             properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
             custom_field_1: BaseModel = SQLExprField(sql="'hello world'")
-            custom_field_2: BaseModel = SQLExprField(sql="upper(event)")
+            custom_field_2: BaseModel = SQLExprField(expr=ast.Call(name="upper", args=[ast.Field(chain=["event"])]))
             custom_field_3: BaseModel = SQLExprField(sql="1 + 2")
             custom_field_4: BaseModel = SQLExprField(
                 sql="concat(properties.$browser, ' ', properties.$browser_version)"
