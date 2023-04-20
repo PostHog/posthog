@@ -93,7 +93,7 @@ export class SessionManager {
                 this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
 
         if (shouldFlush) {
-            status.info(`Flushing buffer ${this.sessionId}...`)
+            status.info('🚽', `Flushing buffer ${this.sessionId}...`)
             await this.flush()
         }
     }
@@ -104,12 +104,12 @@ export class SessionManager {
      */
     public async flush(): Promise<void> {
         if (this.flushBuffer) {
-            status.warn("Flush called but we're already flushing")
+            status.warn('⚠️', "Flush called but we're already flushing")
             return
         }
 
         if (this.flushingPaused) {
-            status.warn('Flush called but flushing is paused')
+            status.warn('⚠️', 'Flush called but flushing is paused')
             return
         }
 
