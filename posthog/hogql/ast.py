@@ -59,7 +59,7 @@ class Expr(AST):
 class Macro(Expr):
     name: str
     expr: Expr
-    # Whether the macro is an inlined column "SELECT 1 AS a" or a subquery "SELECT a AS (SELECT 1)"
+    # Whether the macro is an inlined column "WITH 1 AS a" or a subquery "WITH a AS (SELECT 1)"
     macro_format: Literal["column", "subquery"]
 
 

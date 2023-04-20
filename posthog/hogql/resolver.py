@@ -40,18 +40,19 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ResolverException(f"Unsupported constant type: {type(constant)}")
 
 
-def resolve_types(node: ast.Expr, database: Database, stack: Optional[List[ast.SelectQuery]] = None) -> ast.Expr:
-    scopes = [node.type for node in stack] if stack else None
-    return Resolver(scopes=scopes, database=database).visit(node)
+def resolve_types(
+    node: ast.Expr, database: Database, select_queries: Optional[List[ast.SelectQuery]] = None
+) -> ast.Expr:
+    return Resolver(select_queries=select_queries, database=database).visit(node)
 
 
 class Resolver(CloningVisitor):
     """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all macros"""
 
-    def __init__(self, database: Database, scopes: Optional[List[ast.SelectQueryType]] = None):
+    def __init__(self, database: Database, select_queries: Optional[List[ast.SelectQuery | ast.Lambda]] = None):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
-        self.scopes: List[ast.SelectQueryType] = scopes or []
+        self.select_queries: List[ast.SelectQuery | ast.Lambda] = select_queries or []
         self.database = database
 
     def visit(self, node: ast.Expr) -> ast.Expr:
@@ -68,36 +69,99 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
+
         # This type keeps track of all joined tables and other field aliases that are in scope.
-        nodeType = ast.SelectQueryType()
+        node_type = ast.SelectQueryType(macros=node.macros or {})
+        new_node = ast.SelectQuery(
+            type=node_type,
+            macros=None,  # macros have been expanded, remove from "WITH" clause
+            select=[],
+        )
 
         # Each SELECT query is a new scope in field name resolution.
-        self.scopes.append(nodeType)
+        self.select_queries.append(new_node)
 
-        node = super().visit_select_query(node)
-        node.type = nodeType
+        # resolve the tables first
+        new_node.select_from = self.visit(node.select_from)
 
         # Visit all the SELECT 1,2,3 columns. Mark each for export in "columns" to make this work:
         # SELECT e.event, e.timestamp from (SELECT event, timestamp FROM events) AS e
         for expr in node.select or []:
-            if isinstance(expr.type, ast.FieldAliasType):
-                nodeType.columns[expr.type.alias] = expr.type
-            elif isinstance(expr.type, ast.FieldType):
-                nodeType.columns[expr.type.name] = expr.type
-            elif isinstance(expr, ast.Alias):
-                nodeType.columns[expr.alias] = expr.type
+            new_expr = self.visit(expr)
+            if isinstance(new_expr.type, ast.AsteriskType):
+                asterisk = new_expr.type
+                if isinstance(asterisk.table_type, ast.BaseTableType):
+                    table = asterisk.table_type.resolve_database_table()
+                    database_fields = table.get_asterisk()
+                    for key in database_fields.keys():
+                        type = ast.FieldType(name=key, table_type=asterisk.table_type)
+                        new_node.select.append(ast.Field(chain=[key], type=type))
+                        node_type.columns[key] = type
+                elif (
+                    isinstance(asterisk.table_type, ast.SelectUnionQueryType)
+                    or isinstance(asterisk.table_type, ast.SelectQueryType)
+                    or isinstance(asterisk.table_type, ast.SelectQueryAliasType)
+                ):
+                    select = asterisk.table_type
+                    while isinstance(select, ast.SelectQueryAliasType):
+                        select = select.select_query_type
+                    if isinstance(select, ast.SelectUnionQueryType):
+                        select = select.types[0]
+                    if isinstance(select, ast.SelectQueryType):
+                        for name in select.columns.keys():
+                            type = ast.FieldType(name=name, table_type=asterisk.table_type)
+                            new_node.select.append(ast.Field(chain=[name], type=type))
+                            node_type.columns[name] = type
+                    else:
+                        raise ResolverException("Can't expand asterisk (*) on subquery")
+                else:
+                    raise ResolverException(
+                        f"Can't expand asterisk (*) on a type of type {type(asterisk.table_type).__name__}"
+                    )
 
-        self.scopes.pop()
+            else:  # not an asterisk
+                if isinstance(new_expr.type, ast.FieldAliasType):
+                    node_type.columns[new_expr.type.alias] = new_expr.type
+                elif isinstance(new_expr.type, ast.FieldType):
+                    node_type.columns[new_expr.type.name] = new_expr.type
+                elif isinstance(new_expr, ast.Alias):
+                    node_type.columns[new_expr.alias] = new_expr.type
+                new_node.select.append(new_expr)
 
-        return node
+        # :TRICKY: Make sure to visit _all_ expr nodes. Otherwise, the printer may complain about unresolved types.
+        new_node.where = self.visit(node.where)
+        new_node.prewhere = self.visit(node.prewhere)
+        new_node.having = self.visit(node.having)
+        if node.group_by:
+            new_node.group_by = [self.visit(expr) for expr in node.group_by]
+        if node.order_by:
+            new_node.order_by = [self.visit(expr) for expr in node.order_by]
+        if node.limit_by:
+            new_node.limit_by = [self.visit(expr) for expr in node.limit_by]
+        new_node.limit = self.visit(node.limit)
+        new_node.limit_with_ties = node.limit_with_ties
+        new_node.offset = self.visit(node.offset)
+        new_node.distinct = node.distinct
+
+        self.select_queries.pop()
+
+        return new_node
 
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
 
-        if len(self.scopes) == 0:
+        if len(self.select_queries) == 0:
             raise ResolverException("Unexpected JoinExpr outside a SELECT query")
 
-        scope = self.scopes[-1]
+        scope = self.select_queries[-1].type
+
+        if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
+            table_name = node.table.chain[0]
+            macro = lookup_macro_by_name(self.select_queries, table_name)
+            if macro:
+                node = cast(ast.JoinExpr, clone_expr(node))
+                node.table = clone_expr(macro.expr)
+                node.alias = table_name
 
         if isinstance(node.table, ast.Field):
             table_name = node.table.chain[0]
@@ -113,21 +177,20 @@ class Resolver(CloningVisitor):
                     nodeTableType = ast.TableType(table=database_table)
 
                 if table_alias == table_name:
-                    nodeType = nodeTableType
+                    node_type = nodeTableType
                 else:
-                    nodeType = ast.TableAliasType(alias=table_alias, table_type=nodeTableType)
-                scope.tables[table_alias] = nodeType
+                    node_type = ast.TableAliasType(alias=table_alias, table_type=nodeTableType)
+                scope.tables[table_alias] = node_type
 
-                # :TRICKY: Make sure to visit _all_ expr nodes. Otherwise, the printer may complain about resolved types.
+                # :TRICKY: Make sure to visit _all_ expr nodes. Otherwise, the printer may complain about unresolved types.
                 node = cast(ast.JoinExpr, clone_expr(node))
-                node.type = nodeType
+                node.type = node_type
                 node.table = cast(ast.Field, clone_expr(node.table))
                 node.table.type = nodeTableType
                 node.next_join = self.visit(node.next_join)
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)
                 return node
-
             else:
                 raise ResolverException(f'Unknown table "{table_name}".')
 
@@ -157,10 +220,10 @@ class Resolver(CloningVisitor):
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""
-        if len(self.scopes) == 0:
+        if len(self.select_queries) == 0:
             raise ResolverException("Aliases are allowed only within SELECT queries")
 
-        scope = self.scopes[-1]
+        scope = self.select_queries[-1].type
         if node.alias in scope.aliases:
             raise ResolverException(f"Cannot redefine an alias with the name: {node.alias}")
         if node.alias == "":
@@ -193,16 +256,19 @@ class Resolver(CloningVisitor):
 
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
-        nodeType = ast.SelectQueryType()
+        node_type = ast.SelectQueryType()
         for arg in node.args:
-            nodeType.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
+            node_type.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
 
-        self.scopes.append(nodeType)
-        node = super().visit_lambda(node)
-        node.type = nodeType
-        self.scopes.pop()
+        new_node = cast(ast.Lambda, clone_expr(node))
+        new_node.type = node_type
+        self.select_queries.append(new_node)
 
-        return node
+        new_node.expr = self.visit(new_node.expr)
+
+        self.select_queries.pop()
+
+        return new_node
 
     def visit_field(self, node: ast.Field):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""
@@ -211,12 +277,12 @@ class Resolver(CloningVisitor):
 
         node = super().visit_field(node)
 
-        # Only look for fields in the last SELECT scope, instead of all previous scopes.
+        # Only look for fields in the last SELECT scope, instead of all previous select queries.
         # That's because ClickHouse does not support subqueries accessing "x.event". This is forbidden:
         # - "SELECT event, (select count() from events where event = x.event) as c FROM events x where event = '$pageview'",
         # But this is supported:
         # - "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t JOIN events e ON (e.event = t.event)",
-        scope = self.scopes[-1]
+        scope = self.select_queries[-1].type
 
         type: Optional[ast.Type] = None
         name = node.chain[0]
@@ -225,6 +291,7 @@ class Resolver(CloningVisitor):
         if len(node.chain) > 1 and name in scope.tables:
             type = scope.tables[name]
 
+        # If it's a wildcard
         if name == "*" and len(node.chain) == 1:
             table_count = len(scope.anonymous_tables) + len(scope.tables)
             if table_count == 0:
@@ -236,8 +303,20 @@ class Resolver(CloningVisitor):
             )
             type = ast.AsteriskType(table_type=table_type)
 
+        # Field in scope
         if not type:
             type = lookup_field_by_name(scope, name)
+
+        if not type:
+            macro = lookup_macro_by_name(self.select_queries, name)
+            if macro:
+                # SubQuery macros ("WITH a AS (SELECT 1)") can only be used in the "FROM table" part of a select query,
+                # which is handled in visit_join_expr. Referring to it here means we want to access its value.
+                if macro.macro_format == "subquery":
+                    return ast.Field(chain=node.chain)
+                #     type = ast.Field(chain=)
+                return self.visit(clone_expr(macro.expr))
+
         if not type:
             raise ResolverException(f"Unable to resolve field: {name}")
 
@@ -298,3 +377,10 @@ def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.
         elif len(tables_with_field) == 1:
             return tables_with_field[0].get_child(name)
         return None
+
+
+def lookup_macro_by_name(select_queries: List[ast.SelectQuery], name: str) -> Optional[ast.Macro]:
+    for select_query in reversed(select_queries):
+        if select_query.type and select_query.type.macros and name in select_query.type.macros:
+            return select_query.type.macros[name]
+    return None
