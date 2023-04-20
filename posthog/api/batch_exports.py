@@ -45,7 +45,7 @@ class ExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return workflow
 
 
-class ExportDestionationSerializer(serializers.ModelSerializer):
+class ExportDestinationSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExportDestination
         fields = [
@@ -58,7 +58,7 @@ class ExportDestionationSerializer(serializers.ModelSerializer):
 
 
 class ExportScheduleSerializer(serializers.ModelSerializer):
-    destination = ExportDestionationSerializer()
+    destination = ExportDestinationSerializer()
 
     class Meta:
         model = ExportSchedule
