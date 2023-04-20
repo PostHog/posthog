@@ -44,7 +44,7 @@ export function Dashboards(): JSX.Element {
     }, [])
 
     return (
-        <div className="posthog-3000 flex">
+        <div className="flex">
             <Sidebar />
         </div>
     )
@@ -62,7 +62,7 @@ export function FeatureFlags(): JSX.Element {
     }, [])
 
     return (
-        <div className="posthog-3000 flex">
+        <div className="flex">
             <Sidebar />
         </div>
     )
