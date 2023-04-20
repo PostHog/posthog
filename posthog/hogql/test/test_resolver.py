@@ -6,7 +6,14 @@ from pydantic import BaseModel
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import create_hogql_database, Table, StringDatabaseField, IntegerDatabaseField, SQLExprField
+from posthog.hogql.database import (
+    create_hogql_database,
+    Table,
+    StringDatabaseField,
+    IntegerDatabaseField,
+    SQLExprField,
+    StringJSONDatabaseField,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.resolver import ResolverException, resolve_types
@@ -898,6 +905,7 @@ class TestResolver(BaseTest):
         class EventsTable(Table):
             event: StringDatabaseField = StringDatabaseField(name="event")
             team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+            properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
             custom_field_1: BaseModel = SQLExprField(sql="'hello world'")
             custom_field_2: BaseModel = SQLExprField(sql="upper(event)")
             custom_field_3: BaseModel = SQLExprField(sql="1 + 2")
@@ -907,7 +915,7 @@ class TestResolver(BaseTest):
 
         database = create_hogql_database(self.team.pk)
         database.events = EventsTable()
-        expr = parse_select("select event, custom_field_1, custom_field_2, custom_field_3 from events")
+        expr = parse_select("select event, custom_field_1, custom_field_2, custom_field_3, custom_field_4 from events")
         expr = resolve_types(expr, database)
         expected = ast.SelectQuery(
             select=[
@@ -945,6 +953,46 @@ class TestResolver(BaseTest):
                     ),
                     type=ast.FieldAliasType(alias="custom_field_3", type=ast.UnknownType()),
                 ),
+                ast.Alias(
+                    alias="custom_field_4",
+                    expr=ast.Call(
+                        name="concat",
+                        args=[
+                            ast.Field(
+                                chain=["properties", "$browser"],
+                                type=ast.PropertyType(
+                                    chain=["$browser"],
+                                    field_type=ast.FieldType(
+                                        name="properties", table_type=ast.TableType(table=database.events)
+                                    ),
+                                ),
+                            ),
+                            ast.Constant(value=" ", type=ast.StringType()),
+                            ast.Field(
+                                chain=["properties", "$browser_version"],
+                                type=ast.PropertyType(
+                                    chain=["$browser_version"],
+                                    field_type=ast.FieldType(
+                                        name="properties", table_type=ast.TableType(table=database.events)
+                                    ),
+                                ),
+                            ),
+                        ],
+                        type=ast.CallType(
+                            name="concat",
+                            arg_types=[ast.UnknownType(), ast.StringType(), ast.UnknownType()],
+                            return_type=ast.UnknownType(),
+                        ),
+                    ),
+                    type=ast.FieldAliasType(
+                        alias="custom_field_4",
+                        type=ast.CallType(
+                            name="concat",
+                            arg_types=[ast.UnknownType(), ast.StringType(), ast.UnknownType()],
+                            return_type=ast.UnknownType(),
+                        ),
+                    ),
+                ),
             ],
             select_from=ast.JoinExpr(
                 type=ast.TableType(table=database.events),
@@ -959,6 +1007,14 @@ class TestResolver(BaseTest):
                         type=ast.CallType(name="upper", arg_types=[ast.StringType()], return_type=ast.UnknownType()),
                     ),
                     "custom_field_3": ast.FieldAliasType(alias="custom_field_3", type=ast.UnknownType()),
+                    "custom_field_4": ast.FieldAliasType(
+                        alias="custom_field_4",
+                        type=ast.CallType(
+                            name="concat",
+                            arg_types=[ast.UnknownType(), ast.StringType(), ast.UnknownType()],
+                            return_type=ast.UnknownType(),
+                        ),
+                    ),
                 },
                 tables={"events": ast.TableType(table=database.events)},
             ),
