@@ -3,8 +3,8 @@ from typing import List, Optional, Any, cast
 from uuid import UUID
 
 from posthog.hogql import ast
-from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.database import Database
+from posthog.hogql.ast import FieldTraverserType, ConstantType, FieldType
+from posthog.hogql.database import Database, SQLExprField
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
@@ -275,8 +275,6 @@ class Resolver(CloningVisitor):
         if len(node.chain) == 0:
             raise ResolverException("Invalid field access with empty chain")
 
-        node = super().visit_field(node)
-
         # Only look for fields in the last SELECT scope, instead of all previous select queries.
         # That's because ClickHouse does not support subqueries accessing "x.event". This is forbidden:
         # - "SELECT event, (select count() from events where event = x.event) as c FROM events x where event = '$pageview'",
@@ -284,15 +282,20 @@ class Resolver(CloningVisitor):
         # - "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t JOIN events e ON (e.event = t.event)",
         scope = self.select_queries[-1].type
 
+        node = super().visit_field(node)
         type: Optional[ast.Type] = None
-        name = node.chain[0]
+        initial_chain = node.chain.copy()
+
+        # Remove first element from chain
+        remaining_chain = node.chain.copy()
+        name = remaining_chain.pop(0)
 
         # If the field contains at least two parts, the first might be a table.
-        if len(node.chain) > 1 and name in scope.tables:
+        if len(initial_chain) > 1 and name in scope.tables:
             type = scope.tables[name]
 
-        # If it's a wildcard
-        if name == "*" and len(node.chain) == 1:
+        # If it's a global wildcard
+        if len(initial_chain) == 1 and name == "*":
             table_count = len(scope.anonymous_tables) + len(scope.tables)
             if table_count == 0:
                 raise ResolverException("Cannot use '*' when there are no tables in the query")
@@ -313,28 +316,49 @@ class Resolver(CloningVisitor):
                 # SubQuery macros ("WITH a AS (SELECT 1)") can only be used in the "FROM table" part of a select query,
                 # which is handled in visit_join_expr. Referring to it here means we want to access its value.
                 if macro.macro_format == "subquery":
-                    return ast.Field(chain=node.chain)
-                #     type = ast.Field(chain=)
-                return self.visit(clone_expr(macro.expr))
+                    node = self.visit(ast.Field(chain=node.chain))
+                else:
+                    node = self.visit(clone_expr(macro.expr))
+                type = node.type or ast.UnknownType()
 
         if not type:
+            # Could not find any type for the first element in the chain. Bailing.
             raise ResolverException(f"Unable to resolve field: {name}")
 
-        # Recursively resolve the rest of the chain until we can point to the deepest node.
-        loop_type = type
-        chain_to_parse = node.chain[1:]
         while True:
-            if isinstance(loop_type, FieldTraverserType):
-                chain_to_parse = loop_type.chain + chain_to_parse
-                loop_type = loop_type.table_type
+            # Expand SQL fields
+            if isinstance(type, FieldType):
+                database_field = type.resolve_database_field()
+                # if we found a SQL expression field, expand it
+                if isinstance(database_field, SQLExprField):
+                    new_field = self.visit(database_field.parse_expr())
+
+                    type = ast.FieldAliasType(alias=name, type=new_field.type or ast.UnknownType())
+                    node = ast.Alias(type=type, expr=new_field, alias=name)
+
+            # Expand Field Traverser fields
+            if isinstance(type, FieldTraverserType):
+                remaining_chain = type.chain + remaining_chain
+                type = type.table_type
                 continue
-            if len(chain_to_parse) == 0:
+
+            if len(remaining_chain) == 0:
                 break
-            next_chain = chain_to_parse.pop(0)
-            loop_type = loop_type.get_child(next_chain)
-            if loop_type is None:
-                raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
-        node.type = loop_type
+
+            name = remaining_chain.pop(0)
+            type = type.get_child(name)
+
+            # TODO: if can't access child, convert to array access
+            # if len(remaining_chain) == 0:
+            #     return new_node
+            # for value in chain_to_parse:
+            #     new_node = ast.ArrayAccess(array=new_node, property=ast.Constant(value=value))
+            # return new_node
+
+            if type is None:
+                raise ResolverException(f"Cannot resolve type {'.'.join(initial_chain)}. Unable to resolve {name}.")
+
+        node.type = type
         return node
 
     def visit_constant(self, node: ast.Constant):

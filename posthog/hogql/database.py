@@ -69,6 +69,7 @@ class Table(BaseModel):
                 isinstance(database_field, Table)
                 or isinstance(database_field, LazyJoin)
                 or isinstance(database_field, FieldTraverser)
+                or isinstance(database_field, SQLExprField)
             ):
                 pass  # ignore virtual tables for now
             else:
@@ -103,6 +104,18 @@ class FieldTraverser(BaseModel):
         extra = Extra.forbid
 
     chain: List[str]
+
+
+class SQLExprField(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    sql: str
+
+    def parse_expr(self):
+        from posthog.hogql.parser import parse_expr
+
+        return parse_expr(self.sql)
 
 
 def select_from_persons_table(requested_fields: Dict[str, Any]):
@@ -468,6 +481,8 @@ def serialize_database(database: Database) -> dict:
                 )
             elif isinstance(field, FieldTraverser):
                 fields.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
+            elif isinstance(field, SQLExprField):
+                fields.append({"key": field_key, "type": "sql", "sql": field.sql})
         tables[table_key] = fields
 
     return tables

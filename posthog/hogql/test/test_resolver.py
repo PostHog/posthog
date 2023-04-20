@@ -2,10 +2,11 @@ from datetime import timezone, datetime, date
 from uuid import UUID
 
 from freezegun import freeze_time
+from pydantic import BaseModel
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import create_hogql_database
+from posthog.hogql.database import create_hogql_database, Table, StringDatabaseField, IntegerDatabaseField, SQLExprField
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.resolver import ResolverException, resolve_types
@@ -892,6 +893,77 @@ class TestResolver(BaseTest):
                 ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table_type=inner_select_type)),
             ],
         )
+
+    def test_sql_expr_fields(self):
+        class EventsTable(Table):
+            event: StringDatabaseField = StringDatabaseField(name="event")
+            team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+            custom_field_1: BaseModel = SQLExprField(sql="'hello world'")
+            custom_field_2: BaseModel = SQLExprField(sql="upper(event)")
+            custom_field_3: BaseModel = SQLExprField(sql="1 + 2")
+            custom_field_4: BaseModel = SQLExprField(
+                sql="concat(properties.$browser, ' ', properties.$browser_version)"
+            )
+
+        database = create_hogql_database(self.team.pk)
+        database.events = EventsTable()
+        expr = parse_select("select event, custom_field_1, custom_field_2, custom_field_3 from events")
+        expr = resolve_types(expr, database)
+        expected = ast.SelectQuery(
+            select=[
+                ast.Field(
+                    chain=["event"], type=ast.FieldType(name="event", table_type=ast.TableType(table=database.events))
+                ),
+                ast.Alias(
+                    alias="custom_field_1",
+                    expr=ast.Constant(value="hello world", type=ast.StringType()),
+                    type=ast.FieldAliasType(alias="custom_field_1", type=ast.StringType()),
+                ),
+                ast.Alias(
+                    alias="custom_field_2",
+                    expr=ast.Call(
+                        name="upper",
+                        args=[
+                            ast.Field(
+                                chain=["event"],
+                                type=ast.FieldType(name="event", table_type=ast.TableType(table=database.events)),
+                            )
+                        ],
+                        type=ast.CallType(name="upper", arg_types=[ast.StringType()], return_type=ast.UnknownType()),
+                    ),
+                    type=ast.FieldAliasType(
+                        alias="custom_field_2",
+                        type=ast.CallType(name="upper", arg_types=[ast.StringType()], return_type=ast.UnknownType()),
+                    ),
+                ),
+                ast.Alias(
+                    alias="custom_field_3",
+                    expr=ast.BinaryOperation(
+                        op=ast.BinaryOperationOp.Add,
+                        left=ast.Constant(value=1, type=ast.IntegerType()),
+                        right=ast.Constant(value=2, type=ast.IntegerType()),
+                    ),
+                    type=ast.FieldAliasType(alias="custom_field_3", type=ast.UnknownType()),
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                type=ast.TableType(table=database.events),
+                table=ast.Field(chain=["events"], type=ast.TableType(table=database.events)),
+            ),
+            type=ast.SelectQueryType(
+                columns={
+                    "event": ast.FieldType(name="event", table_type=ast.TableType(table=database.events)),
+                    "custom_field_1": ast.FieldAliasType(alias="custom_field_1", type=ast.StringType()),
+                    "custom_field_2": ast.FieldAliasType(
+                        alias="custom_field_2",
+                        type=ast.CallType(name="upper", arg_types=[ast.StringType()], return_type=ast.UnknownType()),
+                    ),
+                    "custom_field_3": ast.FieldAliasType(alias="custom_field_3", type=ast.UnknownType()),
+                },
+                tables={"events": ast.TableType(table=database.events)},
+            ),
+        )
+        self.assertEqual(expr, expected)
 
     def _print_hogql(self, select: str):
         expr = parse_select(select)
