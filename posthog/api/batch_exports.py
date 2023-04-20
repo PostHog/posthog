@@ -52,7 +52,7 @@ class ExportDestinationSerializer(serializers.ModelSerializer):
             "id",
             "type",
             "name",
-            "parameters",
+            "config",
         ]
         read_only_fields = ["id", "created_at", "last_updated_at"]
 
@@ -103,7 +103,7 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
             team=team,
             name=validated_data["name"],
             destination_type=destination_data.get("type", None),
-            destination_parameters=destination_data.get("parameters", None),
+            destination_config=destination_data.get("config", None),
             destination_name=destination_data.get("name", None),
         )
         schedule_spec = export_schedule.get_schedule_spec()
@@ -116,7 +116,7 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
             schedule=Schedule(
                 action=ScheduleActionStartWorkflow(
                     workflow.run,
-                    workflow_inputs(**destination.parameters, team_id=team.id),
+                    workflow_inputs(**destination.config, team_id=team.id),
                     id=f"{export_schedule.team.id}-{destination.type}-export",
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                 ),
