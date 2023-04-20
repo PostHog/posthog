@@ -21,6 +21,7 @@ interface PersonsTableType {
     loadNext?: () => void
     compact?: boolean
     extraColumns?: LemonTableColumns<PersonType>
+    emptyState?: JSX.Element
 }
 
 export function PersonsTable({
@@ -32,6 +33,7 @@ export function PersonsTable({
     loadNext,
     compact,
     extraColumns,
+    emptyState,
 }: PersonsTableType): JSX.Element {
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { loadPersons } = useActions(personsLogic)
@@ -122,7 +124,7 @@ export function PersonsTable({
                     },
                 }}
                 dataSource={people}
-                emptyState="No persons"
+                emptyState={emptyState ? emptyState : 'No persons'}
                 nouns={['person', 'persons']}
             />
             <PersonDeleteModal />

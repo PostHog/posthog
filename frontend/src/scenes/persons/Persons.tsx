@@ -21,6 +21,7 @@ interface PersonsProps {
     extraColumns?: LemonTableColumn<PersonType, keyof PersonType | undefined>[]
     showSearch?: boolean
     useParentLogic?: boolean
+    emptyState?: JSX.Element
 }
 
 export function Persons({
@@ -32,6 +33,7 @@ export function Persons({
     showExportAction,
     extraColumns,
     showSearch,
+    emptyState,
     useParentLogic = false,
 }: PersonsProps = {}): JSX.Element {
     if (useParentLogic) {
@@ -43,6 +45,7 @@ export function Persons({
                 showExportAction={showExportAction}
                 extraColumns={extraColumns}
                 showSearch={showSearch}
+                emptyState={emptyState}
             />
         )
     }
@@ -59,6 +62,7 @@ export function Persons({
                 showExportAction={showExportAction}
                 extraColumns={extraColumns}
                 showSearch={showSearch}
+                emptyState={emptyState}
             />
         </BindLogic>
     )
@@ -71,12 +75,14 @@ interface PersonsSceneProps {
     showExportAction?: boolean
     extraColumns?: LemonTableColumn<PersonType, keyof PersonType | undefined>[]
     showSearch?: boolean
+    emptyState?: JSX.Element
 }
 
 export function PersonsScene({
     extraSceneActions,
     compact,
     extraColumns,
+    emptyState,
     showFilters = true,
     showExportAction = true,
     showSearch = true,
@@ -88,9 +94,13 @@ export function PersonsScene({
         <div className="persons-list">
             <div className="space-y-2">
                 <div className="flex justify-between items-center gap-2">
-                    {showSearch && (
+                    {showSearch ? (
                         <Col>
                             <PersonsSearch />
+                        </Col>
+                    ) : (
+                        <Col>
+                            <div />
                         </Col>
                     )}
                     <Col className="flex flex-row gap-2">
@@ -135,6 +145,7 @@ export function PersonsScene({
                     />
                 )}
                 <PersonsTable
+                    emptyState={emptyState}
                     people={persons.results}
                     loading={personsLoading}
                     hasPrevious={!!persons.previous}

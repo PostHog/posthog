@@ -71,7 +71,7 @@ import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { tagsModel } from '~/models/tagsModel'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { ManualReleaseTab, hasManualReleaseCondition } from 'scenes/feature-flags/ManualReleaseTab'
+import { ManualReleaseTab } from 'scenes/feature-flags/ManualReleaseTab'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
@@ -80,6 +80,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import clsx from 'clsx'
+import { hasManualReleaseCondition } from './manualReleaseLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -538,8 +539,18 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
                                         </Tabs.TabPane>
                                     )}
-                                    {featureFlag.id && (
-                                        <Tabs.TabPane tab="Manual Release" key="manual-release">
+                                    {featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT] && featureFlag.id && (
+                                        <Tabs.TabPane
+                                            tab={
+                                                <div>
+                                                    Manual Release
+                                                    <LemonTag type="warning" className="uppercase ml-2">
+                                                        Beta
+                                                    </LemonTag>
+                                                </div>
+                                            }
+                                            key="manual-release"
+                                        >
                                             <ManualReleaseTab id={featureFlag.id} />
                                         </Tabs.TabPane>
                                     )}
