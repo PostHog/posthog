@@ -77,7 +77,7 @@ jobs:
 
     backend-code-quality:
         needs: changes
-        timeout-minutes: 5
+        timeout-minutes: 10
 
         name: Python code quality checks
         runs-on: ubuntu-latest
