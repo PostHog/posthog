@@ -92,6 +92,11 @@ export default {
             defaultValue: false,
         },
     },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: true,
+        },
+    },
 } as ComponentMeta<typeof CodeInstructions>
 
 export const CodeInstructionsOverview = (props: CodeInstructionsProps): JSX.Element => {
