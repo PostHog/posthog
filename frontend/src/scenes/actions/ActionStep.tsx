@@ -10,7 +10,7 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { useState } from 'react'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 const learnMoreLink = 'https://posthog.com/docs/user-guides/actions?utm_medium=in-product&utm_campaign=action-page'
 
@@ -160,7 +160,7 @@ function Option(props: {
                         placeholder={props.placeholder}
                     />
                     <div className={selectorPrompt ? 'visible' : 'hidden'}>
-                        <AlertMessage type="warning">{selectorPrompt}</AlertMessage>
+                        <LemonBanner type="warning">{selectorPrompt}</LemonBanner>
                     </div>
                 </>
             ) : (

@@ -22,5 +22,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(migrate, backwards),
+        migrations.RunPython(migrate, backwards, elidable=True),  # This table no longer exists
     ]

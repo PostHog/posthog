@@ -1,107 +1,296 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
+import { GroupType } from '~/types'
 
 export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 
-export function NodeJSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+export interface FeatureFlagSnippet {
+    flagKey: string
+    multivariant?: boolean
+    groupType?: GroupType
+    localEvaluation?: boolean
+    payload?: boolean
+}
+
+export function NodeJSSnippet({
+    flagKey,
+    groupType,
+    multivariant,
+    localEvaluation,
+    payload,
+}: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'await client.'
+    const flagFunction = payload ? 'getFeatureFlagPayload' : multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
+
+    const localEvalAddition = localEvaluation
+        ? groupType
+            ? `
+                // add group properties used in the flag to ensure the flag
+                // is evaluated locally, vs. going to our servers
+                groupProperties: { ${groupType.group_type}: {'created': true, 'name': 'xyz'}}`
+            : `
+                // add person properties used in the flag to ensure the flag
+                // is evaluated locally, vs. going to our servers
+                personProperties: {'is_authorized': true}`
+        : ''
+
+    const flagSnippet = groupType
+        ? `${clientSuffix}${flagFunction}(
+            '${flagKey}',
+            'user distinct id',
+            {
+                groups: { '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
+            }
+        )`
+        : localEvalAddition
+        ? `${clientSuffix}${flagFunction}(
+            '${flagKey}',
+            'user distinct id',
+            {${localEvalAddition}}
+            )`
+        : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
+
+    const variableName = payload ? 'matchedFlagPayload' : multivariant ? 'enabledVariant' : 'isMyFlagEnabledForUser'
+
+    const conditional = multivariant ? `${variableName} === 'example-variant'` : `${variableName}`
+
+    const followUpCode = payload
+        ? ''
+        : `
+
+if (${conditional}) {
+    // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
+}`
+
     return (
         <>
             <CodeSnippet language={Language.JavaScript} wrap>
-                {`const isMyFlagEnabledForUser = await client.isFeatureEnabled('${flagKey}', 'user distinct id')
-
-if (isMyFlagEnabledForUser) {
-    // Do something differently for this user
-}`}
+                {`const ${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
 }
 
-export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.JavaScript} wrap>
-                {`// Ensure flags are loaded before usage.
-// You'll only need to call this on the code for when the first time a user visits.
+export function PHPSnippet({ flagKey, groupType, multivariant, localEvaluation }: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'PostHog::'
 
-posthog.onFeatureFlags(function() {
-    // feature flags should be available at this point
-    if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
-        // do something
-    }
-})
+    const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
-// Otherwise, you can just do
+    const localEvalAddition = localEvaluation
+        ? groupType
+            ? `
+            // empty person properties
+            [],
+            // add group properties used in the flag to ensure the flag
+            // is evaluated locally, vs. going to our servers
+            [${groupType.group_type} =>  ['created' => true, 'name' => 'xyz']]`
+            : `
+            // add person properties used in the flag to ensure the flag
+            // is evaluated locally, vs. going to our servers
+            ['is_authorized' => true]`
+        : ''
 
-if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
-    // do something
-}`}
-            </CodeSnippet>
-        </>
-    )
-}
+    const flagSnippet = groupType
+        ? `${clientSuffix}${flagFunction}(
+            '${flagKey}',
+            'user distinct id',
+            // group types
+            ['${groupType.group_type}' => '<${groupType.name_singular || 'group'} ID>'],${localEvalAddition}
+        )`
+        : localEvalAddition
+        ? `${clientSuffix}${flagFunction}(
+            '${flagKey}',
+            'user distinct id',${localEvalAddition}
+        )`
+        : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
+    const variableName = multivariant ? '$enabledVariant' : '$isMyFlagEnabledForUser'
 
-export function PHPSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    const conditional = multivariant ? `${variableName} === 'example-variant'` : `${variableName}`
+
     return (
         <>
             <CodeSnippet language={Language.PHP} wrap>
-                {`if (PostHog::isFeatureEnabled('${flagKey}', 'some distinct id')) {
-    // do something here
+                {`${variableName} = ${flagSnippet}
+
+if (${conditional}) {
+    // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
 }`}
             </CodeSnippet>
         </>
     )
 }
 
-export function GolangSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+export function GolangSnippet({ flagKey, groupType, multivariant, localEvaluation }: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'client.'
+
+    const flagFunction = multivariant ? 'GetFeatureFlag' : 'IsFeatureEnabled'
+
+    const localEvalAddition = localEvaluation
+        ? groupType
+            ? `
+                // add group properties used in the flag to ensure the flag
+                // is evaluated locally, vs. going to our servers
+                
+                groupProperties: map[string]Properties{"${groupType.group_type}": posthog.NewProperties().Set("created", true).Set("name", "xyz")}`
+            : `
+                // add person properties used in the flag to ensure the flag
+                // is evaluated locally, vs. going to our servers
+                PersonProperties: posthog.NewProperties().Set("is_authorized", true)`
+        : ''
+
+    const flagSnippet = groupType
+        ? `${clientSuffix}${flagFunction}(
+            FeatureFlagPayload{
+                Key:        '${flagKey}',
+                DistinctId: "distinct-id",
+                Groups:     Groups{'${groupType.group_type}': '<${
+              groupType.name_singular || 'group'
+          } ID>'},${localEvalAddition}
+            }
+        )`
+        : `${clientSuffix}${flagFunction}(
+            FeatureFlagPayload{
+                Key:        '${flagKey}',
+                DistinctId: "distinct-id",${localEvalAddition}
+            })`
+    const variableName = multivariant ? 'enabledVariant, err' : 'isMyFlagEnabledForUser, err'
+
+    const conditional = multivariant ? `enabledVariant == 'example-variant'` : `isMyFlagEnabledForUser`
+
     return (
         <>
             <CodeSnippet language={Language.Go} wrap>
-                {`isFlagEnabledForUser, err := client.IsFeatureEnabled(
-                    FeatureFlagPayload{
-                        Key:        '${flagKey}',
-                        DistinctId: "distinct-id",
-                    })
+                {`${variableName} := ${flagSnippet}
 
-if (isFlagEnabledForUser) {
-  // Do something differently for this user
+if ${conditional} {
+    // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
 }`}
             </CodeSnippet>
         </>
     )
 }
 
-export function RubySnippet({ flagKey }: { flagKey: string }): JSX.Element {
+export function RubySnippet({
+    flagKey,
+    groupType,
+    multivariant,
+    localEvaluation,
+    payload,
+}: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'posthog.'
+    const flagFunction = payload ? 'get_feature_flag_payload' : multivariant ? 'get_feature_flag' : 'is_feature_enabled'
+
+    const localEvalAddition = localEvaluation
+        ? groupType
+            ? `
+            # // add group properties used in the flag to ensure the flag
+            # // is evaluated locally, vs. going to our servers
+            group_properties: { ${groupType.group_type}: {'created': true, 'name': 'xyz'}}`
+            : `
+            # // add person properties used in the flag to ensure the flag
+            # // is evaluated locally, vs. going to our servers
+            person_properties: {'is_authorized': true}`
+        : ''
+
+    const flagSnippet = groupType
+        ? `${clientSuffix}${flagFunction}(
+            '${flagKey}',
+            'user distinct id',
+            groups: { '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },
+            ${localEvalAddition}
+        )`
+        : localEvalAddition
+        ? `${clientSuffix}${flagFunction}(
+            '${flagKey}',
+            'user distinct id',${localEvalAddition}
+        )`
+        : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
+    const variableName = payload ? 'matched_flag_payload' : multivariant ? 'enabled_variant' : 'is_my_flag_enabled'
+
+    const conditional = multivariant ? `${variableName} == 'example-variant'` : `${variableName}`
+
+    const followUpCode = payload
+        ? ''
+        : `
+
+if ${conditional}
+    # Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
+end`
+
     return (
         <>
             <CodeSnippet language={Language.Ruby} wrap>
-                {`is_my_flag_enabled = posthog.is_feature_enabled('${flagKey}', 'user distinct id')
-
-if is_my_flag_enabled
-  # Do something differently for this user
-end`}
+                {`${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
 }
 
-export function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+export function PythonSnippet({
+    flagKey,
+    groupType,
+    multivariant,
+    localEvaluation,
+    payload,
+}: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'posthog.'
+    const flagFunction = payload ? 'get_feature_flag_payload' : multivariant ? 'get_feature_flag' : 'feature_enabled'
+
+    const localEvalAddition = localEvaluation
+        ? groupType
+            ? `
+            # // add group properties used in the flag to ensure the flag
+            # // is evaluated locally, vs. going to our servers
+            group_properties={ ${groupType.group_type}: {'created': True, 'name': 'xyz'}}`
+            : `
+            # // add person properties used in the flag to ensure the flag
+            # // is evaluated locally, vs. going to our servers
+            person_properties={'is_authorized': True}`
+        : ''
+
+    const flagSnippet = groupType
+        ? `${clientSuffix}${flagFunction}(
+            '${flagKey}',
+            'user distinct id',
+            groups={ '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },
+            ${localEvalAddition}
+        )`
+        : localEvalAddition
+        ? `${clientSuffix}${flagFunction}(
+            '${flagKey}',
+            'user distinct id',${localEvalAddition}
+        )`
+        : `${clientSuffix}${flagFunction}('${flagKey}', 'user distinct id')`
+    const variableName = payload ? 'matched_flag_payload' : multivariant ? 'enabled_variant' : 'is_my_flag_enabled'
+
+    const conditional = multivariant ? `${variableName} == 'example-variant'` : `${variableName}`
+
+    const followUpCode = payload
+        ? ''
+        : `
+
+if ${conditional}:
+    # Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
+`
+
     return (
         <>
             <CodeSnippet language={Language.Python} wrap>
-                {`if posthog.feature_enabled("${flagKey}", "user_distinct_id"):
-    runAwesomeFeature()
-`}
+                {`${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
 }
 
-export function AndroidSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+export function AndroidSnippet({ flagKey, multivariant }: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'PostHog.with(this).'
+    const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
+
+    const variantSuffix = multivariant ? ` == 'example-variant'` : ''
     return (
         <CodeSnippet language={Language.Java} wrap>
-            {`if (PostHog.with(this).isFeatureEnabled('${flagKey}')) {
+            {`if (${clientSuffix}${flagFunction}('${flagKey}') ${variantSuffix}) {
     // do something
 }
             `}
@@ -109,12 +298,16 @@ export function AndroidSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     )
 }
 
-export function iOSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+export function iOSSnippet({ flagKey, multivariant }: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'posthog.'
+    const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
+
+    const variantSuffix = multivariant ? ` == 'example-variant'` : ''
     return (
         <CodeSnippet language={Language.Swift} wrap>
             {`// In Swift
 
-if (posthog.isFeatureEnabled('${flagKey}')) {
+if (${clientSuffix}${flagFunction}('${flagKey}') ${variantSuffix}) {
     // do something
 }
             `}
@@ -122,9 +315,13 @@ if (posthog.isFeatureEnabled('${flagKey}')) {
     )
 }
 
-export function ReactNativeSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+export function ReactNativeSnippet({ flagKey, multivariant }: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'posthog.'
+    const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
+
+    const variantSuffix = multivariant ? ` == 'example-variant'` : ''
     return (
-        <CodeSnippet language={Language.Java} wrap>
+        <CodeSnippet language={Language.JSX} wrap>
             {`// With a hook
 import { useFeatureFlag } from 'posthog-react-native'
 
@@ -136,26 +333,32 @@ const MyComponent = () => {
         return null
     }
 
-    return showFlaggedFeature ? <Text>Testing feature 😄</Text> : <Text>Not Testing feature 😢</Text>
+    return showFlaggedFeature ${variantSuffix} ? <Text>Testing feature 😄</Text> : <Text>Not Testing feature 😢</Text>
 }
 
 // Or calling on the method directly
-posthog.getFeatureFlag('my-flag')
+${clientSuffix}${flagFunction}('my-flag')
             `}
         </CodeSnippet>
     )
 }
 
-export function APISnippet(): JSX.Element {
+export function APISnippet({ groupType }: FeatureFlagSnippet): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+
+    const groupAddition = groupType
+        ? `
+    "groups": { "${groupType.group_type}": "<${groupType.name_singular || 'group'} ID>" },`
+        : ''
+
     return (
         <>
             <CodeSnippet language={Language.Bash} wrap>
-                {`curl ${window.location.origin}/decide?v=2/ \\
+                {`curl ${window.location.origin}/decide?v=3/ \\
 -X POST -H 'Content-Type: application/json' \\
 -d '{
     "api_key": "${currentTeam ? currentTeam.api_token : '[project_api_key]'}",
-    "distinct_id": "[user distinct id]",
+    "distinct_id": "[user distinct id]",${groupAddition}
 }'
                 `}
             </CodeSnippet>
@@ -163,221 +366,39 @@ export function APISnippet(): JSX.Element {
     )
 }
 
-export function JSMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+export function JSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+    if (payload) {
+        return (
+            <>
+                <CodeSnippet language={Language.JavaScript} wrap>
+                    {`posthog.getFeatureFlagPayload('${flagKey ?? ''}')`}
+                </CodeSnippet>
+            </>
+        )
+    }
+
+    const clientSuffix = 'posthog.'
+    const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
+
+    const variantSuffix = multivariant ? ` == 'example-variant'` : ''
     return (
-        <CodeSnippet language={Language.JavaScript} wrap>
-            {`// Ensure flags are loaded before usage.
+        <>
+            <CodeSnippet language={Language.JavaScript} wrap>
+                {`// Ensure flags are loaded before usage.
 // You'll only need to call this on the code for when the first time a user visits.
 
-posthog.onFeatureFlags(function() {
-// feature flags should be available at this point
-if (posthog.getFeatureFlag('${flagKey ?? ''}') === 'example-variant') {
-// do something
-}
+${clientSuffix}onFeatureFlags(function() {
+    // feature flags should be available at this point
+    if (${clientSuffix}${flagFunction}('${flagKey ?? ''}') ${variantSuffix}) {
+        // do something
+    }
 })
 
 // Otherwise, you can just do
 
-if (posthog.getFeatureFlag('${flagKey ?? ''}') === 'example-variant') {
-// do something
-}`}
-        </CodeSnippet>
-    )
-}
-
-export function iOSMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <CodeSnippet language={Language.Swift} wrap>
-            {`// In Swift
-
-if (posthog.getFeatureFlag('${flagKey}') == 'example-variant') {
+if (${clientSuffix}${flagFunction}('${flagKey ?? ''}') ${variantSuffix}) {
     // do something
-}
-            `}
-        </CodeSnippet>
-    )
-}
-
-export function AndroidMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <CodeSnippet language={Language.Java} wrap>
-            {`if (PostHog.with(this).getFeatureFlag('${flagKey}') == 'example-variant') {
-    // do something
-}
-            `}
-        </CodeSnippet>
-    )
-}
-
-export function ReactNativeMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <CodeSnippet language={Language.Java} wrap>
-            {`// With a hook
-import { useFeatureFlag } from 'posthog-react-native'
-
-const MyComponent = () => {
-    const showFlaggedFeature = useFeatureFlag('${flagKey}')
-
-    if (showFlaggedFeature === undefined) {
-        // the response is undefined if the flags are being loaded
-        return null
-    }
-
-    return showFlaggedFeature === 'example-variant' ? <Text>Testing feature 😄</Text> : <Text>Not Testing feature 😢</Text>
-}
-
-// Or calling on the method directly
-posthog.getFeatureFlag('${flagKey ?? ''}') === 'example-variant'
-            `}
-        </CodeSnippet>
-    )
-}
-
-export function NodeJSMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.JavaScript} wrap>
-                {`const enabledVariant = await client.getFeatureFlag('${flagKey}', 'user distinct id')
-
-if (enabledVariant === 'example-variant') {
-    // Do something differently for this user
 }`}
-            </CodeSnippet>
-        </>
-    )
-}
-
-export function PythonMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.Python} wrap>
-                {`if posthog.get_feature_flag("${flagKey}", "user_distinct_id") == 'example-variant':
-    runAwesomeFeature()
-`}
-            </CodeSnippet>
-        </>
-    )
-}
-
-export function RubyMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.Ruby} wrap>
-                {`if posthog.get_feature_flag('${flagKey}', 'user distinct id') == 'example-variant'
-  # Do something
-end`}
-            </CodeSnippet>
-        </>
-    )
-}
-
-export function GolangMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.Go} wrap>
-                {`enabledVariant, err := client.GetFeatureFlag(
-                    FeatureFlagPayload{
-                        Key:        '${flagKey}',
-                        DistinctId: "distinct-id",
-                    })
-
-if (enabledVariant == 'example-variant') {
-  // Do something differently for this user
-}`}
-            </CodeSnippet>
-        </>
-    )
-}
-
-export function PHPMultivariateSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.PHP} wrap>
-                {`if (PostHog::getFeatureFlag('${flagKey}', 'some distinct id') === 'example-variant') {
-    // do something here
-}`}
-            </CodeSnippet>
-        </>
-    )
-}
-
-export function PythonLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.Python} wrap>
-                {`posthog.get_feature_flag(
-    ${flagKey},
-    'distinct id',
-// add person or group properties used in the flag to ensure the flag is evaluated locally, vs. going to our servers
-    person_properties={'is_authorized': True}
-)
-
-`}
-            </CodeSnippet>
-        </>
-    )
-}
-
-export function RubyLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.Ruby} wrap>
-                {`posthog.get_feature_flag(
-    ${flagKey},
-    'distinct id',
-// add person or group properties used in the flag to ensure the flag is evaluated locally, vs. going to our servers
-    person_properties: {'is_authorized': true}
-)
-
-`}
-            </CodeSnippet>
-        </>
-    )
-}
-
-export function NodeLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <CodeSnippet language={Language.JavaScript} wrap>
-            {`await client.getFeatureFlag(
-    ${flagKey},
-    'distinct id',
-// add person or group properties used in the flag to ensure the flag is evaluated locally
-    {
-        personProperties: {'is_authorized': true}
-    }
-)`}
-        </CodeSnippet>
-    )
-}
-
-export function PHPLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <CodeSnippet language={Language.PHP} wrap>
-            {`PostHog::getFeatureFlag(
-    ${flagKey},
-    'distinct id',
-// add person or group properties used in the flag to ensure the flag is evaluated locally, vs. going to our servers
-    [], // group properties
-    ["is_authorized" => true] // person properties
-)
-            `}
-        </CodeSnippet>
-    )
-}
-
-export function GolangLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
-    return (
-        <>
-            <CodeSnippet language={Language.Go} wrap>
-                {`enabledVariant, err := client.GetFeatureFlag(
-        FeatureFlagPayload{
-            Key:        ${flagKey},
-            DistinctId: "distinct-id",
-// add person or group properties used in the flag to ensure the flag is evaluated locally, vs. going to our servers
-      PersonProperties: posthog.NewProperties().
-        Set("is_authorized", true),
-        },
-)`}
             </CodeSnippet>
         </>
     )
@@ -387,6 +408,7 @@ export function JSBootstrappingSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript} wrap>
             {`// Initialise the posthog library with a distinct ID and feature flags for immediate loading
+// This avoids the delay between the library loading and feature flags becoming available to use.
 
 posthog.init('{project_api_key}', {
     api_host: 'https://app.posthog.com',

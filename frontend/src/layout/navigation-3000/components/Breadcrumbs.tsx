@@ -9,6 +9,9 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { NewInsightButton } from 'scenes/saved-insights/SavedInsights'
+import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 /**
  * In PostHog 3000 breadcrumbs also serve as the top bar. This is marked by theses two features:
@@ -30,6 +33,9 @@ export function Breadcrumbs(): JSX.Element | null {
             {/* TODO: These buttons below are hardcoded right now, scene-based system coming in the next PR */}
             <LemonButton className="Breadcrumbs3000__more" icon={<IconEllipsisVertical />} size="small" />
             <div className="Breadcrumbs3000__actions">
+                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match={true}>
+                    <NotebookButton />
+                </FlaggedFeature>
                 <NewInsightButton dataAttr="project-home-new-insight" />
             </div>
         </div>
@@ -45,8 +51,9 @@ interface BreadcrumbProps {
 function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
     const [popoverShown, setPopoverShown] = useState(false)
 
-    let breadcrumbContent = (
-        <div
+    const Component = breadcrumb.path ? Link : 'div'
+    const breadcrumbContent = (
+        <Component
             className={clsx(
                 'Breadcrumbs3000__breadcrumb',
                 (breadcrumb.path || breadcrumb.popover) && 'Breadcrumbs3000__breadcrumb--actionable',
@@ -56,16 +63,13 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
                 breadcrumb.popover && setPopoverShown(!popoverShown)
             }}
             data-attr={`breadcrumb-${index}`}
+            to={breadcrumb.path}
         >
             {breadcrumb.symbol}
             <span>{breadcrumb.name}</span>
             {breadcrumb.popover && <IconArrowDropDown />}
-        </div>
+        </Component>
     )
-
-    if (breadcrumb.path) {
-        breadcrumbContent = <Link to={breadcrumb.path}>{breadcrumbContent}</Link>
-    }
 
     if (breadcrumb.popover) {
         return (

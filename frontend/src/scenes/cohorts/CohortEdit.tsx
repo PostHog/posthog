@@ -37,7 +37,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (cohortMissing) {
         return <NotFound object="cohort" />

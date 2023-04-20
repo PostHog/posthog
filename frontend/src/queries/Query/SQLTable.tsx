@@ -6,5 +6,7 @@ interface SQLTableProps {
 }
 
 export function SQLTable({ query }: SQLTableProps): JSX.Element {
-    return <Query query={{ kind: NodeKind.DataTableNode, source: { kind: NodeKind.HogQLQuery, query: query } }} />
+    return (
+        <Query query={{ kind: NodeKind.DataTableNode, source: { kind: NodeKind.HogQLQuery, query: query } }} readOnly />
+    )
 }

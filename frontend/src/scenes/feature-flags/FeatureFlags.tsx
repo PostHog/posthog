@@ -352,7 +352,9 @@ export function FeatureFlags(): JSX.Element {
     )
 }
 
-export function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | string {
+export function groupFilters(groups: FeatureFlagGroupType[], stringOnly?: true): string
+export function groupFilters(groups: FeatureFlagGroupType[], stringOnly?: false): JSX.Element | string
+export function groupFilters(groups: FeatureFlagGroupType[], stringOnly?: boolean): JSX.Element | string {
     if (groups.length === 0 || !groups.some((group) => group.rollout_percentage !== 0)) {
         // There are no rollout groups or all are at 0%
         return 'No users'
@@ -367,11 +369,11 @@ export function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | stri
     if (groups.length === 1) {
         const { properties, rollout_percentage = null } = groups[0]
         if (properties?.length > 0) {
-            return (
-                <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-                    {rollout_percentage != null && (
-                        <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>
-                    )}
+            return stringOnly ? (
+                `${rollout_percentage ?? 100}% of one group`
+            ) : (
+                <div className="flex items-center">
+                    <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
                     <PropertyFiltersDisplay filters={properties} style={{ margin: 0, flexDirection: 'column' }} />
                 </div>
             )
@@ -379,7 +381,7 @@ export function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | stri
             return `${rollout_percentage}% of all users`
         } else {
             console.error('A group with full rollout was not detected early')
-            return 'All users'
+            return '100% of all users'
         }
     }
     return 'Multiple groups'

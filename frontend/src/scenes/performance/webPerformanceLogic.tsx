@@ -200,7 +200,7 @@ function forWaterfallDisplay(pageviewEvents: PerformanceEvent[] | null): EventPe
     let maxTime = 0
     const pointsInTime: PointInTimeMarker[] = []
     const resourceTimings: ResourceTiming[] = []
-    let timestamp: string | null = null
+    let timestamp: number | string | null = null
 
     pageviewEvents?.forEach((performanceEvent) => {
         if (performanceEvent.entry_type === 'navigation') {
@@ -403,7 +403,7 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
-        const featureDataExploration = values.featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+        const featureDataExploration = values.featureFlags[FEATURE_FLAGS.HOGQL]
         if (featureDataExploration) {
             // data exploration manages the data loading
             return

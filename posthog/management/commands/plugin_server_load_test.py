@@ -13,6 +13,7 @@ from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
 
 from posthog.api.capture import capture_internal
 from posthog.demo.products.hedgebox import HedgeboxMatrix
+from posthog.models import Team
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
@@ -56,6 +57,11 @@ class Command(BaseCommand):
 
         admin = KafkaAdminClient(bootstrap_servers=settings.KAFKA_HOSTS)
         consumer = KafkaConsumer(KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, bootstrap_servers=settings.KAFKA_HOSTS)
+        team = Team.objects.filter(id=int(options["team_id"])).first()
+        if not team:
+            logger.critical("Cannot find team with id: " + options["team_id"])
+            exit(1)
+        token = team.api_token
 
         logger.info(
             "creating_data",
@@ -92,7 +98,7 @@ class Command(BaseCommand):
                 distinct_id=event.distinct_id,
                 ip="",
                 site_url="",
-                team_id=options["team_id"],
+                token=token,
                 now=event.timestamp,
                 sent_at=event.timestamp,
             )

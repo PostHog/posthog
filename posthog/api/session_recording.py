@@ -1,10 +1,11 @@
 import json
-from typing import Any, List, cast
+from typing import Any, List, Type, cast
 
 import structlog
 from dateutil import parser
 from django.db.models import Count, Prefetch
 from django.http import JsonResponse
+from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -22,7 +23,7 @@ from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
+from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.utils import format_query_params_absolute_url
@@ -92,7 +93,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
-        return Response(list_recordings(filter, request, self.team))
+        use_v2_list = request.GET.get("version") == "2"
+
+        return Response(list_recordings(filter, request, self.team, v2=use_v2_list))
 
     # Returns meta data about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -114,7 +117,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise exceptions.NotFound("Recording not found")
 
         recording.load_person()
-        recording.check_viewed_for_user(request.user, save_viewed=request.GET.get("save_view") is not None)
+
+        save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
+        recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
 
         serializer = SessionRecordingSerializer(recording)
 
@@ -206,7 +211,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return Response({"results": session_recording_serializer.data})
 
 
-def list_recordings(filter: SessionRecordingsFilter, request: request.Request, team: Team) -> dict:
+def list_recordings(filter: SessionRecordingsFilter, request: request.Request, team: Team, v2=False) -> dict:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -220,6 +225,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
     all_session_ids = filter.session_ids
     recordings: List[SessionRecording] = []
     more_recordings_available = False
+    can_use_v2 = v2 and not any(entity.has_hogql_property for entity in filter.entities)
 
     if all_session_ids:
         # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
@@ -238,7 +244,14 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
-        (ch_session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=team).run()
+
+        # TODO: once person on events is deployed, we can remove the check for hogql properties https://github.com/PostHog/posthog/pull/14458#discussion_r1135780372
+        session_recording_list_instance: Type[SessionRecordingList] = (
+            SessionRecordingListV2 if can_use_v2 else SessionRecordingList
+        )
+        (ch_session_recordings, more_recordings_available) = session_recording_list_instance(
+            filter=filter, team=team
+        ).run()
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
         recordings = recordings + recordings_from_clickhouse
 
@@ -275,4 +288,4 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
     session_recording_serializer = SessionRecordingSerializer(recordings, many=True)
     results = session_recording_serializer.data
 
-    return {"results": results, "has_next": more_recordings_available}
+    return {"results": results, "has_next": more_recordings_available, "version": 2 if can_use_v2 else 1}

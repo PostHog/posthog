@@ -44,4 +44,4 @@ class Migration(migrations.Migration):
         ("posthog", "0078_auto_20200731_1323"),
     ]
 
-    operations = [migrations.RunPython(forward, reverse)]
+    operations = [migrations.RunPython(forward, reverse, elidable=True)]

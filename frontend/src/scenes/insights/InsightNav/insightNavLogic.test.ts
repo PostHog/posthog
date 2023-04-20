@@ -31,10 +31,10 @@ describe('insightNavLogic', () => {
             theFeatureFlagLogic = featureFlagLogic()
             theFeatureFlagLogic.mount()
             theFeatureFlagLogic.actions.setFeatureFlags(
-                [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS, FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB],
+                [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS, FEATURE_FLAGS.HOGQL],
                 {
                     [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]: false,
-                    [FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]: false,
+                    [FEATURE_FLAGS.HOGQL]: false,
                 }
             )
 
@@ -159,22 +159,6 @@ describe('insightNavLogic', () => {
                 })
                 theInsightNavLogicForTheCachedInsight.mount()
                 expect(theInsightNavLogicForTheCachedInsight.values.activeView).toEqual(InsightType.FUNNELS)
-            })
-
-            it('sets view from setFilters', async () => {
-                await expectLogic(theInsightNavLogic, () => {
-                    theInsightLogic.actions.setFilters({ insight: InsightType.FUNNELS })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
-                })
-            })
-
-            it('does not set view from setInsight if filters not overriding', async () => {
-                await expectLogic(theInsightNavLogic, () => {
-                    theInsightLogic.actions.setInsight({ filters: { insight: InsightType.FUNNELS } }, {})
-                }).toMatchValues({
-                    activeView: InsightType.TRENDS,
-                })
             })
 
             it('does set view from setInsight if filters are overriding', async () => {

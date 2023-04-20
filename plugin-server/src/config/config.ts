@@ -39,6 +39,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_MECHANISM: null,
         KAFKA_SASL_USER: null,
         KAFKA_SASL_PASSWORD: null,
+        KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
+        KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
+        KAFKA_CONSUMPTION_MAX_WAIT_MS: 1_000, // Down from the 5s default for kafkajs
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
@@ -71,6 +74,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         JOB_QUEUE_GRAPHILE_URL: '',
         JOB_QUEUE_GRAPHILE_SCHEMA: 'graphile_worker',
         JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: false,
+        JOB_QUEUE_GRAPHILE_CONCURRENCY: 1,
         JOB_QUEUE_S3_AWS_ACCESS_KEY: '',
         JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: '',
         JOB_QUEUE_S3_AWS_REGION: 'us-west-1',

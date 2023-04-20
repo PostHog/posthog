@@ -7,10 +7,11 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 66), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 68), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_event_property_filter.1
@@ -22,10 +23,11 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 66), equals(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), 'test_val3'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 68), equals(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), 'test_val3'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_event_property_filter.2
@@ -37,10 +39,11 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 66), ilike(replaceRegexpAll(JSONExtractRaw(events.properties, 'path'), '^"|"$', ''), '%/%'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 68), ilike(replaceRegexpAll(JSONExtractRaw(events.properties, 'path'), '^"|"$', ''), '%/%'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized
@@ -52,10 +55,11 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 67), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 69), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized.1
@@ -67,10 +71,11 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 67), equals(events.mat_key, 'test_val3'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 69), equals(events.mat_key, 'test_val3'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized.2
@@ -82,10 +87,11 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 67), ilike(events.mat_path, '%/%'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 69), ilike(events.mat_path, '%/%'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_full_hogql_query
@@ -95,9 +101,10 @@
          events.distinct_id,
          replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', '')
   FROM events
-  WHERE equals(events.team_id, 68)
-  ORDER BY events.timestamp ASC
-  LIMIT 100
+  WHERE equals(events.team_id, 70)
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 100 SETTINGS readonly=1,
+                     max_execution_time=60
   '
 ---
 # name: TestQuery.test_full_hogql_query_materialized
@@ -107,9 +114,10 @@
          events.distinct_id,
          events.mat_key
   FROM events
-  WHERE equals(events.team_id, 69)
-  ORDER BY events.timestamp ASC
-  LIMIT 100
+  WHERE equals(events.team_id, 71)
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 100 SETTINGS readonly=1,
+                     max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter
@@ -121,10 +129,11 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 70), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 72), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter.1
@@ -136,10 +145,11 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 70), equals('a%sd', 'foo'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 72), equals('a%sd', 'foo'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter.2
@@ -151,10 +161,11 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 70), equals('a%sd', 'a%sd'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 72), equals('a%sd', 'a%sd'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter.3
@@ -166,10 +177,11 @@
          'a%sd',
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 70), equals(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), 'test_val2'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 72), equals(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), 'test_val2'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized
@@ -181,10 +193,11 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 71), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 73), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.1
@@ -196,10 +209,11 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 71), equals('a%sd', 'foo'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 73), equals('a%sd', 'foo'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.2
@@ -211,10 +225,11 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 71), equals('a%sd', 'a%sd'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 73), equals('a%sd', 'a%sd'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.3
@@ -226,10 +241,11 @@
          'a%sd',
          concat(events.event, ' ', events.mat_key)
   FROM events
-  WHERE and(equals(events.team_id, 71), equals(events.mat_key, 'test_val2'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 73), equals(events.mat_key, 'test_val2'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_person_property_filter
@@ -245,20 +261,21 @@
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
             person_distinct_id2.distinct_id
      FROM person_distinct_id2
-     WHERE equals(person_distinct_id2.team_id, 75)
+     WHERE equals(person_distinct_id2.team_id, 77)
      GROUP BY person_distinct_id2.distinct_id
      HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   INNER JOIN
     (SELECT argMax(replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''), person.version) AS properties___email,
             person.id
      FROM person
-     WHERE equals(person.team_id, 75)
+     WHERE equals(person.team_id, 77)
      GROUP BY person.id
      HAVING equals(argMax(person.is_deleted, person.version), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
-  WHERE and(equals(events.team_id, 75), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 77), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_person_property_filter_materialized
@@ -274,20 +291,21 @@
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
             person_distinct_id2.distinct_id
      FROM person_distinct_id2
-     WHERE equals(person_distinct_id2.team_id, 76)
+     WHERE equals(person_distinct_id2.team_id, 78)
      GROUP BY person_distinct_id2.distinct_id
      HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   INNER JOIN
     (SELECT argMax(person.pmat_email, person.version) AS properties___email,
             person.id
      FROM person
-     WHERE equals(person.team_id, 76)
+     WHERE equals(person.team_id, 78)
      GROUP BY person.id
      HAVING equals(argMax(person.is_deleted, person.version), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
-  WHERE and(equals(events.team_id, 76), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 78), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_property_filter_aggregations
@@ -296,11 +314,12 @@
   SELECT replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''),
          count()
   FROM events
-  WHERE and(equals(events.team_id, 77), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 79), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   GROUP BY replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', '')
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_property_filter_aggregations.1
@@ -309,12 +328,13 @@
   SELECT replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''),
          count()
   FROM events
-  WHERE and(equals(events.team_id, 77), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 79), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   GROUP BY replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', '')
   HAVING and(greater(count(), 1))
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_property_filter_aggregations_materialized
@@ -323,11 +343,12 @@
   SELECT events.mat_key,
          count()
   FROM events
-  WHERE and(equals(events.team_id, 78), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 80), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   GROUP BY events.mat_key
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_property_filter_aggregations_materialized.1
@@ -336,12 +357,13 @@
   SELECT events.mat_key,
          count()
   FROM events
-  WHERE and(equals(events.team_id, 78), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 80), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   GROUP BY events.mat_key
   HAVING and(greater(count(), 1))
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_select_event_person
@@ -351,10 +373,11 @@
          events.distinct_id,
          events.distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 79), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 81), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_select_hogql_expressions
@@ -365,22 +388,24 @@
          events.distinct_id,
          concat(events.event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE and(equals(events.team_id, 80), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 82), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', '') ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT tuple(events.uuid, events.event, events.properties, events.timestamp, events.team_id, events.distinct_id, events.elements_chain, events.created_at),
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC')),
          events.event
   FROM events
-  WHERE and(equals(events.team_id, 80), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
-  ORDER BY tuple(events.uuid, events.event, events.properties, events.timestamp, events.team_id, events.distinct_id, events.elements_chain, events.created_at) ASC
+  WHERE and(equals(events.team_id, 82), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
+  ORDER BY tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC')) ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.2
@@ -389,11 +414,12 @@
   SELECT count(),
          events.event
   FROM events
-  WHERE and(equals(events.team_id, 80), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 82), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   GROUP BY events.event
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.3
@@ -402,10 +428,11 @@
   SELECT count(),
          events.event
   FROM events
-  WHERE and(equals(events.team_id, 80), or(equals(events.event, 'sign up'), like(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), '%val2')), less(events.timestamp, '2020-01-10 12:14:05.000000'), greater(events.timestamp, '2020-01-09 12:00:00.000000'))
+  WHERE and(equals(events.team_id, 82), or(equals(events.event, 'sign up'), like(replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''), '%val2')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   GROUP BY events.event
   ORDER BY count() DESC, events.event ASC
   LIMIT 101
-  OFFSET 0
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---

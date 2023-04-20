@@ -518,6 +518,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             resourceType,
             rolesLength,
         }),
+        reportFlagsCodeExampleInteraction: (optionType: string) => ({
+            optionType,
+        }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -1260,6 +1263,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('role custom added to a resource', {
                 resource_type: resourceType,
                 roles_length: rolesLength,
+            })
+        },
+        reportFlagsCodeExampleInteraction: ({ optionType }) => {
+            posthog.capture('flags code example option selected', {
+                option_type: optionType,
             })
         },
     }),

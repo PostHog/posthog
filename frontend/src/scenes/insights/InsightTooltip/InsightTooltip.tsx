@@ -85,6 +85,7 @@ export function InsightTooltip({
                     className="mr-2"
                     hasBreakdown={hasBreakdown}
                     seriesIndex={datum?.action?.order ?? datum.id}
+                    seriesColor={datum.color}
                 />
                 {value}
             </div>
@@ -112,8 +113,11 @@ export function InsightTooltip({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const title: ReactNode | null =
-        getTooltipTitle(seriesData, altTitle, date) ||
-        `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
+        getTooltipTitle(seriesData, altTitle, date) || !!date
+            ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${
+                  timezone ? shortTimeZone(timezone) : 'UTC'
+              })`
+            : ''
     const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
 
     if (itemizeEntitiesAsColumns) {

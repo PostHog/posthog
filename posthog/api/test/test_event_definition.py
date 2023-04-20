@@ -1,6 +1,7 @@
 import dataclasses
 from datetime import datetime
 from typing import Any, Dict, List
+from unittest.mock import ANY, patch
 from uuid import uuid4
 
 import dateutil.parser
@@ -78,6 +79,19 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"][0]["volume_30_day"], 1)
+
+    @patch("posthoganalytics.capture")
+    def test_delete_event_definition(self, mock_capture):
+        event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
+        response = self.client.delete(f"/api/projects/@current/event_definitions/{event_definition.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(EventDefinition.objects.filter(id=event_definition.id).count(), 0)
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "event definition deleted",
+            properties={"name": "test_event"},
+            groups={"instance": ANY, "organization": str(self.organization.id), "project": str(self.demo_team.uuid)},
+        )
 
     def test_pagination_of_event_definitions(self):
         EventDefinition.objects.bulk_create(

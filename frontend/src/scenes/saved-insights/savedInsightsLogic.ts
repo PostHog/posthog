@@ -83,7 +83,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                     await breakpoint(300)
                 }
                 const { filters } = values
-                const includeQueryInsights = !!values.featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERY_TAB]
+                const includeQueryInsights = !!values.featureFlags[FEATURE_FLAGS.HOGQL]
 
                 const params = {
                     ...values.paramsFromFilters,

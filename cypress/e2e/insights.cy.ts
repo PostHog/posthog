@@ -155,7 +155,7 @@ describe('Insights', () => {
         cy.reload()
 
         cy.clickNavMenu('insight')
-        cy.get('[data-attr="sidebar-new-insights-overlay"][data-attr-insight-type="TRENDS"]').click()
+        cy.get('[data-attr="menu-item-insight"]').click()
         cy.get('[data-attr=trend-element-subject-0] span').should('contain', 'Pageview')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.contains('Add graph series').click()

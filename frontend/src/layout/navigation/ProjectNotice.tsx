@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
-import { AlertMessageAction } from 'lib/lemon-ui/AlertMessage/AlertMessage'
+import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -12,7 +12,7 @@ import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/veri
 
 interface ProjectNoticeBlueprint {
     message: JSX.Element | string
-    action?: AlertMessageAction
+    action?: LemonBannerAction
     type?: 'info' | 'warning' | 'success' | 'error'
 }
 
@@ -100,13 +100,13 @@ export function ProjectNotice(): JSX.Element | null {
     const relevantNotice = NOTICES[projectNoticeVariant]
 
     return (
-        <AlertMessage
+        <LemonBanner
             type={relevantNotice.type || 'info'}
             className="my-6"
             action={relevantNotice.action}
             onClose={isClosable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >
             {relevantNotice.message}
-        </AlertMessage>
+        </LemonBanner>
     )
 }

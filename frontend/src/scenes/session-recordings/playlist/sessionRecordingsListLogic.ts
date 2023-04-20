@@ -15,6 +15,8 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { loaders } from 'kea-loaders'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type PersonUUID = string
 interface Params {
@@ -122,6 +124,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     key(generateSessionRecordingListLogicKey),
     connect({
         actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
+        values: [featureFlagLogic, ['featureFlags']],
     }),
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
@@ -146,6 +149,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
+                        version: values.featureFlags[FEATURE_FLAGS.RECORDINGS_LIST_V2] ? '2' : '1',
                     }
 
                     const params = toParams(paramsDict)

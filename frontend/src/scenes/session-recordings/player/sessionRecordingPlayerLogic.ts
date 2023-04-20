@@ -34,6 +34,7 @@ import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/s
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { wrapConsole } from 'lib/utils/wrapConsole'
+import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -124,6 +125,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         updateFromMetadata: true,
         exportRecordingToFile: true,
         deleteRecording: true,
+        openExplorer: true,
+        closeExplorer: true,
+        setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
     }),
     reducers(({ props }) => ({
         rootFrame: [
@@ -182,6 +186,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setEndReached: (_, { reached }) => reached,
                 tryInitReplayer: () => false,
                 setCurrentPlayerPosition: () => false,
+            },
+        ],
+        explorerMode: [
+            null as SessionRecordingPlayerExplorerProps | null,
+            {
+                setExplorerProps: (_, { props }) => props,
+                closeExplorer: () => null,
             },
         ],
     })),
@@ -689,6 +700,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             } else {
                 // No-op a modal session recording. Delete icon is hidden in modal contexts since modals should be read only views.
             }
+        },
+        openExplorer: () => {
+            actions.setPause()
+            const iframe = values.rootFrame?.querySelector('iframe')
+            const iframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
+            if (!iframeHtml) {
+                return
+            }
+
+            actions.setExplorerProps({
+                html: iframeHtml,
+                width: parseFloat(iframe.width),
+                height: parseFloat(iframe.height),
+            })
         },
     })),
     windowValues({

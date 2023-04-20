@@ -21,15 +21,21 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.hogql.database import create_hogql_database, serialize_database
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team, User
 from posthog.models.event.events_query import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import TeamRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode
 from posthog.utils import relative_date_parse
+
+
+class QueryThrottle(TeamRateThrottle):
+    scope = "query"
+    rate = "120/hour"
 
 
 def parse_as_date_or(date_string: str | None, default: datetime) -> datetime:
@@ -68,7 +74,7 @@ class QuerySchemaParser(JSONParser):
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    throttle_classes = [QueryThrottle]
 
     parser_classes = (QuerySchemaParser,)
 
@@ -96,7 +102,10 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             organization_created_at=self.organization.created_at,
         )
         # allow lists as well as dicts in response with safe=False
-        return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
+        try:
+            return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
+        except HogQLException as e:
+            raise ValidationError(str(e))
 
     def post(self, request, *args, **kwargs):
         request_json = request.data
@@ -108,7 +117,10 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             organization_created_at=self.organization.created_at,
         )
         # allow lists as well as dicts in response with safe=False
-        return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
+        try:
+            return JsonResponse(process_query(self.team, query_json, is_hogql_enabled=is_hogql_enabled), safe=False)
+        except HogQLException as e:
+            raise ValidationError(str(e))
 
     def _tag_client_query_id(self, query_id: str | None):
         if query_id is not None:
@@ -211,7 +223,7 @@ def _is_hogql_enabled(user: User, organization_id: str, organization_created_at:
 
     # on PostHog Cloud, use the feature flag
     return posthoganalytics.feature_enabled(
-        "hogql-queries",
+        "hogql",
         str(user.distinct_id),
         person_properties={"email": user.email},
         groups={"organization": organization_id},

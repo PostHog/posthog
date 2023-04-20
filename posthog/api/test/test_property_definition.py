@@ -1,4 +1,5 @@
 from typing import Dict, List, Optional, Union
+from unittest.mock import ANY, patch
 
 from rest_framework import status
 
@@ -310,6 +311,21 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["name"], "plan")
+
+    @patch("posthoganalytics.capture")
+    def test_delete_property_definition(self, mock_capture):
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="test_property", property_type="String"
+        )
+        response = self.client.delete(f"/api/projects/{self.team.pk}/property_definitions/{property_definition.id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(PropertyDefinition.objects.filter(id=property_definition.id).count(), 0)
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "property definition deleted",
+            properties={"name": "test_property", "type": "event"},
+            groups={"instance": ANY, "organization": str(self.organization.id), "project": str(self.team.uuid)},
+        )
 
 
 class TestPropertyDefinitionQuerySerializer(BaseTest):

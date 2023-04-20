@@ -22,5 +22,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(action_step_empty_string_reset, migrations.RunPython.noop),
+        migrations.RunPython(action_step_empty_string_reset, migrations.RunPython.noop, elidable=True),
     ]

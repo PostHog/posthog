@@ -1,0 +1,22 @@
+.AddToNotebookWrapper {
+    position: relative;
+
+    > [data-attr='add-to-notebook'] {
+        position: absolute;
+        top: 0;
+        right: 0;
+        z-index: var(--z-raised);
+        pointer-events: none;
+        transition: opacity 200ms ease-in-out, transform 200ms ease-in-out;
+        opacity: 0;
+        transform: translateY(-70%);
+    }
+
+    &:hover {
+        > [data-attr='add-to-notebook'] {
+            pointer-events: all;
+            opacity: 1;
+            transform: translateY(-100%);
+        }
+    }
+}

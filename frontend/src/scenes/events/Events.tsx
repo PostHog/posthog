@@ -16,7 +16,7 @@ export const scene: SceneExport = {
 
 export function Events(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     return (
         <>

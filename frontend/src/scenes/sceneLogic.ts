@@ -124,7 +124,7 @@ export const sceneLogic = kea<sceneLogicType>({
         sceneConfig: [
             (s) => [s.scene, s.featureFlags],
             (scene: Scene, featureFlags): SceneConfig | null => {
-                if (scene === Scene.Events && featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]) {
+                if (scene === Scene.Events && featureFlags[FEATURE_FLAGS.HOGQL]) {
                     return {
                         ...sceneConfigurations[scene],
                         name: 'Event Explorer',

@@ -14,6 +14,11 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonTabs } from '../LemonTabs'
 
+const lazyBlobReducer = async (f: File): Promise<Blob> => {
+    const blobReducer = (await import('image-blob-reduce')).default()
+    return blobReducer.toBlob(f, { max: 2000 })
+}
+
 export interface LemonTextAreaProps
     extends Pick<
         React.TextareaHTMLAttributes<HTMLTextAreaElement>,
@@ -88,7 +93,8 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
             try {
                 setUploading(true)
                 const formData = new FormData()
-                formData.append('image', filesToUpload[0])
+                const reducedBlob = await lazyBlobReducer(filesToUpload[0])
+                formData.append('image', reducedBlob)
                 const media = await api.media.upload(formData)
                 onChange?.(value + `\n\n![${media.name}](${media.image_location})`)
                 posthog.capture('markdown image uploaded', { name: media.name })

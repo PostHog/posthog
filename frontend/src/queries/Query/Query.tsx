@@ -15,6 +15,8 @@ import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyIns
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
+import { AddToNotebookWrapper } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
+import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
@@ -29,11 +31,12 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
+    /** Disable any changes to the query */
+    readOnly?: boolean
 }
 
 export function Query(props: QueryProps): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery } = props
-    const readOnly = propsSetQuery === undefined
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
@@ -61,7 +64,7 @@ export function Query(props: QueryProps): JSX.Element | null {
 
     let component
     if (isLegacyQuery(query)) {
-        component = <LegacyInsightQuery query={query} />
+        component = <LegacyInsightQuery query={query} context={queryContext} />
     } else if (isDataTableNode(query)) {
         component = (
             <DataTable query={query} setQuery={setQuery} context={queryContext} cachedResults={props.cachedResults} />
@@ -69,22 +72,26 @@ export function Query(props: QueryProps): JSX.Element | null {
     } else if (isDataNode(query)) {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
     } else if (isInsightVizNode(query)) {
-        component = <InsightViz query={query} setQuery={setQuery} />
+        component = <InsightViz query={query} setQuery={setQuery} context={queryContext} />
     } else if (isInsightQueryNode(query)) {
-        component = <InsightQuery query={query} />
+        component = <InsightQuery query={query} context={queryContext} />
     } else if (isTimeToSeeDataSessionsNode(query)) {
         component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     }
 
     if (component) {
+        const queryWithoutFull: any = { ...query }
+        queryWithoutFull.full = false
+
         return (
             <ErrorBoundary>
-                <>
+                <AddToNotebookWrapper node={NotebookNodeType.Query} properties={{ query: queryWithoutFull }}>
                     {!!props.context?.showQueryEditor ? (
                         <>
                             <QueryEditor
                                 query={JSON.stringify(query)}
                                 setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery))}
+                                context={queryContext}
                             />
                             <div className="my-4">
                                 <LemonDivider />
@@ -92,7 +99,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                         </>
                     ) : null}
                     {component}
-                </>
+                </AddToNotebookWrapper>
             </ErrorBoundary>
         )
     }
