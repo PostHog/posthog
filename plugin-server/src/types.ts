@@ -1,3 +1,4 @@
+import { ReaderModel } from '@maxmind/geoip2-node'
 import ClickHouse from '@posthog/clickhouse'
 import {
     Element,
@@ -218,6 +219,8 @@ export interface Hub extends PluginsServerConfig {
     personManager: PersonManager
     siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
+    // geoip database, setup in workers
+    mmdb?: ReaderModel
     // diagnostics
     lastActivity: number
     lastActivityType: string

@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/node'
+import * as schedule from 'node-schedule'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
 import { initApp } from '../init'
@@ -8,6 +9,7 @@ import { processError } from '../utils/db/error'
 import { createHub } from '../utils/db/hub'
 import { status } from '../utils/status'
 import { cloneObject, pluginConfigIdFromStack } from '../utils/utils'
+import { performMmdbStalenessCheck, prepareMmdb } from './plugins/mmdb'
 import { setupPlugins } from './plugins/setup'
 import { workerTasks } from './tasks'
 import { TimeoutError } from './vm/vm'
@@ -31,6 +33,11 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
                     processUnhandledException(error, hub, event)
                 })
             })
+
+            if (!config.DISABLE_MMDB && hub.capabilities.mmdb) {
+                hub.mmdb = (await prepareMmdb(hub)) ?? undefined
+                schedule.scheduleJob('0 */4 * * *', async () => await performMmdbStalenessCheck(hub))
+            }
 
             await setupPlugins(hub)
 
