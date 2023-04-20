@@ -10,6 +10,17 @@ import { Splotch, SplotchColor } from '../Splotch'
 export default {
     title: 'Lemon UI/Lemon Menu',
     component: LemonMenuOverlayComponent,
+    parameters: {
+        docs: {
+            description: {
+                component: `
+Implement all sorts of menus easily with \`LemonMenu\`.
+                
+Note: These stories render \`LemonMenuOverlay\` instead of \`LemonMenu\` so that the contents are is shown outright.
+This enables intuitive preview of the component, along with snapshotting, but in code always use \`LemonMenu\`.`,
+            },
+        },
+    },
     argTypes: {
         items: {
             defaultValue: [
