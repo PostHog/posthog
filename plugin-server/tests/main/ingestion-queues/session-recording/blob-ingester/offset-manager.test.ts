@@ -7,11 +7,11 @@ describe('offset-manager', () => {
 
     let offsetManager: OffsetManager
     const mockConsumer = {
-        commitOffsets: jest.fn(() => Promise.resolve()),
+        commit: jest.fn(() => Promise.resolve()),
     }
 
     beforeEach(() => {
-        mockConsumer.commitOffsets.mockClear()
+        mockConsumer.commit.mockClear()
         offsetManager = new OffsetManager(mockConsumer as unknown as KafkaConsumer)
     })
 

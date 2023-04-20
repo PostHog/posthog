@@ -19,8 +19,7 @@ describe('ingester', () => {
     })
 
     beforeEach(() => {
-        // TODO: Mock certain functions to help with testing
-        ingester = new SessionRecordingBlobIngester(hub.teamManager, hub.kafka, defaultConfig, hub.objectStorage)
+        ingester = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage)
     })
 
     it('creates a new session manager if needed', async () => {
