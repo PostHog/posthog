@@ -89,35 +89,7 @@ class Resolver(CloningVisitor):
         for expr in node.select or []:
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
-                asterisk = new_expr.type
-                if isinstance(asterisk.table_type, ast.BaseTableType):
-                    table = asterisk.table_type.resolve_database_table()
-                    database_fields = table.get_asterisk()
-                    for key in database_fields.keys():
-                        type = ast.FieldType(name=key, table_type=asterisk.table_type)
-                        new_node.select.append(ast.Field(chain=[key], type=type))
-                        node_type.columns[key] = type
-                elif (
-                    isinstance(asterisk.table_type, ast.SelectUnionQueryType)
-                    or isinstance(asterisk.table_type, ast.SelectQueryType)
-                    or isinstance(asterisk.table_type, ast.SelectQueryAliasType)
-                ):
-                    select = asterisk.table_type
-                    while isinstance(select, ast.SelectQueryAliasType):
-                        select = select.select_query_type
-                    if isinstance(select, ast.SelectUnionQueryType):
-                        select = select.types[0]
-                    if isinstance(select, ast.SelectQueryType):
-                        for name in select.columns.keys():
-                            type = ast.FieldType(name=name, table_type=asterisk.table_type)
-                            new_node.select.append(ast.Field(chain=[name], type=type))
-                            node_type.columns[name] = type
-                    else:
-                        raise ResolverException("Can't expand asterisk (*) on subquery")
-                else:
-                    raise ResolverException(
-                        f"Can't expand asterisk (*) on a type of type {type(asterisk.table_type).__name__}"
-                    )
+                self._expand_asterisk_columns(new_node, new_expr.type)
 
             else:  # not an asterisk
                 if isinstance(new_expr.type, ast.FieldAliasType):
@@ -146,6 +118,34 @@ class Resolver(CloningVisitor):
         self.select_queries.pop()
 
         return new_node
+
+    def _expand_asterisk_columns(self, select_query: ast.SelectQuery, asterisk: ast.AsteriskType):
+        if isinstance(asterisk.table_type, ast.BaseTableType):
+            table = asterisk.table_type.resolve_database_table()
+            database_fields = table.get_asterisk()
+            for key in database_fields.keys():
+                type = ast.FieldType(name=key, table_type=asterisk.table_type)
+                select_query.select.append(ast.Field(chain=[key], type=type))
+                select_query.type.columns[key] = type
+        elif (
+            isinstance(asterisk.table_type, ast.SelectUnionQueryType)
+            or isinstance(asterisk.table_type, ast.SelectQueryType)
+            or isinstance(asterisk.table_type, ast.SelectQueryAliasType)
+        ):
+            select = asterisk.table_type
+            while isinstance(select, ast.SelectQueryAliasType):
+                select = select.select_query_type
+            if isinstance(select, ast.SelectUnionQueryType):
+                select = select.types[0]
+            if isinstance(select, ast.SelectQueryType):
+                for name in select.columns.keys():
+                    type = ast.FieldType(name=name, table_type=asterisk.table_type)
+                    select_query.select.append(ast.Field(chain=[name], type=type))
+                    select_query.type.columns[name] = type
+            else:
+                raise ResolverException("Can't expand asterisk (*) on subquery")
+        else:
+            raise ResolverException(f"Can't expand asterisk (*) on a type of type {type(asterisk.table_type).__name__}")
 
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
