@@ -5,7 +5,7 @@ import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
 from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
-from posthog.settings.utils import get_from_env, str_to_bool, str_to_class
+from posthog.settings.utils import get_from_env, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
 DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
@@ -109,9 +109,12 @@ if JOB_QUEUE_GRAPHILE_URL:
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.
 # Immediately reading after writing may not return consistent data if done in <100ms
-# Please edit the below and add your models
+# Pass in model classnames that should use the read replica
+
+# Note: Regardless of settings, cursor usage will use the default DB unless otherwise specified.
+# Database routers route models!
 replica_opt_in = os.environ.get("READ_REPLICA_OPT_IN", "")
-READ_REPLICA_OPT_IN: list[type] = [str_to_class(i) for i in replica_opt_in.split(",") if len(i) > 0]
+READ_REPLICA_OPT_IN: list[str] = replica_opt_in.split(",")
 
 
 # Clickhouse Settings

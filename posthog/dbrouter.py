@@ -23,7 +23,12 @@ class ReplicaRouter:
         """
         Reads go to the replica endpoint, but only if opted in
         """
-        return "replica" if model in self.opt_in else "default"
+        # I don't think we could be more explicit!
+        # This could be useful during data migrations, incidents, or testing
+        if "ALL_MODELS_USE_READ_REPLICA" in self.opt_in:
+            return "replica"
+
+        return "replica" if model.__name__ in self.opt_in else "default"
 
     def db_for_write(self, model, **hints):
         """
