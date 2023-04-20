@@ -62,7 +62,7 @@ class Resolver(CloningVisitor):
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         node = super().visit_select_union_query(node)
-        node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.stack])
+        node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
         return node
 
     def visit_select_query(self, node: ast.SelectQuery):
