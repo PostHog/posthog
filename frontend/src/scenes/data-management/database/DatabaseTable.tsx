@@ -73,6 +73,8 @@ export function DatabaseTable({ table }: DatabaseTableProps): JSX.Element {
                                     To table: <code>{String((field as any).table)}</code>
                                 </>
                             )
+                        } else if (type === 'sql') {
+                            return <code>{String((field as any).sql)}</code>
                         } else if (type === 'field_traverser' && Array.isArray((field as any).chain)) {
                             return <code>{(field as any).chain.join('.')}</code>
                         } else if (table == 'events' && type == 'json' && field.key == 'properties') {
