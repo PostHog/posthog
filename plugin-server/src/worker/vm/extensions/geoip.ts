@@ -6,7 +6,12 @@ export function createGeoIp(server: Hub): GeoIPExtension {
     return {
         locate: async function (ipAddress) {
             if (server.mmdb) {
-                return Promise.resolve(server.mmdb.city(ipAddress)).catch((_) => null)
+                try {
+                    return Promise.resolve(server.mmdb.city(ipAddress))
+                } catch (e) {
+                    // Return null if the lookup fails (unknown / invalid IP)
+                    return Promise.resolve(null)
+                }
             } else {
                 return Promise.reject('geoip database is not ready')
             }
