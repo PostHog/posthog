@@ -21,7 +21,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
             "destination": {
                 "type": "S3",
                 "name": "my-production-s3-bucket-destination",
-                "parameters": {
+                "config": {
                     "bucket_name": "my-production-s3-bucket",
                     "region": "us-east-1",
                     "file_name_prefix": "posthog-events/",
@@ -60,7 +60,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
             "destination": {
                 "type": "S3",
                 "name": "my-production-s3-bucket-destination",
-                "parameters": {
+                "config": {
                     "bucket_name": "my-production-s3-bucket",
                     "region": "us-east-1",
                     "key_template": "posthog-events/{table_name}.csv",
