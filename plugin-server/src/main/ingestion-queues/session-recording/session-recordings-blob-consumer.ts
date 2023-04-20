@@ -218,16 +218,13 @@ export class SessionRecordingBlobIngester {
         })
         setupEventHandlers(this.consumer)
 
-        // Somehow here - detect which paritions are being assigned to this consumer
-        // this.consumer.on(this.consumer.events.REBALANCING, (event) => {
-        //     const partitions = this.consumer.getPartitions()
+        this.consumer.on(this.consumer.events.REBALANCING, (event) => {
+            status.debug('⚖️', 'Blob ingestion consumer rebalancing', { event })
+        })
 
-        //     this.sessions.forEach((sessionManager) => {
-        //         if (!partitions.includes(sessionManager.partition)) {
-        //             sessionManager.destroy()
-        //         }
-        //     })
-        // })
+        this.consumer.on(this.consumer.events.GROUP_JOIN, (event) => {
+            status.debug('🏘️', 'Blob ingestion consumer joining group', { event })
+        })
 
         await this.consumer.connect()
         await this.consumer.subscribe({ topic: KAFKA_SESSION_RECORDING_EVENTS })
@@ -246,7 +243,7 @@ export class SessionRecordingBlobIngester {
             },
         })
 
-        // Subscribe to the heatbeat event to track when the consumer has last
+        // Subscribe to the heartbeat event to track when the consumer has last
         // successfully consumed a message. This is used to determine if the
         // consumer is healthy.
         const { HEARTBEAT } = this.consumer.events
