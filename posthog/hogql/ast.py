@@ -21,7 +21,8 @@ from posthog.hogql.database import (
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
-# NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
+# :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
+# :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
 
 camel_case_pattern = re.compile(r"(?<!^)(?=[A-Z])")
 
