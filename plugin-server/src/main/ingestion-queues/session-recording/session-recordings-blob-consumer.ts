@@ -44,7 +44,6 @@ export class SessionRecordingBlobIngester {
 
     constructor(
         private teamManager: TeamManager,
-        private kafka: Kafka,
         private serverConfig: PluginsServerConfig,
         private objectStorage: ObjectStorage
     ) {

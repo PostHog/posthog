@@ -1,6 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { promptLogic } from 'lib/logic/promptLogic'
-import { getEventNamesForAction, objectsEqual, sum, toParams, uuid } from 'lib/utils'
+import { getEventNamesForAction, objectsEqual, shouldCancelQuery, sum, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import type { insightLogicType } from './insightLogicType'
@@ -160,7 +160,7 @@ export const insightLogic = kea<insightLogicType>([
         }),
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
-        cancelChanges: (goToViewMode?: boolean) => ({ goToViewMode }),
+        cancelChanges: true,
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
@@ -355,7 +355,7 @@ export const insightLogic = kea<insightLogicType>([
                         }
                         response = await getJSONOrThrow(fetchResponse)
                     } catch (e: any) {
-                        if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
+                        if (shouldCancelQuery(e)) {
                             actions.abortQuery({
                                 queryId,
                                 view: insight,
@@ -650,12 +650,16 @@ export const insightLogic = kea<insightLogicType>([
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
         insightChanged: [
-            (s) => [s.insight, s.savedInsight, s.filters],
-            (insight, savedInsight, filters): boolean =>
-                (insight.name || '') !== (savedInsight.name || '') ||
-                (insight.description || '') !== (savedInsight.description || '') ||
-                !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
-                !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})),
+            (s) => [s.insight, s.savedInsight, s.filters, s.isUsingDataExploration],
+            (insight, savedInsight, filters, isUsingDataExploration): boolean => {
+                return (
+                    (insight.name || '') !== (savedInsight.name || '') ||
+                    (insight.description || '') !== (savedInsight.description || '') ||
+                    !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
+                    (!isUsingDataExploration &&
+                        !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})))
+                )
+            },
         ],
         isInDashboardContext: [
             () => [router.selectors.location],
@@ -1153,12 +1157,8 @@ export const insightLogic = kea<insightLogicType>([
             }
             actions.setFilters(newFilters)
         },
-        cancelChanges: ({ goToViewMode }) => {
+        cancelChanges: () => {
             actions.setFilters(values.savedInsight.filters || {})
-            if (goToViewMode) {
-                insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
-                eventUsageLogic.actions.reportInsightsTabReset()
-            }
         },
     })),
     events(({ props, values, actions }) => ({

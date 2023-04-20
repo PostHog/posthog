@@ -95,6 +95,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 },
             ],
         ],
+        isUsingDataExploration: [
+            (s) => [s.insightLogicRef],
+            (insightLogicRef) => !!insightLogicRef?.logic.values.isUsingDataExploration,
+        ],
     })),
     sharedListeners(({ actions, values }) => ({
         reloadInsightLogic: () => {
@@ -167,8 +171,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 actions.setSceneState(insightId, insightMode, subscriptionId)
             }
 
-            const isUsingDataExploration = !!values.insightLogicRef?.logic.values.isUsingDataExploration
-
             // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz
             const filters: Partial<FilterType> | null =
                 Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
@@ -202,12 +204,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             overrideFilter: true,
                         }
                     )
-                    if (!isUsingDataExploration) {
+                    if (!values.isUsingDataExploration) {
                         values.insightLogicRef?.logic.actions.loadResults()
                     }
 
                     eventUsageLogic.actions.reportInsightCreated(filters?.insight || InsightType.TRENDS)
-                } else if (filters && !isUsingDataExploration) {
+                } else if (filters && !values.isUsingDataExploration) {
                     values.insightLogicRef?.logic.actions.setFilters(cleanFilters(filters || {}))
                 }
             }
@@ -239,10 +241,24 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         }
     }),
     beforeUnload(({ values }) => ({
-        enabled: () => values.insightMode === ItemMode.Edit && !!values.insightLogicRef?.logic.values.insightChanged,
+        enabled: () => {
+            const currentScene = sceneLogic.findMounted()?.values
+
+            // safeguard against running this check on other scenes
+            if (currentScene?.activeScene !== Scene.Insight) {
+                return false
+            }
+
+            return (
+                values.insightMode === ItemMode.Edit &&
+                (!!values.insightLogicRef?.logic.values.insightChanged ||
+                    !!values.insightDataLogicRef?.logic.values.queryChanged)
+            )
+        },
         message: 'Leave insight? Changes you made will be discarded.',
         onConfirm: () => {
             values.insightLogicRef?.logic.actions.cancelChanges()
+            values.insightDataLogicRef?.logic.actions.cancelChanges()
         },
     })),
 ])

@@ -384,7 +384,7 @@ export function formatPropertyLabel(
                     } `)
 }
 
-// Format a label that gets returned from the /insights api
+/** Format a label that gets returned from the /insights api */
 export function formatLabel(label: string, action: ActionFilter): string {
     if (action.math === 'dau') {
         label += ` (Unique users) `
@@ -406,6 +406,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
     return label.trim()
 }
 
+/** Check objects for deep equality, including "ordering" of properties */
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
@@ -1667,4 +1668,10 @@ export function insightUrlForEvent(event: EventType): string | undefined {
 
 export function inStorybookTestRunner(): boolean {
     return navigator.userAgent.includes('StorybookTestRunner')
+}
+
+export function shouldCancelQuery(error: any): boolean {
+    // We cancel queries "manually" when the request times out or is aborted since in these cases
+    // the query will continue running in ClickHouse
+    return error.name === 'AbortError' || error.message?.name === 'AbortError' || error.status === 504
 }

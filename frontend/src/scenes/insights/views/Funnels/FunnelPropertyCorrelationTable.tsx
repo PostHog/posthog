@@ -225,8 +225,14 @@ export function FunnelPropertyCorrelationTableComponent({
                                     }
                                 >
                                     <LemonButton size="small" onClick={() => setIsPropertiesOpen(true)}>
-                                        {propertyNames.length} propert{propertyNames.length === 1 ? 'y' : 'ies'}{' '}
-                                        selected
+                                        {propertyNames.length === 1 && propertyNames[0] === '$all' ? (
+                                            <>All properties selected</>
+                                        ) : (
+                                            <>
+                                                {propertyNames.length} propert{propertyNames.length === 1 ? 'y' : 'ies'}{' '}
+                                                selected
+                                            </>
+                                        )}
                                     </LemonButton>
                                 </Popover>
                             </>
