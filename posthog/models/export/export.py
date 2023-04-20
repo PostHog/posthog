@@ -28,7 +28,7 @@ class ExportDestination(UUIDModel):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     last_updated_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    parameters: models.JSONField = models.JSONField(default=dict, blank=True)
+    config: models.JSONField = models.JSONField(default=dict, blank=True)
 
     def get_temporal_workflow(self) -> tuple[Type[PostHogWorkflow], Any]:
         return self.destinations_to_workflows[self.type]
@@ -47,7 +47,7 @@ class ExportScheduleManager(models.Manager):
         end_at: dt.datetime | None = None,
         jitter: dt.timedelta | None = None,
         destination_type: str | None = None,
-        destination_parameters: dict | None = None,
+        destination_config: dict | None = None,
         destination_name: str | None = None,
         time_zone_name: str = "Etc/UTC",
     ) -> "ExportSchedule":
@@ -58,7 +58,7 @@ class ExportScheduleManager(models.Manager):
                 name=destination_name,
                 type=destination_type,
                 team=team,
-                parameters=destination_parameters,
+                config=destination_config,
             )
             destination.save()
 
