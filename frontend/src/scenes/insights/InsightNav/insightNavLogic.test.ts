@@ -161,22 +161,6 @@ describe('insightNavLogic', () => {
                 expect(theInsightNavLogicForTheCachedInsight.values.activeView).toEqual(InsightType.FUNNELS)
             })
 
-            it('sets view from setFilters', async () => {
-                await expectLogic(theInsightNavLogic, () => {
-                    theInsightLogic.actions.setFilters({ insight: InsightType.FUNNELS })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
-                })
-            })
-
-            it('does not set view from setInsight if filters not overriding', async () => {
-                await expectLogic(theInsightNavLogic, () => {
-                    theInsightLogic.actions.setInsight({ filters: { insight: InsightType.FUNNELS } }, {})
-                }).toMatchValues({
-                    activeView: InsightType.TRENDS,
-                })
-            })
-
             it('does set view from setInsight if filters are overriding', async () => {
                 await expectLogic(theInsightNavLogic, () => {
                     theInsightLogic.actions.setInsight(

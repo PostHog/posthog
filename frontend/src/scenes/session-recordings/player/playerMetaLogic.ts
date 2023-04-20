@@ -5,7 +5,7 @@ import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { eventWithTime } from 'rrweb/typings/types'
+import { eventWithTime } from '@rrweb/types'
 import { PersonType } from '~/types'
 import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
@@ -32,7 +32,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
         ],
         resolution: [
             (selectors) => [selectors.sessionPlayerData, selectors.currentPlayerPosition],
-            (sessionPlayerData, currentPlayerPosition) => {
+            (sessionPlayerData, currentPlayerPosition): { width: number; height: number } | null => {
                 // Find snapshot to pull resolution from
                 if (!currentPlayerPosition) {
                     return null
@@ -47,15 +47,15 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
 
                 const currIndex = findLastIndex(
                     snapshots,
-                    (s: eventWithTime) => s.timestamp < currentEpochTime && 'width' in s.data
+                    (s: eventWithTime) => s.timestamp < currentEpochTime && (s.data as any).width
                 )
                 if (currIndex === -1) {
                     return null
                 }
                 const snapshot = snapshots[currIndex]
                 return {
-                    width: snapshot.data['width'],
-                    height: snapshot.data['height'],
+                    width: snapshot.data?.['width'],
+                    height: snapshot.data?.['height'],
                 }
             },
             {

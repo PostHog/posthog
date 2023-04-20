@@ -58,105 +58,111 @@ export interface LemonButtonProps extends LemonButtonPropsBase {
 }
 
 /** Styled button. */
-function LemonButtonInternal(
-    {
-        children,
-        active = false,
-        className,
-        disabled,
-        disabledReason,
-        loading,
-        type = 'tertiary',
-        status = 'primary',
-        icon,
-        sideIcon,
-        fullWidth,
-        center,
-        size,
-        tooltip,
-        tooltipPlacement,
-        htmlType = 'button',
-        noPadding,
-        to,
-        targetBlank,
-        disableClientSideRouting,
-        getTooltipPopupContainer,
-        ...buttonProps
-    }: LemonButtonProps,
-    ref: React.Ref<HTMLElement>
-): JSX.Element {
-    if (loading) {
-        icon = <Spinner monocolor />
-    }
-    let tooltipContent: TooltipProps['title']
-    if (disabledReason) {
-        disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
-        if (tooltipContent) {
-            tooltipContent = (
-                <>
-                    {tooltip}
-                    <div className="mt-1 italic">{disabledReason}</div>
-                </>
+export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAttributes<HTMLElement>> =
+    React.forwardRef(
+        (
+            {
+                children,
+                active = false,
+                className,
+                disabled,
+                disabledReason,
+                loading,
+                type = 'tertiary',
+                status = 'primary',
+                icon,
+                sideIcon,
+                fullWidth,
+                center,
+                size,
+                tooltip,
+                tooltipPlacement,
+                htmlType = 'button',
+                noPadding,
+                to,
+                targetBlank,
+                disableClientSideRouting,
+                getTooltipPopupContainer,
+                ...buttonProps
+            },
+            ref
+        ): JSX.Element => {
+            if (loading) {
+                icon = <Spinner monocolor />
+            }
+            let tooltipContent: TooltipProps['title']
+            if (disabledReason) {
+                disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
+                if (tooltipContent) {
+                    tooltipContent = (
+                        <>
+                            {tooltip}
+                            <div className="mt-1 italic">{disabledReason}</div>
+                        </>
+                    )
+                } else {
+                    tooltipContent = <span className="italic">{disabledReason}</span>
+                }
+            } else {
+                tooltipContent = tooltip
+            }
+
+            const ButtonComponent = to ? Link : 'button'
+
+            const linkOnlyProps = to ? { disableClientSideRouting } : {}
+
+            if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
+                buttonProps['aria-label'] = tooltip
+            }
+
+            let workingButton = (
+                <ButtonComponent
+                    type={htmlType}
+                    ref={ref as any}
+                    className={clsx(
+                        'LemonButton',
+                        `LemonButton--${type}`,
+                        `LemonButton--status-${status}`,
+                        noPadding && `LemonButton--no-padding`,
+                        size && `LemonButton--${size}`,
+                        disabled && 'LemonButton--disabled',
+                        active && 'LemonButton--active',
+                        fullWidth && 'LemonButton--full-width',
+                        center && 'LemonButton--centered',
+                        !children && 'LemonButton--no-content',
+                        !!icon && `LemonButton--has-icon`,
+                        !!sideIcon && `LemonButton--has-side-icon`,
+                        className
+                    )}
+                    disabled={disabled || loading}
+                    to={disabled ? undefined : to}
+                    target={targetBlank ? '_blank' : undefined}
+                    {...linkOnlyProps}
+                    {...buttonProps}
+                >
+                    {icon ? <span className="LemonButton__icon">{icon}</span> : null}
+                    {children ? <span className="LemonButton__content flex items-center">{children}</span> : null}
+                    {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
+                </ButtonComponent>
             )
-        } else {
-            tooltipContent = <span className="italic">{disabledReason}</span>
+
+            if (tooltipContent) {
+                workingButton = (
+                    <Tooltip
+                        title={tooltipContent}
+                        placement={tooltipPlacement}
+                        getPopupContainer={getTooltipPopupContainer}
+                    >
+                        {/* If the button is a `button` element and disabled, wrap it in a div so that the tooltip works */}
+                        {disabled && ButtonComponent === 'button' ? <div>{workingButton}</div> : workingButton}
+                    </Tooltip>
+                )
+            }
+
+            return workingButton
         }
-    } else {
-        tooltipContent = tooltip
-    }
-
-    const ButtonComponent = to ? Link : 'button'
-
-    const linkOnlyProps = to ? { disableClientSideRouting } : {}
-
-    if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
-        buttonProps['aria-label'] = tooltip
-    }
-
-    let workingButton = (
-        <ButtonComponent
-            type={htmlType}
-            ref={ref as any}
-            className={clsx(
-                'LemonButton',
-                `LemonButton--${type}`,
-                `LemonButton--status-${status}`,
-                noPadding && `LemonButton--no-padding`,
-                size && `LemonButton--${size}`,
-                disabled && 'LemonButton--disabled',
-                active && 'LemonButton--active',
-                fullWidth && 'LemonButton--full-width',
-                center && 'LemonButton--centered',
-                !children && 'LemonButton--no-content',
-                !!icon && `LemonButton--has-icon`,
-                !!sideIcon && `LemonButton--has-side-icon`,
-                className
-            )}
-            disabled={disabled || loading}
-            to={disabled ? undefined : to}
-            target={targetBlank ? '_blank' : undefined}
-            {...linkOnlyProps}
-            {...buttonProps}
-        >
-            {icon ? <span className="LemonButton__icon">{icon}</span> : null}
-            {children ? <span className="LemonButton__content flex items-center">{children}</span> : null}
-            {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
-        </ButtonComponent>
     )
-
-    if (tooltipContent) {
-        workingButton = (
-            <Tooltip title={tooltipContent} placement={tooltipPlacement} getPopupContainer={getTooltipPopupContainer}>
-                {/* If the button is a `button` element and disabled, wrap it in a div so that the tooltip works */}
-                {disabled ? <div>{workingButton}</div> : workingButton}
-            </Tooltip>
-        )
-    }
-
-    return workingButton
-}
-
-export const LemonButton = React.forwardRef(LemonButtonInternal)
+LemonButton.displayName = 'LemonButton'
 
 export type SideAction = Pick<
     LemonButtonProps,
@@ -221,69 +227,78 @@ export interface LemonButtonWithDropdownProps extends LemonButtonPropsBase {
  * Styled button that opens a dropdown menu on click.
  * The difference vs. plain `LemonButton` is dropdown visibility being controlled internally, which is more convenient.
  */
-export function LemonButtonWithDropdown({
-    dropdown: {
-        onClickOutside,
-        onClickInside,
-        closeOnClickInside = true,
-        className: popoverClassName,
-        ...popoverProps
-    },
-    onClick,
-    className,
-    ...buttonProps
-}: LemonButtonWithDropdownProps): JSX.Element {
-    const parentPopoverId = useContext(PopoverContext)
-    const [dropdownVisible, setDropdownVisible] = useState(false)
+export const LemonButtonWithDropdown: React.FunctionComponent<
+    LemonButtonWithDropdownProps & React.RefAttributes<HTMLButtonElement>
+> = React.forwardRef(
+    (
+        {
+            dropdown: {
+                onClickOutside,
+                onClickInside,
+                closeOnClickInside = true,
+                className: popoverClassName,
+                ...popoverProps
+            },
+            onClick,
+            className,
+            ...buttonProps
+        },
+        ref
+    ): JSX.Element => {
+        const parentPopoverId = useContext(PopoverContext)
+        const [dropdownVisible, setDropdownVisible] = useState(false)
 
-    if (!buttonProps.children) {
-        if (!buttonProps.icon) {
-            buttonProps.icon = popoverProps.placement?.startsWith('right') ? (
+        if (!buttonProps.children) {
+            if (!buttonProps.icon) {
+                buttonProps.icon = popoverProps.placement?.startsWith('right') ? (
+                    <IconChevronRight />
+                ) : (
+                    <IconArrowDropDown />
+                )
+            }
+        } else if (buttonProps.sideIcon === undefined) {
+            buttonProps.sideIcon = popoverProps.placement?.startsWith('right') ? (
                 <IconChevronRight />
             ) : (
                 <IconArrowDropDown />
             )
         }
-    } else if (buttonProps.sideIcon === undefined) {
-        buttonProps.sideIcon = popoverProps.placement?.startsWith('right') ? (
-            <IconChevronRight />
-        ) : (
-            <IconArrowDropDown />
+
+        if (!('visible' in popoverProps)) {
+            popoverProps.visible = dropdownVisible
+        }
+
+        return (
+            <Popover
+                className={popoverClassName}
+                onClickOutside={(e) => {
+                    setDropdownVisible(false)
+                    onClickOutside?.(e)
+                }}
+                onClickInside={(e) => {
+                    e.stopPropagation()
+                    closeOnClickInside && setDropdownVisible(false)
+                    onClickInside?.(e)
+                }}
+                {...popoverProps}
+            >
+                <LemonButton
+                    ref={ref}
+                    className={clsx('LemonButtonWithDropdown', className)}
+                    onClick={(e) => {
+                        setDropdownVisible((state) => !state)
+                        onClick?.(e)
+                        if (parentPopoverId !== 0) {
+                            // If this button is inside another popover, let's not propagate this event so that
+                            // the parent popover doesn't close
+                            e.stopPropagation()
+                        }
+                    }}
+                    active={popoverProps.visible}
+                    {...buttonProps}
+                />
+            </Popover>
         )
     }
-
-    if (!('visible' in popoverProps)) {
-        popoverProps.visible = dropdownVisible
-    }
-
-    return (
-        <Popover
-            className={popoverClassName}
-            onClickOutside={(e) => {
-                setDropdownVisible(false)
-                onClickOutside?.(e)
-            }}
-            onClickInside={(e) => {
-                e.stopPropagation()
-                closeOnClickInside && setDropdownVisible(false)
-                onClickInside?.(e)
-            }}
-            {...popoverProps}
-        >
-            <LemonButton
-                className={clsx('LemonButtonWithDropdown', className)}
-                onClick={(e) => {
-                    setDropdownVisible((state) => !state)
-                    onClick?.(e)
-                    if (parentPopoverId !== 0) {
-                        // If this button is inside another popover, let's not propagate this event so that
-                        // the parent popover doesn't close
-                        e.stopPropagation()
-                    }
-                }}
-                active={popoverProps.visible}
-                {...buttonProps}
-            />
-        </Popover>
-    )
-}
+)
+LemonButtonWithDropdown.displayName = 'LemonButtonWithDropdown'

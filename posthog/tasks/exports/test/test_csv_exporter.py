@@ -20,7 +20,7 @@ from posthog.tasks.exports.csv_exporter import UnexpectedEmptyJsonResponse, add_
 from posthog.test.base import APIBaseTest
 from posthog.utils import absolute_uri
 
-TEST_BUCKET = "Test-Exports"
+TEST_PREFIX = "Test-Exports"
 
 # see GitHub issue #11204
 regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%22product%20viewed%22%2C%22name%22%3A%22product%20viewed%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&display=ActionsTable&insight=TRENDS&interval=day&breakdown=productName&new_entity=%5B%5D&properties=%5B%5D&step_limit=5&funnel_filter=%7B%7D&breakdown_type=event&exclude_events=%5B%5D&path_groupings=%5B%5D&include_event_types=%5B%22%24pageview%22%5D&filter_test_accounts=false&local_path_cleaning_filters=%5B%5D&date_from=-14d&offset=50"
@@ -106,7 +106,7 @@ class TestCSVExporter(APIBaseTest):
             region_name="us-east-1",
         )
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
-        bucket.objects.filter(Prefix=TEST_BUCKET).delete()
+        bucket.objects.filter(Prefix=TEST_PREFIX).delete()
 
     def test_csv_exporter_writes_to_asset_when_object_storage_is_disabled(self) -> None:
         exported_asset = self._create_asset()
@@ -129,7 +129,7 @@ class TestCSVExporter(APIBaseTest):
 
             assert (
                 exported_asset.content_location
-                == f"/{TEST_BUCKET}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+                == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
             )
 
             content = object_storage.read(exported_asset.content_location)

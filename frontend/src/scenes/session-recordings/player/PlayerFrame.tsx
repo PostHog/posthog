@@ -1,5 +1,5 @@
 import React, { MutableRefObject, Ref, useEffect, useRef } from 'react'
-import { Handler, viewportResizeDimension } from 'rrweb/typings/types'
+import { Handler, viewportResizeDimension } from '@rrweb/types'
 import { useActions, useValues } from 'kea'
 import {
     sessionRecordingPlayerLogic,

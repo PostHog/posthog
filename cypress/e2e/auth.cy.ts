@@ -43,7 +43,7 @@ describe('Auth', () => {
         cy.get('[data-attr=password]').type('wrong password').should('have.value', 'wrong password')
         cy.get('[type=submit]').click()
         // There should be an error message now
-        cy.get('.AlertMessage').should('contain', 'Invalid email or password.')
+        cy.get('.LemonBanner').should('contain', 'Invalid email or password.')
         // Now try with the right password
         cy.get('[data-attr=password]').clear().type('12345678')
         cy.get('[type=submit]').click()

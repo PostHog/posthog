@@ -2,7 +2,6 @@ import { kea, props, key, path, selectors, listeners, connect, reducers, actions
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from '../teamLogic'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, InsightLogicProps } from '~/types'
@@ -48,8 +47,6 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
             ['apiParams', 'aggregationGroupTypeIndex'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
-            personPropertiesModel,
-            ['personProperties'],
             groupPropertiesModel,
             ['groupProperties'],
         ],
@@ -58,6 +55,7 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
         setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
         setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
         excludePropertyFromProject: (propertyName: string) => ({ propertyName }),
+        setAllProperties: true,
     }),
     defaults({
         // This is a hack to get `FunnelCorrelationResultsType` imported in `funnelCorrelationLogicType.ts`
@@ -68,8 +66,7 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
                 loadPropertyCorrelations: async (_, breakpoint) => {
-                    const targetProperties =
-                        values.propertyNames.length >= values.allProperties.length ? ['$all'] : values.propertyNames
+                    const targetProperties = values.propertyNames
 
                     if (targetProperties.length === 0) {
                         return { events: [] }
@@ -112,6 +109,7 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
             [] as string[],
             {
                 setPropertyNames: (_, { propertyNames }) => propertyNames,
+                setAllProperties: () => ['$all'],
                 excludePropertyFromProject: (selectedProperties, { propertyName }) => {
                     return selectedProperties.filter((p) => p !== propertyName)
                 },
@@ -158,30 +156,15 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
             (excludedPropertyNames) => (propertyName: string) =>
                 excludedPropertyNames.find((name) => name === propertyName) !== undefined,
         ],
-        inversePropertyNames: [
-            (s) => [s.aggregationGroupTypeIndex, s.personProperties, s.groupProperties],
-            (aggregationGroupTypeIndex, personProperties, groupProperties) => (excludedPersonProperties: string[]) => {
-                const targetProperties =
-                    aggregationGroupTypeIndex !== undefined
-                        ? groupProperties(aggregationGroupTypeIndex)
-                        : personProperties
-                return targetProperties
-                    .map((property) => property.name)
-                    .filter((property) => !excludedPersonProperties.includes(property))
-            },
-        ],
-        allProperties: [
-            (s) => [s.inversePropertyNames, s.excludedPropertyNames],
-            (inversePropertyNames, excludedPropertyNames): string[] => {
-                return inversePropertyNames(excludedPropertyNames || [])
-            },
-        ],
     }),
     listeners(({ actions, values }) => ({
         excludePropertyFromProject: ({ propertyName }) => {
             appendToCorrelationConfig('excluded_person_property_names', values.excludedPropertyNames, propertyName)
         },
         setPropertyNames: async () => {
+            actions.loadPropertyCorrelations({})
+        },
+        setAllProperties: async () => {
             actions.loadPropertyCorrelations({})
         },
     })),

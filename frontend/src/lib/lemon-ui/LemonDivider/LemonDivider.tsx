@@ -34,6 +34,7 @@ export function LemonDivider({
                 !className && (vertical ? 'm-2' : 'my-2'),
                 className
             )}
+            role="separator"
         />
     )
 }

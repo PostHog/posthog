@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { ConfigProvider, Table } from 'antd'
+import { ConfigProvider, Table, Empty } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -22,8 +22,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CorrelationMatrix } from './CorrelationMatrix'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
 import { EventCorrelationActionsCell } from './CorrelationActionsCell'
+import { Link } from 'lib/lemon-ui/Link'
 import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
 
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
@@ -286,14 +286,27 @@ export function FunnelCorrelationTableComponent({
                     </span>
                 </span>
                 <ConfigProvider
-                    renderEmpty={() => (
-                        <FunnelCorrelationTableEmptyState
-                            infoMessage="Correlated events highlights events users have also performed that are likely to have affected their conversion
-                            rate within the funnel."
-                            showLoadResultsButton={!loadedEventCorrelationsTableOnce}
-                            loadResults={() => loadEventCorrelations({})}
-                        />
-                    )}
+                    renderEmpty={() =>
+                        loadedEventCorrelationsTableOnce ? (
+                            <Empty />
+                        ) : (
+                            <p style={{ margin: 'auto', maxWidth: 500 }}>
+                                Correlated events highlights events users have also performed that are likely to have
+                                affected their conversion rate within the funnel.{' '}
+                                <Link to="https://posthog.com/manual/correlation">
+                                    Learn more about correlation analysis.
+                                </Link>
+                                <br />
+                                <LemonButton
+                                    onClick={() => loadEventCorrelations({})}
+                                    type="secondary"
+                                    className="m-auto"
+                                >
+                                    Load results
+                                </LemonButton>
+                            </p>
+                        )
+                    }
                 >
                     <Table
                         dataSource={correlationValues}
