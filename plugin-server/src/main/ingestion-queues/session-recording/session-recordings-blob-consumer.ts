@@ -201,22 +201,23 @@ export class SessionRecordingBlobIngester {
 
         this.offsetManager = new OffsetManager(this.batchConsumer.consumer)
 
-        this.batchConsumer.consumer.on('rebalance', (event) => {
-            /**
-             * This event is received when the consumer group _starts_ rebalancing.
-             * During the rebalance process, consumers within the group stop processing messages temporarily.
-             * They cannot receive or process events until the rebalance is completed
-             * and the new partition assignments have been made.
-             *
-             * Since that means session managers don't know they will still be assigned to a partition
-             * They must stop flushing sessions to S3 until the rebalance is complete.
-             */
-            status.info('⚖️', 'Blob ingestion consumer rebalancing', { event })
-            this.sessions.forEach((session) => session.pauseFlushing())
-        })
+        // NOTE: Do we need to pause when the rebalancing starts??
+        // this.batchConsumer.consumer.on('rebalance', (event) => {
+        //     /**
+        //      * This event is received when the consumer group _starts_ rebalancing.
+        //      * During the rebalance process, consumers within the group stop processing messages temporarily.
+        //      * They cannot receive or process events until the rebalance is completed
+        //      * and the new partition assignments have been made.
+        //      *
+        //      * Since that means session managers don't know they will still be assigned to a partition
+        //      * They must stop flushing sessions to S3 until the rebalance is complete.
+        //      */
+        //     status.info('⚖️', 'Blob ingestion consumer rebalancing', { event })
+        //     this.sessions.forEach((session) => session.pauseFlushing())
+        // })
 
         // TODO: This used to be group_join - subscribed is probably not right.
-        this.batchConsumer.consumer.on('subscribed', (event) => {
+        this.batchConsumer.consumer.on('rebalance', (err, assignments) => {
             /**
              * group_join is received whenever a consumer has new partition assigments.
              * e.g. on start or rebalance complete.
@@ -226,35 +227,15 @@ export class SessionRecordingBlobIngester {
             status.info('🏘️', 'Blob ingestion consumer joining group')
             // TODO: this has to be paired with removing sessions for partitions no longer assigned to this consumer
 
-            const assignments = event.payload.memberAssignment
-            if (Object.keys(assignments).length === 0) {
-                status.warn('⚠️', 'Blob ingestion consumer has no topics assigned', {
-                    event,
-                })
-                this.sessions.forEach(async (session) => {
+            const partitions = assignments.map((assignment) => assignment.partition)
+
+            this.sessions.forEach(async (session) => {
+                if (partitions.includes(session.partition)) {
+                    session.resumeFlushing()
+                } else {
                     await session.destroy()
-                })
-            } else if (Object.keys(assignments).length > 1) {
-                status.error(
-                    '⚠️',
-                    'Blob ingestion consumer has more than one topic assigned. That is not supposed to happen',
-                    { event }
-                )
-                // we are in an unexpected state, so we pause flushing sessions
-                this.sessions.forEach((session) => {
-                    session.pauseFlushing()
-                })
-            } else {
-                status.info('🏘️', 'Blob ingestion consumer has partitions assigned', { event })
-                const partitions = Object.values(assignments)[0]
-                this.sessions.forEach(async (session) => {
-                    if (partitions.includes(session.partition)) {
-                        session.resumeFlushing()
-                    } else {
-                        await session.destroy()
-                    }
-                })
-            }
+                }
+            })
         })
 
         // Make sure to disconnect the producer after we've finished consuming.
