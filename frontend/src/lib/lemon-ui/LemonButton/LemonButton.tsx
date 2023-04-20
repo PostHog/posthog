@@ -102,15 +102,15 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             },
             ref
         ): JSX.Element => {
-            const popopverPlacement = useContext(PopoverPlacementContext)
+            const popoverPlacement = useContext(PopoverPlacementContext)
 
-            if (popopverPlacement) {
+            if (popoverPlacement) {
                 if (!children) {
                     if (icon === undefined) {
-                        icon = popopverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+                        icon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
                     }
                 } else if (sideIcon === undefined) {
-                    sideIcon = popopverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+                    sideIcon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
                 }
             }
             if (loading) {
