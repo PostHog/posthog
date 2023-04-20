@@ -128,7 +128,6 @@ export interface PluginsServerConfig {
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
-    INTERNAL_MMDB_SERVER_PORT: number // port of the internal server used for IP location (0 means random)
     JOB_QUEUES: string // retry queue engine and fallback queues
     JOB_QUEUE_GRAPHILE_URL: string // use a different postgres connection in the graphile worker
     JOB_QUEUE_GRAPHILE_SCHEMA: string // the postgres schema that the graphile worker
