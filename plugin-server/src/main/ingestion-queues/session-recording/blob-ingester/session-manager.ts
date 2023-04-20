@@ -46,9 +46,14 @@ export class SessionManager {
         private readonly onFinish: (offsetsToRemove: number[]) => void
     ) {
         this.buffer = this.createBuffer()
+
+        // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
+        // TODO: Check that the offset is higher than the lastProcessed
+        // If not - ignore it
+        // If it is - update lastProcessed and process it
         if (message.chunk_count === 1) {
             await this.addToBuffer(message)
         } else {
@@ -153,6 +158,7 @@ export class SessionManager {
             const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
 
+            // TODO: Sync the last processed offset to redis
             this.onFinish(offsets)
         }
     }
