@@ -17,6 +17,7 @@ import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions
 import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 
 /**
  * Having this function inside the `humanizeActivity module was causing very weird test errors in other modules
@@ -34,6 +35,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return insightActivityDescriber
         case ActivityScope.PERSON:
             return personActivityDescriber
+        case ActivityScope.EVENT_DEFINITION:
+            return dataManagementActivityDescriber
         default:
             return undefined
     }
