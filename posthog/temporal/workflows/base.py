@@ -2,8 +2,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-from aiohttp import ClientSession
+from asgiref.sync import sync_to_async
 from temporalio import activity
+
+from posthog.models.export import ExportRun
 
 
 class PostHogWorkflow(ABC):
@@ -39,9 +41,30 @@ class PostHogWorkflow(ABC):
 @dataclass
 class CreateExportRunInputs:
     team_id: int
+    schedule_name: str
+    data_interval_start: str
+    data_interval_end: str
 
 
 @activity.defn
-async def create_export_run(inputs: CreateExportRunInputs):
-    async with ClientSession() as s:
-        s.post("")
+async def create_export_run(inputs: CreateExportRunInputs) -> str:
+    """Activity that creates an ExportRun."""
+    activity.logger.info("Creating ExportRun model instance.")
+
+    create_run = sync_to_async(ExportRun.objects.create)
+    run = await create_run(team_id=inputs.team_id, schedule_name=inputs.schedule_name)
+
+    return run.id
+
+
+@dataclass
+class UpdateExportRunStatusInputs:
+    run_id: str
+    status: str
+
+
+@activity.defn
+async def update_export_run_status(inputs: UpdateExportRunStatusInputs):
+    """Activity that updates the status of an ExportRun."""
+    update_run_status = sync_to_async(ExportRun.objects.update_status)
+    await update_run_status(run_id=inputs.run_id, status=inputs.status)
