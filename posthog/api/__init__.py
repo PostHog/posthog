@@ -112,6 +112,7 @@ app_metrics_router.register(
 batch_exports_router = projects_router.register(
     r"batch_exports", batch_exports.ExportScheduleViewSet, "batch_exports", ["team_id"]
 )
+batch_exports_router.register(r"runs", batch_exports.ExportRunViewSet, "runs", ["team_id", "schedule_id"])
 
 
 # Organizations nested endpoints

@@ -1,5 +1,9 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any
+
+from aiohttp import ClientSession
+from temporalio import activity
 
 
 class PostHogWorkflow(ABC):
@@ -30,3 +34,14 @@ class PostHogWorkflow(ABC):
         own inputs.
         """
         return NotImplemented
+
+
+@dataclass
+class CreateExportRunInputs:
+    team_id: int
+
+
+@activity.defn
+async def create_export_run(inputs: CreateExportRunInputs):
+    async with ClientSession() as s:
+        s.post("")
