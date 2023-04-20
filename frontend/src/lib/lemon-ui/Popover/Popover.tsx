@@ -46,7 +46,8 @@ export interface PopoverProps {
      * **/
     additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
     referenceRef?: UseFloatingReturn['refs']['reference']
-    style?: React.CSSProperties /** Whether the parent popover should be closed as well on click. Useful for menus  */
+    style?: React.CSSProperties
+    /** Whether the parent popover should be closed as well on click. Useful for menus. */
     closeParentPopoverOnClickInside?: boolean
     getPopupContainer?: () => HTMLElement
     /** Whether to show an arrow pointing to a reference element */
