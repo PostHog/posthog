@@ -203,7 +203,7 @@ export class SessionRecordingBlobIngester {
     public async start(): Promise<void> {
         status.info('🔁', 'Starting session recordings blob consumer')
 
-        // Currently we can't reuse any files stored on disk so we opt to delete them all
+        // Currently we can't reuse any files stored on disk, so we opt to delete them all
 
         rmSync(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
         mkdirSync(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true })
@@ -228,7 +228,7 @@ export class SessionRecordingBlobIngester {
              * Since that means session managers don't know they will still be assigned to a partition
              * They must stop flushing sessions to S3 until the rebalance is complete.
              */
-            status.debug('⚖️', 'Blob ingestion consumer rebalancing', { event })
+            status.info('⚖️', 'Blob ingestion consumer rebalancing', { event })
             this.sessions.forEach((session) => session.pauseFlushing())
         })
 
@@ -239,9 +239,38 @@ export class SessionRecordingBlobIngester {
              *
              * Since we may have paused flushing sessions on rebalance, we need to resume them here.
              */
-            status.debug('🏘️', 'Blob ingestion consumer joining group', { event })
+            status.info('🏘️', 'Blob ingestion consumer joining group')
             // TODO: this has to be paired with removing sessions for partitions no longer assigned to this consumer
-            this.sessions.forEach((session) => session.resumeFlushing())
+
+            const assignments = event.payload.memberAssignment
+            if (Object.keys(assignments).length === 0) {
+                status.warn('⚠️', 'Blob ingestion consumer has no topics assigned', {
+                    event,
+                })
+                this.sessions.forEach(async (session) => {
+                    await session.destroy()
+                })
+            } else if (Object.keys(assignments).length > 1) {
+                status.error(
+                    '⚠️',
+                    'Blob ingestion consumer has more than one topic assigned. That is not supposed to happen',
+                    { event }
+                )
+                // we are in an unexpected state, so we pause flushing sessions
+                this.sessions.forEach((session) => {
+                    session.pauseFlushing()
+                })
+            } else {
+                status.info('🏘️', 'Blob ingestion consumer has partitions assigned', { event })
+                const partitions = Object.values(assignments)[0]
+                this.sessions.forEach(async (session) => {
+                    if (partitions.includes(session.partition)) {
+                        session.resumeFlushing()
+                    } else {
+                        await session.destroy()
+                    }
+                })
+            }
         })
 
         await this.consumer.connect()

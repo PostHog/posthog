@@ -23,7 +23,7 @@ describe('offset-manager', () => {
         offsetManager.addOffset(TOPIC, 1, 5)
         offsetManager.addOffset(TOPIC, 3, 4)
 
-        expect(offsetManager.offsetsByPartionTopic).toEqual(
+        expect(offsetManager.offsetsByPartitionTopic).toEqual(
             new Map([
                 ['test-session-recordings-1', [1, 2, 5]],
                 ['test-session-recordings-2', [1]],
@@ -42,7 +42,7 @@ describe('offset-manager', () => {
 
         await offsetManager.removeOffsets(TOPIC, 1, [1, 2])
 
-        expect(offsetManager.offsetsByPartionTopic).toEqual(
+        expect(offsetManager.offsetsByPartitionTopic).toEqual(
             new Map([
                 ['test-session-recordings-1', [5]],
                 ['test-session-recordings-2', [1]],

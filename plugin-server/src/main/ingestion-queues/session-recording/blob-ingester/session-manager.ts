@@ -31,10 +31,14 @@ type SessionBuffer = {
 }
 
 export class SessionManager {
+    get flushingPaused(): boolean {
+        return this._flushingPaused
+    }
+
     chunks: Map<string, IncomingRecordingMessage[]> = new Map()
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
-    private flushingPaused = false
+    private _flushingPaused = false
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -63,11 +67,13 @@ export class SessionManager {
     }
 
     public pauseFlushing() {
-        this.flushingPaused = true
+        status.info('🚽', `Pausing flushing for buffer ${this.sessionId}...`)
+        this._flushingPaused = true
     }
 
     public resumeFlushing() {
-        this.flushingPaused = false
+        status.info('🚽', `Resuming flushing for buffer ${this.sessionId}...`)
+        this._flushingPaused = false
     }
 
     public async flushIfNeccessary(): Promise<void> {
@@ -82,12 +88,12 @@ export class SessionManager {
             }kb capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${this.buffer.count} ${Math.round(
                 bufferSizeKb
             )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size}) flushingIsPaused: ${
-                this.flushingPaused
+                this._flushingPaused
             }`
         )
 
         const shouldFlush =
-            !this.flushingPaused ||
+            !this._flushingPaused ||
             gzippedCapacity > 1 ||
             Date.now() - this.buffer.createdAt.getTime() >=
                 this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
@@ -108,7 +114,7 @@ export class SessionManager {
             return
         }
 
-        if (this.flushingPaused) {
+        if (this._flushingPaused) {
             status.warn('⚠️', 'Flush called but flushing is paused')
             return
         }
@@ -152,6 +158,7 @@ export class SessionManager {
             const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
 
+            status.debug('🚽', `Flushed buffer ${this.sessionId} (removing offsets: ${offsets})`)
             this.onFinish(offsets)
         }
     }
@@ -228,6 +235,7 @@ export class SessionManager {
 
     public destroy(): Promise<void> {
         // TODO: Should we delete the buffer files??
+        status.debug('␡', `Destroying session manager ${this.sessionId}`)
         this.onFinish([])
 
         return Promise.resolve()

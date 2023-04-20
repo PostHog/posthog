@@ -5,7 +5,7 @@
  * going to one partition, but for any given ID they should land all on the same partition.
  *
  * As we want to buffer events before writing them to S3, we don't auto-commit our kafka consumer offsets.
- * Instead we track all offsets that are "in-flight" and when we flush a buffer to S3 we remove these in-flight offsets
+ * Instead, we track all offsets that are "in-flight" and when we flush a buffer to S3 we remove these in-flight offsets
  * and write the oldest offset to Kafka. This allows us to resume from the oldest offset in the case of a consumer
  * restart or rebalance, even if some of the following offsets have already been written to S3.
  *
@@ -23,19 +23,19 @@ import { status } from '../../../../utils/status'
 export class OffsetManager {
     // We have to track every message's offset so that we can commit them only after they've been written to S3
     // TODO: Change this to an ordered array.
-    offsetsByPartionTopic: Map<string, number[]> = new Map()
+    offsetsByPartitionTopic: Map<string, number[]> = new Map()
 
     constructor(private consumer: Consumer) {}
 
     public addOffset(topic: string, partition: number, offset: number): void {
         const key = `${topic}-${partition}`
 
-        if (!this.offsetsByPartionTopic.has(key)) {
-            this.offsetsByPartionTopic.set(key, [])
+        if (!this.offsetsByPartitionTopic.has(key)) {
+            this.offsetsByPartitionTopic.set(key, [])
         }
 
         // TODO: We should parseInt when we handle the message
-        this.offsetsByPartionTopic.get(key)?.push(offset)
+        this.offsetsByPartitionTopic.get(key)?.push(offset)
     }
 
     // TODO: Ensure all offsets passed here are already checked to be part of the same partition
@@ -53,13 +53,13 @@ export class OffsetManager {
         const offsetsToRemove = offsets.sort((a, b) => a - b)
 
         const key = `${topic}-${partition}`
-        const inFlightOffsets = this.offsetsByPartionTopic.get(key)
+        const inFlightOffsets = this.offsetsByPartitionTopic.get(key)
 
-        status.info(`Current offsets: ${inFlightOffsets}`)
-        status.info(`Removing offsets: ${offsets}`)
+        status.info('💾', `Current offsets: ${inFlightOffsets}`)
+        status.info('💾', `Removing offsets: ${offsets}`)
 
         if (!inFlightOffsets) {
-            status.error(`No offsets found for key: ${key}. This should never happen`)
+            status.error('💾', `No offsets found for key: ${key}. This should never happen`)
             return
         }
 
@@ -77,10 +77,10 @@ export class OffsetManager {
             }
         })
 
-        this.offsetsByPartionTopic.set(key, inFlightOffsets)
+        this.offsetsByPartitionTopic.set(key, inFlightOffsets)
 
         if (offsetToCommit) {
-            status.info(`Committing offset ${offsetToCommit} for ${topic}-${partition}`)
+            status.info('💾', `Committing offset ${offsetToCommit} for ${topic}-${partition}`)
             await this.consumer.commitOffsets([
                 {
                     topic,
@@ -89,7 +89,7 @@ export class OffsetManager {
                 },
             ])
         } else {
-            status.info(`No offset to commit from: ${inFlightOffsets}`)
+            status.info('💾', `No offset to commit from: ${inFlightOffsets}`)
         }
 
         return offsetToCommit
