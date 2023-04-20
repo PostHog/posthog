@@ -31,14 +31,9 @@ type SessionBuffer = {
 }
 
 export class SessionManager {
-    get flushingPaused(): boolean {
-        return this._flushingPaused
-    }
-
     chunks: Map<string, IncomingRecordingMessage[]> = new Map()
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
-    private _flushingPaused = false
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -71,16 +66,6 @@ export class SessionManager {
         return this.buffer.count === 0 && this.chunks.size === 0
     }
 
-    public pauseFlushing() {
-        status.info('🚽', `Pausing flushing for buffer ${this.sessionId}...`)
-        this._flushingPaused = true
-    }
-
-    public resumeFlushing() {
-        status.info('🚽', `Resuming flushing for buffer ${this.sessionId}...`)
-        this._flushingPaused = false
-    }
-
     public async flushIfNeccessary(shouldLog = false): Promise<void> {
         const bufferSizeKb = this.buffer.size / 1024
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
@@ -93,9 +78,7 @@ export class SessionManager {
                     this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
                 }kb capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${this.buffer.count} ${Math.round(
                     bufferSizeKb
-                )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size}) flushingIsPaused: ${
-                    this._flushingPaused
-                }`
+                )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size})`
             )
         }
 
@@ -104,7 +87,7 @@ export class SessionManager {
             Date.now() - this.buffer.createdAt.getTime() >=
                 this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
 
-        if (!this.flushingPaused && readyToFlush) {
+        if (readyToFlush) {
             status.info('🚽', `Flushing buffer ${this.sessionId}...`)
             await this.flush()
         }
@@ -117,11 +100,6 @@ export class SessionManager {
     public async flush(): Promise<void> {
         if (this.flushBuffer) {
             status.warn('⚠️', "Flush called but we're already flushing")
-            return
-        }
-
-        if (this._flushingPaused) {
-            status.warn('⚠️', 'Flush called but flushing is paused')
             return
         }
 

@@ -59,6 +59,7 @@ export class OffsetManager {
         status.info('💾', `Removing offsets: ${offsets}`)
 
         if (!inFlightOffsets) {
+            // TODO: Add a metric so that we can see if and when this happens
             status.error('💾', `No offsets found for key: ${key}. This should never happen`)
             return
         }

@@ -216,7 +216,7 @@ export class SessionRecordingBlobIngester {
         //     this.sessions.forEach((session) => session.pauseFlushing())
         // })
 
-        this.batchConsumer.consumer.on('rebalance', (err, assignments) => {
+        this.batchConsumer.consumer.on('rebalance', async (err, assignments) => {
             /**
              * group_join is received whenever a consumer has new partition assigments.
              * e.g. on start or rebalance complete.
@@ -234,13 +234,13 @@ export class SessionRecordingBlobIngester {
 
             const partitions = assignments.map((assignment) => assignment.partition)
 
-            this.sessions.forEach(async (session) => {
-                if (partitions.includes(session.partition)) {
-                    session.resumeFlushing()
-                } else {
-                    await session.destroy()
-                }
-            })
+            // TODO: Iterate over offsetmanager and remove all no longer tracked partitions
+
+            await Promise.all(
+                [...this.sessions.values()]
+                    .filter((session) => !partitions.includes(session.partition))
+                    .map((session) => session.destroy())
+            )
         })
 
         // Make sure to disconnect the producer after we've finished consuming.
