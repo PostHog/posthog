@@ -141,8 +141,8 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem): Human
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> <div className="highlighted-activity">deleted</div>{' '}
-                    <DescribeType logItem={logItem} /> {nameAndLink(logItem)}
+                    <strong>{logItem.user.first_name}</strong> deleted <DescribeType logItem={logItem} />{' '}
+                    {nameAndLink(logItem)}
                 </>
             ),
         }
