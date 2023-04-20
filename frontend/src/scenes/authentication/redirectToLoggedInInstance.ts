@@ -32,7 +32,7 @@ const REDIRECT_TIMEOUT = 2500
 const SUBDOMAIN_TO_NAME = {
     eu: 'EU',
     app: 'US',
-}
+} as const
 
 export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
     const currentSubdomain = window.location.hostname.split('.')[0]
