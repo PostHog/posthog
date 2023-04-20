@@ -5,6 +5,32 @@ import { SessionManager } from '../../../../../src/main/ingestion-queues/session
 import { compressToString } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../fixtures'
 
+async function assertFlushDoesNotRun(sessionManager: SessionManager, mockFinish: jest.Mock, file: string) {
+    const flushPromise = sessionManager.flush()
+
+    expect(sessionManager.buffer.count).toEqual(1)
+    expect(sessionManager.flushBuffer?.count).toEqual(undefined)
+
+    await flushPromise
+
+    expect(sessionManager.flushBuffer).toEqual(undefined)
+    expect(mockFinish).toBeCalledTimes(0)
+    expect(fs.existsSync(file)).toEqual(true)
+}
+
+async function assertFlushSucceeds(sessionManager: SessionManager, mockFinish: jest.Mock, file: string) {
+    const afterResumeFlushPromise = sessionManager.flush()
+
+    expect(sessionManager.buffer.count).toEqual(0)
+    expect(sessionManager.flushBuffer?.count).toEqual(1)
+
+    await afterResumeFlushPromise
+
+    expect(sessionManager.flushBuffer).toEqual(undefined)
+    expect(mockFinish).toBeCalledTimes(1)
+    expect(fs.existsSync(file)).toEqual(false)
+}
+
 describe('session-manager', () => {
     let sessionManager: SessionManager
     const mockFinish = jest.fn()
@@ -43,16 +69,35 @@ describe('session-manager', () => {
         const file = sessionManager.buffer.file
         expect(fs.existsSync(file)).toEqual(true)
 
-        const flushPromise = sessionManager.flush()
+        await assertFlushSucceeds(sessionManager, mockFinish, file)
+    })
 
-        expect(sessionManager.buffer.count).toEqual(0)
-        expect(sessionManager.flushBuffer?.count).toEqual(1)
+    it('does not flush to S3 when paused', async () => {
+        const event = createIncomingRecordingMessage()
+        await sessionManager.add(event)
+        expect(sessionManager.buffer.count).toEqual(1)
+        const file = sessionManager.buffer.file
+        expect(fs.existsSync(file)).toEqual(true)
 
-        await flushPromise
+        sessionManager.pauseFlushing()
 
-        expect(sessionManager.flushBuffer).toEqual(undefined)
-        expect(mockFinish).toBeCalledTimes(1)
-        expect(fs.existsSync(file)).toEqual(false)
+        await assertFlushDoesNotRun(sessionManager, mockFinish, file)
+    })
+
+    it('flushes to S3 after flushing is resumed', async () => {
+        const event = createIncomingRecordingMessage()
+        await sessionManager.add(event)
+        expect(sessionManager.buffer.count).toEqual(1)
+        const file = sessionManager.buffer.file
+        expect(fs.existsSync(file)).toEqual(true)
+
+        sessionManager.pauseFlushing()
+
+        await assertFlushDoesNotRun(sessionManager, mockFinish, file)
+
+        sessionManager.resumeFlushing()
+
+        await assertFlushSucceeds(sessionManager, mockFinish, file)
     })
 
     it('flushes messages and whilst collecting new ones', async () => {
