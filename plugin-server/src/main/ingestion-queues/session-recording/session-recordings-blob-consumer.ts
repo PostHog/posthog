@@ -218,11 +218,29 @@ export class SessionRecordingBlobIngester {
         setupEventHandlers(this.consumer)
 
         this.consumer.on(this.consumer.events.REBALANCING, (event) => {
+            /**
+             * This event is received when the consumer group _starts_ rebalancing.
+             * During the rebalance process, consumers within the group stop processing messages temporarily.
+             * They cannot receive or process events until the rebalance is completed
+             * and the new partition assignments have been made.
+             *
+             * Since that means session managers don't know they will still be assigned to a partition
+             * They must stop flushing sessions to S3 until the rebalance is complete.
+             */
             status.debug('⚖️', 'Blob ingestion consumer rebalancing', { event })
+            this.sessions.forEach((session) => session.pauseFlushing())
         })
 
         this.consumer.on(this.consumer.events.GROUP_JOIN, (event) => {
+            /**
+             * group_join is received whenever a consumer has new partition assigments.
+             * e.g. on start or rebalance complete.
+             *
+             * Since we may have paused flushing sessions on rebalance, we need to resume them here.
+             */
             status.debug('🏘️', 'Blob ingestion consumer joining group', { event })
+            // TODO: this has to be paired with removing sessions for partitions no longer assigned to this consumer
+            this.sessions.forEach((session) => session.resumeFlushing())
         })
 
         await this.consumer.connect()
