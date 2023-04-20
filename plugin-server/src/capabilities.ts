@@ -41,13 +41,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             }
         case 'recordings-ingestion':
             return {
-                mmdb: false,
                 sessionRecordingIngestion: true,
                 ...sharedCapabilities,
             }
         case 'recordings-blob-ingestion':
             return {
-                mmdb: false,
                 sessionRecordingBlobIngestion: true,
                 ...sharedCapabilities,
             }
