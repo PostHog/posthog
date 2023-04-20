@@ -243,6 +243,7 @@ export class SessionManager {
     public destroy(): Promise<void> {
         // TODO: Should we delete the buffer files??
         status.debug('␡', `Destroying session manager ${this.sessionId}`)
+        // TODO: We need to not just destroy the manager but also ensure all the tracked offsets are dropped
         this.onFinish([])
 
         return Promise.resolve()

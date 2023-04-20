@@ -216,7 +216,6 @@ export class SessionRecordingBlobIngester {
         //     this.sessions.forEach((session) => session.pauseFlushing())
         // })
 
-        // TODO: This used to be group_join - subscribed is probably not right.
         this.batchConsumer.consumer.on('rebalance', (err, assignments) => {
             /**
              * group_join is received whenever a consumer has new partition assigments.
@@ -226,6 +225,12 @@ export class SessionRecordingBlobIngester {
              */
             status.info('🏘️', 'Blob ingestion consumer joining group')
             // TODO: this has to be paired with removing sessions for partitions no longer assigned to this consumer
+
+            if (err) {
+                status.error('⚠️', 'Blob ingestion consumer failed to join group', { err })
+                // TODO: What do we do here - fataly error out?
+                return
+            }
 
             const partitions = assignments.map((assignment) => assignment.partition)
 
