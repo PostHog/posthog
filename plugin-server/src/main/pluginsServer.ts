@@ -463,9 +463,12 @@ export async function startPluginsServer(
             }
             const ingester = new SessionRecordingBlobIngester(teamManager, serverConfig, s3)
             await ingester.start()
-            stopSessionRecordingBlobConsumer = () => ingester.stop()
-            joinSessionRecordingBlobConsumer = () => ingester.join()
-            healthChecks['session-recordings-blob'] = () => ingester.isHealthy()
+            const batchConsumer = ingester.batchConsumer
+            if (batchConsumer) {
+                stopSessionRecordingBlobConsumer = () => ingester.stop()
+                joinSessionRecordingBlobConsumer = () => batchConsumer.join()
+                healthChecks['session-recordings-blob'] = () => batchConsumer.isHealthy() ?? false
+            }
         }
 
         if (capabilities.http) {
@@ -492,6 +495,9 @@ export async function startPluginsServer(
         // ```
         if (joinSessionRecordingEventsConsumer) {
             joinSessionRecordingEventsConsumer().catch(closeJobs)
+        }
+        if (joinSessionRecordingBlobConsumer) {
+            joinSessionRecordingBlobConsumer().catch(closeJobs)
         }
 
         return serverInstance ?? { stop: closeJobs }

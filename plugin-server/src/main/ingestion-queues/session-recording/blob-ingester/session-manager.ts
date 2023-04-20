@@ -55,7 +55,7 @@ export class SessionManager {
             await this.addToChunks(message)
         }
 
-        await this.flushIfNeccessary()
+        await this.flushIfNeccessary(true)
     }
 
     public get isEmpty(): boolean {
@@ -70,29 +70,30 @@ export class SessionManager {
         this.flushingPaused = false
     }
 
-    public async flushIfNeccessary(): Promise<void> {
+    public async flushIfNeccessary(shouldLog = false): Promise<void> {
         const bufferSizeKb = this.buffer.size / 1024
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
 
-        status.info(
-            '🚽',
-            `Buffer ${this.sessionId}:: buffer size: ${
-                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
-            }kb capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${this.buffer.count} ${Math.round(
-                bufferSizeKb
-            )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size}) flushingIsPaused: ${
-                this.flushingPaused
-            }`
-        )
+        if (shouldLog) {
+            status.info(
+                '🚽',
+                `Buffer ${this.sessionId}:: buffer size: ${
+                    this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
+                }kb capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${this.buffer.count} ${Math.round(
+                    bufferSizeKb
+                )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size}) flushingIsPaused: ${
+                    this.flushingPaused
+                }`
+            )
+        }
 
         const shouldFlush =
-            !this.flushingPaused ||
             gzippedCapacity > 1 ||
             Date.now() - this.buffer.createdAt.getTime() >=
                 this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
 
-        if (shouldFlush) {
+        if (!this.flushingPaused && shouldFlush) {
             status.info('🚽', `Flushing buffer ${this.sessionId}...`)
             await this.flush()
         }
