@@ -22,7 +22,7 @@ def parse_string(text: str) -> str:
         text = text.replace("{{", "{")
         text = text.replace("\\{", "{")
     else:
-        raise HogQLException(f"Invalid string literal, must start and end with the same quote ref: {text}")
+        raise HogQLException(f"Invalid string literal, must start and end with the same quote type: {text}")
 
     # copied from clickhouse_driver/util/escape.py
     text = text.replace("\\b", "\b")
