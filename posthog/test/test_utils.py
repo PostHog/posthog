@@ -11,8 +11,8 @@ from rest_framework.request import Request
 
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.exceptions import RequestParsingError
-from posthog.models import EventDefinition
-from posthog.settings.utils import get_from_env
+from posthog.models import EventDefinition, User
+from posthog.settings.utils import get_from_env, str_to_class
 from posthog.test.base import BaseTest
 from posthog.utils import (
     PotentialSecurityProblemException,
@@ -338,10 +338,18 @@ class TestShouldRefresh(TestCase):
         """
         regression test see https://sentry.io/organizations/posthog/issues/3719740579/events/latest/?project=1899813&referrer=latest-event
         """
-        assert get_compare_period_dates(
-            date_from=datetime(2022, 1, 1, 0, 0),
-            date_to=datetime(2022, 11, 4, 21, 20, 41, 730028),
-            date_from_delta_mapping={"day": 1, "month": 1},
-            date_to_delta_mapping=None,
-            interval="day",
-        ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 23, 59, 59, 999999))
+        assert (
+            get_compare_period_dates(
+                date_from=datetime(2022, 1, 1, 0, 0),
+                date_to=datetime(2022, 11, 4, 21, 20, 41, 730028),
+                date_from_delta_mapping={"day": 1, "month": 1},
+                date_to_delta_mapping=None,
+                interval="day",
+            )
+            == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 23, 59, 59, 999999))
+        )
+
+class TestStrToClass(TestCase):
+    def test_can_resolve_str(self) -> None:
+        user_class = str_to_class("posthog.models.user.User")
+        self.assertEqual(User, user_class)
