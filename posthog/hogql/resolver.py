@@ -172,21 +172,21 @@ class Resolver(CloningVisitor):
             if self.database.has_table(table_name):
                 database_table = self.database.get_table(table_name)
                 if isinstance(database_table, ast.LazyTable):
-                    nodeTableType = ast.LazyTableType(table=database_table)
+                    node_table_type = ast.LazyTableType(table=database_table)
                 else:
-                    nodeTableType = ast.TableType(table=database_table)
+                    node_table_type = ast.TableType(table=database_table)
 
                 if table_alias == table_name:
-                    node_type = nodeTableType
+                    node_type = node_table_type
                 else:
-                    node_type = ast.TableAliasType(alias=table_alias, table_type=nodeTableType)
+                    node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
                 scope.tables[table_alias] = node_type
 
                 # :TRICKY: Make sure to visit _all_ expr nodes. Otherwise, the printer may complain about unresolved types.
                 node = cast(ast.JoinExpr, clone_expr(node))
                 node.type = node_type
                 node.table = cast(ast.Field, clone_expr(node.table))
-                node.table.type = nodeTableType
+                node.table.type = node_table_type
                 node.next_join = self.visit(node.next_join)
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)
