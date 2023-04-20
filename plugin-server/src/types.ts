@@ -132,6 +132,7 @@ export interface PluginsServerConfig {
     JOB_QUEUE_GRAPHILE_URL: string // use a different postgres connection in the graphile worker
     JOB_QUEUE_GRAPHILE_SCHEMA: string // the postgres schema that the graphile worker
     JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean // enable this to increase job queue throughput if not using pgbouncer
+    JOB_QUEUE_GRAPHILE_CONCURRENCY: number // concurrent jobs per pod
     JOB_QUEUE_S3_AWS_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_REGION: string

@@ -50,16 +50,21 @@ export class SessionManager {
         private readonly onFinish: (offsetsToRemove: number[]) => void
     ) {
         this.buffer = this.createBuffer()
+
+        // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
+        // TODO: Check that the offset is higher than the lastProcessed
+        // If not - ignore it
+        // If it is - update lastProcessed and process it
         if (message.chunk_count === 1) {
             await this.addToBuffer(message)
         } else {
             await this.addToChunks(message)
         }
 
-        await this.flushIfNeccessary()
+        await this.flushIfNeccessary(true)
     }
 
     public get isEmpty(): boolean {
@@ -76,29 +81,30 @@ export class SessionManager {
         this._flushingPaused = false
     }
 
-    public async flushIfNeccessary(): Promise<void> {
+    public async flushIfNeccessary(shouldLog = false): Promise<void> {
         const bufferSizeKb = this.buffer.size / 1024
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
 
-        status.info(
-            '🚽',
-            `Buffer ${this.sessionId}:: buffer size: ${
-                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
-            }kb capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${this.buffer.count} ${Math.round(
-                bufferSizeKb
-            )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size}) flushingIsPaused: ${
-                this._flushingPaused
-            }`
-        )
+        if (shouldLog) {
+            status.info(
+                '🚽',
+                `Buffer ${this.sessionId}:: buffer size: ${
+                    this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
+                }kb capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${this.buffer.count} ${Math.round(
+                    bufferSizeKb
+                )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size}) flushingIsPaused: ${
+                    this._flushingPaused
+                }`
+            )
+        }
 
-        const shouldFlush =
-            !this._flushingPaused ||
+        const readyToFlush =
             gzippedCapacity > 1 ||
             Date.now() - this.buffer.createdAt.getTime() >=
                 this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
 
-        if (shouldFlush) {
+        if (!this.flushingPaused && readyToFlush) {
             status.info('🚽', `Flushing buffer ${this.sessionId}...`)
             await this.flush()
         }
@@ -159,6 +165,7 @@ export class SessionManager {
             this.flushBuffer = undefined
 
             status.debug('🚽', `Flushed buffer ${this.sessionId} (removing offsets: ${offsets})`)
+            // TODO: Sync the last processed offset to redis
             this.onFinish(offsets)
         }
     }

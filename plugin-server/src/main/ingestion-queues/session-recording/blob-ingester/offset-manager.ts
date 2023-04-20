@@ -16,7 +16,7 @@
  * track everything in this single process
  */
 
-import { Consumer } from 'kafkajs'
+import { KafkaConsumer } from 'node-rdkafka'
 
 import { status } from '../../../../utils/status'
 
@@ -25,7 +25,7 @@ export class OffsetManager {
     // TODO: Change this to an ordered array.
     offsetsByPartitionTopic: Map<string, number[]> = new Map()
 
-    constructor(private consumer: Consumer) {}
+    constructor(private consumer: KafkaConsumer) {}
 
     public addOffset(topic: string, partition: number, offset: number): void {
         const key = `${topic}-${partition}`
@@ -39,7 +39,7 @@ export class OffsetManager {
     }
 
     // TODO: Ensure all offsets passed here are already checked to be part of the same partition
-    public async removeOffsets(topic: string, partition: number, offsets: number[]): Promise<number | undefined> {
+    public removeOffsets(topic: string, partition: number, offsets: number[]): number | undefined {
         // TRICKY - We want to find the newest offset from the ones being removed that is
         // older than the oldest in the list
         // e.g. [3, 4, 8, 10] -> removing [3,8] should end up with [4,10] and commit 3
@@ -81,13 +81,11 @@ export class OffsetManager {
 
         if (offsetToCommit) {
             status.info('💾', `Committing offset ${offsetToCommit} for ${topic}-${partition}`)
-            await this.consumer.commitOffsets([
-                {
-                    topic,
-                    partition,
-                    offset: offsetToCommit.toString(),
-                },
-            ])
+            this.consumer.commit({
+                topic,
+                partition,
+                offset: offsetToCommit,
+            })
         } else {
             status.info('💾', `No offset to commit from: ${inFlightOffsets}`)
         }
