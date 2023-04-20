@@ -6,6 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
 import { UserType } from '~/types'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 function getSessionReplayLink(): string {
     const LOOK_BACK = 30
@@ -13,7 +14,7 @@ function getSessionReplayLink(): string {
         Math.floor((new Date().getTime() - (posthog?.sessionManager?._sessionStartTimestamp || 0)) / 1000) - LOOK_BACK,
         0
     )
-    const link = `${window.location.origin}/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
+    const link = `https://app.posthog.com/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
     return `\nSession replay: ${link}`
 }
 
@@ -158,9 +159,13 @@ export const supportLogic = kea<supportLogicType>([
                         zendesk_ticket_link: `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`,
                     }
                     posthog.capture('support_ticket', properties)
+                    lemonToast.success(
+                        'Got it! The relevant team will check it out and aim to respond via email if necessary.'
+                    )
                 })
                 .catch((err) => {
                     console.log(err)
+                    lemonToast.error('Failed to submit form.')
                 })
         },
     })),

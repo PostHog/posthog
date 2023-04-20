@@ -5,6 +5,7 @@ import structlog
 from dateutil import parser
 from django.db.models import Count, Prefetch
 from django.http import JsonResponse
+from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -116,7 +117,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise exceptions.NotFound("Recording not found")
 
         recording.load_person()
-        recording.check_viewed_for_user(request.user, save_viewed=request.GET.get("save_view") is not None)
+
+        save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
+        recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
 
         serializer = SessionRecordingSerializer(recording)
 

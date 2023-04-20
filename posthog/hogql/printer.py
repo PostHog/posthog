@@ -39,7 +39,7 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
         right=ast.Constant(value=context.team_id),
-        type=ast.ConstantType(data_type="bool"),
+        type=ast.BooleanType(),
     )
 
 
@@ -309,6 +309,14 @@ class _Printer(Visitor):
     def visit_not(self, node: ast.Not):
         return f"not({self.visit(node.expr)})"
 
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        visited_tuple = self.visit(node.tuple)
+        visited_index = int(str(node.index))
+        if isinstance(node.tuple, ast.Field):
+            return f"{visited_tuple}.{visited_index}"
+
+        return f"({visited_tuple}).{visited_index}"
+
     def visit_tuple(self, node: ast.Tuple):
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 
@@ -405,10 +413,15 @@ class _Printer(Visitor):
                     f"Aggregation '{node.name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
                 )
             if isinstance(required_arg_count, tuple) and (
-                len(node.args) < required_arg_count[0] or len(node.args) > required_arg_count[1]
+                (required_arg_count[0] is not None and len(node.args) < required_arg_count[0])
+                or (required_arg_count[1] is not None and len(node.args) > required_arg_count[1])
             ):
+                if required_arg_count[1] is None:
+                    raise HogQLException(
+                        f"Aggregation '{node.name}' requires at least {required_arg_count[0]} argument{'s' if required_arg_count[0] != 1 else ''}, found {len(node.args)}"
+                    )
                 raise HogQLException(
-                    f"Aggregation '{node.name}' requires between {required_arg_count[0]} and {required_arg_count[1]} arguments, found {len(node.args)}"
+                    f"Aggregation '{node.name}' requires between {required_arg_count[0] or '0'} and {required_arg_count[1] or 'unlimited'} arguments, found {len(node.args)}"
                 )
 
             # check that we're not running inside another aggregate
@@ -443,6 +456,9 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
+                if clickhouse_name == "now64" and len(args) == 0:
+                    # must add precision if adding timezone in the next step
+                    args.append("6")
                 if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
                 return f"{clickhouse_name}({', '.join(args)})"
