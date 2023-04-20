@@ -1,6 +1,7 @@
 from asgiref.sync import async_to_sync
 from django.conf import settings
-from rest_framework import permissions, request, response, serializers, viewsets
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from temporalio.client import (
@@ -14,6 +15,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.export import ExportDestination, ExportRun, ExportSchedule
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.temporal.client import connect
 
 
@@ -28,7 +30,7 @@ async def get_temporal_client() -> Client:
 
 class ExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = ExportRun.objects.all()
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     @cached_property
     def schedule(self) -> ExportSchedule:
@@ -45,25 +47,13 @@ class ExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return workflow
 
 
-class ExportDestinationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ExportDestination
-        fields = [
-            "id",
-            "type",
-            "name",
-            "config",
-        ]
-        read_only_fields = ["id", "created_at", "last_updated_at"]
-
-
 class ExportScheduleSerializer(serializers.ModelSerializer):
     """Serializer for an ExportSchedule model.
 
     This Serializer holds the responsibility of interacting with Temporal when required.
     """
 
-    destination = ExportDestinationSerializer()
+    destination = serializers.PrimaryKeyRelatedField(queryset=ExportDestination.objects.all(), required=False)
 
     class Meta:
         model = ExportSchedule
@@ -98,7 +88,9 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
         """Create an ExportSchedule model and in Temporal."""
         team = Team.objects.get(id=self.context["team_id"])
 
-        destination_data = validated_data.pop("destination")
+        destination_id = validated_data.pop("destination_id")
+        destination_data = ExportDestination.objects.get(id=destination_id)
+
         export_schedule = ExportSchedule.objects.create(
             team=team,
             name=validated_data["name"],
@@ -116,7 +108,7 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
             schedule=Schedule(
                 action=ScheduleActionStartWorkflow(
                     workflow.run,
-                    workflow_inputs(**destination.config, team_id=team.id),
+                    workflow_inputs(team_id=team.id, **destination.config),
                     id=f"{export_schedule.team.id}-{destination.type}-export",
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                 ),
@@ -130,7 +122,7 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
 
 class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = ExportSchedule.objects.all()
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     serializer_class = ExportScheduleSerializer
 
     @action(methods=["PUT"], detail=True)
@@ -190,3 +182,46 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         async_to_sync(handle.delete)()
         instance.delete()
+
+
+class ExportDestinationSerializer(serializers.ModelSerializer):
+    schedules = ExportScheduleSerializer(many=True)
+
+    class Meta:
+        model = ExportDestination
+        fields = [
+            "id",
+            "type",
+            "name",
+            "config",
+            "team_id",
+            # "primary_schedule",
+        ]
+        read_only_fields = ["id", "created_at", "last_updated_at"]
+
+    def create(self, validated_data: dict):
+        export_destination = ExportDestination.objects.create(team_id=self.context["team_id"], **validated_data)
+
+        team = Team.objects.get(id=self.context["team_id"])
+        primary_schedule_data = validated_data.pop("primary_schedule")
+
+        primary_schedule = ExportSchedule.objects.create(
+            destination=export_destination, team=team, **primary_schedule_data
+        )
+
+        # set the schedule that it's created with as the primary schedule
+        export_destination.primary_schedule = primary_schedule
+        export_destination.save()
+
+        return export_destination
+
+    # TODO: santize the secret keys
+
+
+class ExportDestinationViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    queryset = ExportDestination.objects.all()
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    serializer_class = ExportDestinationSerializer
+
+    def get_queryset(self):
+        return self.queryset.filter(team_id=self.request.user.current_team.id)

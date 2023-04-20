@@ -34,7 +34,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(ExportSchedule.objects.count(), 0)
         self.assertEqual(ExportDestination.objects.count(), 0)
 
-        response = self.client.post(f"/api/projects/@current/batch_exports", data=data)
+        response = self.client.post(f"/api/projects/@current/batch_exports/schedules", data=data)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(ExportSchedule.objects.count(), 1)
@@ -91,3 +91,37 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaisesRegex(RPCError, "schedule not found"):
             async_to_sync(handle.describe)()
+
+    def test_create_export_destination(self):
+        data = {
+            "name": "my-production-s3-bucket-destination",
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "key_template": "posthog-events/{table_name}.csv",
+                "batch_window_size": 3600,
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+            },
+            "primary_schedule": {
+                "name": "test-schedule",
+                "cron_expressions": ["0 0 * * *"],
+                "primary_schedule": True,
+            },
+        }
+        self.assertEqual(ExportDestination.objects.count(), 0)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", data)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(ExportDestination.objects.count(), 1)
+
+        self.assertEqual(response.data["name"], data["name"])
+        self.assertEqual(response.data["type"], data["type"])
+        self.assertEqual(response.data["config"], data["config"])
+        self.assertEqual(
+            response.data["primary_schedule"]["cron_expressions"], data["primary_schedule"]["cron_expressions"]
+        )
+
+        # TODO: assert that the schedule was made
