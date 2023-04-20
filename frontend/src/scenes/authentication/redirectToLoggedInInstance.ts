@@ -13,7 +13,7 @@
  * 127.0.0.1 app.posthogtest.com
  *
  * Then set the following cookies locally:
- * document.cookie = "ph_current_instance=eu.posthog.com";
+ * document.cookie = "ph_current_instance=https://eu.posthog.com";
  * document.cookie = "is-logged-in=1";
  *
  * Then go to http://app.posthogtest.com:8000/login?next=/apps
@@ -26,30 +26,21 @@ import { getCookie } from 'lib/api'
 
 // cookie values
 const PH_CURRENT_INSTANCE = 'ph_current_instance'
-const IS_LOGGED_IN = 'is-logged-in'
 
 const REDIRECT_TIMEOUT = 2500
 
 const SUBDOMAIN_TO_NAME = {
-    eu: 'EU cloud',
-    app: 'US cloud',
+    eu: 'EU',
+    app: 'US',
 }
 
 export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
     const currentSubdomain = window.location.hostname.split('.')[0]
 
-    const loggedInSubdomain = getCookie(PH_CURRENT_INSTANCE)
-        ?.replace('http://', '')
-        ?.replace('https://', '')
-        .split('.')[0]
+    const loggedInInstance = getCookie(PH_CURRENT_INSTANCE)
+    const loggedInSubdomain = loggedInInstance ? new URL(loggedInInstance).host.split('.')[0] : null
 
-    // when they are logged out, ph_instance is not removed.
-    // therefore, use is-logged-in cookie to determine if they are logged in
-    // note: this seems to be set when logged in and removed when not
-    // however I can't find the code where it is set and removed so potentially unreliable
-    const isLoggedIn = getCookie(IS_LOGGED_IN)
-
-    if (!loggedInSubdomain || !isLoggedIn) {
+    if (!loggedInSubdomain) {
         return // not logged into another subdomain
     }
 
@@ -72,17 +63,20 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
             window.location.assign(newUrl.href)
         }
 
-        lemonToast.info('Redirecting to your logged in account on the ' + SUBDOMAIN_TO_NAME[loggedInSubdomain], {
-            button: {
-                label: 'Cancel',
-                action: () => {
-                    cancelClicked = true
+        lemonToast.info(
+            `Redirecting to your logged-in account in the Cloud ${SUBDOMAIN_TO_NAME[loggedInSubdomain]} region`,
+            {
+                button: {
+                    label: 'Cancel',
+                    action: () => {
+                        cancelClicked = true
+                    },
                 },
-            },
-            onClose: closeToastAction,
-            // we want to force the user to click the cancel button as otherwise the default close will still redirect
-            closeButton: false,
-            autoClose: REDIRECT_TIMEOUT,
-        })
+                onClose: closeToastAction,
+                // we want to force the user to click the cancel button as otherwise the default close will still redirect
+                closeButton: false,
+                autoClose: REDIRECT_TIMEOUT,
+            }
+        )
     }
 }

@@ -16,6 +16,7 @@ import RegionSelect from './RegionSelect'
 import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { captureException } from '@sentry/react'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -59,11 +60,12 @@ export function Login(): JSX.Element {
 
     useEffect(() => {
         try {
+            // Turn on E2E test when this flag is removed
             if (featureFlags[FEATURE_FLAGS.AUTO_REDIRECT]) {
                 redirectIfLoggedInOtherInstance()
             }
         } catch (e) {
-            console.error('unable to redirect to logged in instance', e)
+            captureException(e)
         }
     }, [])
 
