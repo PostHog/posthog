@@ -128,9 +128,6 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = ExportScheduleSerializer
 
-    def create(self, request, **kwargs):
-        return super().create(request, **kwargs)
-
     @action(methods=["PUT"], detail=True)
     def unpause(self, request: request.Request) -> response.Response:
         """Unpause an ExportSchedule using the Temporal schedule handle."""
