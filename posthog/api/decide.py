@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 from posthog.models.filters.mixins.utils import process_bool
 
 import structlog
+import posthoganalytics
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
@@ -141,6 +142,8 @@ def get_decide(request: HttpRequest):
                         status_code=status.HTTP_400_BAD_REQUEST,
                     ),
                 )
+            else:
+                distinct_id = str(distinct_id)
 
             property_overrides = {}
             geoip_enabled = process_bool(data.get("geoip_disable")) is False
@@ -155,7 +158,7 @@ def get_decide(request: HttpRequest):
 
             feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
                 team.pk,
-                str(data["distinct_id"]),
+                distinct_id,
                 data.get("groups") or {},
                 hash_key_override=data.get("$anon_distinct_id"),
                 property_value_overrides=all_property_overrides,
@@ -200,6 +203,23 @@ def get_decide(request: HttpRequest):
             # NOTE: Whenever you add something to decide response, update this test:
             # `test_decide_doesnt_error_out_when_database_is_down`
             # which ensures that decide doesn't error out when the database is down
+
+            # Analytics for decide requests with feature flags
+            if posthoganalytics.feature_enabled(
+                "decide-analytics", distinct_id, only_evaluate_locally=True, send_feature_flag_events=False
+            ):
+                posthoganalytics.capture(
+                    team.id,
+                    "decide request",
+                    {
+                        "team_id": team.id,
+                        "flags": len(feature_flags),
+                        "captured_distinct_id": distinct_id,
+                    },
+                    groups={
+                        "project": str(team.uuid),
+                    },
+                )
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
