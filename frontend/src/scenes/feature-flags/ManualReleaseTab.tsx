@@ -2,7 +2,7 @@ import { LemonButton, LemonCollapse, LemonModal } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { FeatureFlagType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
-import { Persons } from 'scenes/persons/Persons'
+import { PersonsScene } from 'scenes/persons/Persons'
 import { IconCancel, IconHelpOutline, IconPlus } from 'lib/lemon-ui/icons'
 import { useEffect, useState } from 'react'
 import { LabelInValue, LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple'
@@ -11,9 +11,41 @@ import { PersonLogicProps, personsLogic } from 'scenes/persons/personsLogic'
 import api from 'lib/api'
 import { Row } from 'antd'
 import { manualReleaseLogic } from './manualReleaseLogic'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 interface FeatureProps {
     id: number
+}
+
+function FeatureEnrollInstructions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.JavaScript} wrap>
+            {`posthog.updateFeaturePreviewEnrollment("${featureFlag.key}", true)
+`}
+        </CodeSnippet>
+    )
+}
+
+function FeatureUnenrollInstructions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.JavaScript} wrap>
+            {`posthog.updateFeaturePreviewEnrollment("${featureFlag.key}", false)
+`}
+        </CodeSnippet>
+    )
+}
+
+function RetrievePreviewsInstructions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.JavaScript} wrap>
+            {`posthog.getFeaturePreviews()
+// Example response:
+// {
+//     flagKey: '${featureFlag.key}',
+// }
+`}
+        </CodeSnippet>
+    )
 }
 
 export function ManualReleaseTab({ id }: FeatureProps): JSX.Element {
@@ -32,35 +64,11 @@ export function ManualReleaseTab({ id }: FeatureProps): JSX.Element {
                 visible={enrollmentModal}
                 onClose={toggleEnrollmentModal}
             />
-            <LemonModal
-                title="How to implement opt in-feature flags"
-                isOpen={implementOptInInstructionsModal}
+            <InstructionsModal
+                featureFlag={featureFlag}
+                visible={implementOptInInstructionsModal}
                 onClose={toggleImplementOptInInstructionsModal}
-                width={640}
-            >
-                <div>
-                    <span>
-                        Implement manual release condition toggles to give your users the ability choose which features
-                        they want to try
-                    </span>
-                    <LemonCollapse
-                        className="mt-2"
-                        defaultActiveKey="1"
-                        panels={[
-                            {
-                                key: '1',
-                                header: 'Option 1: Widget Site App',
-                                content: <div />,
-                            },
-                            {
-                                key: '2',
-                                header: 'Option 2: Custom implementation',
-                                content: <div />,
-                            },
-                        ]}
-                    />
-                </div>
-            </LemonModal>
+            />
         </BindLogic>
     ) : (
         <div className="flex justify-center">
@@ -136,15 +144,7 @@ function PersonList({ localPersons = [] }: PersonListProps): JSX.Element {
 
     return (
         <BindLogic logic={personsLogic} props={personLogicProps}>
-            <Persons
-                useParentLogic={true}
-                fixedProperties={[
-                    {
-                        key: manualReleasePropKey,
-                        type: PropertyFilterType.Person,
-                        operator: PropertyOperator.IsSet,
-                    },
-                ]}
+            <PersonsScene
                 extraSceneActions={
                     persons.results.length > 0
                         ? [
@@ -198,17 +198,69 @@ function PersonList({ localPersons = [] }: PersonListProps): JSX.Element {
                 ]}
                 compact={true}
                 showExportAction={false}
-                showFilters={persons.results.length > 0}
+                showFilters={false}
                 showSearch={persons.results.length > 0}
                 emptyState={
                     <div>
                         No manual opt-ins. Manually opted-in people will appear here. Start by{' '}
-                        <a onClick={toggleEnrollmentModal}>adding a person</a> or{' '}
+                        <a onClick={toggleEnrollmentModal}>adding people</a> or{' '}
                         <a onClick={toggleImplementOptInInstructionsModal}>implementing public opt-in</a>
                     </div>
                 }
             />
         </BindLogic>
+    )
+}
+
+interface InnstructionsModalProps {
+    featureFlag: FeatureFlagType
+    visible: boolean
+    onClose: () => void
+}
+
+function InstructionsModal({ onClose, visible, featureFlag }: InnstructionsModalProps): JSX.Element {
+    return (
+        <LemonModal title="How to implement opt-in feature flags" isOpen={visible} onClose={onClose} width={640}>
+            <div>
+                <span>
+                    Implement manual release condition toggles to give your users the ability choose which features they
+                    want to try
+                </span>
+                <LemonCollapse
+                    className="mt-2"
+                    defaultActiveKey="1"
+                    panels={[
+                        {
+                            key: '1',
+                            header: 'Option 1: Custom implementation',
+                            content: (
+                                <div>
+                                    <b>Opt user in</b>
+                                    <div>
+                                        <FeatureEnrollInstructions featureFlag={featureFlag} />
+                                    </div>
+
+                                    <b>Opt user out</b>
+                                    <div>
+                                        <FeatureUnenrollInstructions featureFlag={featureFlag} />
+                                    </div>
+
+                                    <b>Retrieve Previews</b>
+                                    <div>
+                                        <RetrievePreviewsInstructions featureFlag={featureFlag} />
+                                    </div>
+                                </div>
+                            ),
+                        },
+                        {
+                            key: '2',
+                            header: 'Option 2: Widget Site App',
+                            content: <div />,
+                        },
+                    ]}
+                />
+            </div>
+        </LemonModal>
     )
 }
 
@@ -269,7 +321,7 @@ function EnrollmentSelectorModal({ featureFlag, visible, onClose, onAdded }: Enr
 
     return (
         <LemonModal
-            title={'Select person to add'}
+            title={'Select people'}
             isOpen={visible}
             onClose={onClose}
             width={560}
@@ -280,6 +332,9 @@ function EnrollmentSelectorModal({ featureFlag, visible, onClose, onAdded }: Enr
             }
         >
             <BindLogic logic={personsLogic} props={personLogicProps}>
+                <div className="mb-3">
+                    <span>People added here will be manually opted-in to the feature flag</span>
+                </div>
                 <h5 className="mt-2">People</h5>
                 <div className="flex gap-2">
                     <div className="flex-1">
@@ -302,19 +357,11 @@ function EnrollmentSelectorModal({ featureFlag, visible, onClose, onAdded }: Enr
                         />
                     </div>
                 </div>
-                <Persons
-                    fixedProperties={[
-                        {
-                            key: key,
-                            type: PropertyFilterType.Person,
-                            operator: PropertyOperator.IsNotSet,
-                        },
-                    ]}
+                <PersonsScene
                     compact={true}
                     showFilters={false}
                     showExportAction={false}
                     showSearch={false}
-                    useParentLogic={true}
                     extraColumns={[
                         {
                             render: function Render(_, person: PersonType) {

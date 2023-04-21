@@ -2,7 +2,7 @@ import { useValues, useActions, BindLogic } from 'kea'
 import { PersonsTable } from './PersonsTable'
 import { Col, Popconfirm } from 'antd'
 import { personsLogic } from './personsLogic'
-import { CohortType, PersonPropertyFilter, PersonType } from '~/types'
+import { CohortType, PersonType } from '~/types'
 import { PersonsSearch } from './PersonsSearch'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -11,22 +11,12 @@ import { IconExport } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 
-interface PersonsProps {
+interface PersonsProps extends Partial<PersonsSceneProps> {
     cohort?: CohortType['id']
-    fixedProperties?: PersonPropertyFilter[]
-    extraSceneActions?: JSX.Element[]
-    compact?: boolean
-    showFilters?: boolean
-    showExportAction?: boolean
-    extraColumns?: LemonTableColumn<PersonType, keyof PersonType | undefined>[]
-    showSearch?: boolean
-    useParentLogic?: boolean
-    emptyState?: JSX.Element
 }
 
 export function Persons({
     cohort,
-    fixedProperties,
     extraSceneActions,
     compact,
     showFilters,
@@ -34,27 +24,9 @@ export function Persons({
     extraColumns,
     showSearch,
     emptyState,
-    useParentLogic = false,
 }: PersonsProps = {}): JSX.Element {
-    if (useParentLogic) {
-        return (
-            <PersonsScene
-                extraSceneActions={extraSceneActions}
-                compact={compact}
-                showFilters={showFilters}
-                showExportAction={showExportAction}
-                extraColumns={extraColumns}
-                showSearch={showSearch}
-                emptyState={emptyState}
-            />
-        )
-    }
-
     return (
-        <BindLogic
-            logic={personsLogic}
-            props={{ cohort: cohort, syncWithUrl: !cohort && !fixedProperties, fixedProperties }}
-        >
+        <BindLogic logic={personsLogic} props={{ cohort: cohort, syncWithUrl: !cohort }}>
             <PersonsScene
                 extraSceneActions={extraSceneActions}
                 compact={compact}
