@@ -261,7 +261,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                     }
 
                     if (tab === AppMetricsTab.HistoricalExports) {
-                        return isExportEvents
+                        return !!isExportEvents
                     } else if (tab === AppMetricsTab.OnEvent && isExportEvents) {
                         // Hide onEvent tab for plugins using exportEvents
                         // :KLUDGE: if plugin has `onEvent` in source, that's called/tracked but we can't check that here.
@@ -273,11 +273,11 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                         return (
                             !isExportEvents &&
                             ['runEveryMinute', 'runEveryHour', 'runEveryDay'].some((method) =>
-                                capabilities.scheduled_tasks.includes(method)
+                                capabilities.scheduled_tasks?.includes(method)
                             )
                         )
                     } else {
-                        return capabilities.methods?.includes(tab)
+                        return !!capabilities.methods?.includes(tab)
                     }
                 },
         ],
