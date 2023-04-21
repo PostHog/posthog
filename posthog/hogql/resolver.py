@@ -70,39 +70,46 @@ class Resolver(CloningVisitor):
 
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
-        node_type = ast.SelectQueryType(macros=node.macros or {})
+        node_type = ast.SelectQueryType()
+
+        # First step: add all the "WITH" macros onto the "scope" if there are any
+        if node.macros:
+            node_type.macros = node.macros
 
         # Append the "scope" onto the stack early, so that nodes we "self.visit" below can access it.
         self.scopes.append(node_type)
 
-        # Clone a select query, piece by piece
+        # Clone the select query, piece by piece
         new_node = ast.SelectQuery(
             type=node_type,
-            # macros have been expanded, remove from "WITH" clause
+            # macros have been expanded (moved to the type for now), so remove from the printable "WITH" clause
             macros=None,
-            # needs a default value
+            # "select" needs a default value, so [] it is
             select=[],
         )
 
-        # Visit the FROM clauses first. This also resolves all table aliases onto self.scopes[-1].
+        # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
 
-        # Visit all the SELECT 1,2,3 columns. Mark each for export in "columns" to make this work:
-        # SELECT e.event, e.timestamp from (SELECT event, timestamp FROM events) AS e
+        # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         for expr in node.select or []:
             new_expr = self.visit(expr)
-            if isinstance(new_expr.type, ast.AsteriskType):
 
+            # if it's an asterisk, carry on in a subroutine
+            if isinstance(new_expr.type, ast.AsteriskType):
                 self._expand_asterisk_columns(new_node, new_expr.type)
-            else:
-                # not an asterisk
-                if isinstance(new_expr.type, ast.FieldAliasType):
-                    node_type.columns[new_expr.type.alias] = new_expr.type
-                elif isinstance(new_expr.type, ast.FieldType):
-                    node_type.columns[new_expr.type.name] = new_expr.type
-                elif isinstance(new_expr, ast.Alias):
-                    node_type.columns[new_expr.alias] = new_expr.type
-                new_node.select.append(new_expr)
+                continue
+
+            # not an asterisk
+            if isinstance(new_expr.type, ast.FieldAliasType):
+                node_type.columns[new_expr.type.alias] = new_expr.type
+            elif isinstance(new_expr.type, ast.FieldType):
+                node_type.columns[new_expr.type.name] = new_expr.type
+            elif isinstance(new_expr, ast.Alias):
+                node_type.columns[new_expr.alias] = new_expr.type
+
+            # add the column to the new select query
+            new_node.select.append(new_expr)
 
         # :TRICKY: Make sure to visit _all_ SelectQuery nodes. Printing unresolved fields will throw.
         new_node.where = self.visit(node.where)
@@ -124,6 +131,7 @@ class Resolver(CloningVisitor):
         return new_node
 
     def _expand_asterisk_columns(self, select_query: ast.SelectQuery, asterisk: ast.AsteriskType):
+        """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table()
             database_fields = table.get_asterisk()

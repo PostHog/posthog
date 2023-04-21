@@ -437,6 +437,7 @@ class Call(Expr):
 
 
 class JoinExpr(Expr):
+    # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType]
 
     join_type: Optional[str] = None
@@ -449,6 +450,7 @@ class JoinExpr(Expr):
 
 
 class SelectQuery(Expr):
+    # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
     macros: Optional[Dict[str, Macro]] = None
     select: List[Expr]
