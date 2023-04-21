@@ -74,6 +74,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
+    [Scene.DataManagementHistory]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
     [Scene.IngestionWarnings]: {
         projectBased: true,
         name: 'Data Management',
@@ -301,6 +305,7 @@ export const routes: Record<string, Scene> = {
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
     [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
+    [urls.dataManagementHistory()]: Scene.DataManagementHistory,
     [urls.database()]: Scene.Database,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
