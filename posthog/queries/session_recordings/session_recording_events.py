@@ -166,7 +166,7 @@ class SessionRecordingEvents:
         self, anchor_time: datetime | None = None
     ) -> Optional[List[SessionRecordingWindowMetadata]]:
         """
-        For a list of snapshots, group all the events_summary by window_id.
+        Query session recording events grouping by window_id
         If any of them are missing the event_summary field, we return empty to fall back to the old parsing method
         """
         date_clause, date_clause_params = self.get_recording_snapshot_date_clause(anchor_time=anchor_time)
@@ -345,6 +345,10 @@ class SessionRecordingEvents:
         self, events_summary_by_window_id: Dict[WindowId, List[SessionRecordingEventSummary]]
     ) -> RecordingMetadata:
         """
+        !Deprecated!
+        superseded by _get_metadata_from_grouped_events_summary
+        once _get_metadata_from_snapshot_data is deleted, this can be to
+
         This function processes the recording events into metadata.
 
         A recording can be composed of events from multiple windows/tabs. Recording events are seperated by
