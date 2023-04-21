@@ -685,9 +685,10 @@ class TestResolver(BaseTest):
         )
 
     def test_macros_field_access(self):
-        with self.assertRaises(ResolverException) as e:
-            self._print_hogql("with properties as macro select macro.$browser from events")
-        self.assertIn("Cannot access fields on macro macro yet.", str(e.exception))
+        self.assertEqual(
+            self._print_hogql("with properties as macro select macro.$browser from events"),
+            self._print_hogql("select properties.$browser from events"),
+        )
 
     def test_macros_subqueries(self):
         self.assertEqual(

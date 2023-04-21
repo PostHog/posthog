@@ -334,8 +334,8 @@ class Resolver(CloningVisitor):
         if not type:
             macro = lookup_macro_by_name(self.scopes, name)
             if macro:
-                if len(node.chain) > 1:
-                    raise ResolverException(f"Cannot access fields on macro {macro.name} yet.")
+                # if len(node.chain) > 1:
+                #     raise ResolverException(f"Cannot access fields on macro {macro.name} yet.")
                 # SubQuery macros ("WITH a AS (SELECT 1)") can only be used in the "FROM table" part of a select query,
                 # which is handled in visit_join_expr. Referring to it here means we want to access its value.
                 self.macro_counter += 1
