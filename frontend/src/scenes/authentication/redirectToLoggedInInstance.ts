@@ -13,7 +13,7 @@
  * 127.0.0.1 app.posthogtest.com
  *
  * Then set the following cookies locally:
- * document.cookie = "ph_current_instance=\"https://eu.posthog.com\"";
+ * document.cookie = 'ph_current_instance="https://eu.posthog.com"';
  * document.cookie = "is-logged-in=1";
  *
  * Then go to http://app.posthogtest.com:8000/login?next=/apps
