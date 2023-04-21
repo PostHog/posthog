@@ -338,6 +338,8 @@ class Resolver(CloningVisitor):
                 self.macro_counter += 1
                 response = self.visit(clone_expr(macro.expr))
                 self.macro_counter -= 1
+                if len(node.chain) > 1:
+                    raise ResolverException(f"Cannot access fields on macro {macro.name} yet.")
                 return response
 
         if not type:
