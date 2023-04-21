@@ -1,7 +1,7 @@
+import json
 import math
-import random
-from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+import os
+from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 from dateutil.relativedelta import relativedelta
@@ -11,9 +11,12 @@ from freezegun import freeze_time
 from rest_framework.request import Request
 
 from posthog.models import Filter
-from posthog.models.session_recording.metadata import SessionRecordingEvent
 from posthog.models.team import Team
-from posthog.queries.session_recordings.session_recording_events import RecordingMetadata, SessionRecordingEvents
+from posthog.queries.session_recordings.session_recording_events import (
+    RecordingMetadata,
+    SessionRecordingEvents,
+    SessionRecordingWindowMetadata,
+)
 from posthog.session_recordings.session_recording_helpers import (
     ACTIVITY_THRESHOLD_SECONDS,
     DecompressedRecordingData,
@@ -439,66 +442,45 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
 
     def test_should_parse_metadata_efficiently(self):
         """
-        We can end up with a lot of metadata events so it is important to see if any of our parsing slows things down at scale.
+        We can end up with a lot of metadata events, so it is important to see if any of our parsing slows things down at scale.
         """
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(script_dir, "metadata_fixture.json")
+        with open(file_path, "r", encoding="utf-8") as file:
+            events_summary_by_window_id = []
+            for event in json.load(file):
+                summary_ = []
+                for x in event["events_summary"]:
+                    unloaded = x.strip()
+                    try:
+                        summary_.append(json.loads(unloaded))
+                    except:
+                        breakpoint()
 
-        start_time = datetime(2023, 1, 1, 0, 0, tzinfo=timezone.utc)
-        random_event_times = list(range(0, 100000))
-        end_time = datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=len(random_event_times) - 1)
+                        pass
 
-        # Create a bunch of mock events in the wrong order
-        random.shuffle(random_event_times)
-        start_timestamp = round(start_time.timestamp() * 1000)
-        mock_events = [
-            SessionRecordingEvent(
-                session_id="18586b7d1d3c52-0d746e4c6fc6b3-17525635-384000-18586b7d1d4276e",
-                window_id="18586b7d1d528f6-026e4b0f3a575c-17525635-384000-18586b7d1d6760",
-                distinct_id="123456789123456789",
-                timestamp=datetime(2023, 1, 1) - timedelta(seconds=x),
-                events_summary=[
-                    {"timestamp": start_timestamp + (x * 1000), "type": 2, "data": {}},
-                    {"timestamp": start_timestamp + (x * 1000), "type": 3, "data": {"source": 0}},
-                    {"timestamp": start_timestamp + (x * 1000), "type": 3, "data": {"source": 1}},
-                    {"timestamp": start_timestamp + (x * 1000), "type": 3, "data": {"source": 0}},
-                    {"timestamp": start_timestamp + (x * 1000), "type": 3, "data": {"source": 1}},
-                    {"timestamp": start_timestamp + (x * 1000), "type": 3, "data": {"source": 0}},
-                    {"timestamp": start_timestamp + (x * 1000), "type": 3, "data": {"source": 0}},
-                ],
-                snapshot_data={},
+                events_summary_by_window_id.append(
+                    SessionRecordingWindowMetadata(
+                        window_id=event["window_id"],
+                        session_id=event["session_id"],
+                        distinct_id=event["distinct_id"],
+                        click_count=event["click_count"],
+                        keypress_count=event["keypress_count"],
+                        events_summary=summary_,
+                    )
+                )
+
+            task = SessionRecordingEvents(
+                team=self.team,
+                session_recording_id=events_summary_by_window_id[0].session_id,
+                recording_start_time=now(),
             )
-            for x in random_event_times
-        ]
 
-        task = SessionRecordingEvents(team=self.team, session_recording_id="1", recording_start_time=now())
+            time = datetime.now()
+            metadata = task._get_metadata_from_grouped_events_summary(events_summary_by_window_id)
 
-        time = datetime.now()
-        with patch.object(task, "_query_recording_snapshots", return_value=mock_events):
-            metadata = task.get_metadata()
-            assert metadata == RecordingMetadata(
-                click_count=0,
-                keypress_count=0,
-                duration=13599,
-                start_time=start_time,
-                end_time=end_time,
-                segments=[
-                    {
-                        "start_time": start_time,
-                        "end_time": end_time,
-                        "window_id": "18586b7d1d528f6-026e4b0f3a575c-17525635-384000-18586b7d1d6760",
-                        "is_active": True,
-                    }
-                ],
-                start_and_end_times_by_window_id={
-                    "18586b7d1d528f6-026e4b0f3a575c-17525635-384000-18586b7d1d6760": {
-                        "window_id": "18586b7d1d528f6-026e4b0f3a575c-17525635-384000-18586b7d1d6760",
-                        "start_time": start_time,
-                        "end_time": end_time,
-                        "is_active": False,
-                    }
-                },
-                distinct_id="123456789123456789",
-                urls=[],
-            )
+            assert metadata["distinct_id"] == "JfJ4FP2CDVUZ5kMbGKJNbw7ZZw4WZb8i1moZgkMEstS"
+            assert len(metadata["segments"]) == 178
 
         duration = datetime.now() - time
         print("Took " + str(duration.total_seconds()) + " seconds to parse metadata.")  # noqa
