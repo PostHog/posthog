@@ -205,7 +205,9 @@ def get_decide(request: HttpRequest):
             # which ensures that decide doesn't error out when the database is down
 
             # Analytics for decide requests with feature flags
-            if posthoganalytics.feature_enabled(
+            # Only send once flag definitions are loaded
+            # don't block on loading flag definitions
+            if posthoganalytics.feature_flag_definitions() and posthoganalytics.feature_enabled(
                 "decide-analytics", distinct_id, only_evaluate_locally=True, send_feature_flag_events=False
             ):
                 posthoganalytics.capture(
