@@ -1,13 +1,26 @@
 import { Logic, LogicWrapper } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 
-export interface SidebarLogic extends Logic {
+interface SidebarLogicBase extends Logic {
+    actions: Record<never, never> // No actions required in the base version
     values: {
         isLoading: boolean
         contents: Accordion[] | BasicListItem[] | ExtendedListItem[]
         activeListItemKey: BasicListItem['key'] | null
     }
 }
+interface SearchMixin {
+    values: {
+        isSearchShown: boolean
+        searchTerm: string
+    }
+    actions: {
+        setIsSearchShown: (isSearchShown: boolean) => void
+        setSearchTerm: (searchTerm: string) => void
+    }
+}
+export type SidebarWithSearchLogic = SidebarLogicBase & SearchMixin
+export type SidebarLogic = SidebarLogicBase | SidebarWithSearchLogic
 
 interface NavbarItemBase {
     identifier: string

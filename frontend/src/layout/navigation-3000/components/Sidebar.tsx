@@ -1,7 +1,7 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconClose } from 'lib/lemon-ui/icons'
+import { IconClose, IconMagnifier } from 'lib/lemon-ui/icons'
 import React from 'react'
 import { navigation3000Logic } from '../navigationLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
@@ -20,9 +20,15 @@ export function Sidebar(): JSX.Element {
     } = useValues(navigation3000Logic)
     const { beginResize } = useActions(navigation3000Logic)
 
-    const { contents, activeListItemKey } = useValues(activeNavbarItem.pointer)
-
-    const isLoading = true
+    const activeSidebarLogicValues = useValues(activeNavbarItem.pointer)
+    const activeSidebarLogicActions = useActions(activeNavbarItem.pointer)
+    const { contents, activeListItemKey, isLoading } = activeSidebarLogicValues
+    /** If the search term is null, this means search is not supported. */
+    const isSearchShown = 'isSearchShown' in activeSidebarLogicValues ? activeSidebarLogicValues.isSearchShown : false
+    const setIsSearchShown =
+        'setIsSearchShown' in activeSidebarLogicActions ? activeSidebarLogicActions.setIsSearchShown : null
+    const searchTerm = 'searchTerm' in activeSidebarLogicValues ? activeSidebarLogicValues.searchTerm : null
+    const setSearchTerm = 'setSearchTerm' in activeSidebarLogicActions ? activeSidebarLogicActions.setSearchTerm : null
 
     const content: JSX.Element | null =
         contents.length > 0 ? (
@@ -65,8 +71,34 @@ export function Sidebar(): JSX.Element {
         >
             <div className="Sidebar3000__content">
                 <div className="Sidebar3000__header">
-                    <h3>{activeNavbarItem?.label}</h3>
+                    <h3 className="grow">{activeNavbarItem?.label}</h3>
+                    {setIsSearchShown && (
+                        <LemonButton
+                            icon={<IconMagnifier />}
+                            size="small"
+                            onClick={() => setIsSearchShown(!isSearchShown)}
+                            active={isSearchShown}
+                            tooltip={
+                                <div className="flex items-center gap-1">
+                                    <span>Toggle search</span>
+                                    <KeyboardShortcut command f />
+                                </div>
+                            }
+                        />
+                    )}
                 </div>
+                {isSearchShown && setSearchTerm && (
+                    <div>
+                        <LemonInput
+                            type="search"
+                            value={searchTerm as string}
+                            onChange={(value) => setSearchTerm(value)}
+                            size="small"
+                            placeholder="Search..."
+                            autoFocus
+                        />
+                    </div>
+                )}
                 <div className="Sidebar3000__lists">{content}</div>
                 {!isSidebarKeyboardShortcutAcknowledged && <SidebarKeyboardShortcut />}
             </div>

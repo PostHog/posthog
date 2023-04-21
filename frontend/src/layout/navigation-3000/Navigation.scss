@@ -98,6 +98,12 @@
         text-transform: none;
         letter-spacing: normal;
     }
+
+    .LemonInput--type-search {
+        max-width: none;
+        border-color: transparent; // Only show border on focus here
+        border-radius: 0;
+    }
 }
 
 .Sidebar3000__content {
@@ -120,6 +126,10 @@
     .Sidebar3000--resizing & {
         transition: none; // Increase responsiveness when resizing
         will-change: width;
+    }
+
+    > div:not(:first-child) {
+        border-top-width: 1px;
     }
 }
 
@@ -189,9 +199,10 @@
 }
 
 .Sidebar3000__header {
+    display: flex;
+    align-items: center;
     height: var(--sidebar-row-height);
     padding: 0 var(--sidebar-horizontal-padding);
-    border-bottom-width: 1px;
 }
 
 // Accordion
