@@ -3,7 +3,7 @@ import { initKeaTests } from '~/test/init'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { announcementLogic, AnnouncementType, DefaultCloudAnnouncement } from './announcementLogic'
+import { announcementLogic, AnnouncementType, DEFAULT_CLOUD_ANNOUNCEMENT } from './announcementLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '../navigationLogic'
@@ -25,7 +25,7 @@ describe('announcementLogic', () => {
     afterEach(() => logic.unmount())
     it('shows a cloud announcement', async () => {
         await expectLogic(logic).toMatchValues({
-            cloudAnnouncement: DefaultCloudAnnouncement,
+            cloudAnnouncement: DEFAULT_CLOUD_ANNOUNCEMENT,
             shownAnnouncementType: AnnouncementType.CloudFlag,
         })
     })
@@ -33,7 +33,7 @@ describe('announcementLogic', () => {
     it('hides announcements during the ingestion phase', async () => {
         router.actions.push(urls.ingestion())
         await expectLogic(logic).toMatchValues({
-            cloudAnnouncement: DefaultCloudAnnouncement,
+            cloudAnnouncement: DEFAULT_CLOUD_ANNOUNCEMENT,
             shownAnnouncementType: null,
         })
     })

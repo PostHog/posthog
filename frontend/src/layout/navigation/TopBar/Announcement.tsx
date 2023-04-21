@@ -6,6 +6,7 @@ import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { IconClose } from 'lib/lemon-ui/icons'
+import ReactMarkdown from 'react-markdown'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -40,7 +41,7 @@ export function Announcement(): JSX.Element | null {
             </div>
         )
     } else if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {
-        message = <div className="strong" dangerouslySetInnerHTML={{ __html: cloudAnnouncement }} />
+        message = <ReactMarkdown className="strong">{cloudAnnouncement}</ReactMarkdown>
     } else if (shownAnnouncementType === AnnouncementType.NewFeature) {
         message = <NewFeatureBanner />
     }

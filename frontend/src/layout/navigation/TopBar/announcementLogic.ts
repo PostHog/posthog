@@ -17,8 +17,8 @@ export enum AnnouncementType {
     AttentionRequired = 'AttentionRequired',
 }
 
-export const DefaultCloudAnnouncement =
-    "<p>We're experiencing technical difficulties, see more </p><a href='status.posthog.com'>status.posthog.com</a>"
+export const DEFAULT_CLOUD_ANNOUNCEMENT =
+    "We're experiencing technical difficulties, see more [status.posthog.com](https://status.posthog.com)"
 
 // Switch to `false` if we're not showing a feature announcement. Hard-coded because the announcement needs to be manually updated anyways.
 const ShowNewFeatureAnnouncement = false
@@ -121,7 +121,7 @@ export const announcementLogic = kea<announcementLogicType>([
 
                 if (flagEnabled && !flagPayload) {
                     // Default to standard cloud announcement if no payload is set
-                    return DefaultCloudAnnouncement
+                    return DEFAULT_CLOUD_ANNOUNCEMENT
                 }
                 return !!flagPayload && typeof flagPayload === 'string' ? flagPayload : null
             },
