@@ -54,6 +54,10 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
     """
 
     destination = serializers.PrimaryKeyRelatedField(queryset=ExportDestination.objects.all(), required=False)
+    paused_at = serializers.DateTimeField(required=False)
+    unpaused_at = serializers.DateTimeField(required=False)
+    start_at = serializers.DateTimeField(required=False)
+    end_at = serializers.DateTimeField(required=False)
 
     class Meta:
         model = ExportSchedule
@@ -87,16 +91,12 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict):
         """Create an ExportSchedule model and in Temporal."""
         team = Team.objects.get(id=self.context["team_id"])
-
-        destination_id = validated_data.pop("destination_id")
-        destination_data = ExportDestination.objects.get(id=destination_id)
+        destination = ExportDestination.objects.get(id=self.context["destination_id"])
 
         export_schedule = ExportSchedule.objects.create(
             team=team,
-            name=validated_data["name"],
-            destination_type=destination_data.get("type", None),
-            destination_config=destination_data.get("config", None),
-            destination_name=destination_data.get("name", None),
+            destination=destination,
+            **validated_data,
         )
         schedule_spec = export_schedule.get_schedule_spec()
         destination = export_schedule.destination
@@ -104,7 +104,7 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
 
         client = get_temporal_client()
         async_to_sync(client.create_schedule)(
-            id=export_schedule.name,
+            id=export_schedule.id.__str__(),
             schedule=Schedule(
                 action=ScheduleActionStartWorkflow(
                     workflow.run,

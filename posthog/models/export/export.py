@@ -102,7 +102,7 @@ class ExportSchedule(UUIDModel):
     )
     calendars: ArrayField = ArrayField(models.JSONField(), default=list)
     intervals: ArrayField = ArrayField(models.JSONField(), default=list)
-    cron_expressions: ArrayField = ArrayField(models.TextField(), default=list)
+    cron_expressions: ArrayField = ArrayField(models.TextField(), default=list, blank=True)
     skip: ArrayField = ArrayField(models.JSONField(), default=list)
     jitter: models.DurationField = models.DurationField(null=True)
     time_zone_name: models.CharField = models.CharField(max_length=64, default="Etc/UTC", null=True)
