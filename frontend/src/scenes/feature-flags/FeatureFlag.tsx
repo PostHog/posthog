@@ -306,8 +306,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                     >
                                         <div>
-                                            <h3 className="l4">Advanced settings</h3>
-                                            <div className="text-muted mb-4 font-medium">
+                                            <h3 className="l4 mt-2">Advanced settings</h3>
+                                            <div className="text-muted mb-2 font-medium">
                                                 Define who can modify this flag.
                                             </div>
                                         </div>
@@ -719,7 +719,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                 </>
             ) : (
                 <div className="mb-8">
-                    <h3 className="l4">Served value</h3>
+                    <h3 className="l3">Served value</h3>
                     <div className="mb-2">
                         <Popconfirm
                             placement="top"
@@ -799,7 +799,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
             )}
             {!multivariateEnabled && (
                 <div className="mb-6">
-                    <h3 className="l4">Payload</h3>
+                    <h3 className="l3">Payload</h3>
                     {readOnly ? (
                         featureFlag.filters.payloads?.['true'] ? (
                             <JSONEditorInput readOnly={readOnly} value={featureFlag.filters.payloads?.['true']} />
@@ -995,7 +995,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                         </div>
                     ) : (
                         <>
-                            <h3 className="l4">Release conditions</h3>
+                            <h3 className="l3">Release conditions</h3>
                             <div className="text-muted mb-4">
                                 Specify the {aggregationTargetName} to which you want to release this flag. Note that
                                 condition sets are rolled out independently of each other.
