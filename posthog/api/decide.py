@@ -18,7 +18,6 @@ from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
-import posthoganalytics
 
 
 def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
@@ -201,22 +200,6 @@ def get_decide(request: HttpRequest):
             # NOTE: Whenever you add something to decide response, update this test:
             # `test_decide_doesnt_error_out_when_database_is_down`
             # which ensures that decide doesn't error out when the database is down
-
-            # Analytics for decide requests with feature flags
-            if posthoganalytics.feature_enabled(
-                "decide-analytics", distinct_id, only_evaluate_locally=True, send_feature_flag_events=False
-            ):
-                posthoganalytics.capture(
-                    distinct_id,
-                    "decide request",
-                    {
-                        "team_id": team.id,
-                        "flags": len(feature_flags),
-                    },
-                    groups={
-                        "project": str(team.uuid),
-                    },
-                )
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
