@@ -146,4 +146,7 @@ export const urls = {
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
+    cdp: (): string => '/cdp',
+    cdpBatchExport: (id?: string): string => `/cdp/batchExport/${id}`,
+    cdpNewBatchExport: (choiceId?: string): string => `/cdp/batchExport${!!choiceId ? `?choiceId=${choiceId}` : ''}`,
 }

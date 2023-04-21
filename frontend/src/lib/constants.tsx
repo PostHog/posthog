@@ -144,6 +144,7 @@ export const FEATURE_FLAGS = {
     HOGQL: 'hogql', // owner: #team-product-analytics
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
     ARUBUG: 'arubug', // owner: #team-arubug
+    CDP: 'cdp',
     BILLING_BY_PRODUCTS: 'billing-by-products', // owner: @raquelmsmith
     RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
 }

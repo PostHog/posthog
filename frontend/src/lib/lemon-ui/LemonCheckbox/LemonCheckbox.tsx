@@ -15,6 +15,7 @@ export interface LemonCheckboxProps {
     bordered?: boolean
     /** @deprecated See https://github.com/PostHog/posthog/pull/9357#pullrequestreview-933783868. */
     color?: string
+    showOptional?: boolean
 }
 
 export interface BoxCSSProperties extends React.CSSProperties {
@@ -40,6 +41,7 @@ export function LemonCheckbox({
     bordered,
     color,
     size,
+    showOptional,
 }: LemonCheckboxProps): JSX.Element {
     const indeterminate = checked === 'indeterminate'
 
@@ -98,6 +100,7 @@ export function LemonCheckbox({
                     <path d={!wasIndeterminateLast ? 'm3.5 8 3 3 6-6' : 'm3.5 8h9'} strokeWidth="2" />
                 </svg>
                 {label && <span className="LemonCheckbox__label">{label}</span>}
+                {showOptional ? <span className="LemonLabel__extra">(optional)</span> : null}
             </label>
         </span>
     )
