@@ -201,26 +201,11 @@ export class SessionRecordingBlobIngester {
 
         this.offsetManager = new OffsetManager(this.batchConsumer.consumer)
 
-        // NOTE: Do we need to pause when the rebalancing starts??
-        // this.batchConsumer.consumer.on('rebalance', (event) => {
-        //     /**
-        //      * This event is received when the consumer group _starts_ rebalancing.
-        //      * During the rebalance process, consumers within the group stop processing messages temporarily.
-        //      * They cannot receive or process events until the rebalance is completed
-        //      * and the new partition assignments have been made.
-        //      *
-        //      * Since that means session managers don't know they will still be assigned to a partition
-        //      * They must stop flushing sessions to S3 until the rebalance is complete.
-        //      */
-        //     status.info('⚖️', 'Blob ingestion consumer rebalancing', { event })
-        //     this.sessions.forEach((session) => session.pauseFlushing())
-        // })
-
         this.batchConsumer.consumer.on('rebalance', async (err, assignments) => {
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
              *
-             * This event is received when the consumer group _finishes_ rebalancing.
+             * This event is received when the consumer group starts _or_ finishes rebalancing.
              *
              * Also, see https://docs.confluent.io/platform/current/clients/librdkafka/html/classRdKafka_1_1RebalanceCb.html
              * For eager/non-cooperative partition.assignment.strategy assignors, such as range and roundrobin,
