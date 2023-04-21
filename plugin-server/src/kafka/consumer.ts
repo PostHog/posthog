@@ -1,5 +1,6 @@
 import {
     ClientMetrics,
+    CODES,
     ConsumerGlobalConfig,
     KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
@@ -79,10 +80,20 @@ export const instrumentConsumerMetrics = (consumer: RdKafkaConsumer, groupId: st
     // TODO: add other relevant metrics here
     // TODO: expose the internal librdkafka metrics as well.
     consumer.on('rebalance', (error: LibrdKafkaError, assignments: TopicPartition[]) => {
-        if (error) {
-            status.error('⚠️', 'rebalance_error', { error: error })
+        /**
+         * see https://github.com/Blizzard/node-rdkafka#rebalancing errors are used to signal
+         * both errors and _not_ errors
+         *
+         * When rebalancing starts the consumer receives ERR_REVOKED_PARTITIONS
+         * And when the balancing is completed the new assignments are received with ERR__ASSIGN_PARTITIONS
+         */
+        if (error.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
+            status.info('📝️', 'librdkafka rebalance, partitions assigned', { assignments })
+        } else if (error.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
+            status.info('📝️', 'librdkafka rebalance started, partitions revoked', { assignments })
         } else {
-            status.info('📝', 'librdkafka rebalance', { assignments: assignments })
+            // We had a "real" error
+            status.error('⚠️', 'rebalance_error', { error })
         }
 
         latestOffsetTimestampGauge.reset()

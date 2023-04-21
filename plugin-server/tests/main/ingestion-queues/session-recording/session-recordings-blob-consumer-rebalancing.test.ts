@@ -26,15 +26,37 @@ describe('ingester rebalancing tests', () => {
 
         await ingesterOne.start()
 
-        createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 })
+        await ingesterOne.consume(
+            createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 })
+        )
+        await ingesterOne.consume(
+            createIncomingRecordingMessage({ session_id: new UUIDT().toString(), chunk_count: 2 })
+        )
 
         await waitForExpect(() => {
-            expect(ingesterOne.sessions.size).toBeGreaterThan(1)
+            const partitions: number[] = []
+            ingesterOne.sessions.forEach((session) => {
+                partitions.push(session.partition)
+            })
+            expect(partitions).toEqual([1, 1])
         })
 
         ingesterTwo = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage)
-        void ingesterTwo.start()
+        await ingesterTwo.start()
 
-        expect(1).toBe('this test is not finished')
+        await waitForExpect(() => {
+            const partitions: number[] = []
+            ingesterOne.sessions.forEach((session) => {
+                partitions.push(session.partition)
+            })
+            expect(partitions).toEqual([1, 1])
+
+            // only one partition so nothing for the new consumer to do
+            const consumerTwoPartitions: number[] = []
+            ingesterTwo.sessions.forEach((session) => {
+                consumerTwoPartitions.push(session.partition)
+            })
+            expect(consumerTwoPartitions).toEqual([])
+        })
     })
 })

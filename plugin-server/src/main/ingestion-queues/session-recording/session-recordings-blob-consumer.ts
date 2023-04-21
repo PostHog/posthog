@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync } from 'node:fs'
-import { HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka'
+import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
@@ -218,29 +218,54 @@ export class SessionRecordingBlobIngester {
 
         this.batchConsumer.consumer.on('rebalance', async (err, assignments) => {
             /**
-             * group_join is received whenever a consumer has new partition assigments.
-             * e.g. on start or rebalance complete.
+             * see https://github.com/Blizzard/node-rdkafka#rebalancing
              *
-             * Since we may have paused flushing sessions on rebalance, we need to resume them here.
+             * This event is received when the consumer group _finishes_ rebalancing.
+             *
+             * Also, see https://docs.confluent.io/platform/current/clients/librdkafka/html/classRdKafka_1_1RebalanceCb.html
+             * For eager/non-cooperative partition.assignment.strategy assignors, such as range and roundrobin,
+             * the application must use assign assign() to set and unassign() to clear the entire assignment.
+             * For the cooperative assignors, such as cooperative-sticky, the application must use
+             * incremental_assign() for ERR__ASSIGN_PARTITIONS and incremental_unassign() for ERR__REVOKE_PARTITIONS.
+             *
+             * TODO if the assignment strategy changes to co-operative we'll need to change this
              */
-            status.info('🏘️', 'Blob ingestion consumer joining group')
-            // TODO: this has to be paired with removing sessions for partitions no longer assigned to this consumer
+            status.info('🏘️', 'Blob ingestion consumer rebalanced')
+            if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
+                status.info('⚖️', 'Blob ingestion consumer has received assignments', { assignments })
 
-            if (err) {
-                status.error('⚠️', 'Blob ingestion consumer failed to join group', { err })
-                // TODO: What do we do here - fataly error out?
-                return
+                const partitions = assignments.map((assignment) => assignment.partition)
+
+                // TODO: Iterate over offsetmanager and remove all no longer tracked partitions
+
+                await Promise.all(
+                    [...this.sessions.values()]
+                        .filter((session) => !partitions.includes(session.partition))
+                        .map((session) => session.destroy())
+                )
+
+                // Assign partitions
+                this.batchConsumer?.consumer.assign(assignments)
+            } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
+                status.info('⚖️', 'Blob ingestion consumer has had assignments revoked', { assignments })
+                /**
+                 * The revoke_partitions event occurs when the Kafka Consumer is part of a consumer group and the group rebalances.
+                 * As a result, some partitions previously assigned to a consumer might be taken away (revoked) and reassigned to another consumer.
+                 * After the revoke_partitions event is handled, the consumer will receive an assign_partitions event,
+                 * which will inform the consumer of the new set of partitions it is responsible for processing.
+                 *
+                 * Depending on why the rebalancing is occurring and the partition.assignment.strategy,
+                 * A partition revoked here, may be assigned back to the same consumer.
+                 *
+                 * This is where we could act to reduce raciness/duplication when partitions are reassigned to different consumers
+                 * e.g. stop the `flushInterval` and wait for the `assign_partitions` event to start it again.
+                 */
+                this.batchConsumer?.consumer.unassign()
+            } else {
+                // We had a "real" error
+                status.error('🔥', 'Blob ingestion consumer rebalancing error', { err })
+                // TODO: immediately die? or just keep going?
             }
-
-            const partitions = assignments.map((assignment) => assignment.partition)
-
-            // TODO: Iterate over offsetmanager and remove all no longer tracked partitions
-
-            await Promise.all(
-                [...this.sessions.values()]
-                    .filter((session) => !partitions.includes(session.partition))
-                    .map((session) => session.destroy())
-            )
         })
 
         // Make sure to disconnect the producer after we've finished consuming.
