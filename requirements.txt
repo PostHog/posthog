@@ -338,7 +338,7 @@ social-auth-core==4.3.0
     #   social-auth-app-django
 sortedcontainers==2.4.0
     # via trio
-sqlparse==0.4.2
+sqlparse==0.4.4
     # via
     #   -r requirements.in
     #   django
