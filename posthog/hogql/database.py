@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Extra
 
+from posthog.hogql.base import Expr
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
 
@@ -111,7 +112,7 @@ class SQLExprField(BaseModel):
         extra = Extra.forbid
 
     sql: Optional[str] = None
-    expr: Optional[BaseModel] = None  # no typing due to circular issues
+    expr: Optional[Expr] = None
 
     def get_expr(self):
         from posthog.hogql.parser import parse_expr
