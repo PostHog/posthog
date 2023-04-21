@@ -10,6 +10,7 @@ const MINIMUM_SIDEBAR_WIDTH_PX: number = 192
 const DEFAULT_SIDEBAR_WIDTH_PX: number = 288
 const MAXIMUM_SIDEBAR_WIDTH_PX: number = 1024
 const MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE: number = 50
+export const SIDEBAR_SEARCH_INPUT_ID = 'sidebar-search'
 
 export const navigation3000Logic = kea<navigation3000LogicType>([
     path(['layout', 'navigation-3000', 'navigationLogic']),
@@ -153,12 +154,21 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             }
         },
     })),
-    events(({ actions, cache }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
             cache.onResize = () => actions.syncSidebarWidthWithViewport()
             cache.onKeyDown = (e: KeyboardEvent) => {
                 if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
                     actions.toggleSidebar()
+                    e.preventDefault()
+                }
+                if (e.key === 'f' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+                    const logic = values.activeNavbarItem.pointer.findMounted()
+                    if (logic && 'setIsSearchShown' in logic.actions) {
+                        logic.actions.setIsSearchShown(true)
+                        document.getElementById(SIDEBAR_SEARCH_INPUT_ID)?.focus()
+                        e.preventDefault()
+                    }
                 }
             }
             window.addEventListener('resize', cache.onResize)

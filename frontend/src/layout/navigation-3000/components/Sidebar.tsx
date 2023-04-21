@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconClose, IconMagnifier } from 'lib/lemon-ui/icons'
 import React from 'react'
-import { navigation3000Logic } from '../navigationLogic'
+import { SIDEBAR_SEARCH_INPUT_ID, navigation3000Logic } from '../navigationLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
 import { SidebarAccordion, SidebarList } from './SidebarAccordion'
 import { Accordion, BasicListItem, ExtendedListItem } from '../types'
@@ -79,10 +79,9 @@ export function Sidebar(): JSX.Element {
                             onClick={() => setIsSearchShown(!isSearchShown)}
                             active={isSearchShown}
                             tooltip={
-                                <div className="flex items-center gap-1">
-                                    <span>Toggle search</span>
-                                    <KeyboardShortcut command f />
-                                </div>
+                                <>
+                                    Find <KeyboardShortcut shift command f />
+                                </>
                             }
                         />
                     )}
@@ -90,6 +89,7 @@ export function Sidebar(): JSX.Element {
                 {isSearchShown && setSearchTerm && (
                     <div>
                         <LemonInput
+                            id={SIDEBAR_SEARCH_INPUT_ID}
                             type="search"
                             value={searchTerm as string}
                             onChange={(value) => setSearchTerm(value)}
