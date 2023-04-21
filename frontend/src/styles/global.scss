@@ -614,6 +614,7 @@ body {
         --glass-bg-3000: var(--glass-bg-3000-dark);
         --glass-border-3000: var(--glass-border-3000-dark);
         --bg-light: var(--accent-3000);
+        --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
     }
 
     &.posthog-3000 {
