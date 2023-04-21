@@ -5,7 +5,7 @@ import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
 from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env, str_to_bool, get_list
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
 DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
@@ -114,7 +114,7 @@ if JOB_QUEUE_GRAPHILE_URL:
 # Note: Regardless of settings, cursor usage will use the default DB unless otherwise specified.
 # Database routers route models!
 replica_opt_in = os.environ.get("READ_REPLICA_OPT_IN", "")
-READ_REPLICA_OPT_IN: list[str] = replica_opt_in.split(",")
+READ_REPLICA_OPT_IN: list[str] = get_list(replica_opt_in)
 
 
 # Clickhouse Settings
