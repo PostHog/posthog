@@ -1,8 +1,9 @@
 import { actions, kea, reducers, path, key, props, connect, selectors } from 'kea'
 
 import type { manualReleaseLogicType } from './manualReleaseLogicType'
-import { featureFlagLogic } from './featureFlagLogic'
+
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { featureFlagLogic } from '~/scenes/feature-flags/featureFlagLogic'
 
 export interface ManualReleaseLogicProps {
     id: number

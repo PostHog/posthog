@@ -71,7 +71,6 @@ import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { tagsModel } from '~/models/tagsModel'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { ManualReleaseTab } from 'scenes/feature-flags/ManualReleaseTab'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
@@ -80,7 +79,8 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import clsx from 'clsx'
-import { hasManualReleaseCondition } from './manualReleaseLogic'
+import { ManualReleaseTab } from './ManualReleaseTab/ManualReleaseTab'
+import { hasManualReleaseCondition } from './ManualReleaseTab/manualReleaseLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
