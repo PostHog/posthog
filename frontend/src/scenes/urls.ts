@@ -41,6 +41,7 @@ export const urls = {
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     propertyDefinitions: (type?: string): string => combineUrl('/data-management/properties', type ? { type } : {}).url,
     propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
+    dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     events: (): string => '/events',
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
