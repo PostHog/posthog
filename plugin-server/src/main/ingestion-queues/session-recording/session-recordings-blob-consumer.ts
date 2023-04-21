@@ -97,7 +97,7 @@ export class SessionRecordingBlobIngester {
         try {
             // NOTE: we need to parse the JSON for these events because we
             // need to add in the team_id to events, as it is possible due
-            // to a drive to remove postgres dependency on the the capture
+            // to a drive to remove postgres dependency on the capture
             // endpoint we may only have `token`.
             messagePayload = JSON.parse(message.value.toString())
             event = JSON.parse(messagePayload.data)
@@ -106,7 +106,7 @@ export class SessionRecordingBlobIngester {
         }
 
         if (event.event !== '$snapshot') {
-            status.debug('Received non-snapshot message, ignoring')
+            status.debug('🙈', 'Received non-snapshot message, ignoring')
             return
         }
 
@@ -164,7 +164,6 @@ export class SessionRecordingBlobIngester {
         status.info('🔁', 'Processing recordings blob batch', { size: messages.length })
 
         for (const message of messages) {
-            // TODO: Should we wait each message individually?
             await this.handleKafkaMessage(message)
         }
     }
@@ -275,8 +274,7 @@ export class SessionRecordingBlobIngester {
 
         await this.batchConsumer?.stop()
 
-        // TODO: Ditch all in progress sessions
-        // This is inefficient but currently necessary due to new instances restarting from the commited offset point
+        // This is inefficient but currently necessary due to new instances restarting from the committed offset point
         const destroyPromises: Promise<void>[] = []
         this.sessions.forEach((sessionManager) => {
             destroyPromises.push(sessionManager.destroy())

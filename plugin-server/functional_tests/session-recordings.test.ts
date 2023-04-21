@@ -54,6 +54,7 @@ test.concurrent(
         const teamId = await createTeam(organizationId)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
+        const sessionId = new UUIDT().toString()
 
         await capture({
             teamId,
@@ -61,7 +62,7 @@ test.concurrent(
             uuid,
             event: '$snapshot',
             properties: {
-                $session_id: '1234abc',
+                $session_id: sessionId,
                 $window_id: 'abc1234',
                 $snapshot_data: 'yes way',
             },
@@ -84,7 +85,7 @@ test.concurrent(
             has_full_snapshot: 0,
             keypress_count: 0,
             last_event_timestamp: null,
-            session_id: '1234abc',
+            session_id: sessionId,
             snapshot_data: 'yes way',
             team_id: teamId,
             timestamp: expect.any(String),
