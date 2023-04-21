@@ -333,9 +333,8 @@ class Resolver(CloningVisitor):
             if macro:
                 # SubQuery macros ("WITH a AS (SELECT 1)") can only be used in the "FROM table" part of a select query,
                 # which is handled in visit_join_expr. Referring to it here means we want to access its value.
-                self.macro_counter += 1
                 if macro.macro_format == "subquery":
-                    node = ast.Field(chain=node.chain)
+                    node = ast.Field(chain=[name])
                 else:
                     node = clone_expr(macro.expr)
 
@@ -348,9 +347,10 @@ class Resolver(CloningVisitor):
                             f'Cannot access property {remaining_chain} on a macro "{name}" that doesn\'t resolve to a field'
                         )
 
+                self.macro_counter += 1
                 node = self.visit(node)
-                type = node.type or ast.UnknownType()
                 self.macro_counter -= 1
+                type = node.type or ast.UnknownType()
 
         # Field in scope
         if not type:
