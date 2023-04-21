@@ -9,6 +9,11 @@ export enum Scene {
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Database = 'Database',
+
+    DestinationTypes = 'DestinationTypes',
+    CreateDestinationFromOfType = 'CreateDestinationFromOfType',
+    Destinations = 'Destinations',
+
     Insight = 'Insight',
     Cohorts = 'Cohorts',
     Cohort = 'Cohort',

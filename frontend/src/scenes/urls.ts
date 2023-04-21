@@ -33,6 +33,10 @@ export const urls = {
     dashboardSubcription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
 
+    destinationTypes: (): string => '/destination-types',
+    createDestinationOfType: (type: string): string => `/destination-types/${type}/new`,
+    destinations: (): string => '/destinations',
+
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     createAction: (): string => `/data-management/actions/new`,
     action: (id: string | number): string => `/data-management/actions/${id}`,

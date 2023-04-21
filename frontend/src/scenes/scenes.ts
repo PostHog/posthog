@@ -82,6 +82,18 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
+    [Scene.DestinationTypes]: {
+        projectBased: true,
+        name: 'Destination types',
+    },
+    [Scene.CreateDestinationFromOfType]: {
+        projectBased: true,
+        name: 'Create destination',
+    },
+    [Scene.Destinations]: {
+        projectBased: true,
+        name: 'Destinations',
+    },
     [Scene.WebPerformance]: {
         projectBased: true,
         name: 'Web Performance',
@@ -286,6 +298,9 @@ export const routes: Record<string, Scene> = {
     [urls.dashboardSharing(':id')]: Scene.Dashboard,
     [urls.dashboardSubcriptions(':id')]: Scene.Dashboard,
     [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
+    [urls.destinationTypes()]: Scene.DestinationTypes,
+    [urls.createDestinationOfType(':type')]: Scene.CreateDestinationFromOfType,
+    [urls.destinations()]: Scene.Destinations,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
     [urls.ingestionWarnings()]: Scene.IngestionWarnings,
