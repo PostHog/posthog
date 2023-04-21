@@ -1,6 +1,7 @@
 from typing import Optional
 
 from posthog.hogql import ast
+from posthog.hogql.base import AST
 from posthog.hogql.errors import HogQLException
 
 
@@ -10,7 +11,7 @@ def clone_expr(self: ast.Expr, clear_types=False) -> ast.Expr:
 
 
 class Visitor(object):
-    def visit(self, node: ast.AST):
+    def visit(self, node: AST):
         if node is None:
             return node
         return node.accept(self)

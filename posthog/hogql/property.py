@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from posthog.constants import AUTOCAPTURE_EVENT, PropertyOperatorType
 from posthog.hogql import ast
+from posthog.hogql.base import AST
 from posthog.hogql.constants import HOGQL_AGGREGATIONS
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
@@ -16,7 +17,7 @@ from posthog.models.property.util import build_selector_regex
 from posthog.schema import PropertyOperator
 
 
-def has_aggregation(expr: ast.AST) -> bool:
+def has_aggregation(expr: AST) -> bool:
     finder = AggregationFinder()
     finder.visit(expr)
     return finder.has_aggregation
