@@ -52,7 +52,12 @@ async def create_export_run(inputs: CreateExportRunInputs) -> str:
     activity.logger.info("Creating ExportRun model instance.")
 
     create_run = sync_to_async(ExportRun.objects.create)
-    run = await create_run(team_id=inputs.team_id, schedule_name=inputs.schedule_name)
+    run = await create_run(
+        team_id=inputs.team_id,
+        schedule_name=inputs.schedule_name,
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+    )
 
     return run.id
 

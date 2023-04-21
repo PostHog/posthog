@@ -25,9 +25,6 @@ class ExportDestination(UUIDModel):
     last_updated_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     config: models.JSONField = models.JSONField(default=dict, blank=True)
 
-    def get_temporal_workflow(self) -> tuple[Type[PostHogWorkflow], Any]:
-        return self.destinations_to_workflows[self.type]
-
 
 class ExportScheduleManager(models.Manager):
     def create(
@@ -86,8 +83,8 @@ class ExportSchedule(UUIDModel):
     destination: models.ForeignKey = models.ForeignKey(
         "ExportDestination", on_delete=models.CASCADE, related_name="schedules"
     )
-    calendars: ArrayField = ArrayField(models.JSONField(), default=list)
-    intervals: ArrayField = ArrayField(models.JSONField(), default=list)
+    calendars: ArrayField = ArrayField(models.JSONField(), default=list, blank=True)
+    intervals: ArrayField = ArrayField(models.JSONField(), default=list, blank=True)
     cron_expressions: ArrayField = ArrayField(models.TextField(), default=list, blank=True)
     skip: ArrayField = ArrayField(models.JSONField(), default=list)
     jitter: models.DurationField = models.DurationField(null=True)
