@@ -33,6 +33,7 @@ module.exports = {
     plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests'],
     rules: {
         'no-only-tests/no-only-tests': 'error',
+        'no-debugger': 'error',
         'react/prop-types': [0],
         'react/react-in-jsx-scope': [0],
         'react/no-unescaped-entities': [0],

@@ -1,12 +1,13 @@
 import { Card } from 'antd'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { AppMetricsGraph } from './AppMetricsGraph'
-import { AppMetricsTab } from './appMetricsSceneLogic'
+import { AppMetricsTab, appMetricsSceneLogic } from './appMetricsSceneLogic'
 import { historicalExportLogic, HistoricalExportLogicProps } from './historicalExportLogic'
 import { ErrorsOverview, MetricsOverview } from './MetricsTab'
 
 export function HistoricalExport(props: HistoricalExportLogicProps): JSX.Element {
     const { data, dataLoading } = useValues(historicalExportLogic(props))
+    const { openErrorDetailsModal } = useActions(appMetricsSceneLogic)
 
     return (
         <div className="mt-4 mb-4 mr-8">
@@ -34,6 +35,7 @@ export function HistoricalExport(props: HistoricalExportLogicProps): JSX.Element
                     loading={dataLoading}
                     category="exportEvents"
                     jobId={data?.summary?.job_id}
+                    openErrorDetailsModal={openErrorDetailsModal}
                 />
             </Card>
         </div>

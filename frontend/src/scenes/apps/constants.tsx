@@ -85,4 +85,12 @@ export const DescriptionColumns: Record<TabWithMetrics, Description> = {
             </>
         ),
     },
+    [AppMetricsTab.BatchExport]: {
+        successes: 'Events delivered',
+        successes_tooltip: <>These events were successfully delivered on the first try.</>,
+        successes_on_retry: 'Events delivered on retry',
+        successes_on_retry_tooltip: <>These events were successfully delivered after being retried.</>,
+        failures: 'Failed events',
+        failures_tooltip: <>These events failed to be delivered due to errors.</>,
+    },
 }

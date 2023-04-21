@@ -25,6 +25,9 @@ class ExportDestination(UUIDModel):
     last_updated_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     config: models.JSONField = models.JSONField(default=dict, blank=True)
 
+    def get_temporal_workflow(self) -> tuple[Type[PostHogWorkflow], Any]:
+        return self.destinations_to_workflows[self.type]
+
 
 class ExportScheduleManager(models.Manager):
     def create(
@@ -38,22 +41,9 @@ class ExportScheduleManager(models.Manager):
         start_at: dt.datetime | None = None,
         end_at: dt.datetime | None = None,
         jitter: dt.timedelta | None = None,
-        destination_type: str | None = None,
-        destination_config: dict | None = None,
-        destination_name: str | None = None,
         time_zone_name: str = "Etc/UTC",
+        destination: ExportDestination | None = None,
     ) -> "ExportSchedule":
-        destination = ExportDestination.objects.filter(team=team, name=destination_name, type=destination_type)
-
-        if not destination.exists():
-            destination = ExportDestination(
-                name=destination_name,
-                type=destination_type,
-                team=team,
-                config=destination_config,
-            )
-            destination.save()
-
         schedule = ExportSchedule(
             team=team,
             name=name,
@@ -93,10 +83,12 @@ class ExportSchedule(UUIDModel):
     start_at: models.DateTimeField = models.DateTimeField(null=True)
     end_at: models.DateTimeField = models.DateTimeField(null=True)
     name: models.CharField = models.CharField(max_length=256)
-    destination: models.ForeignKey = models.ForeignKey("ExportDestination", on_delete=models.CASCADE)
+    destination: models.ForeignKey = models.ForeignKey(
+        "ExportDestination", on_delete=models.CASCADE, related_name="schedules"
+    )
     calendars: ArrayField = ArrayField(models.JSONField(), default=list)
     intervals: ArrayField = ArrayField(models.JSONField(), default=list)
-    cron_expressions: ArrayField = ArrayField(models.TextField(), default=list)
+    cron_expressions: ArrayField = ArrayField(models.TextField(), default=list, blank=True)
     skip: ArrayField = ArrayField(models.JSONField(), default=list)
     jitter: models.DurationField = models.DurationField(null=True)
     time_zone_name: models.CharField = models.CharField(max_length=64, default="Etc/UTC", null=True)

@@ -254,6 +254,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Issues',
     },
+    [Scene.CDP]: {
+        projectBased: true,
+        name: 'CDP',
+    },
+    [Scene.CDPBatchExport]: {
+        projectBased: true,
+        name: 'CDP',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -382,4 +390,7 @@ export const routes: Record<string, Scene> = {
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
     [urls.issues()]: Scene.Issues,
+    [urls.cdp()]: Scene.CDP,
+    [urls.cdpBatchExport(':id')]: Scene.CDPBatchExport,
+    [urls.cdpNewBatchExport()]: Scene.CDPBatchExport,
 }

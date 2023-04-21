@@ -66,6 +66,8 @@ export enum Scene {
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
     Issues = 'Issues',
+    CDP = 'CDP',
+    CDPBatchExport = 'CDPBatchExport',
 }
 
 export type SceneProps = Record<string, any>
