@@ -72,15 +72,19 @@ class SessionRecordingEvents:
         return ("", {})
 
     def _any_recording_timestamp(self) -> datetime | None:
-        query = f"""
+        # used in place of counting events for checking if a session exists and has any events
+        # lets us ensure that we always query for events with a timestamp boundary to speed up the query
+
+        response = sync_execute(
+            f"""
             SELECT if(count() > 0, any(timestamp), NULL) AS timestamp
             FROM session_recording_events
             PREWHERE
                 team_id = %(team_id)s
                 AND session_id = %(session_id)s
-        """
-
-        response = sync_execute(query, {"team_id": self._team.id, "session_id": self._session_recording_id})
+        """,
+            {"team_id": self._team.id, "session_id": self._session_recording_id},
+        )
 
         return response[0][0]
 
@@ -135,19 +139,11 @@ class SessionRecordingEvents:
         return decompressed
 
     def get_metadata(self) -> Optional[RecordingMetadata]:
-        # replace this with a count, return early if 0 snapshots for the query
-        # then instead of the current looping approach use the new grouped query
-        # select any(session_id), window_id, any(team_id), any(distinct_id), flatten(groupArray(events_summary)), sum(click_count), sum(keypress_count)
-        # from session_recording_events
-        # prewhere session_id = '187a29b802b60f-07a9ab1dabc9c4-1e525634-384000-187a29b802c663'
-        # and timestamp <= now()
-        # and timestamp >= now() - interval 7 day
-        # group by window_id
-        # apparently if any of the windows have a length of 0 for the events_summary array, we fall back to the legacy method
-
         recording_timestamp = self._any_recording_timestamp()
 
         if recording_timestamp is None:
+            # checking for a recording timestamp acts as a proxy for checking if there are events in the session
+            # and ensures that we always query for events with a timestamp boundary to speed up the query
             return None
 
         events_summary_by_window_id = self._get_events_summary_by_window_id(recording_timestamp)
@@ -171,27 +167,8 @@ class SessionRecordingEvents:
     ) -> Optional[List[SessionRecordingWindowMetadata]]:
         """
         For a list of snapshots, group all the events_summary by window_id.
-        If any of them are missing this field, we return empty to fallback to old parsing method
+        If any of them are missing the event_summary field, we return empty to fall back to the old parsing method
         """
-        # events_summary_by_window_id: Dict[WindowId, List[SessionRecordingEventSummary]] = {}
-        #
-        # for snapshot in snapshots:
-        #     if snapshot["window_id"] not in events_summary_by_window_id:
-        #         events_summary_by_window_id[snapshot["window_id"]] = []
-        #
-        #     events_summary_by_window_id[snapshot["window_id"]].extend(
-        #         [cast(SessionRecordingEventSummary, x) for x in snapshot["events_summary"]]
-        #     )
-        #
-        # for window_id in events_summary_by_window_id:
-        #     events_summary_by_window_id[window_id].sort(key=lambda x: x["timestamp"])
-        #
-        # # If any of the snapshots are missing the events_summary field, we fallback to the old parsing method
-        # if any(len(x) == 0 for x in events_summary_by_window_id.values()):
-        #     return None
-        #
-        # return events_summary_by_window_id
-
         date_clause, date_clause_params = self.get_recording_snapshot_date_clause(anchor_time=anchor_time)
 
         aggregate_query = f"""
