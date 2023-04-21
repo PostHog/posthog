@@ -67,7 +67,6 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
                                 e.stopPropagation()
                             }
                         },
-                        active: children.props.active || effectiveVisible,
                         'aria-haspopup': 'true',
                     })}
                 </Popover>

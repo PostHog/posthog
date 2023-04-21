@@ -55,7 +55,7 @@ export interface PopoverProps {
 }
 
 export const PopoverLevelContext = React.createContext<number>(0)
-export const PopoverPlacementContext = React.createContext<Placement | null>(null)
+export const PopoverVisibilityContext = React.createContext<[boolean, Placement] | null>(null)
 
 let nestedPopoverReceivedClick = false
 
@@ -194,9 +194,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     return (
         <>
-            <PopoverPlacementContext.Provider value={effectivePlacement}>
+            <PopoverVisibilityContext.Provider value={[visible, effectivePlacement]}>
                 {clonedChildren}
-            </PopoverPlacementContext.Provider>
+            </PopoverVisibilityContext.Provider>
             <FloatingPortal root={getPopupContainer?.()}>
                 <CSSTransition in={visible} timeout={100} classNames="Popover-" appear mountOnEnter unmountOnExit>
                     <PopoverLevelContext.Provider value={popoverLevel + 1}>
