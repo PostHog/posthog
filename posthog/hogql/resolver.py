@@ -52,12 +52,15 @@ class Resolver(CloningVisitor):
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryType] = scopes or []
         self.database = database
+        self.macro_counter = 0
 
     def visit(self, node: ast.Expr) -> ast.Expr:
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolverException(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
             )
+        if self.macro_counter > 50:
+            raise ResolverException("Too many macro expansions (50+). Probably a macro loop.")
         return super().visit(node)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
@@ -111,7 +114,7 @@ class Resolver(CloningVisitor):
             # add the column to the new select query
             new_node.select.append(new_expr)
 
-        # :TRICKY: Make sure to visit _all_ SelectQuery nodes. Printing unresolved fields will throw.
+        # :TRICKY: Make sure to clone and visit _all_ SelectQuery nodes.
         new_node.where = self.visit(node.where)
         new_node.prewhere = self.visit(node.prewhere)
         new_node.having = self.visit(node.having)
@@ -167,6 +170,7 @@ class Resolver(CloningVisitor):
 
         scope = self.scopes[-1]
 
+        # If selecting from a macro, expand and visit the new node
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
             table_name = node.table.chain[0]
             macro = lookup_macro_by_name(self.scopes, table_name)
@@ -174,6 +178,11 @@ class Resolver(CloningVisitor):
                 node = cast(ast.JoinExpr, clone_expr(node))
                 node.table = clone_expr(macro.expr)
                 node.alias = table_name
+
+                self.macro_counter += 1
+                response = self.visit(node)
+                self.macro_counter -= 1
+                return response
 
         if isinstance(node.table, ast.Field):
             table_name = node.table.chain[0]
@@ -184,21 +193,21 @@ class Resolver(CloningVisitor):
             if self.database.has_table(table_name):
                 database_table = self.database.get_table(table_name)
                 if isinstance(database_table, ast.LazyTable):
-                    nodeTableType = ast.LazyTableType(table=database_table)
+                    node_table_type = ast.LazyTableType(table=database_table)
                 else:
-                    nodeTableType = ast.TableType(table=database_table)
+                    node_table_type = ast.TableType(table=database_table)
 
                 if table_alias == table_name:
-                    node_type = nodeTableType
+                    node_type = node_table_type
                 else:
-                    node_type = ast.TableAliasType(alias=table_alias, table_type=nodeTableType)
+                    node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
                 scope.tables[table_alias] = node_type
 
-                # :TRICKY: Make sure to visit _all_ JoinExpr nodes. Otherwise, the printer may complain about unresolved types.
+                # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
                 node = cast(ast.JoinExpr, clone_expr(node))
                 node.type = node_type
                 node.table = cast(ast.Field, clone_expr(node.table))
-                node.table.type = nodeTableType
+                node.table.type = node_table_type
                 node.next_join = self.visit(node.next_join)
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)
@@ -221,7 +230,7 @@ class Resolver(CloningVisitor):
                 node.type = node.table.type
                 scope.anonymous_tables.append(node.type)
 
-            # :TRICKY: Make sure to visit _all_ JoinExpr nodes. Otherwise, the printer may complain about resolved types.
+            # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.next_join = self.visit(node.next_join)
             node.constraint = self.visit(node.constraint)
             node.sample = self.visit(node.sample)
@@ -326,7 +335,10 @@ class Resolver(CloningVisitor):
                 # which is handled in visit_join_expr. Referring to it here means we want to access its value.
                 if macro.macro_format == "subquery":
                     return ast.Field(chain=node.chain)
-                return self.visit(clone_expr(macro.expr))
+                self.macro_counter += 1
+                response = self.visit(clone_expr(macro.expr))
+                self.macro_counter -= 1
+                return response
 
         if not type:
             raise ResolverException(f"Unable to resolve field: {name}")

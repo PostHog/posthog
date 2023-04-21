@@ -657,6 +657,11 @@ class TestResolver(BaseTest):
         ]
         self.assertEqual(node.select, expected)
 
+    def test_macros_loop(self):
+        with self.assertRaises(ResolverException) as e:
+            self._print_hogql("with macro as (select * from macro) select * from macro")
+        self.assertIn("Too many macro expansions (50+). Probably a macro loop.", str(e.exception))
+
     def test_macros_basic_column(self):
         expr = self._print_hogql("with 1 as macro select macro from events")
         expected = self._print_hogql("select 1 from events")
