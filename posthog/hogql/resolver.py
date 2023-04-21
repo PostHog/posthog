@@ -327,7 +327,7 @@ class Resolver(CloningVisitor):
             )
             type = ast.AsteriskType(table_type=table_type)
 
-        # Macro in scope
+        # Macro in scope. Resolved before fields.
         if not type:
             macro = lookup_macro_by_name(self.scopes, name)
             if macro:
@@ -357,11 +357,11 @@ class Resolver(CloningVisitor):
             type = lookup_field_by_name(scope, name)
 
         if not type:
-            # Could not find any type for the first element in the chain. Bailing.
+            # Could not resolve the first element in the chain. Bailing.
             raise ResolverException(f"Unable to resolve field: {name}")
 
         while True:
-            # Expand SQL fields
+            # Expand SQLExprField-s
             if isinstance(type, FieldType):
                 database_field = type.resolve_database_field()
                 # if we found a SQL expression field, expand it
@@ -381,13 +381,6 @@ class Resolver(CloningVisitor):
 
             name = remaining_chain.pop(0)
             type = type.get_child(name)
-
-            # TODO: if can't access child, convert to array access
-            # if len(remaining_chain) == 0:
-            #     return new_node
-            # for value in chain_to_parse:
-            #     new_node = ast.ArrayAccess(array=new_node, property=ast.Constant(value=value))
-            # return new_node
 
             if type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(initial_chain)}. Unable to resolve {name}.")
