@@ -17,6 +17,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.temporal.client import connect
+from posthog.temporal.workflows import DESTINATION_WORKFLOWS
 
 
 @async_to_sync
@@ -100,7 +101,7 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
         )
         schedule_spec = export_schedule.get_schedule_spec()
         destination = export_schedule.destination
-        workflow, workflow_inputs = destination.get_temporal_workflow()
+        workflow, workflow_inputs = DESTINATION_WORKFLOWS[destination.type]
 
         client = get_temporal_client()
         async_to_sync(client.create_schedule)(

@@ -103,6 +103,8 @@ class Migration(migrations.Migration):
                 ),
                 ("opened_at", models.DateTimeField(null=True)),
                 ("closed_at", models.DateTimeField(null=True)),
+                ("data_interval_start", models.DateTimeField()),
+                ("data_interval_end", models.DateTimeField()),
                 (
                     "schedule",
                     models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.exportschedule"),
