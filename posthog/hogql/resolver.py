@@ -345,7 +345,7 @@ class Resolver(CloningVisitor):
                         node.chain = node.chain + remaining_chain
                     else:
                         raise ResolverException(
-                            f"Cannot access field {remaining_chain} on a macro that is not a field: {name}"
+                            f'Cannot access property {remaining_chain} on a macro "{name}" that doesn\'t resolve to a field'
                         )
 
                 node = self.visit(node)

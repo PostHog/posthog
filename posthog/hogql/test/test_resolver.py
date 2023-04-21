@@ -690,6 +690,13 @@ class TestResolver(BaseTest):
             self._print_hogql("select properties.$browser from events"),
         )
 
+    def test_macros_combined_field_access(self):
+        with self.assertRaises(ResolverException) as e:
+            self._print_hogql("with if(1, properties, properties) as macro select macro.$browser from events"),
+        self.assertIn(
+            "Cannot access property ['$browser'] on a macro \"macro\" that doesn't resolve to a field", str(e.exception)
+        )
+
     def test_macros_subqueries(self):
         self.assertEqual(
             self._print_hogql("with my_table as (select * from events) select * from my_table"),
