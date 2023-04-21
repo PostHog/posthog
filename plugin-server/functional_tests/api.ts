@@ -6,13 +6,14 @@ import { Pool } from 'pg'
 import { defaultConfig } from '../src/config/config'
 import {
     ActionStep,
+    Plugin,
+    PluginConfig,
     PluginLogEntry,
     RawAction,
     RawClickHouseEvent,
     RawPerformanceEvent,
     RawSessionRecordingEvent,
 } from '../src/types'
-import { Plugin, PluginConfig } from '../src/types'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { insertRow } from '../tests/helpers/sql'
@@ -147,16 +148,16 @@ export const reloadDictionaries = async () => {
 
 export const fetchEvents = async (teamId: number, uuid?: string) => {
     const queryResult = (await clickHouseClient.querying(`
-        SELECT
-            *,
-            dictGetOrDefault(
-                person_overrides_dict,
-                'override_person_id',
-                (${teamId}, events.person_id),
-                events.person_id
-            ) as person_id
-        FROM events
-        WHERE team_id = ${teamId} ${uuid ? `AND uuid = '${uuid}'` : ``} ORDER BY timestamp ASC
+        SELECT *,
+               if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id
+        FROM events e
+                 LEFT OUTER JOIN
+             (SELECT override_person_id as person_id,
+                     old_person_id
+              FROM person_overrides
+              WHERE team_id = ${teamId}) AS overrides ON e.person_id = overrides.old_person_id
+        WHERE team_id = ${teamId} ${uuid ? `AND uuid = '${uuid}'` : ``}
+        ORDER BY timestamp ASC
     `)) as unknown as ClickHouse.ObjectQueryResult<RawClickHouseEvent>
     return queryResult.data.map(parseRawClickHouseEvent)
 }
