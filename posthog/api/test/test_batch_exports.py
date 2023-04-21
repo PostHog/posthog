@@ -25,7 +25,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
-            "primary_schedule": {
+            "schedule": {
                 "name": "test-schedule",
                 "cron_expressions": ["0 0 * * *"],
             },
@@ -41,8 +41,8 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.data["type"], destination_data["type"])
         self.assertEqual(response.data["config"], destination_data["config"])
         self.assertEqual(
-            response.data["primary_schedule"]["cron_expressions"],
-            destination_data["primary_schedule"]["cron_expressions"],
+            response.data["schedule"]["cron_expressions"],
+            destination_data["schedule"]["cron_expressions"],
         )
 
     def test_create_export_schedule(self):
@@ -57,7 +57,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
-            "primary_schedule": {
+            "schedule": {
                 "name": "test-schedule",
                 "cron_expressions": ["0 0 * * *"],
             },
@@ -91,11 +91,11 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(export_schedule.start_at.isoformat(), manual_schedule_data["start_at"])
 
         handle = self.temporal.get_schedule_handle(
-            export_schedule.id.__str__(),
+            str(export_schedule.id),
         )
         temporal_schedule = async_to_sync(handle.describe)()
 
-        self.assertEqual(temporal_schedule.id, export_schedule.id.__str__())
+        self.assertEqual(temporal_schedule.id, str(export_schedule.id))
 
         # Clean-up the schedule
         async_to_sync(handle.delete)()
@@ -112,7 +112,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
-            "primary_schedule": {
+            "schedule": {
                 "name": "test-schedule",
                 "cron_expressions": ["0 0 * * *"],
             },
@@ -144,7 +144,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         export_schedule = ExportSchedule.objects.filter(name=schedule_name)[0]
 
         handle = self.temporal.get_schedule_handle(
-            export_schedule.id.__str__(),
+            str(export_schedule.id),
         )
 
         response = self.client.delete(
@@ -155,8 +155,6 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
 
         export_schedule = ExportSchedule.objects.filter(name=schedule_name)
         assert not export_schedule.exists()
-
-        async_to_sync(handle.describe)()
 
         with self.assertRaisesRegex(RPCError, "schedule not found"):
             async_to_sync(handle.describe)()
