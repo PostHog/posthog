@@ -136,7 +136,8 @@
 
             // These buttons keep their font-weight when actve
             &.LemonButtonWithSideAction,
-            &.LemonButtonWithDropdown {
+            &[role='menuitem'],
+            &[aria-haspopup='true'] {
                 font-weight: 400;
             }
         }

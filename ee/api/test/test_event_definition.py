@@ -1,4 +1,4 @@
-from typing import cast
+from typing import cast, Optional
 
 import dateutil.parser
 from django.utils import timezone
@@ -7,7 +7,7 @@ from rest_framework import status
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
-from posthog.models import Tag
+from posthog.models import Tag, ActivityLog
 from posthog.models.event_definition import EventDefinition
 from posthog.test.base import APIBaseTest
 
@@ -100,6 +100,29 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         event.refresh_from_db()
         self.assertEqual(event.description, "This is a description.")
         self.assertEqual(set(event.tagged_items.values_list("tag__name", flat=True)), {"official", "internal"})
+
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
+        assert activity_log is not None
+        self.assertEqual(activity_log.scope, "EventDefinition")
+        self.assertEqual(activity_log.activity, "changed")
+        self.assertEqual(activity_log.detail["name"], "enterprise event")
+        self.assertEqual(activity_log.user, self.user)
+        assert sorted(activity_log.detail["changes"], key=lambda x: x["field"]) == [
+            {
+                "action": "changed",
+                "after": "This is a description.",
+                "before": "",
+                "field": "description",
+                "type": "EventDefinition",
+            },
+            {
+                "action": "changed",
+                "after": ["official", "internal"],
+                "before": [],
+                "field": "tags",
+                "type": "EventDefinition",
+            },
+        ]
 
     def test_update_event_without_license(self):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")

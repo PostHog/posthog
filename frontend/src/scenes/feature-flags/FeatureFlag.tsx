@@ -515,18 +515,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         <LemonDivider className="mb-4" />
                                         <FeatureFlagCodeExample featureFlag={featureFlag} />
                                     </Tabs.TabPane>
-                                    {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
-                                        <Tabs.TabPane
-                                            tab={
-                                                <div>
-                                                    Usage
-                                                    <LemonTag type="warning" className="uppercase ml-2">
-                                                        Beta
-                                                    </LemonTag>
-                                                </div>
-                                            }
-                                            key="usage"
-                                        >
+                                    {featureFlag.key && id && (
+                                        <Tabs.TabPane tab={<div>Usage</div>} key="usage">
                                             <UsageTab id={id} featureFlag={featureFlag} />
                                         </Tabs.TabPane>
                                     )}
@@ -1173,7 +1163,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         propertyFilters={group?.properties}
                                         logicalRowDivider
                                         addButton={
-                                            <LemonButton icon={<IconPlusMini />} noPadding>
+                                            <LemonButton icon={<IconPlusMini />} sideIcon={null} noPadding>
                                                 Add condition
                                             </LemonButton>
                                         }
