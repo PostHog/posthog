@@ -38,6 +38,28 @@ export class OffsetManager {
         this.offsetsByPartitionTopic.get(key)?.push(offset)
     }
 
+    /**
+     * When a rebalance occurs we need to remove all in-flight offsets for partitions that are no longer
+     * assigned to this consumer.
+     *
+     * @param topic
+     * @param assignedPartitions The partitions that are still assigned to this consumer after a rebalance
+     */
+    public cleanPartitions(topic: string, assignedPartitions: number[]): void {
+        const assignedKeys = assignedPartitions.map((partition) => `${topic}-${partition}`)
+
+        const keysToDelete = new Set<string>()
+        for (const [key] of this.offsetsByPartitionTopic) {
+            if (!assignedKeys.includes(key)) {
+                keysToDelete.add(key)
+            }
+        }
+
+        keysToDelete.forEach((key) => {
+            this.offsetsByPartitionTopic.delete(key)
+        })
+    }
+
     // TODO: Ensure all offsets passed here are already checked to be part of the same partition
     public removeOffsets(topic: string, partition: number, offsets: number[]): number | undefined {
         // TRICKY - We want to find the newest offset from the ones being removed that is
@@ -60,7 +82,7 @@ export class OffsetManager {
 
         if (!inFlightOffsets) {
             // TODO: Add a metric so that we can see if and when this happens
-            status.error('💾', `No offsets found for key: ${key}. This should never happen`)
+            status.warn('💾', `No inflight offsets found for key: ${key}.`)
             return
         }
 

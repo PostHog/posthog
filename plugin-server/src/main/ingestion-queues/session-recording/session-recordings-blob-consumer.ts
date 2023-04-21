@@ -221,7 +221,7 @@ export class SessionRecordingBlobIngester {
 
                 const partitions = assignments.map((assignment) => assignment.partition)
 
-                // TODO: Iterate over offsetmanager and remove all no longer tracked partitions
+                this.offsetManager?.cleanPartitions(KAFKA_SESSION_RECORDING_EVENTS, partitions)
 
                 await Promise.all(
                     [...this.sessions.values()]

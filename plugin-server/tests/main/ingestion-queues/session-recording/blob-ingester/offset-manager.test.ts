@@ -63,5 +63,43 @@ describe('offset-manager', () => {
         const result = offsetManager.removeOffsets(TOPIC, 1, removals)
 
         expect(result).toEqual(expectation)
+        if (result === undefined) {
+            expect(mockConsumer.commit).toHaveBeenCalledTimes(0)
+        } else {
+            expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
+            expect(mockConsumer.commit).toHaveBeenCalledWith({
+                offset: result,
+                partition: 1,
+                topic: 'test-session-recordings',
+            })
+        }
+    })
+
+    it('does not commits revoked partition offsets ', () => {
+        ;[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((offset) => {
+            offsetManager.addOffset(TOPIC, 1, offset)
+        })
+
+        offsetManager.addOffset(TOPIC, 1, 1)
+        offsetManager.addOffset(TOPIC, 2, 2)
+        offsetManager.addOffset(TOPIC, 3, 3)
+
+        offsetManager.cleanPartitions(TOPIC, [2, 3])
+
+        const resultOne = offsetManager.removeOffsets(TOPIC, 1, [1])
+        expect(resultOne).toEqual(undefined)
+        expect(mockConsumer.commit).toHaveBeenCalledTimes(0)
+
+        mockConsumer.commit.mockClear()
+
+        const resultTwo = offsetManager.removeOffsets(TOPIC, 2, [2])
+        expect(resultTwo).toEqual(2)
+        expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
+
+        mockConsumer.commit.mockClear()
+
+        const resultThree = offsetManager.removeOffsets(TOPIC, 3, [3])
+        expect(resultThree).toEqual(3)
+        expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
     })
 })
