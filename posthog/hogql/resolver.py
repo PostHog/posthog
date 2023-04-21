@@ -366,7 +366,9 @@ class Resolver(CloningVisitor):
                 database_field = type.resolve_database_field()
                 # if we found a SQL expression field, expand it
                 if isinstance(database_field, SQLExprField):
+                    self.macro_counter += 1
                     new_field = self.visit(database_field.get_expr())
+                    self.macro_counter -= 1
                     type = ast.FieldAliasType(alias=name, type=new_field.type or ast.UnknownType())
                     node = ast.Alias(type=type, expr=new_field, alias=name)
 

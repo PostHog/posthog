@@ -112,12 +112,13 @@ class TestDatabase(BaseTest):
                 f"LIMIT 1",
             )
 
-    def test_sql_expr_broken_field(self):
+    def test_sql_expr_broken_fields(self):
         class EventsTable(Table):
             event: StringDatabaseField = StringDatabaseField(name="event")
             team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
             properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
-            custom_field_2: BaseModel = SQLExprField(sql="upper(eve")
+            broken_field: BaseModel = SQLExprField(sql="upper(eve")
+            loop_field: BaseModel = SQLExprField(sql="loop_field")
 
             def clickhouse_table(self):
                 return "events"
@@ -136,10 +137,19 @@ class TestDatabase(BaseTest):
             )
 
             with self.assertRaises(HogQLException) as e:
-                query = parse_select("select event, custom_field_2 from events order by custom_field_2 limit 1")
+                query = parse_select("select event, broken_field from events order by broken_field limit 1")
                 print_ast(query, context=clickhouse_context, dialect="clickhouse")
 
             self.assertEqual(
                 str(e.exception),
-                "Error parsing SQL field \"upper(eve\": Syntax error at line 1, column 9: no viable alternative at input 'upper(eve'",
+                "Error parsing SQL expression \"upper(eve\": Syntax error at line 1, column 9: no viable alternative at input 'upper(eve'",
+            )
+
+            with self.assertRaises(HogQLException) as e:
+                query = parse_select("select event, loop_field from events limit 1")
+                print_ast(query, context=clickhouse_context, dialect="clickhouse")
+
+            self.assertEqual(
+                str(e.exception),
+                "Too many macro expansions (50+). Probably a macro loop.",
             )
