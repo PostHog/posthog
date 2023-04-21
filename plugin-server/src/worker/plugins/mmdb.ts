@@ -21,10 +21,10 @@ enum MMDBFileStatus {
     Unavailable = 'unavailable',
 }
 
-export async function setupMmdb(hub: Hub) {
+export async function setupMmdb(hub: Hub): Promise<schedule.Job | undefined> {
     if (!hub.DISABLE_MMDB && hub.capabilities.mmdb) {
         hub.mmdb = (await prepareMmdb(hub)) ?? undefined
-        schedule.scheduleJob('0 */4 * * *', async () => await performMmdbStalenessCheck(hub))
+        return schedule.scheduleJob('0 */4 * * *', async () => await performMmdbStalenessCheck(hub))
     }
 }
 

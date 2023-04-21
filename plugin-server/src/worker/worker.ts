@@ -33,11 +33,14 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
                 })
             })
 
-            await setupMmdb(hub)
+            const updateJob = await setupMmdb(hub)
             await setupPlugins(hub)
 
             for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
                 process.on(signal, closeHub)
+                if (updateJob) {
+                    process.on(signal, updateJob.cancel)
+                }
             }
 
             return createTaskRunner(hub)

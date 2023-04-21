@@ -1,9 +1,7 @@
-import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
 import { Consumer, KafkaJSProtocolError } from 'kafkajs'
-import net from 'net'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
@@ -39,7 +37,6 @@ export type ServerInstance = {
     hub: Hub
     piscina: Piscina
     queue: IngestionConsumer | null
-    mmdb?: ReaderModel
     stop: () => Promise<void>
 }
 
@@ -95,7 +92,6 @@ export async function startPluginsServer(
     let schedulerTasksConsumer: Consumer | undefined
 
     let httpServer: Server | undefined // healthcheck server
-    let mmdbServer: net.Server | undefined // geoip server
 
     let graphileWorker: GraphileWorker | undefined
 
@@ -103,11 +99,9 @@ export async function startPluginsServer(
 
     let lastActivityCheck: NodeJS.Timeout | undefined
     let stopEventLoopMetrics: (() => void) | undefined
-    let mmdbUpdateJob: schedule.Job | undefined
 
     let shuttingDown = false
     async function closeJobs(): Promise<void> {
-        mmdbUpdateJob?.cancel()
         shuttingDown = true
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
@@ -134,19 +128,6 @@ export async function startPluginsServer(
             stopSessionRecordingEventsConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
         ])
-
-        await new Promise<void>((resolve, reject) =>
-            !mmdbServer
-                ? resolve()
-                : mmdbServer.close((error) => {
-                      if (error) {
-                          reject(error)
-                      } else {
-                          status.info('🛑', 'Closed internal MMDB server!')
-                          resolve()
-                      }
-                  })
-        )
 
         if (piscina) {
             await stopPiscina(piscina)
