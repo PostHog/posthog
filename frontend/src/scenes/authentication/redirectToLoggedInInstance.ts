@@ -13,7 +13,7 @@
  * 127.0.0.1 app.posthogtest.com
  *
  * Then set the following cookies locally:
- * document.cookie = "ph_current_instance=https://eu.posthog.com";
+ * document.cookie = "ph_current_instance=\"https://eu.posthog.com\"";
  * document.cookie = "is-logged-in=1";
  *
  * Then go to http://app.posthogtest.com:8000/login?next=/apps
@@ -38,7 +38,8 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
     const currentSubdomain = window.location.hostname.split('.')[0]
 
     const loggedInInstance = getCookie(PH_CURRENT_INSTANCE)
-    const loggedInSubdomain = loggedInInstance ? new URL(loggedInInstance).host.split('.')[0] : null
+    // replace '"' as for some reason the cookie value is wrapped in quotes e.g. "https://eu.posthog.com"
+    const loggedInSubdomain = loggedInInstance ? new URL(loggedInInstance.replace('"', '')).host.split('.')[0] : null
 
     if (!loggedInSubdomain) {
         return // not logged into another subdomain
