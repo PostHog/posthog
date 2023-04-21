@@ -526,6 +526,11 @@ testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the
     })
 
     await waitForExpect(async () => {
+        const result = await reloadDictionaries()
+        expect(result).toBe('')
+    })
+
+    await waitForExpect(async () => {
         const events = await fetchEvents(teamId)
         expect(events.length).toBe(4)
         expect(events[0].person_id).toBeDefined()
