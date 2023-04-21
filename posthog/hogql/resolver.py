@@ -371,6 +371,7 @@ class Resolver(CloningVisitor):
                     self.macro_counter -= 1
                     type = ast.FieldAliasType(alias=name, type=new_field.type or ast.UnknownType())
                     node = ast.Alias(type=type, expr=new_field, alias=name)
+                    continue
 
             # Expand Field Traverser fields
             if isinstance(type, FieldTraverserType):
