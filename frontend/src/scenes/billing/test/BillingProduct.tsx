@@ -3,7 +3,14 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { IconChevronRight, IconCheckmark, IconExpandMore, IconPlus, IconArticle } from 'lib/lemon-ui/icons'
+import {
+    IconChevronRight,
+    IconCheckmark,
+    IconExpandMore,
+    IconPlus,
+    IconArticle,
+    IconCheckCircleOutline,
+} from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
@@ -344,7 +351,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     </p>
                                 )}
                                 <p className="m-0">
-                                    Need additional platform and support (aka enterprise) features?{' '}
+                                    Need additional platform and support (aka enterprise) features like SSO and advanced
+                                    permissioning?{' '}
                                     <Link to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request">
                                         Get in touch
                                     </Link>{' '}
@@ -475,19 +483,41 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             <h4 className={`${product.subscribed ? 'text-success-dark' : 'text-warning-dark'}`}>
                                 You're on the {product.subscribed ? 'paid' : 'free'} plan for {product.name}.
                             </h4>
-                            <p className="m-0 max-w-200">
-                                {product.subscribed ? 'You now' : 'Upgrade to'} get sweet features such as{' '}
+                            <p className="ml-0 max-w-200">
+                                {product.subscribed ? 'You now' : 'Upgrade to'} get sweet features such as:
+                            </p>
+                            <div>
                                 {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
                                     return (
                                         i < 3 && (
-                                            <Tooltip key={feature.key} title={feature.description}>
-                                                <b>{feature.name}, </b>
-                                            </Tooltip>
+                                            <div className="flex gap-x-2 items-center mb-2">
+                                                <IconCheckCircleOutline className="text-success" />
+                                                <Tooltip key={feature.key} title={feature.description}>
+                                                    <b>{feature.name} </b>
+                                                </Tooltip>
+                                            </div>
                                         )
                                     )
                                 })}
-                                and more{!billing?.has_active_subscription && ', plus upgraded platform features'}.
-                            </p>
+                                {!billing?.has_active_subscription && (
+                                    <div className="flex gap-x-2 items-center mb-2">
+                                        <IconCheckCircleOutline className="text-success" />
+                                        <Tooltip
+                                            title={
+                                                'Multiple projects, Feature flags, Experiments, Integrations, Apps, and more'
+                                            }
+                                        >
+                                            <b>Upgraded platform features</b>
+                                        </Tooltip>
+                                    </div>
+                                )}
+                                <div className="flex gap-x-2 items-center mb-2">
+                                    <IconCheckCircleOutline className="text-success" />
+                                    <Link onClick={toggleIsPlanComparisonModalOpen}>
+                                        <b>And more...</b>
+                                    </Link>
+                                </div>
+                            </div>
                             {upgradePlan?.tiers?.[0].unit_amount_usd &&
                                 parseInt(upgradePlan?.tiers?.[0].unit_amount_usd) === 0 && (
                                     <p className="ml-0 mb-0 mt-4">
@@ -507,6 +537,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         type="secondary"
                                         onClick={toggleIsPlanComparisonModalOpen}
                                         className="grow"
+                                        center
                                     >
                                         Compare plans
                                     </LemonButton>
@@ -533,6 +564,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             reportBillingUpgradeClicked(product.type)
                                         }}
                                         className="grow"
+                                        center
                                     >
                                         Upgrade
                                     </LemonButton>
