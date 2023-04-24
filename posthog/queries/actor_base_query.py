@@ -209,7 +209,7 @@ def get_groups(
 
 
 def get_people(
-    team_id: int, people_ids: List[Any], value_per_actor_id: Optional[Dict[str, float]] = None, distinct_id_limit=None
+    team_id: int, people_ids: List[Any], value_per_actor_id: Optional[Dict[str, float]] = None, distinct_id_limit=1000
 ) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
     distinct_id_subquery = Subquery(

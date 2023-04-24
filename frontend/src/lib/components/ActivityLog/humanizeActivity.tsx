@@ -27,6 +27,8 @@ export interface ActivityLogDetail {
     changes: ActivityChange[] | null
     name: string | null
     short_id?: InsightShortId | null
+    /** e.g. for property definition carries event, person, or group */
+    type?: string
 }
 
 export interface ActivityUser {
@@ -41,6 +43,9 @@ export enum ActivityScope {
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
+    DATA_MANAGEMENT = 'DataManagement',
+    EVENT_DEFINITION = 'EventDefinition',
+    PROPERTY_DEFINITION = 'PropertyDefinition',
 }
 
 export interface ActivityLogItem {

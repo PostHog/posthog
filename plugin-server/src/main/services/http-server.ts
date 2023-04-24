@@ -10,7 +10,7 @@ export const HTTP_SERVER_PORT = 6738
 prometheus.collectDefaultMetrics()
 
 export function createHttpServer(
-    healthChecks: { [service: string]: () => Promise<boolean> },
+    healthChecks: { [service: string]: () => Promise<boolean> | boolean },
     analyticsEventsIngestionConsumer?: IngestionConsumer,
     piscina?: Piscina
 ): Server {

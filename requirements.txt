@@ -30,7 +30,7 @@ attrs==21.4.0
     #   jsonschema
     #   outcome
     #   trio
-backoff==1.6.0
+backoff==2.2.1
     # via posthoganalytics
 billiard==3.6.3.0
     # via celery
@@ -238,7 +238,7 @@ pickleshare==0.7.5
     # via -r requirements.in
 pillow==9.2.0
     # via -r requirements.in
-posthoganalytics==2.3.1
+posthoganalytics==3.0.1
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
@@ -338,7 +338,7 @@ social-auth-core==4.3.0
     #   social-auth-app-django
 sortedcontainers==2.4.0
     # via trio
-sqlparse==0.4.2
+sqlparse==0.4.4
     # via
     #   -r requirements.in
     #   django
@@ -369,9 +369,6 @@ typing-extensions==4.4.0
     #   pydantic
     #   qrcode
     #   temporalio
-    #   typing-inspect
-typing-inspect==0.7.1
-    # via dataclasses-json
 tzlocal==2.1
     # via clickhouse-driver
 unicodecsv==0.14.1
