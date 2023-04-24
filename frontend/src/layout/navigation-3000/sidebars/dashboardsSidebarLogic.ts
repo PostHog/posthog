@@ -17,7 +17,9 @@ import { navigation3000Logic } from '../navigationLogic'
 
 const fuse = new Fuse<DashboardType>([], {
     keys: ['name', 'description', 'tags'],
-    threshold: 0.3,
+    threshold: 0.5,
+    distance: 200,
+    includeMatches: true,
 })
 
 export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([

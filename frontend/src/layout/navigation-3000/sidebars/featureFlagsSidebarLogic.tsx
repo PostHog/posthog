@@ -17,7 +17,9 @@ import { navigation3000Logic } from '../navigationLogic'
 
 const fuse = new Fuse<FeatureFlagType>([], {
     keys: ['key', 'name', 'tags'],
-    threshold: 0.3,
+    threshold: 0.5,
+    distance: 200,
+    includeMatches: true,
 })
 
 export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
