@@ -82,7 +82,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         prop_query, prop_params = event_query._get_prop_groups(
             prop_filters,
             person_properties_mode=get_person_properties_mode(self._team),
-            person_id_joined_alias=event_query._get_person_id_alias,
+            person_id_joined_alias=event_query._get_person_id_alias(self._team.person_on_events_mode),
         )
 
         conversion_filter = (
