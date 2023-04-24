@@ -19,6 +19,11 @@ import {
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     const { actions, events } = seriesToActionsAndEvents((query as TrendsQuery).series || [])
 
+    // If there's a "any event" entity, don't filter by event names.
+    if (events.find((e) => e.id === null || e.id === '')) {
+        return []
+    }
+
     const allEvents = [
         ...events.map((e) => String(e.id)),
         ...actions.flatMap((action) => getEventNamesForAction(action.id as string | number, allActions)),
