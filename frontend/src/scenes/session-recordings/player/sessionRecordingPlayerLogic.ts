@@ -755,18 +755,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             const debouncedCounter = (): void => {
                 warningCount += 1
-                clearTimeout(cache.consoleWarnDebounceTimer)
 
-                cache.consoleWarnDebounceTimer = setTimeout(() => {
-                    actions.incrementWarningCount(warningCount)
-                    warningCount = 0
-                }, 1000)
+                if (!cache.consoleWarnDebounceTimer) {
+                    cache.consoleWarnDebounceTimer = setTimeout(() => {
+                        cache.consoleWarnDebounceTimer = null
+                        actions.incrementWarningCount(warningCount)
+                        warningCount = 0
+                    }, 1000)
+                }
             }
 
             cache.resetConsoleWarn = wrapConsole('warn', (args) => {
                 if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
                     debouncedCounter()
+                    return false
                 }
+
+                return true
             })
         },
     })),
