@@ -459,8 +459,7 @@ export function HedgehogBuddy({
                         <p>
                             Don't mind me. I'm just here to keep you company.
                             <br />
-                            You can move me around by clicking and dragging or control me with WASD / arrow keys. See if
-                            you can unlock all my accessories the more you use PostHog...
+                            You can move me around by clicking and dragging or control me with WASD / arrow keys.
                         </p>
 
                         {accessoryGroups.map((group) => (
