@@ -64,7 +64,7 @@ slack_sdk==3.17.1
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0
 statshog==1.0.6
-sqlparse==0.4.2
+sqlparse==0.4.4
 temporalio==1.1.0
 token-bucket==0.3.0
 toronado==0.1.0
