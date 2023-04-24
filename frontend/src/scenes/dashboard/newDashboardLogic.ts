@@ -190,6 +190,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     router.actions.replace(urlWithoutTemplate.href)
                 }
                 if (templateObj && !templateObj?.variables) {
+                    // TODO: when we have a template preview screen, we can show it here first before creating the dashboard
                     actions.createDashboardFromTemplate(templateObj, [])
                 } else if (templateObj) {
                     actions.showNewDashboardModal()
