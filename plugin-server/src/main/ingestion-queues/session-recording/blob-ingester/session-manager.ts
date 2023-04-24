@@ -11,6 +11,7 @@ import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
+import { captureException } from '@sentry/node'
 
 export const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
@@ -121,21 +122,18 @@ export class SessionManager {
                     Key: dataKey,
                     Body: fileStream,
                 },
-                // queueSize: 4, // optional concurrency configuration
-                // partSize: 1024 * 1024 * 5, // optional size of each part, in bytes, at least 5MB
-                // leavePartsOnError: false, // optional manually handle dropped parts
             })
             await parallelUploads3.done()
 
             counterS3FilesWritten.inc(1)
+            // TODO: Add prometheus metric for the size of the file as well
             // counterS3FilesWritten.add(1, {
             //     bytes: this.flushBuffer.size, // since the file is compressed this is wrong, and we don't know the compressed size 🤔
             // })
-
-            // TODO: Increment file count and size metric
         } catch (error) {
             // TODO: If we fail to write to S3 we should be do something about it
             status.error(error)
+            captureException(error)
         } finally {
             await rm(this.flushBuffer.file)
 
@@ -162,9 +160,7 @@ export class SessionManager {
             offsets: [],
         }
 
-        // NOTE: We should move this to do once on startup
-        mkdirSync(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true })
-        // NOTE: We may want to figure out how to safely do this async
+        // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
         writeFileSync(buffer.file, '', 'utf-8')
 
         return buffer
@@ -200,7 +196,6 @@ export class SessionManager {
 
         if (chunks.length === message.chunk_count) {
             // If we have all the chunks, we can add the message to the buffer
-
             // We want to add all the chunk offsets as well so that they are tracked correctly
             chunks.forEach((x) => {
                 this.buffer.offsets.push(x.metadata.offset)
