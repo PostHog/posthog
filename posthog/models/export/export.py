@@ -104,6 +104,8 @@ class ExportSchedule(UUIDModel):
 
 
 class ExportRunManager(models.Manager):
+    """ExportRun model manager."""
+
     def create(self, team_id: int, schedule_name: str, data_interval_start: str, data_interval_end: str) -> "ExportRun":
         schedule = ExportSchedule.objects.filter(team__pk=team_id, name=schedule_name)[0]
         run = ExportRun(
@@ -127,7 +129,10 @@ class ExportRunManager(models.Manager):
 
 
 class ExportRun(UUIDModel):
-    """Model to represent an instance of an Export."""
+    """Model to represent an instance of an Export.
+
+    The state of this instance is populated by all necessary parameters to execute an export.
+    """
 
     class Status(models.TextChoices):
         """All possible Workflow statuses as described by Temporal.
@@ -146,6 +151,7 @@ class ExportRun(UUIDModel):
     objects: ExportRunManager = ExportRunManager()
 
     schedule: models.ForeignKey = models.ForeignKey("ExportSchedule", on_delete=models.CASCADE)
+    run_id: models.TextField = models.TextField()
     status: models.CharField = models.CharField(choices=Status.choices, max_length=64)
     opened_at: models.DateTimeField = models.DateTimeField(null=True)
     closed_at: models.DateTimeField = models.DateTimeField(null=True)

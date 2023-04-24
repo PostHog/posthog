@@ -196,15 +196,40 @@ class S3ExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         workflow.logger.info("Starting S3 export")
 
-        data_interval_end_str = inputs.data_interval_end or workflow.info.search_attributes.get(
-            "TemporalScheduledStartTime"
-        )
+        data_interval_end_str = inputs.data_interval_end
+
+        if not data_interval_end_str:
+            data_interval_end_search_attr = workflow.info().search_attributes.get("TemporalScheduledStartTime")
+
+            # These two type checks are pedantic, but Temporal SDK is heavily typed, so we need to make mypy happy.
+            if data_interval_end_search_attr is None:
+                msg = (
+                    "Expected 'TemporalScheduledStartTime' of type 'list[str]', found 'NoneType'."
+                    "This should be set by the Temporal Schedule unless triggering workflow manually."
+                    "In the latter case, ensure S3ExportInputs.data_interval_end is set."
+                )
+                raise TypeError(msg)
+
+            # If `TemporalScheduledStartTime` is set, failing this would be a Temporal bug.
+            if not isinstance(data_interval_end_search_attr[0], str):
+                msg = f"Expected 'data_interval_end_str' of type 'str' found '{data_interval_end_str}' of type '{type(data_interval_end_str)}'"
+                raise TypeError(msg)
+
+            data_interval_end_str = data_interval_end_search_attr[0]
+
         data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
 
         data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
 
+        parent = workflow.info().parent
+        if not parent:
+            parent_id = None
+        else:
+            parent_id = parent.workflow_id
+
         create_export_run_inputs = CreateExportRunInputs(
             team_id=inputs.team_id,
+            schedule_id=parent_id,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
         )
