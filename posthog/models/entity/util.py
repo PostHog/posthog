@@ -43,7 +43,7 @@ def get_entity_filtering_params(
             params.update(action_params)
             entity_clauses.append(action_query)
         else:
-            if entity.id == "":  # all events
+            if entity.id == "" or entity.id is None:  # all events
                 continue
             if entity.id in events_already_included:
                 continue

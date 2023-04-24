@@ -14,6 +14,7 @@ from posthog.constants import (
     UNIQUE_USERS,
     WEEKLY_ACTIVE,
     PropertyOperatorType,
+    TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
@@ -179,7 +180,9 @@ class TrendsBreakdown:
             "parsed_date_from": parsed_date_from,
             "parsed_date_to": parsed_date_to,
             "actions_query": "AND {}".format(action_query) if action_query else "",
-            "event_filter": "AND event = %(event)s" if not action_query else "",
+            "event_filter": "AND event = %(event)s"
+            if self.entity.type == TREND_FILTER_TYPE_EVENTS and self.entity.id is not None and self.entity.id != ""
+            else "",
             "filters": prop_filters,
             "null_person_filter": f"AND notEmpty(e.person_id)"
             if self.person_on_events_mode != PersonOnEventsMode.DISABLED

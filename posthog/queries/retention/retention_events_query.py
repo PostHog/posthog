@@ -220,8 +220,12 @@ class RetentionEventsQuery(EventQuery):
             )
             condition = action_query
         elif entity.type == TREND_FILTER_TYPE_EVENTS:
-            condition = f"{self.EVENT_TABLE_ALIAS}.event = %({prepend}_event)s"
-            params = {f"{prepend}_event": entity.id}
+            if entity.id is None or entity.id == "":
+                condition = f"1 = 1"
+                params = {}
+            else:
+                condition = f"{self.EVENT_TABLE_ALIAS}.event = %({prepend}_event)s"
+                params = {f"{prepend}_event": entity.id}
         else:
             condition = f"{self.EVENT_TABLE_ALIAS}.event = %({prepend}_event)s"
             params = {f"{prepend}_event": PAGEVIEW_EVENT}
