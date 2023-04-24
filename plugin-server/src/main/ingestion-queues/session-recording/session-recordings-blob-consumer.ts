@@ -33,7 +33,10 @@ export class SessionRecordingBlobIngester {
         private objectStorage: ObjectStorage
     ) {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
-        this.enabledTeams = enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').map(parseInt)
+        this.enabledTeams =
+            enabledTeamsString === 'all' || enabledTeamsString.trim().length === 0
+                ? null
+                : enabledTeamsString.split(',').map(parseInt)
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {

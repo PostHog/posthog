@@ -18,6 +18,10 @@ let dlqConsumer: Consumer
 
 let s3: S3Client
 
+function generateVeryLongString(length = 1025) {
+    return [...Array(length)].map(() => Math.random().toString(36)[2]).join('')
+}
+
 beforeAll(async () => {
     kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
 
@@ -58,7 +62,7 @@ test.concurrent(
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
         const sessionId = new UUIDT().toString()
-
+        const veryLongString = generateVeryLongString()
         await capture({
             teamId,
             distinctId,
@@ -67,7 +71,7 @@ test.concurrent(
             properties: {
                 $session_id: sessionId,
                 $window_id: 'abc1234',
-                $snapshot_data: { data: compressToString('yes way'), chunk_count: 1 },
+                $snapshot_data: { data: compressToString(veryLongString), chunk_count: 1 },
             },
         })
 
@@ -86,18 +90,12 @@ test.concurrent(
                 `${defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY}/${currentFile}`,
                 'utf8'
             )
-            // check that the fileContents is equal to the string "yes way"
-            expect(fileContents).toEqual('{"window_id":"abc1234","data":"yes way"}\n')
+
+            expect(fileContents).toEqual(`{"window_id":"abc1234","data":"${veryLongString}"}\n`)
         })
     },
     20000
 )
-
-function generateVeryLongString(length = 100000) {
-    return Array.from({ length })
-        .map(() => 'a')
-        .join('')
-}
 
 test.concurrent(
     `multiple recording events writes compressed data to s3`,
@@ -105,6 +103,7 @@ test.concurrent(
         const teamId = await createTeam(organizationId)
         const distinctId = new UUIDT().toString()
         const sessionId = new UUIDT().toString()
+        const veryLongString = generateVeryLongString()
 
         const captures = Array.from({ length: 110 }).map(() => {
             return capture({
@@ -115,7 +114,7 @@ test.concurrent(
                 properties: {
                     $session_id: sessionId,
                     $window_id: 'abc1234',
-                    $snapshot_data: { data: compressToString(generateVeryLongString()), chunk_count: 1 },
+                    $snapshot_data: { data: compressToString(veryLongString), chunk_count: 1 },
                 },
             })
         })
@@ -147,10 +146,9 @@ test.concurrent(
             const text = zlib.gunzipSync(fileStream).toString().trim()
             // text contains JSON for {
             //     "window_id": "abc1234",
-            //     "data": "aaa...aaa" // thousands of a's
+            //     "data": "random...string" // thousands of characters
             // }
-            expect(text).toMatch(/^{"window_id":"abc1234","data":"aaa/)
-            expect(text).toMatch(/aaa"}$/)
+            expect(text).toMatch(/{"window_id":"abc1234","data":"\w+"}/)
         })
     },
     20000

@@ -83,10 +83,11 @@ export class SessionManager {
             )
         }
 
-        const readyToFlush =
-            gzippedCapacity > 1 ||
+        const overCapacity = gzippedCapacity > 1
+        const timeSinceLastFlushTooLong =
             Date.now() - this.buffer.createdAt.getTime() >=
-                this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+            this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+        const readyToFlush = overCapacity || timeSinceLastFlushTooLong
 
         if (readyToFlush) {
             status.info('🚽', `Flushing buffer ${this.sessionId}...`)
