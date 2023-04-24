@@ -106,11 +106,27 @@ class ExportSchedule(UUIDModel):
 class ExportRunManager(models.Manager):
     """ExportRun model manager."""
 
-    def create(self, team_id: int, schedule_name: str, data_interval_start: str, data_interval_end: str) -> "ExportRun":
-        schedule = ExportSchedule.objects.filter(team__pk=team_id, name=schedule_name)[0]
+    def create(
+        self,
+        team_id: int,
+        destination_id: str,
+        schedule_id: str | None,
+        data_interval_start: str,
+        data_interval_end: str,
+    ) -> "ExportRun":
+        if schedule_id:
+            schedule = ExportSchedule.objects.filter(id=schedule_id).first()
+        else:
+            schedule = None
+
+        team = Team.objects.filter(id=team_id).first()
+        destination = ExportDestination.objects.filter(id=destination_id).first()
+
         run = ExportRun(
+            destination=destination,
             schedule=schedule,
-            status=ExportRun.Status.RUNNING,
+            team=team,
+            status=ExportRun.Status.STARTING,
             data_interval_start=dt.datetime.fromisoformat(data_interval_start),
             data_interval_end=dt.datetime.fromisoformat(data_interval_end),
         )
@@ -140,17 +156,20 @@ class ExportRun(UUIDModel):
         See: https://docs.temporal.io/workflows#status.
         """
 
-        RUNNING = "Running"
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
         CONTINUEDASNEW = "ContinuedAsNew"
         FAILED = "Failed"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
+        RUNNING = "Running"
+        STARTING = "Starting"
 
     objects: ExportRunManager = ExportRunManager()
 
-    schedule: models.ForeignKey = models.ForeignKey("ExportSchedule", on_delete=models.CASCADE)
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    destination: models.ForeignKey = models.ForeignKey("ExportDestination", on_delete=models.CASCADE)
+    schedule: models.ForeignKey = models.ForeignKey("ExportSchedule", on_delete=models.SET_NULL, null=True)
     run_id: models.TextField = models.TextField()
     status: models.CharField = models.CharField(choices=Status.choices, max_length=64)
     opened_at: models.DateTimeField = models.DateTimeField(null=True)

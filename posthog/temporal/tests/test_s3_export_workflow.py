@@ -2,19 +2,12 @@ import datetime as dt
 from unittest import mock
 
 import pytest
-from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.workflows.s3_export import (
     S3InsertInputs,
     build_s3_url,
     insert_into_s3_activity,
 )
-
-
-@pytest.fixture
-def activity_environment():
-    """Return a testing temporal ActivityEnvironment."""
-    return ActivityEnvironment()
 
 
 @pytest.mark.parametrize(

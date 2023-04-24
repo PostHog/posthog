@@ -40,7 +40,18 @@ class PostHogWorkflow(ABC):
 
 @dataclass
 class CreateExportRunInputs:
+    """Inputs to create an ExportRun
+
+    Attributes:
+        team_id: The id of the team the ExportRun belongs to.
+        destination_id: The id of the destination the ExportRun is targetting.
+        schedule_id: If this ExportRun was triggered by a schedule, it's id, otherwise None.
+        data_interval_start: Start of this ExportRun's data interval.
+        data_interval_end: End of this ExportRun's data interval.
+    """
+
     team_id: int
+    destination_id: str
     schedule_id: str | None
     data_interval_start: str
     data_interval_end: str
@@ -48,7 +59,11 @@ class CreateExportRunInputs:
 
 @activity.defn
 async def create_export_run(inputs: CreateExportRunInputs) -> str:
-    """Activity that creates an ExportRun."""
+    """Activity that creates an ExportRun.
+
+    Intended to be used in all export workflows, usually at the start, to create a model
+    instance to represent them in our database.
+    """
     activity.logger.info("Creating ExportRun model instance.")
 
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
@@ -56,6 +71,7 @@ async def create_export_run(inputs: CreateExportRunInputs) -> str:
     # Remove these comments once we upgrade.
     run = await sync_to_async(ExportRun.objects.create)(  # type: ignore
         team_id=inputs.team_id,
+        destination_id=inputs.destination_id,
         schedule_id=inputs.schedule_id,
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
