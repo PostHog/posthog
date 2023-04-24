@@ -1,32 +1,31 @@
 import { Reader, ReaderModel } from '@maxmind/geoip2-node'
-import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
-import net from 'net'
-import { AddressInfo } from 'net'
+import * as schedule from 'node-schedule'
 import prettyBytes from 'pretty-bytes'
-import { serialize } from 'v8'
 import { brotliDecompress } from 'zlib'
 
 import {
     MMDB_ATTACHMENT_KEY,
     MMDB_ENDPOINT,
-    MMDB_INTERNAL_SERVER_TIMEOUT_SECONDS,
     MMDB_STALE_AGE_DAYS,
     MMDB_STATUS_REDIS_KEY,
-    MMDBRequestStatus,
 } from '../../config/mmdb-constants'
 import { Hub, PluginAttachmentDB } from '../../types'
 import fetch from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
-import { ServerInstance } from '../pluginsServer'
-
-type MMDBPrepServerInstance = Pick<ServerInstance, 'hub' | 'mmdb'>
 
 enum MMDBFileStatus {
     Idle = 'idle',
     Fetching = 'fetching',
     Unavailable = 'unavailable',
+}
+
+export async function setupMmdb(hub: Hub): Promise<schedule.Job | undefined> {
+    if (!hub.DISABLE_MMDB && hub.capabilities.mmdb) {
+        hub.mmdb = (await prepareMmdb(hub)) ?? undefined
+        return schedule.scheduleJob('0 */4 * * *', async () => await performMmdbStalenessCheck(hub))
+    }
 }
 
 /** Check if MMDB is being currently fetched by any other plugin server worker in the cluster. */
@@ -93,10 +92,7 @@ async function fetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderModel> {
 }
 
 /** Drop-in replacement for fetchAndInsertFreshMmdb that handles multiple worker concurrency better. */
-async function distributableFetchAndInsertFreshMmdb(
-    serverInstance: MMDBPrepServerInstance
-): Promise<ReaderModel | null> {
-    const { hub } = serverInstance
+async function distributableFetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderModel | null> {
     let fetchingStatus = await getMmdbStatus(hub)
     if (fetchingStatus === MMDBFileStatus.Unavailable) {
         status.info(
@@ -112,7 +108,7 @@ async function distributableFetchAndInsertFreshMmdb(
             await delay(200)
             fetchingStatus = await getMmdbStatus(hub)
         }
-        return prepareMmdb(serverInstance)
+        return prepareMmdb(hub)
     }
     // Allow 120 seconds of download until another worker retries
     await hub.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Fetching, 120)
@@ -129,43 +125,39 @@ async function distributableFetchAndInsertFreshMmdb(
 }
 
 /** Update server MMDB in the background, with no availability interruptions. */
-async function backgroundInjectFreshMmdb(serverInstance: MMDBPrepServerInstance): Promise<void> {
-    const mmdb = await distributableFetchAndInsertFreshMmdb(serverInstance)
+async function backgroundInjectFreshMmdb(hub: Hub): Promise<void> {
+    const mmdb = await distributableFetchAndInsertFreshMmdb(hub)
     if (mmdb) {
-        serverInstance.mmdb = mmdb
+        hub.mmdb = mmdb
         status.info('💉', `Injected fresh ${MMDB_ATTACHMENT_KEY}`)
     }
 }
 
 /** Ensure that an MMDB is available and return its reader. If needed, update the MMDB in the background. */
-export async function prepareMmdb(
-    serverInstance: MMDBPrepServerInstance,
-    onlyBackground?: false
-): Promise<ReaderModel | null>
-export async function prepareMmdb(serverInstance: MMDBPrepServerInstance, onlyBackground: true): Promise<boolean>
-export async function prepareMmdb(
-    serverInstance: MMDBPrepServerInstance,
-    onlyBackground = false
-): Promise<ReaderModel | null | boolean> {
-    const { hub } = serverInstance
+export async function prepareMmdb(hub: Hub, onlyBackground?: false): Promise<ReaderModel | null>
+export async function prepareMmdb(hub: Hub, onlyBackground: true): Promise<boolean>
+export async function prepareMmdb(hub: Hub, onlyBackground = false): Promise<ReaderModel | null | boolean> {
     const { db } = hub
 
     const readResults = await db.postgresQuery<PluginAttachmentDB>(
         `
-        SELECT * FROM posthog_pluginattachment
-        WHERE key = $1 AND plugin_config_id IS NULL AND team_id IS NULL
-        ORDER BY file_name ASC
-    `,
+            SELECT *
+            FROM posthog_pluginattachment
+            WHERE key = $1
+              AND plugin_config_id IS NULL
+              AND team_id IS NULL
+            ORDER BY file_name ASC
+        `,
         [MMDB_ATTACHMENT_KEY],
         'fetchGeoIpAttachment'
     )
     if (!readResults.rowCount) {
         status.info('⬇️', `Fetching ${MMDB_ATTACHMENT_KEY} for the first time`)
         if (onlyBackground) {
-            await backgroundInjectFreshMmdb(serverInstance)
+            await backgroundInjectFreshMmdb(hub)
             return true
         } else {
-            const mmdb = await distributableFetchAndInsertFreshMmdb(serverInstance)
+            const mmdb = await distributableFetchAndInsertFreshMmdb(hub)
             if (!mmdb) {
                 status.warn('🤒', 'Because of MMDB unavailability, GeoIP plugins will fail in this PostHog instance')
             }
@@ -192,10 +184,10 @@ export async function prepareMmdb(
             } old, which is more than the staleness threshold of ${MMDB_STALE_AGE_DAYS} days, refreshing in the background...`
         )
         if (onlyBackground) {
-            await backgroundInjectFreshMmdb(serverInstance)
+            await backgroundInjectFreshMmdb(hub)
             return true
         } else {
-            void backgroundInjectFreshMmdb(serverInstance)
+            void backgroundInjectFreshMmdb(hub)
         }
     }
 
@@ -207,76 +199,12 @@ export async function prepareMmdb(
 }
 
 /** Check for MMDB staleness every 4 hours, if needed perform a no-interruption update. */
-export async function performMmdbStalenessCheck(serverInstance: MMDBPrepServerInstance): Promise<void> {
+export async function performMmdbStalenessCheck(hub: Hub): Promise<void> {
     status.info('⏲', 'Performing periodic MMDB staleness check...')
-    const wasUpdatePerformed = await prepareMmdb(serverInstance, true)
+    const wasUpdatePerformed = await prepareMmdb(hub, true)
     if (wasUpdatePerformed) {
         status.info('✅', 'MMDB staleness check completed, update performed')
     } else {
         status.info('❎', 'MMDB staleness check completed, no update was needed')
     }
-}
-
-export async function createMmdbServer(serverInstance: MMDBPrepServerInstance): Promise<net.Server> {
-    const { hub } = serverInstance
-    status.info('🗺', 'Starting internal MMDB server...')
-    const mmdbServer = net.createServer((socket) => {
-        socket.setEncoding('utf8')
-
-        let status: MMDBRequestStatus = MMDBRequestStatus.OK
-
-        socket.on('data', (partialData) => {
-            const timer = new Date()
-            // partialData SHOULD be an IP address string
-            let responseData: any
-            if (status === MMDBRequestStatus.OK) {
-                if (serverInstance.mmdb) {
-                    try {
-                        responseData = serverInstance.mmdb.city(partialData.toString().trim())
-                    } catch (e) {
-                        responseData = null
-                    }
-                } else {
-                    captureException(new Error(status))
-                    status = MMDBRequestStatus.ServiceUnavailable
-                }
-            }
-            if (status !== MMDBRequestStatus.OK) {
-                responseData = status
-            }
-            socket.write(serialize(responseData ?? null))
-            hub.statsd?.timing('mmdb_lookup_success_main_thread', timer)
-        })
-
-        socket.setTimeout(MMDB_INTERNAL_SERVER_TIMEOUT_SECONDS * 1000).on('timeout', () => {
-            captureException(new Error(status))
-            status = MMDBRequestStatus.TimedOut
-            socket.emit('end')
-            hub.statsd?.increment('mmdb_lookup_timeout')
-        })
-
-        socket.once('end', () => {
-            if (status !== MMDBRequestStatus.OK) {
-                socket.write(serialize(status))
-            }
-            socket.destroy()
-        })
-    })
-
-    mmdbServer.on('error', (error) => {
-        captureException(error)
-    })
-
-    return new Promise((resolve, reject) => {
-        const rejectTimeout = setTimeout(
-            () => reject(new Error('Internal MMDB server could not start listening!')),
-            3000
-        )
-        mmdbServer.listen(serverInstance.hub.INTERNAL_MMDB_SERVER_PORT, 'localhost', () => {
-            const port = (mmdbServer.address() as AddressInfo).port
-            status.info('👂', `Internal MMDB server listening on port ${port}`)
-            clearTimeout(rejectTimeout)
-            resolve(mmdbServer)
-        })
-    })
 }
