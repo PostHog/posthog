@@ -196,7 +196,7 @@ export const PlanComparisonModal = ({
                                                         </p>
                                                     </td>
                                                 ) : (
-                                                    <td key={`${addon.plan_key}-tiers-td`}>
+                                                    <td key={`${addon.type}-tiers-td`}>
                                                         {getProductTiers(addon.plans?.[0], addon)}
                                                     </td>
                                                 )
