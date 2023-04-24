@@ -446,7 +446,12 @@ class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
     def label_metric(self, metric, request, response=None, **labels):
         new_labels = labels
         if metric._name in PROMETHEUS_EXTENDED_METRICS:
-            if request and getattr(request, "user", None) and request.user.is_authenticated:
+            if (
+                request
+                and getattr(request, "user", None)
+                and request.user.is_authenticated
+                and hasattr(request.user, "current_team_id")
+            ):
                 team_id = request.user.current_team_id
             else:
                 team_id = None
