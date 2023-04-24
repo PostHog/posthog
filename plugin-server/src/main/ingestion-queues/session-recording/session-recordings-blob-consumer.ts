@@ -201,11 +201,9 @@ export class SessionRecordingBlobIngester {
              *
              * Also, see https://docs.confluent.io/platform/current/clients/librdkafka/html/classRdKafka_1_1RebalanceCb.html
              * For eager/non-cooperative partition.assignment.strategy assignors, such as range and roundrobin,
-             * the application must use assign assign() to set and unassign() to clear the entire assignment.
+             * the application must use assign() to set and unassign() to clear the entire assignment.
              * For the cooperative assignors, such as cooperative-sticky, the application must use
              * incremental_assign() for ERR__ASSIGN_PARTITIONS and incremental_unassign() for ERR__REVOKE_PARTITIONS.
-             *
-             * TODO if the assignment strategy changes to co-operative we'll need to change this
              */
             status.info('🏘️', 'Blob ingestion consumer rebalanced')
             if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
@@ -221,10 +219,9 @@ export class SessionRecordingBlobIngester {
                         .map((session) => session.destroy())
                 )
 
-                // Assign partitions
-                // TODO handle cooperative assignment
+                // Assign partitions to the consumer
                 // TODO read offset position from partitions so we can read from the correct place
-                this.batchConsumer?.consumer.assign(assignments)
+                this.batchConsumer?.consumer.incrementalAssign(assignments)
             } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
                 status.info('⚖️', 'Blob ingestion consumer has had assignments revoked', { assignments })
                 /**
@@ -239,8 +236,7 @@ export class SessionRecordingBlobIngester {
                  * This is where we could act to reduce raciness/duplication when partitions are reassigned to different consumers
                  * e.g. stop the `flushInterval` and wait for the `assign_partitions` event to start it again.
                  */
-                // TODO handle cooperative assignment revocation
-                this.batchConsumer?.consumer.unassign()
+                this.batchConsumer?.consumer.incrementalUnassign(assignments)
             } else {
                 // We had a "real" error
                 status.error('🔥', 'Blob ingestion consumer rebalancing error', { err })
