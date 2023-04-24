@@ -10,6 +10,10 @@
             "description": "The name of the dashboard template",
             "type": "string"
         },
+        "template_slug": {
+            "description": "The slug of the dashboard template",
+            "type": ["string", "null"]
+        },
         "created_at": {
             "description": "When the dashboard template was created",
             "type": "string"

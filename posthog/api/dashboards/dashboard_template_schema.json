@@ -10,6 +10,10 @@
             "description": "The name of the dashboard template",
             "type": "string"
         },
+        "template_slug": {
+            "description": "The slug of the dashboard template",
+            "type": ["string", "null"]
+        },
         "team_id": {
             "description": "The team this dashboard template belongs to",
             "type": ["number", "null"]

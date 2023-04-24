@@ -1273,6 +1273,7 @@ export interface DashboardType {
 
 export interface DashboardTemplateType {
     id: string
+    template_slug?: string
     team_id?: number
     created_at?: string
     template_name: string

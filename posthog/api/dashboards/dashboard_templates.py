@@ -38,6 +38,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "template_name",
+            "template_slug",
             "dashboard_description",
             "dashboard_filters",
             "tags",

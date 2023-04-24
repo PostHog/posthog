@@ -7,7 +7,15 @@ from posthog.test.base import APIBaseTest
 
 
 def assert_template_equals(received, expected):
-    keys_to_check = ["template_name", "dashboard_description", "tags", "variables", "tiles", "dashboard_filters"]
+    keys_to_check = [
+        "template_name",
+        "template_slug",
+        "dashboard_description",
+        "tags",
+        "variables",
+        "tiles",
+        "dashboard_filters",
+    ]
 
     for key in keys_to_check:
         assert received[key] == expected[key], f"key {key} failed, expected {expected[key]} but got {received[key]}"
@@ -22,6 +30,7 @@ def get_template_from_response(response, id):
 
 variable_template = {
     "template_name": "Sign up conversion template with variables",
+    "template_slug": "sign-up-conversion",
     "dashboard_description": "Use this template to see how many users sign up after visiting your pricing page.",
     "dashboard_filters": {},
     "tiles": [
@@ -311,6 +320,7 @@ class TestDashboardTemplates(APIBaseTest):
             "properties": {
                 "id": {"description": "The id of the dashboard template", "type": "string"},
                 "template_name": {"description": "The name of the dashboard template", "type": "string"},
+                "template_slug": {"description": "The slug of the dashboard template", "type": ["string", "null"]},
                 "team_id": {"description": "The team this dashboard template belongs to", "type": ["number", "null"]},
                 "created_at": {"description": "When the dashboard template was created", "type": "string"},
                 "image_url": {"description": "The image of the dashboard template", "type": ["string", "null"]},

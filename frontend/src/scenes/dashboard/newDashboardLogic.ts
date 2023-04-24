@@ -10,6 +10,9 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { forms } from 'kea-forms'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
+import { captureException } from '@sentry/react'
+import posthog from 'posthog-js'
 
 export interface NewDashboardForm {
     name: string
@@ -58,7 +61,10 @@ function makeTilesUsingVariables(tiles: DashboardTile[], variables: DashboardTem
 
 export const newDashboardLogic = kea<newDashboardLogicType>([
     path(['scenes', 'dashboard', 'newDashboardLogic']),
-    connect({ logic: [dashboardsModel], values: [featureFlagLogic, ['featureFlags']] }),
+    connect({
+        logic: [dashboardsModel, dashboardTemplatesLogic],
+        values: [featureFlagLogic, ['featureFlags'], dashboardTemplatesLogic, ['allTemplates']],
+    }),
     actions({
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         showNewDashboardModal: true,
@@ -168,6 +174,28 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 }
             }
             actions.setIsLoading(false)
+        },
+        [dashboardTemplatesLogic.actionTypes.getAllTemplatesSuccess]: ({ allTemplates }) => {
+            const templateId = router.values.searchParams['template']
+            if (templateId) {
+                posthog.capture('creating dashboard template from url', { template: templateId })
+                const templateObj = allTemplates.find((t: DashboardTemplateType) => t.template_slug === templateId)
+                if (!templateObj) {
+                    lemonToast.error(`Could not find dashboard template: ${templateId}`)
+                    captureException(`Could not find dashboard template with slug: ${templateId}`)
+
+                    // remove the slug so the error doesn't happen again
+                    const urlWithoutTemplate = new URL(window.location.href)
+                    urlWithoutTemplate.searchParams.delete('template')
+                    router.actions.replace(urlWithoutTemplate.href)
+                }
+                if (templateObj && !templateObj?.variables) {
+                    actions.createDashboardFromTemplate(templateObj, [])
+                } else if (templateObj) {
+                    actions.showNewDashboardModal()
+                    actions.setActiveDashboardTemplate(templateObj)
+                }
+            }
         },
     })),
 ])
