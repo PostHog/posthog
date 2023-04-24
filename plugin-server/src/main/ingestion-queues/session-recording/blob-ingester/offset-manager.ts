@@ -22,7 +22,6 @@ import { status } from '../../../../utils/status'
 
 export class OffsetManager {
     // We have to track every message's offset so that we can commit them only after they've been written to S3
-    // TODO: Change this to an ordered array.
     offsetsByPartitionTopic: Map<string, number[]> = new Map()
 
     constructor(private consumer: KafkaConsumer) {}

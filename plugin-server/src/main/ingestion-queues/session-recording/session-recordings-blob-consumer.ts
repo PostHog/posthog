@@ -41,7 +41,6 @@ export class SessionRecordingBlobIngester {
         const key = `${team_id}-${session_id}`
 
         const { partition, topic, offset } = event.metadata
-        this.offsetManager?.addOffset(topic, partition, offset)
 
         if (!this.sessions.has(key)) {
             const { partition, topic } = event.metadata
@@ -66,6 +65,7 @@ export class SessionRecordingBlobIngester {
             this.sessions.set(key, sessionManager)
         }
 
+        this.offsetManager?.addOffset(topic, partition, offset)
         await this.sessions.get(key)?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset

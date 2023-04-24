@@ -199,13 +199,13 @@ export class SessionManager {
         chunks.push(message)
 
         if (chunks.length === message.chunk_count) {
+            // If we have all the chunks, we can add the message to the buffer
+
             // We want to add all the chunk offsets as well so that they are tracked correctly
-            // NOTE: Shouldn't this be outside of this if?
             chunks.forEach((x) => {
                 this.buffer.offsets.push(x.metadata.offset)
             })
 
-            // If we have all the chunks, we can add the message to the buffer
             await this.addToBuffer({
                 ...message,
                 data: chunks
@@ -218,12 +218,9 @@ export class SessionManager {
         }
     }
 
-    public destroy(): Promise<void> {
-        // TODO: Should we delete the buffer files??
+    public async destroy(): Promise<void> {
         status.debug('␡', `Destroying session manager ${this.sessionId}`)
-        // TODO: We need to not just destroy the manager but also ensure all the tracked offsets are dropped
-        this.onFinish([])
-
-        return Promise.resolve()
+        const filePromises = [this.flushBuffer?.file, this.buffer.file].map((x) => x && rm(x))
+        await Promise.all(filePromises)
     }
 }
