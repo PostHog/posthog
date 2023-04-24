@@ -15,6 +15,7 @@ type ConsumerManagementPayload = {
 }
 
 type EachBatchFunction = (payload: EachBatchPayload, queue: IngestionConsumer) => Promise<void>
+
 export class IngestionConsumer {
     public pluginsServer: Hub
     public workerMethods: WorkerMethods
@@ -192,7 +193,9 @@ export const setupEventHandlers = (consumer: Consumer): void => {
         offsets = {}
         status.error('⚠️', `Kafka consumer group ${groupId} crashed:\n`, error)
         clearInterval(statusInterval)
-        Sentry.captureException(error)
+        Sentry.captureException(error, {
+            extra: { detected_at: `kafka-queue.ts on consumer crash` },
+        })
         killGracefully()
     })
     consumer.on(CONNECT, () => {
@@ -246,7 +249,9 @@ export const instrumentEachBatch = async (
                 }
             }
             if (logToSentry) {
-                Sentry.captureException(error)
+                Sentry.captureException(error, {
+                    extra: { detected_at: `kafka-queue.ts instrumentEachBatch` },
+                })
             }
         }
         throw error
