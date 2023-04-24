@@ -20,6 +20,7 @@ class PostHogConfig(AppConfig):
     def ready(self):
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
+        posthoganalytics.poll_interval = 90
 
         if settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True

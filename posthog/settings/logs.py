@@ -56,7 +56,7 @@ structlog.configure(
 # rendered either as pretty colored console lines or as single JSON lines.
 LOGGING = {
     "version": 1,
-    "disable_existing_loggers": True,
+    "disable_existing_loggers": False,
     "formatters": {
         "default": {
             "()": structlog.stdlib.ProcessorFormatter,
