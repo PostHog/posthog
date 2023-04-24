@@ -768,7 +768,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.resetConsoleWarn = wrapConsole('warn', (args) => {
                 if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
                     debouncedCounter()
-                    return false
                 }
 
                 return true
