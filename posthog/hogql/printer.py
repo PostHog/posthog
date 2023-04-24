@@ -395,7 +395,9 @@ class _Printer(Visitor):
             if node.chain == ["*"]:
                 return "*"
             # When printing HogQL, we print the properties out as a chain as they are.
-            return ".".join([self._print_identifier(identifier) for identifier in node.chain])
+            return ".".join(
+                [self._print_identifier(identifier) for identifier in node.chain + (node.property_chain or [])]
+            )
 
         if node.type is not None:
             return self.visit(node.type)

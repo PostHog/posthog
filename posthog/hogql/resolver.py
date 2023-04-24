@@ -6,6 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType, FieldType
 from posthog.hogql.database import Database, SQLExprField
 from posthog.hogql.errors import ResolverException
+from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
 
@@ -292,103 +293,131 @@ class Resolver(CloningVisitor):
         return new_node
 
     def visit_field(self, node: ast.Field):
-        """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""
+        """
+        Visit a field such as ast.Field(chain=["e", "properties", "$browser"]).
+        Convert to ast.Property(field=ast.Field(),chain=[]) when needed.
+        """
         if len(node.chain) == 0:
             raise ResolverException("Invalid field access with empty chain")
 
-        # Only look for fields in the last SELECT scope, instead of all previous select queries.
-        # That's because ClickHouse does not support subqueries accessing "x.event". This is forbidden:
+        # ClickHouse does not support subqueries accessing "x.event". This is forbidden:
         # - "SELECT event, (select count() from events where event = x.event) as c FROM events x where event = '$pageview'",
         # But this is supported:
         # - "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t JOIN events e ON (e.event = t.event)",
+        # Thus we only look for fields in the last SELECT scope.
         scope = self.scopes[-1]
 
+        # make a clone of the Field and the chain that we will parse
         node = super().visit_field(node)
-        type: Optional[ast.Type] = None
         initial_chain = node.chain.copy()
-
-        # Remove first element from chain
         remaining_chain = node.chain.copy()
-        name = remaining_chain.pop(0)
 
-        # If the field contains at least two parts, the first might be a table.
-        if len(initial_chain) > 1 and name in scope.tables:
-            type = scope.tables[name]
+        # Have we detected a table yet?
+        table_type: Optional[ast.TableOrSelectType] = None
 
-        # If it's a global wildcard
-        if len(initial_chain) == 1 and name == "*":
-            table_count = len(scope.anonymous_tables) + len(scope.tables)
-            if table_count == 0:
-                raise ResolverException("Cannot use '*' when there are no tables in the query")
-            if table_count > 1:
-                raise ResolverException("Cannot use '*' without table name when there are multiple tables in the query")
-            table_type = (
-                scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else list(scope.tables.values())[0]
-            )
-            type = ast.AsteriskType(table_type=table_type)
+        # Loop until we have finished with the chain
+        index = -1
+        while len(remaining_chain) > 0:
+            index += 1
+            name = remaining_chain.pop(0)
 
-        # Macro in scope. Resolved before fields.
-        if not type:
-            macro = lookup_macro_by_name(self.scopes, name)
-            if macro:
-                # SubQuery macros ("WITH a AS (SELECT 1)") can only be used in the "FROM table" part of a select query,
-                # which is handled in visit_join_expr. Referring to it here means we want to access its value.
-                if macro.macro_format == "subquery":
-                    node = ast.Field(chain=[name])
-                else:
-                    node = clone_expr(macro.expr)
+            # Special handling for first element
+            if index == 0:
+                # If the chain contains at least two parts, check if the first is a table. E.g "events.uuid"
+                if len(initial_chain) > 1 and name in scope.tables:
+                    table_type = scope.tables[name]
+                    continue
 
-                if len(remaining_chain) > 0:
-                    # resolved to a Field, add the chain and traverse in the loop below
-                    if isinstance(node, ast.Field):
-                        node.chain = node.chain + remaining_chain
-                    else:
+                # Could it be a macro?
+                macro = lookup_macro_by_name(self.scopes, name)
+                # - The `WITH a AS (SELECT 1)` syntax defines a "subquery" macro.
+                # - The `WITH 1 + 2 AS a` syntax defines a "column" macro.
+                # The "column" macros are inlined below.
+                # The "subquery" macros are accessed via a joined table of the same name.
+                if macro and macro.macro_format == "column":
+                    self.macro_counter += 1
+                    node = self.visit(clone_expr(macro.expr))
+                    self.macro_counter -= 1
+
+                    if not node.type and len(remaining_chain) > 0:
                         raise ResolverException(
-                            f'Cannot access property {remaining_chain} on a macro "{name}" that doesn\'t resolve to a field'
+                            f'Cannot use property access on macro "{name}". Attempted: {print_chain(initial_chain)}'
                         )
+                    continue
 
-                self.macro_counter += 1
-                node = self.visit(node)
-                self.macro_counter -= 1
-                type = node.type or ast.UnknownType()
+            # If it's a wildcard
+            if name == "*":
+                if len(remaining_chain) > 0:
+                    raise ResolverException(
+                        f"Cannot use property access on '*'. Attempted: {print_chain(initial_chain)}"
+                    )
 
-        # Field in scope
-        if not type:
-            type = lookup_field_by_name(scope, name)
+                # Specifically asking for a table like "events.*"
+                if table_type is not None:
+                    node.type = ast.AsteriskType(table_type=table_type)
+                    return node
 
-        if not type:
-            # Could not resolve the first element in the chain. Bailing.
-            raise ResolverException(f"Unable to resolve field: {name}")
+                # Find the one table we can.
+                table_count = len(scope.anonymous_tables) + len(scope.tables)
+                if table_count == 0:
+                    raise ResolverException("Cannot use '*' when there are no tables in the query")
+                if table_count > 1:
+                    raise ResolverException(
+                        "Cannot use '*' without table name when there are multiple tables in the query"
+                    )
+                table_type = (
+                    scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else list(scope.tables.values())[0]
+                )
+                node.type = ast.AsteriskType(table_type=table_type)
+                return node
 
-        while True:
-            # Expand SQLExprField-s
-            if isinstance(type, FieldType):
-                database_field = type.resolve_database_field()
+            # Still haven't found a field in scope? Try if it exists on exactly one table in the scope.
+            if not node.type:
+                node.type = lookup_field_by_name(scope, name)
+                # Could not resolve the field. Bailing.
+                if not node.type:
+                    raise ResolverException(f"Unable to resolve field: {name}")
+            else:
+                node.type = node.type.get_child(name)
+
+            # Expand FieldTraverser fields
+            if isinstance(node.type, FieldTraverserType):
+                table_type = node.type.table_type
+                new_chain = node.type.chain
+                remaining_chain = new_chain + remaining_chain
+                # go back up one level for the next lookup
+                node.type = table_type
+                continue
+
+            # Expand SQLExprField fields
+            if isinstance(node.type, FieldType):
+                database_field = node.type.resolve_database_field()
                 # if we found a SQL expression field, expand it
                 if isinstance(database_field, SQLExprField):
                     self.macro_counter += 1
                     new_field = self.visit(database_field.get_expr())
                     self.macro_counter -= 1
-                    type = ast.FieldAliasType(alias=name, type=new_field.type or ast.UnknownType())
-                    node = ast.Alias(type=type, expr=new_field, alias=name)
+                    node.type = ast.FieldAliasType(alias=name, type=new_field.type or ast.UnknownType())
+                    node = ast.Alias(type=node.type, expr=new_field, alias=name)
                     continue
 
-            # Expand Field Traverser fields
-            if isinstance(type, FieldTraverserType):
-                remaining_chain = type.chain + remaining_chain
-                type = type.table_type
+            if isinstance(node.type, FieldType):
+                if len(remaining_chain) > 0:
+                    node.property_chain = remaining_chain.copy()
+                    node.chain = node.chain[: -len(remaining_chain)]
+                    node.type = ast.PropertyType(field_type=node.type, chain=node.property_chain)
+                    return node
+                else:
+                    return node
+
+            if len(remaining_chain) > 0:
                 continue
 
-            if len(remaining_chain) == 0:
-                break
+            if not isinstance(node, ast.Field):
+                raise ResolverException(f"Cannot resolve type {print_chain(initial_chain)}. Field {name} not a Field.")
 
-            name = remaining_chain.pop(0)
-            type = type.get_child(name)
+            raise ResolverException(f"Cannot resolve type {print_chain(initial_chain)}. Unable to resolve {name}.")
 
-            if type is None:
-                raise ResolverException(f"Cannot resolve type {'.'.join(initial_chain)}. Unable to resolve {name}.")
-
-        node.type = type
         return node
 
     def visit_constant(self, node: ast.Constant):
@@ -438,3 +467,7 @@ def lookup_macro_by_name(scopes: List[ast.SelectQueryType], name: str) -> Option
         if scope and scope.macros and name in scope.macros:
             return scope.macros[name]
     return None
+
+
+def print_chain(chain: List[str]) -> str:
+    return ".".join([escape_hogql_identifier(key) for key in chain])

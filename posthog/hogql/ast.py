@@ -179,6 +179,10 @@ class StringType(ConstantType):
     data_type: ConstantDataType = PydanticField("str", const=True)
 
 
+class StringJsonType(ConstantType):
+    data_type: ConstantDataType = PydanticField("str_json", const=True)
+
+
 class BooleanType(ConstantType):
     data_type: ConstantDataType = PydanticField("bool", const=True)
 
@@ -377,7 +381,9 @@ class Constant(Expr):
 
 
 class Field(Expr):
+    type: Optional[FieldType | PropertyType | TableType] = None
     chain: List[str]
+    property_chain: Optional[List[str]] = None
 
 
 class Placeholder(Expr):
