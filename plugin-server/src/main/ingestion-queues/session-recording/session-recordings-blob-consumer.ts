@@ -271,5 +271,7 @@ export class SessionRecordingBlobIngester {
         })
 
         await Promise.all(destroyPromises)
+
+        this.sessions = new Map()
     }
 }
