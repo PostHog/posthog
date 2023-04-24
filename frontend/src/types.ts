@@ -689,7 +689,6 @@ export interface Entity {
 export enum EntityTypes {
     ACTIONS = 'actions',
     EVENTS = 'events',
-    NEW_ENTITY = 'new_entity',
 }
 
 export type EntityFilter = {

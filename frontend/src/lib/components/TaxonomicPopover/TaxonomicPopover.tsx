@@ -14,7 +14,7 @@ export interface TaxonomicPopoverProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithDropdownProps, 'dropdown' | 'value' | 'onChange' | 'placeholder'> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType
-    onChange: (value: ValueType, groupType: TaxonomicFilterGroupType) => void
+    onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
 
     groupTypes?: TaxonomicFilterGroupType[]
     renderValue?: (value: ValueType) => JSX.Element
@@ -33,7 +33,7 @@ export function TaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JS
         <TaxonomicPopover
             {...props}
             value={String(props.value)}
-            onChange={(value, groupType) => props.onChange?.(String(value), groupType)}
+            onChange={(value, groupType, item) => props.onChange?.(String(value), groupType, item)}
             renderValue={(value) => props.renderValue?.(String(value)) ?? <>{String(props.value)}</>}
         />
     )
@@ -63,8 +63,8 @@ export function TaxonomicPopover({
                     <TaxonomicFilter
                         groupType={groupType}
                         value={value}
-                        onChange={({ type }, payload) => {
-                            onChange?.(payload, type)
+                        onChange={({ type }, payload, item) => {
+                            onChange?.(payload, type, item)
                             setVisible(false)
                         }}
                         taxonomicGroupTypes={groupTypes ?? [groupType]}
@@ -92,7 +92,7 @@ export function LemonTaxonomicStringPopover(props: TaxonomicPopoverProps<string>
         <LemonTaxonomicPopover
             {...props}
             value={String(props.value)}
-            onChange={(value, groupType) => props.onChange?.(String(value), groupType)}
+            onChange={(value, groupType, item) => props.onChange?.(String(value), groupType, item)}
             renderValue={(value) => props.renderValue?.(String(value)) ?? <>{String(props.value)}</>}
         />
     )
@@ -133,8 +133,8 @@ export function LemonTaxonomicPopover({
                         <TaxonomicFilter
                             groupType={groupType}
                             value={value}
-                            onChange={({ type }, payload) => {
-                                onChange?.(payload, type)
+                            onChange={({ type }, payload, item) => {
+                                onChange?.(payload, type, item)
                                 setVisible(false)
                             }}
                             taxonomicGroupTypes={groupTypes ?? [groupType]}
@@ -163,7 +163,7 @@ export function LemonTaxonomicPopover({
                                 noPadding
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    onChange?.('', groupType)
+                                    onChange?.('', groupType, null)
                                     setLocalValue('')
                                 }}
                             />

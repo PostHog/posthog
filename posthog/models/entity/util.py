@@ -43,11 +43,16 @@ def get_entity_filtering_params(
             params.update(action_params)
             entity_clauses.append(action_query)
         else:
+            if entity.id == "":  # all events
+                continue
             if entity.id in events_already_included:
                 continue
             events_already_included.add(str(entity.id))
             params[f"event_{entity.order}"] = entity.id
             entity_clauses.append(f"event = %(event_{entity.order})s")
-    combined_entity_clauses = f"({' OR '.join(entity_clauses)})" if len(entity_clauses) > 1 else entity_clauses[0]
 
+    if len(entity_clauses) == 0:
+        return {}, {"entity_query": "AND 1 = 1"}
+
+    combined_entity_clauses = f"({' OR '.join(entity_clauses)})" if len(entity_clauses) > 1 else entity_clauses[0]
     return params, {"entity_query": f"AND {combined_entity_clauses}"}

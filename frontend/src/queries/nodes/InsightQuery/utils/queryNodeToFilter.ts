@@ -31,11 +31,7 @@ export const seriesToActionsAndEvents = (
     const new_entity: ActionFilter[] = []
     series.forEach((node, index) => {
         const entity: ActionFilter = objectClean({
-            type: isEventsNode(node)
-                ? EntityTypes.EVENTS
-                : isActionsNode(node)
-                ? EntityTypes.ACTIONS
-                : EntityTypes.NEW_ENTITY,
+            type: isActionsNode(node) ? EntityTypes.ACTIONS : EntityTypes.EVENTS,
             id: (!isActionsNode(node) ? node.event : node.id) || null,
             order: index,
             name: node.name,

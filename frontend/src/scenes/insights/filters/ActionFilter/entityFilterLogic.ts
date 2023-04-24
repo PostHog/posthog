@@ -10,11 +10,7 @@ export type LocalFilter = ActionFilter & {
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
 export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
-    const localFilters = [
-        ...(filters[EntityTypes.ACTIONS] || []),
-        ...(filters[EntityTypes.EVENTS] || []),
-        ...(filters[EntityTypes.NEW_ENTITY] || []),
-    ]
+    const localFilters = [...(filters[EntityTypes.ACTIONS] || []), ...(filters[EntityTypes.EVENTS] || [])]
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...(filter as ActionFilter), order }))
     return localFilters.map((filter) =>
@@ -36,7 +32,6 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
     return {
         [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
         [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
-        [EntityTypes.NEW_ENTITY]: filters.filter((filter) => filter.type === EntityTypes.NEW_ENTITY),
     } as FilterType
 }
 
@@ -200,10 +195,10 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             const precedingEntity = values.localFilters[previousLength - 1] as LocalFilter | undefined
             const order = precedingEntity ? precedingEntity.order + 1 : 0
             const newFilter = {
-                id: 'empty',
-                type: EntityTypes.NEW_ENTITY,
+                id: '',
+                type: EntityTypes.EVENTS,
                 order: order,
-                name: 'empty',
+                name: '',
                 ...props.addFilterDefaultOptions,
             }
             actions.setFilters([...values.localFilters, newFilter])
@@ -244,8 +239,8 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     events(({ actions, props, values }) => ({
         afterMount: () => {
             if (props.singleMode) {
-                const filter = { id: null, name: null, type: EntityTypes.NEW_ENTITY, order: values.localFilters.length }
-                actions.setLocalFilters({ [`${EntityTypes.NEW_ENTITY}`]: [filter] })
+                const filter = { id: '', name: '', type: EntityTypes.EVENTS, order: values.localFilters.length }
+                actions.setLocalFilters({ [`${EntityTypes.EVENTS}`]: [filter] })
                 actions.selectFilter({ ...filter, index: 0 })
             }
         },
