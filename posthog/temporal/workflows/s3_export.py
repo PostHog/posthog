@@ -196,30 +196,7 @@ class S3ExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         workflow.logger.info("Starting S3 export")
 
-        data_interval_end_str = inputs.data_interval_end
-
-        if not data_interval_end_str:
-            data_interval_end_search_attr = workflow.info().search_attributes.get("TemporalScheduledStartTime")
-
-            # These two type checks are pedantic, but Temporal SDK is heavily typed, so we need to make mypy happy.
-            if data_interval_end_search_attr is None:
-                msg = (
-                    "Expected 'TemporalScheduledStartTime' of type 'list[str]', found 'NoneType'."
-                    "This should be set by the Temporal Schedule unless triggering workflow manually."
-                    "In the latter case, ensure S3ExportInputs.data_interval_end is set."
-                )
-                raise TypeError(msg)
-
-            # If `TemporalScheduledStartTime` is set, failing this would be a Temporal bug.
-            if not isinstance(data_interval_end_search_attr[0], str):
-                msg = f"Expected 'data_interval_end_str' of type 'str' found '{data_interval_end_str}' of type '{type(data_interval_end_str)}'"
-                raise TypeError(msg)
-
-            data_interval_end_str = data_interval_end_search_attr[0]
-
-        data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
-
-        data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
+        data_interval_start, data_interval_end = get_data_interval_from_workflow_inputs(inputs)
 
         parent = workflow.info().parent
         if not parent:
@@ -263,3 +240,46 @@ class S3ExportWorkflow(PostHogWorkflow):
             update_inputs.status = "Failed"
         finally:
             await workflow.execute_activity(update_export_run_status, update_inputs)
+
+
+def get_data_interval_from_workflow_inputs(inputs: S3ExportInputs) -> tuple[dt.datetime, dt.datetime]:
+    """Return the start and end of an export's data interval.
+
+    Args:
+        inputs: The S3 Export inputs.
+
+    Raises:
+        TypeError: If when trying to obtain the data interval end we run into non-str types.
+
+    Returns:
+        A tuple of two dt.datetime indicating start and end of the data_interval.
+    """
+    data_interval_end_str = inputs.data_interval_end
+
+    if not data_interval_end_str:
+        data_interval_end_search_attr = workflow.info().search_attributes.get("TemporalScheduledStartTime")
+
+        # These two if-checks are a bit pedantic, but Temporal SDK is heavily typed.
+        # So they exist to make mypy happy.
+        if data_interval_end_search_attr is None:
+            msg = (
+                "Expected 'TemporalScheduledStartTime' of type 'list[str]', found 'NoneType'."
+                "This should be set by the Temporal Schedule unless triggering workflow manually."
+                "In the latter case, ensure 'S3ExportInputs.data_interval_end' is set."
+            )
+            raise TypeError(msg)
+
+        # If `TemporalScheduledStartTime` is set, failing this would be a Temporal bug.
+        if not isinstance(data_interval_end_search_attr[0], str):
+            msg = (
+                "Expected 'data_interval_end_str' of type 'str' found '{data_interval_end_str}' "
+                "of type '{type(data_interval_end_str)}'."
+            )
+            raise TypeError(msg)
+
+        data_interval_end_str = data_interval_end_search_attr[0]
+
+    data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
+    data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
+
+    return (data_interval_start, data_interval_end)
