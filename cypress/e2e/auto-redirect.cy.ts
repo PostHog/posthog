@@ -14,7 +14,7 @@ describe('Redirect to other subdomain if logged in', () => {
         cy.reload()
 
         // TODO: turn this on when the feature flag is remove, currently mocking the feature flags seems broken
-        // cy.get('[data-attr=info-toast]').should('contain', 'EU cloud')
+        cy.get('[data-attr=info-toast]').should('contain', 'EU cloud')
 
         // goes to http://eu.localhost:8000/login?next=/test
         // the login page then handles the redirection to /test
@@ -34,7 +34,7 @@ describe('Redirect to other subdomain if logged in', () => {
         cy.reload()
 
         // TODO: turn this on when the feature flag is remove, currently mocking the feature flags seems broken
-        // cy.get('[data-attr=info-toast]').should('contain', 'US cloud')
+        cy.get('[data-attr=info-toast]').should('contain', 'US cloud')
 
         // goes to http://eu.localhost:8000/login?next=/test
         // the login page then handles the redirection to /test

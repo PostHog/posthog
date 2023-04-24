@@ -14,8 +14,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import RegionSelect from './RegionSelect'
 import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { captureException } from '@sentry/react'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
@@ -53,17 +51,13 @@ export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
     const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
 
     useEffect(() => {
         try {
-            // Turn on E2E test when this flag is removed
-            if (featureFlags[FEATURE_FLAGS.AUTO_REDIRECT]) {
-                redirectIfLoggedInOtherInstance()
-            }
+            redirectIfLoggedInOtherInstance()
         } catch (e) {
             captureException(e)
         }
