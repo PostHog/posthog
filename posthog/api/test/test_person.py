@@ -418,6 +418,63 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             ["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
         )
 
+    def test_person_display_name(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id1"],
+            properties={"custom_name": "someone", "custom_email": "someone@custom.com", "email": "someone@gmail.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id2"],
+            properties={"custom_email": "another_one@custom.com", "email": "another_one@gmail.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id3"],
+            properties={"email": "yet_another_one@gmail.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id4"],
+        )
+        flush_persons_and_events()
+
+        self.team.person_display_name_properties = ["custom_name", "custom_email"]
+        self.team.save()
+
+        response = self.client.get("/api/person/").json()
+        results = response["results"][::-1]  # results are in reverse order
+
+        self.assertEqual(results[0]["name"], "someone")
+        self.assertEqual(results[1]["name"], "another_one@custom.com")
+        self.assertEqual(results[2]["name"], "yet_another_one@gmail.com")
+        self.assertEqual(results[3]["name"], "distinct_id4")
+
+    def test_person_display_name_defaults(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id1"],
+            properties={"name": "someone", "email": "someone@gmail.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id2"],
+            properties={"name": "another_one"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id3"],
+        )
+        flush_persons_and_events()
+
+        response = self.client.get("/api/person/").json()
+        results = response["results"][::-1]  # results are in reverse order
+
+        self.assertEqual(results[0]["name"], "someone@gmail.com")
+        self.assertEqual(results[1]["name"], "another_one")
+        self.assertEqual(results[2]["name"], "distinct_id3")
+
     def test_person_cohorts(self) -> None:
         _create_person(team=self.team, distinct_ids=["1"], properties={"$some_prop": "something", "number": 1})
         person2 = _create_person(
