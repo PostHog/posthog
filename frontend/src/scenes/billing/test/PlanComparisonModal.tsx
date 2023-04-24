@@ -184,9 +184,6 @@ export const PlanComparisonModal = ({
                                                 </p>
                                                 <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
                                             </th>
-                                            {/* There should only be one plan for an addon. It should be available on any paid plan of its parent product. 
-                                                So, we need to count the number of plans for the parent, count the paid plans, and work backwards.
-                                            */}
                                             {plans?.map((plan) =>
                                                 // If the plan is free, the addon isn't available
                                                 plan.free_allocation && !plan.tiers ? (
