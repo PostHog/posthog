@@ -44,15 +44,13 @@
                   if(isNotNull(latest_1)
                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1 ,
-                                        if(has([[''], ['Mac'], ['Chrome'], ['Safari']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1 ,
+                                                                       if(has([[''], ['Mac'], ['Chrome'], ['Safari']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -135,15 +133,13 @@
                   if(isNotNull(latest_1)
                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1 ,
-                                        if(has([['Safari'], ['Mac']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1 ,
+                                                                       if(has([['Safari'], ['Mac']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         prop
