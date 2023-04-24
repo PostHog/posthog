@@ -1,12 +1,12 @@
 from datetime import date, datetime
-from typing import List, Optional, Any
+from typing import List, Optional, Any, cast
 from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
 from posthog.hogql.database import Database
 from posthog.hogql.errors import ResolverException
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
 
 
@@ -40,76 +40,63 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ResolverException(f"Unsupported constant type: {type(constant)}")
 
 
-def resolve_types(node: ast.Expr, database: Database, scope: Optional[ast.SelectQueryType] = None):
-    Resolver(scope=scope, database=database).visit(node)
+def resolve_types(node: ast.Expr, database: Database, stack: Optional[List[ast.SelectQuery]] = None) -> ast.Expr:
+    scopes = [node.type for node in stack] if stack else None
+    return Resolver(scopes=scopes, database=database).visit(node)
 
 
-class Resolver(TraversingVisitor):
-    """The Resolver visits an AST and assigns Types to the nodes."""
+class Resolver(CloningVisitor):
+    """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all macros"""
 
-    def __init__(self, database: Database, scope: Optional[ast.SelectQueryType] = None):
-        # Each SELECT query creates a new scope. Store all of them in a list as we traverse the tree.
-        self.scopes: List[ast.SelectQueryType] = [scope] if scope else []
+    def __init__(self, database: Database, scopes: Optional[List[ast.SelectQueryType]] = None):
+        super().__init__()
+        # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
+        self.scopes: List[ast.SelectQueryType] = scopes or []
         self.database = database
 
+    def visit(self, node: ast.Expr) -> ast.Expr:
+        if isinstance(node, ast.Expr) and node.type is not None:
+            raise ResolverException(
+                f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
+            )
+        return super().visit(node)
+
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
-        for expr in node.select_queries:
-            self.visit(expr)
+        node = super().visit_select_union_query(node)
         node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
-        return node.type
+        return node
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
-        if node.type is not None:
-            return
-
         # This type keeps track of all joined tables and other field aliases that are in scope.
-        node.type = ast.SelectQueryType()
+        nodeType = ast.SelectQueryType()
 
         # Each SELECT query is a new scope in field name resolution.
-        self.scopes.append(node.type)
+        self.scopes.append(nodeType)
 
-        # Visit all the FROM and JOIN clauses, and register the tables into the scope. See visit_join_expr below.
-        if node.select_from:
-            self.visit(node.select_from)
+        node = super().visit_select_query(node)
+        node.type = nodeType
 
         # Visit all the SELECT 1,2,3 columns. Mark each for export in "columns" to make this work:
         # SELECT e.event, e.timestamp from (SELECT event, timestamp FROM events) AS e
         for expr in node.select or []:
-            self.visit(expr)
             if isinstance(expr.type, ast.FieldAliasType):
-                node.type.columns[expr.type.alias] = expr.type
+                nodeType.columns[expr.type.alias] = expr.type
             elif isinstance(expr.type, ast.FieldType):
-                node.type.columns[expr.type.name] = expr.type
+                nodeType.columns[expr.type.name] = expr.type
             elif isinstance(expr, ast.Alias):
-                node.type.columns[expr.alias] = expr.type
-
-        if node.where:
-            self.visit(node.where)
-        if node.prewhere:
-            self.visit(node.prewhere)
-        if node.having:
-            self.visit(node.having)
-        for expr in node.group_by or []:
-            self.visit(expr)
-        for expr in node.order_by or []:
-            self.visit(expr)
-        for expr in node.limit_by or []:
-            self.visit(expr)
-        self.visit(node.limit)
-        self.visit(node.offset)
+                nodeType.columns[expr.alias] = expr.type
 
         self.scopes.pop()
 
-        return node.type
+        return node
 
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
 
-        if node.type is not None:
-            return
         if len(self.scopes) == 0:
             raise ResolverException("Unexpected JoinExpr outside a SELECT query")
+
         scope = self.scopes[-1]
 
         if isinstance(node.table, ast.Field):
@@ -121,20 +108,33 @@ class Resolver(TraversingVisitor):
             if self.database.has_table(table_name):
                 database_table = self.database.get_table(table_name)
                 if isinstance(database_table, ast.LazyTable):
-                    node.table.type = ast.LazyTableType(table=database_table)
+                    nodeTableType = ast.LazyTableType(table=database_table)
                 else:
-                    node.table.type = ast.TableType(table=database_table)
+                    nodeTableType = ast.TableType(table=database_table)
 
                 if table_alias == table_name:
-                    node.type = node.table.type
+                    nodeType = nodeTableType
                 else:
-                    node.type = ast.TableAliasType(alias=table_alias, table_type=node.table.type)
-                scope.tables[table_alias] = node.type
+                    nodeType = ast.TableAliasType(alias=table_alias, table_type=nodeTableType)
+                scope.tables[table_alias] = nodeType
+
+                # :TRICKY: Make sure to visit _all_ expr nodes. Otherwise, the printer may complain about resolved types.
+                node = cast(ast.JoinExpr, clone_expr(node))
+                node.type = nodeType
+                node.table = cast(ast.Field, clone_expr(node.table))
+                node.table.type = nodeTableType
+                node.next_join = self.visit(node.next_join)
+                node.constraint = self.visit(node.constraint)
+                node.sample = self.visit(node.sample)
+                return node
+
             else:
                 raise ResolverException(f'Unknown table "{table_name}".')
 
         elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectUnionQuery):
-            node.table.type = self.visit(node.table)
+            node = cast(ast.JoinExpr, clone_expr(node))
+
+            node.table = super().visit(node.table)
             if node.alias is not None:
                 if node.alias in scope.tables:
                     raise ResolverException(
@@ -146,68 +146,70 @@ class Resolver(TraversingVisitor):
                 node.type = node.table.type
                 scope.anonymous_tables.append(node.type)
 
+            # :TRICKY: Make sure to visit _all_ expr nodes. Otherwise, the printer may complain about resolved types.
+            node.next_join = self.visit(node.next_join)
+            node.constraint = self.visit(node.constraint)
+            node.sample = self.visit(node.sample)
+
+            return node
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
 
-        self.visit(node.constraint)
-        self.visit(node.next_join)
-
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""
-        if node.type is not None:
-            return
-
         if len(self.scopes) == 0:
             raise ResolverException("Aliases are allowed only within SELECT queries")
+
         scope = self.scopes[-1]
         if node.alias in scope.aliases:
             raise ResolverException(f"Cannot redefine an alias with the name: {node.alias}")
         if node.alias == "":
             raise ResolverException("Alias cannot be empty")
 
-        self.visit(node.expr)
+        node = super().visit_alias(node)
+
         if not node.expr.type:
             raise ResolverException(f"Cannot alias an expression without a type: {node.alias}")
+
         node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type)
         scope.aliases[node.alias] = node.type
+        return node
 
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
-        if node.type is not None:
-            return
+
+        node = super().visit_call(node)
         arg_types: List[ast.ConstantType] = []
         for arg in node.args:
-            self.visit(arg)
             if arg.type:
                 arg_types.append(arg.type.resolve_constant_type() or ast.UnknownType())
             else:
                 arg_types.append(ast.UnknownType())
         node.type = ast.CallType(name=node.name, arg_types=arg_types, return_type=ast.UnknownType())
+        return node
 
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""
-        if node.type is not None:
-            return
 
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
-        node.type = ast.SelectQueryType()
-        self.scopes.append(node.type)
-
+        nodeType = ast.SelectQueryType()
         for arg in node.args:
-            node.type.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
+            nodeType.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
 
-        self.visit(node.expr)
+        self.scopes.append(nodeType)
+        node = super().visit_lambda(node)
+        node.type = nodeType
         self.scopes.pop()
 
-        return node.type
+        return node
 
-    def visit_field(self, node):
+    def visit_field(self, node: ast.Field):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""
-        if node.type is not None:
-            return
         if len(node.chain) == 0:
             raise ResolverException("Invalid field access with empty chain")
+
+        node = super().visit_field(node)
 
         # Only look for fields in the last SELECT scope, instead of all previous scopes.
         # That's because ClickHouse does not support subqueries accessing "x.event". This is forbidden:
@@ -254,41 +256,32 @@ class Resolver(TraversingVisitor):
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
+        return node
 
-    def visit_constant(self, node):
-        if node.type is not None:
-            return
-
-        super().visit_constant(node)
+    def visit_constant(self, node: ast.Constant):
+        node = super().visit_constant(node)
         node.type = resolve_constant_data_type(node.value)
+        return node
 
     def visit_and(self, node: ast.And):
-        if node.type is not None:
-            return
-
-        super().visit_and(node)
+        node = super().visit_and(node)
         node.type = ast.BooleanType()
+        return node
 
     def visit_or(self, node: ast.Or):
-        if node.type is not None:
-            return
-
-        super().visit_or(node)
+        node = super().visit_or(node)
         node.type = ast.BooleanType()
+        return node
 
     def visit_not(self, node: ast.Not):
-        if node.type is not None:
-            return
-
-        super().visit_not(node)
+        node = super().visit_not(node)
         node.type = ast.BooleanType()
+        return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        if node.type is not None:
-            return
-
-        super().visit_compare_operation(node)
+        node = super().visit_compare_operation(node)
         node.type = ast.BooleanType()
+        return node
 
 
 def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:

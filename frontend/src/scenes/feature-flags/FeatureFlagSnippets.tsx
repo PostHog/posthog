@@ -197,8 +197,7 @@ export function RubySnippet({
         ? `${clientSuffix}${flagFunction}(
             '${flagKey}',
             'user distinct id',
-            groups: { '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },
-            ${localEvalAddition}
+            groups: { '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
         )`
         : localEvalAddition
         ? `${clientSuffix}${flagFunction}(
@@ -253,8 +252,7 @@ export function PythonSnippet({
         ? `${clientSuffix}${flagFunction}(
             '${flagKey}',
             'user distinct id',
-            groups={ '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },
-            ${localEvalAddition}
+            groups={ '${groupType.group_type}': '<${groupType.name_singular || 'group'} ID>' },${localEvalAddition}
         )`
         : localEvalAddition
         ? `${clientSuffix}${flagFunction}(

@@ -34,7 +34,7 @@ attrs==21.4.0
     #   jsonschema
     #   outcome
     #   trio
-backoff==1.6.0
+backoff==2.2.1
     # via posthoganalytics
 billiard==3.6.3.0
     # via celery
@@ -242,7 +242,7 @@ pickleshare==0.7.5
     # via -r requirements.in
 pillow==9.2.0
     # via -r requirements.in
-posthoganalytics==2.3.1
+posthoganalytics==3.0.1
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus

@@ -42,6 +42,8 @@ export enum ActivityScope {
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
     CONNECTION = 'Connection',
+    DATA_MANAGEMENT = 'DataManagement',
+    EVENT_DEFINITION = 'EventDefinition',
 }
 
 export interface ActivityLogItem {
