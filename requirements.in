@@ -11,7 +11,6 @@ celery==4.4.7
 celery-redbeat==2.0.0
 clickhouse-driver==0.2.4
 clickhouse-pool==0.5.3
-dataclasses_json==0.5.7
 defusedxml==0.6.0
 dj-database-url==0.5.0
 Django==3.2.16
@@ -48,7 +47,7 @@ parso==0.8.1
 pexpect==4.7.0
 pickleshare==0.7.5
 Pillow==9.2.0
-posthoganalytics==2.3.1
+posthoganalytics==3.0.1
 psycopg2-binary==2.8.6
 pydantic==1.10.4
 pyjwt==2.4.0
@@ -65,7 +64,7 @@ slack_sdk==3.17.1
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0
 statshog==1.0.6
-sqlparse==0.4.2
+sqlparse==0.4.4
 temporalio==1.1.0
 token-bucket==0.3.0
 toronado==0.1.0

@@ -74,7 +74,7 @@ django-stubs==1.8.0
     # via
     #   -r requirements-dev.in
     #   djangorestframework-stubs
-django-stubs-ext==0.2.0
+django-stubs-ext==0.7.0
     # via django-stubs
 djangorestframework-stubs==1.4.0
     # via -r requirements-dev.in
@@ -137,7 +137,6 @@ mypy==0.981
     #   djangorestframework-stubs
 mypy-extensions==0.4.3
     # via
-    #   -c requirements.txt
     #   -r requirements-dev.in
     #   black
     #   mypy
@@ -265,7 +264,7 @@ sortedcontainers==2.4.0
     # via
     #   -c requirements.txt
     #   fakeredis
-sqlparse==0.4.2
+sqlparse==0.4.4
     # via
     #   -c requirements.txt
     #   django
@@ -301,6 +300,7 @@ typing-extensions==4.4.0
     # via
     #   -c requirements.txt
     #   django-stubs
+    #   django-stubs-ext
     #   djangorestframework-stubs
     #   jsonschema-spec
     #   mypy

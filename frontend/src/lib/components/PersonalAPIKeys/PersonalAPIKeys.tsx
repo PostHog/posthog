@@ -9,7 +9,7 @@ import { CopyToClipboardInline } from '../CopyToClipboard'
 import { ColumnsType } from 'antd/lib/table'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput, LemonModal } from '@posthog/lemon-ui'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconPlus } from 'lib/lemon-ui/icons'
 
 function CreateKeyModal({
@@ -60,7 +60,7 @@ function CreateKeyModal({
         >
             <div className="space-y-2">
                 <LemonInput placeholder='for example "Zapier"' maxLength={40} onChange={setLabel} value={label} />
-                {errorMessage && <AlertMessage type="error">{errorMessage}</AlertMessage>}
+                {errorMessage && <LemonBanner type="error">{errorMessage}</LemonBanner>}
                 <p>
                     Key value <b>will only ever be shown once</b>, immediately after creation.
                     <br />

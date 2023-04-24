@@ -34,8 +34,11 @@ import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/
 import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { RetentionSummaryDataExploration } from 'scenes/insights/EditorFilters/RetentionSummary'
+import { SamplingFilterDataExploration } from 'scenes/insights/EditorFilters/SamplingFilter'
+
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
@@ -217,6 +220,16 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                     key: 'funnels-advanced',
                     position: 'left',
                     component: FunnelsAdvancedDataExploration,
+                },
+            ]),
+        },
+        {
+            title: 'Sampling',
+            editorFilters: filterFalsy([
+                {
+                    key: 'sampling',
+                    position: 'right',
+                    component: SamplingFilterDataExploration,
                 },
             ]),
         },

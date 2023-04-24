@@ -1,4 +1,4 @@
-import { eventWithTime } from 'rrweb/typings/types'
+import { eventWithTime } from '@rrweb/types'
 
 interface Metadata {
     playerTime: number
@@ -40,7 +40,9 @@ export class EventIndex {
 
     pageChangeEvents = (): RecordingPageMetadata[] =>
         this._filterBy('href', (event) => {
-            if ('href' in event.data) {
+            const eventData = event.data as { href?: string } | undefined
+
+            if (eventData?.href) {
                 return {
                     href: (event.data as { href: string }).href,
                     playerTime: event.timestamp - this.baseTime,
@@ -58,8 +60,10 @@ export class EventIndex {
 
     recordingScreenMetadata = (): RecordingScreenMetadata[] =>
         this._filterBy('resolution', (event) => {
-            if ('width' in event.data && 'height' in event.data) {
-                const { width, height } = event.data
+            const eventData = event.data as { width?: number; height?: number } | undefined
+
+            if (eventData?.width && eventData?.height) {
+                const { width, height } = eventData
                 return {
                     resolution: `${width} x ${height}`,
                     height: height,

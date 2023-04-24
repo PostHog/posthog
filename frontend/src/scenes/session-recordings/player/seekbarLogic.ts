@@ -173,17 +173,17 @@ export const seekbarLogic = kea<seekbarLogicType>({
             actions.handleSeek(newX, false)
         },
         handleUp: ({ event }) => {
+            document.removeEventListener('touchmove', actions.handleMove)
+            document.removeEventListener('touchend', actions.handleUp)
+            document.removeEventListener('mousemove', actions.handleMove)
+            document.removeEventListener('mouseup', actions.handleUp)
+
             if (!values.slider) {
                 return
             }
             const newX = getXPos(event) - values.cursorDiff - values.slider.getBoundingClientRect().left
             actions.handleSeek(newX)
             actions.endScrub()
-
-            document.removeEventListener('touchmove', actions.handleMove)
-            document.removeEventListener('touchend', actions.handleUp)
-            document.removeEventListener('mousemove', actions.handleMove)
-            document.removeEventListener('mouseup', actions.handleUp)
         },
         handleDown: ({ event }) => {
             if (!values.thumb) {

@@ -34,8 +34,10 @@ from . import (
     team,
     uploaded_media,
     user,
+    person_communication,
 )
 from .dashboards import dashboard, dashboard_templates
+from .data_management import DataManagementViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -99,6 +101,14 @@ projects_router.register(
     "ingestion_warnings",
     ["team_id"],
 )
+
+projects_router.register(
+    r"data_management",
+    DataManagementViewSet,
+    "data_management",
+    ["team_id"],
+)
+
 app_metrics_router = projects_router.register(r"app_metrics", app_metrics.AppMetricsViewSet, "app_metrics", ["team_id"])
 app_metrics_router.register(
     r"historical_exports",
@@ -225,4 +235,11 @@ project_insights_router.register(
     sharing.SharingConfigurationViewSet,
     "project_insight_sharing",
     ["team_id", "insight_id"],
+)
+
+projects_router.register(
+    r"person_communications",
+    person_communication.PersonCommunicationViewSet,
+    "project_person_communications",
+    ["team_id"],
 )

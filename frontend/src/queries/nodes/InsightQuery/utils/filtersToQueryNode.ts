@@ -51,7 +51,7 @@ export const actionsAndEventsToSeries = ({
                 name: f.name || undefined,
                 custom_name: f.custom_name,
                 properties: f.properties,
-                math: f.math,
+                math: f.math || 'total',
                 math_property: f.math_property,
                 math_group_type_index: f.math_group_type_index,
             })
@@ -108,6 +108,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         kind: reverseInsightMap[filters.insight],
         properties: filters.properties,
         filterTestAccounts: filters.filter_test_accounts,
+        samplingFactor: filters.sampling_factor,
     }
 
     // date range

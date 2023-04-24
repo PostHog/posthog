@@ -13,5 +13,6 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             "DROP INDEX IF EXISTS posthog_event_properties_current_url_gin;",
             "SELECT 1;",
+            elidable=True,  # This table no longer exists
         )
     ]

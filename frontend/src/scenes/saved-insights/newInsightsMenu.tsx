@@ -3,19 +3,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { INSIGHT_TYPES_METADATA, InsightTypeMetadata } from 'scenes/saved-insights/SavedInsights'
 import { ReactNode } from 'react'
-import { urls } from 'scenes/urls'
-import { examples } from '~/queries/examples'
-
-const insightTypeURL: Record<InsightType, string> = {
-    TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
-    STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
-    LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
-    FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
-    RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
-    PATHS: urls.insightNew({ insight: InsightType.PATHS }),
-    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
-    JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
-}
+import { insightTypeURL } from 'scenes/insights/utils'
 
 function insightTypesForMenu(isUsingDataExplorationQueryTab: boolean): [string, InsightTypeMetadata][] {
     // never show JSON InsightType in the menu
@@ -28,12 +16,8 @@ function insightTypesForMenu(isUsingDataExplorationQueryTab: boolean): [string, 
     return menuEntries
 }
 
-export function overlayForNewInsightMenu(
-    dataAttr: string,
-    isUsingDatExplorationQuery: boolean,
-    clickHandler?: () => void
-): ReactNode[] {
-    const menuEntries = insightTypesForMenu(isUsingDatExplorationQuery)
+export function overlayForNewInsightMenu(dataAttr: string, isUsingDataExplorationQuery: boolean): ReactNode[] {
+    const menuEntries = insightTypesForMenu(isUsingDataExplorationQuery)
     return menuEntries.map(
         ([listedInsightType, listedInsightTypeMetadata]) =>
             listedInsightTypeMetadata.inMenu && (
@@ -50,7 +34,6 @@ export function overlayForNewInsightMenu(
                     data-attr-insight-type={listedInsightType}
                     onClick={() => {
                         eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType)
-                        clickHandler?.()
                     }}
                     fullWidth
                 >

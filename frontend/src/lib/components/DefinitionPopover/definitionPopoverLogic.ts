@@ -13,8 +13,6 @@ import equal from 'fast-deep-equal'
 import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -39,7 +37,7 @@ export interface DefinitionPopoverLogicProps {
 export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
     props: {} as DefinitionPopoverLogicProps,
     connect: {
-        values: [userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
+        values: [userLogic, ['hasAvailableFeature']],
     },
     path: ['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic'],
     actions: {
@@ -145,12 +143,11 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
                 hasAvailableFeature(AvailableFeature.TAGGING),
         ],
         isViewable: [
-            (s) => [s.featureFlags, s.type],
-            (featureFlags, type) => {
+            (s) => [s.type],
+            (type) => {
                 if (
-                    featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS] &&
-                    (type === TaxonomicFilterGroupType.PersonProperties ||
-                        type.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
+                    type === TaxonomicFilterGroupType.PersonProperties ||
+                    type.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
                 ) {
                     return true
                 }

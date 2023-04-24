@@ -19,5 +19,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(forward, reverse),
+        migrations.RunPython(forward, reverse, elidable=True),
     ]

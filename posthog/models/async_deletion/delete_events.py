@@ -18,6 +18,8 @@ TABLES_TO_DELETE_TEAM_DATA_FROM = [
 
 
 class AsyncEventDeletion(AsyncDeletionProcess):
+    DELETION_TYPES = [DeletionType.Team, DeletionType.Group, DeletionType.Person]
+
     def process(self, deletions: List[AsyncDeletion]):
         if len(deletions) == 0:
             logger.debug("No AsyncDeletion to perform")

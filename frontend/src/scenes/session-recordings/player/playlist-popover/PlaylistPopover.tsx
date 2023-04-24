@@ -123,7 +123,6 @@ export function PlaylistPopover(): JSX.Element {
                 }
             >
                 <LemonButton
-                    data-attr="export-button"
                     icon={<IconPlus />}
                     active={showPlaylistPopover}
                     onClick={() => setShowPlaylistPopover(!showPlaylistPopover)}

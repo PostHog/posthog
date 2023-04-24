@@ -43,7 +43,7 @@ export function AddToNotebook({
 export function AddToNotebookWrapper({ children, ...props }: AddToNotebookProps): JSX.Element {
     return (
         <div className="AddToNotebookWrapper">
-            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS}>
+            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
                 <AddToNotebook {...props}>Add to notebook</AddToNotebook>
             </FlaggedFeature>
             {children}

@@ -45,6 +45,10 @@ export function FeatureFlagActivity(): JSX.Element {
     return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={7} />
 }
 
+export function DataManagementActivity(): JSX.Element {
+    return <ActivityLog scope={ActivityScope.DATA_MANAGEMENT} />
+}
+
 export function InsightActivity(): JSX.Element {
     return <ActivityLog scope={ActivityScope.INSIGHT} />
 }

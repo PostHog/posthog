@@ -328,8 +328,8 @@ class QueryMatchingTest:
 
         # hog ql checks team ids differently
         query = re.sub(
-            r"equals\(team_id, \d+\)",
-            "equals(team_id, 2)",
+            r"equals\((events\.)?team_id, \d+\)",
+            r"equals(\1team_id, 2)",
             query,
         )
 
@@ -369,6 +369,9 @@ class QueryMatchingTest:
             query,
         )
 
+        # replace Savepoint numbers
+        query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
+
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run
@@ -377,7 +380,10 @@ class QueryMatchingTest:
 
 @contextmanager
 def snapshot_postgres_queries_context(
-    testcase: QueryMatchingTest, replace_all_numbers: bool = True, using: str = "default"
+    testcase: QueryMatchingTest,
+    replace_all_numbers: bool = True,
+    using: str = "default",
+    capture_all_queries: bool = False,
 ):
     """
     Captures and snapshots select queries from test using `syrupy` library.
@@ -410,7 +416,9 @@ def snapshot_postgres_queries_context(
 
     for query_with_time in context.captured_queries:
         query = query_with_time["sql"]
-        if query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
+        if capture_all_queries:
+            testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
+        elif query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 

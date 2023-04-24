@@ -33,35 +33,29 @@
                   if(isNotNull(latest_2)
                      AND latest_2 <= latest_1 + INTERVAL 15 SECOND, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
@@ -122,35 +116,29 @@
                   if(isNotNull(latest_2)
                      AND latest_2 <= latest_1 + INTERVAL 15 SECOND, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
@@ -235,35 +223,29 @@
                   if(isNotNull(latest_2)
                      AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as aggregation_target,
@@ -286,8 +268,8 @@
                           WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
                        WHERE team_id = 2
                          AND event IN ['$autocapture', 'user signed up', '$autocapture', '$autocapture']
-                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2023-03-17 00:00:00', 'UTC')
-                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-03-24 23:59:59', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-01 23:59:59', 'UTC')
                          AND notEmpty(e.person_id)
                          AND (step_0 = 1
                               OR step_1 = 1
@@ -322,13 +304,11 @@
                   if(isNotNull(latest_1)
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
@@ -378,33 +358,21 @@
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.1
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
@@ -431,25 +399,22 @@
                   if(isNotNull(latest_1)
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
                         pdi.person_id as person_id ,
                         if(event = 'user signed up'
                            AND (person_id IN
-                                  (SELECT person_id
+                                  (SELECT DISTINCT person_id
                                    FROM cohortpeople
                                    WHERE team_id = 2
                                      AND cohort_id = 2
-                                   GROUP BY person_id, cohort_id, team_id, version
-                                   HAVING sum(sign) > 0)), 1, 0) as step_0,
+                                     AND version = 0 )), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -514,35 +479,29 @@
                   if(isNotNull(latest_2)
                      AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
@@ -623,35 +582,29 @@
                   if(isNotNull(latest_2)
                      AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
@@ -736,35 +689,29 @@
                   if(isNotNull(latest_2)
                      AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
@@ -849,35 +796,29 @@
                   if(isNotNull(latest_2)
                      AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     latest_1,
-                     step_2,
-                     min(latest_2) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        latest_1,
-                        step_2,
-                        if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
-                           step_0,
-                           latest_0,
-                           step_1,
-                           min(latest_1) over (PARTITION by aggregation_target
-                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
@@ -957,13 +898,11 @@
                   if(isNotNull(latest_1)
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
@@ -1027,13 +966,11 @@
                   if(isNotNull(latest_1)
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
@@ -1109,15 +1046,13 @@
                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([[''], ['Mac'], ['Chrome'], ['Safari']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                                                       if(has([[''], ['Mac'], ['Chrome'], ['Safari']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -1203,15 +1138,13 @@
                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([['Safari'], ['Mac']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                                                       if(has([['Safari'], ['Mac']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         prop
@@ -1300,15 +1233,13 @@
                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([['', ''], ['alakazam', ''], ['Safari', 'xyz'], ['Mac', ''], ['Chrome', 'xyz'], ['0', '0'], ['', 'no-mac']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                                                       if(has([['', ''], ['alakazam', ''], ['Safari', 'xyz'], ['Mac', ''], ['Chrome', 'xyz'], ['0', '0'], ['', 'no-mac']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['','']) as prop

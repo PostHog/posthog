@@ -1,3 +1,4 @@
+import { ReaderModel } from '@maxmind/geoip2-node'
 import ClickHouse from '@posthog/clickhouse'
 import {
     Element,
@@ -100,6 +101,9 @@ export interface PluginsServerConfig {
     KAFKA_SASL_MECHANISM: KafkaSaslMechanism | null
     KAFKA_SASL_USER: string | null
     KAFKA_SASL_PASSWORD: string | null
+    KAFKA_CONSUMPTION_MAX_BYTES: number
+    KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
+    KAFKA_CONSUMPTION_MAX_WAIT_MS: number
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
@@ -124,11 +128,11 @@ export interface PluginsServerConfig {
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
-    INTERNAL_MMDB_SERVER_PORT: number // port of the internal server used for IP location (0 means random)
     JOB_QUEUES: string // retry queue engine and fallback queues
     JOB_QUEUE_GRAPHILE_URL: string // use a different postgres connection in the graphile worker
     JOB_QUEUE_GRAPHILE_SCHEMA: string // the postgres schema that the graphile worker
     JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean // enable this to increase job queue throughput if not using pgbouncer
+    JOB_QUEUE_GRAPHILE_CONCURRENCY: number // concurrent jobs per pod
     JOB_QUEUE_S3_AWS_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_REGION: string
@@ -214,6 +218,8 @@ export interface Hub extends PluginsServerConfig {
     personManager: PersonManager
     siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
+    // geoip database, setup in workers
+    mmdb?: ReaderModel
     // diagnostics
     lastActivity: number
     lastActivityType: string

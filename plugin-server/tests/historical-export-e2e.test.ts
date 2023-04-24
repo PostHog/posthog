@@ -3,8 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { defaultConfig } from '../src/config/config'
 import { startPluginsServer } from '../src/main/pluginsServer'
-import { EnqueuedPluginJob, LogLevel, PluginsServerConfig } from '../src/types'
-import { Hub } from '../src/types'
+import { EnqueuedPluginJob, Hub, LogLevel, PluginsServerConfig } from '../src/types'
 import { UUIDT } from '../src/utils/utils'
 import { EventPipelineRunner } from '../src/worker/ingestion/event-pipeline/runner'
 import { makePiscina } from '../src/worker/piscina'
@@ -68,6 +67,10 @@ describe('Historical Export (v2)', () => {
 
     afterEach(async () => {
         await stopServer()
+    })
+
+    afterAll(async () => {
+        await resetGraphileWorkerSchema(defaultConfig)
     })
 
     async function ingestEvent(timestamp: string, overrides: Partial<PluginEvent> = {}) {

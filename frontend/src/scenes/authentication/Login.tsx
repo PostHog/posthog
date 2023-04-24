@@ -10,9 +10,13 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import RegionSelect from './RegionSelect'
+import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { captureException } from '@sentry/react'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -49,9 +53,21 @@ export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
     const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
+
+    useEffect(() => {
+        try {
+            // Turn on E2E test when this flag is removed
+            if (featureFlags[FEATURE_FLAGS.AUTO_REDIRECT]) {
+                redirectIfLoggedInOtherInstance()
+            }
+        } catch (e) {
+            captureException(e)
+        }
+    }, [])
 
     useEffect(() => {
         if (!isPasswordHidden) {
@@ -73,11 +89,11 @@ export function Login(): JSX.Element {
             <div className="space-y-2">
                 <h2>Log in</h2>
                 {generalError && (
-                    <AlertMessage type="error">
+                    <LemonBanner type="error">
                         {generalError.detail ||
                             ERROR_MESSAGES[generalError.code] ||
                             'Could not complete your login. Please try again.'}
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
                 <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
                     <RegionSelect />

@@ -13,7 +13,7 @@ import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
@@ -108,7 +108,7 @@ export function Groups(): JSX.Element {
                 }}
                 emptyState={
                     <>
-                        <AlertMessage type="info">
+                        <LemonBanner type="info">
                             No {plural} found. Make sure to send properties with your {singular} for them to show up in
                             the list.{' '}
                             <a
@@ -118,7 +118,7 @@ export function Groups(): JSX.Element {
                             >
                                 Read more here.
                             </a>
-                        </AlertMessage>
+                        </LemonBanner>
                         <CodeSnippet language={Language.JavaScript} wrap>
                             {`posthog.group('${singular}', 'id:5', {\n` +
                                 `    name: 'Awesome ${currentTabName}',\n` +

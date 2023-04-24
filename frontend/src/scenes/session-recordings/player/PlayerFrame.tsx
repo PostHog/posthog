@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Handler, viewportResizeDimension } from 'rrweb/typings/types'
+import { Handler, viewportResizeDimension } from '@rrweb/types'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import useSize from '@react-hook/size'

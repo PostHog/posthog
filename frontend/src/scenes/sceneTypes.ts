@@ -18,6 +18,7 @@ export enum Scene {
     EventDefinition = 'EventDefinition',
     PropertyDefinitions = 'PropertyDefinitionsTable',
     PropertyDefinition = 'PropertyDefinition',
+    DataManagementHistory = 'DataManagementHistory',
     IngestionWarnings = 'IngestionWarnings',
     SessionRecordings = 'SessionsRecordings',
     SessionRecording = 'SessionRecording',
@@ -64,6 +65,7 @@ export enum Scene {
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
+    Issues = 'Issues',
 }
 
 export type SceneProps = Record<string, any>

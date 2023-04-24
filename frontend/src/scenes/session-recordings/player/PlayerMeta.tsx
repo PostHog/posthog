@@ -21,6 +21,57 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
+function SessionPropertyMeta(props: {
+    fullScreen: boolean
+    iconProperties: Record<string, any>
+    predicate: (x: string) => boolean
+}): JSX.Element {
+    return (
+        <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
+            <span className="flex items-center gap-1 whitespace-nowrap">
+                <PropertyIcon
+                    noTooltip={!props.fullScreen}
+                    property="$browser"
+                    value={props.iconProperties['$browser']}
+                />
+                {!props.fullScreen ? props.iconProperties['$browser'] : null}
+            </span>
+            <span className="flex items-center gap-1 whitespace-nowrap">
+                <PropertyIcon
+                    noTooltip={!props.fullScreen}
+                    property="$device_type"
+                    value={props.iconProperties['$device_type'] || props.iconProperties['$initial_device_type']}
+                />
+                {!props.fullScreen
+                    ? props.iconProperties['$device_type'] || props.iconProperties['$initial_device_type']
+                    : null}
+            </span>
+            <span className="flex items-center gap-1 whitespace-nowrap">
+                <PropertyIcon noTooltip={!props.fullScreen} property="$os" value={props.iconProperties['$os']} />
+                {!props.fullScreen ? props.iconProperties['$os'] : null}
+            </span>
+            {props.iconProperties['$geoip_country_code'] && (
+                <span className="flex items-center gap-1 whitespace-nowrap">
+                    <PropertyIcon
+                        noTooltip={!props.fullScreen}
+                        property="$geoip_country_code"
+                        value={props.iconProperties['$geoip_country_code']}
+                    />
+                    {
+                        props.fullScreen &&
+                            [
+                                props.iconProperties['$geoip_city_name'],
+                                props.iconProperties['$geoip_subdivision_1_code'],
+                            ]
+                                .filter(props.predicate)
+                                .join(', ') /* [city, state] */
+                    }
+                </span>
+            )}
+        </div>
+    )
+}
+
 export function PlayerMeta(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
 
@@ -96,52 +147,11 @@ export function PlayerMeta(): JSX.Element {
                         {sessionPlayerMetaDataLoading ? (
                             <LemonSkeleton className="w-1/4 my-1" />
                         ) : iconProperties ? (
-                            <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
-                                <span className="flex items-center gap-1 whitespace-nowrap">
-                                    <PropertyIcon
-                                        noTooltip={!isFullScreen}
-                                        property="$browser"
-                                        value={iconProperties['$browser']}
-                                    />
-                                    {!isFullScreen ? iconProperties['$browser'] : null}
-                                </span>
-                                <span className="flex items-center gap-1 whitespace-nowrap">
-                                    <PropertyIcon
-                                        noTooltip={!isFullScreen}
-                                        property="$device_type"
-                                        value={iconProperties['$device_type'] || iconProperties['$initial_device_type']}
-                                    />
-                                    {!isFullScreen
-                                        ? iconProperties['$device_type'] || iconProperties['$initial_device_type']
-                                        : null}
-                                </span>
-                                <span className="flex items-center gap-1 whitespace-nowrap">
-                                    <PropertyIcon
-                                        noTooltip={!isFullScreen}
-                                        property="$os"
-                                        value={iconProperties['$os']}
-                                    />
-                                    {!isFullScreen ? iconProperties['$os'] : null}
-                                </span>
-                                {iconProperties['$geoip_country_code'] && (
-                                    <span className="flex items-center gap-1 whitespace-nowrap">
-                                        <PropertyIcon
-                                            noTooltip={!isFullScreen}
-                                            property="$geoip_country_code"
-                                            value={iconProperties['$geoip_country_code']}
-                                        />
-                                        {
-                                            isFullScreen &&
-                                                [
-                                                    iconProperties['$geoip_city_name'],
-                                                    iconProperties['$geoip_subdivision_1_code'],
-                                                ]
-                                                    .filter((x) => x)
-                                                    .join(', ') /* [city, state] */
-                                        }
-                                    </span>
-                                )}
-                            </div>
+                            <SessionPropertyMeta
+                                fullScreen={isFullScreen}
+                                iconProperties={iconProperties}
+                                predicate={(x) => !!x}
+                            />
                         ) : null}
                     </div>
                 </div>
@@ -177,7 +187,7 @@ export function PlayerMeta(): JSX.Element {
                 >
                     <div className="PlayerMetaPersonProperties">
                         {Object.keys(sessionPerson.properties).length ? (
-                            <PropertiesTable properties={sessionPerson.properties} />
+                            <PropertiesTable properties={sessionPerson.properties} searchable filterable />
                         ) : (
                             <p className="text-center m-4">There are no properties.</p>
                         )}

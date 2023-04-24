@@ -1,32 +1,15 @@
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import {
-    IconApps,
-    IconBarChart,
-    IconCohort,
-    IconComment,
-    IconCottage,
-    IconDarkMode,
-    IconExperiment,
-    IconFlag,
-    IconGauge,
-    IconHelpOutline,
-    IconLightMode,
-    IconLive,
-    IconPerson,
-    IconRecording,
-    IconSettings,
-    IconSync,
-    IconUnverifiedEvent,
-} from 'lib/lemon-ui/icons'
+import { IconDarkMode, IconHelpOutline, IconLightMode, IconSettings, IconSync } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
+import { navigation3000Logic } from '../navigationLogic'
+import { NAVBAR_ITEMS } from '../sidebars/navbarItems'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
 
@@ -34,6 +17,8 @@ export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
     const { isSitePopoverOpen } = useValues(navigationLogic)
     const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
+    const { isSidebarShown, activeNavbarItemId } = useValues(navigation3000Logic)
+    const { showSidebar, hideSidebar } = useActions(navigation3000Logic)
     const { isDarkModeOn, darkModeSavedPreference, darkModeSystemPreference, isThemeSyncedWithSystem } =
         useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
@@ -44,42 +29,33 @@ export function Navbar(): JSX.Element {
         <nav className="Navbar3000">
             <div className="Navbar3000__content">
                 <div className="Navbar3000__top">
-                    <ul>
-                        <NavbarButton
-                            identifier={Scene.ProjectHomepage}
-                            icon={<IconCottage />}
-                            to={urls.projectHomepage()}
-                        />
-                        <NavbarButton icon={<IconGauge />} identifier={Scene.Dashboards} to={urls.dashboards()} />
-                        <NavbarButton
-                            icon={<IconBarChart />}
-                            identifier={Scene.SavedInsights}
-                            to={urls.savedInsights()}
-                        />
-                        <NavbarButton
-                            icon={<IconRecording />}
-                            identifier={Scene.SessionRecordings}
-                            to={urls.sessionRecordings()}
-                        />
-                        <NavbarButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
-                        <NavbarButton
-                            icon={<IconExperiment />}
-                            identifier={Scene.Experiments}
-                            to={urls.experiments()}
-                        />
-                    </ul>
-                    <ul>
-                        <NavbarButton icon={<IconLive />} identifier={Scene.Events} to={urls.events()} />
-                        <NavbarButton
-                            icon={<IconUnverifiedEvent />}
-                            identifier={Scene.DataManagement}
-                            to={urls.eventDefinitions()}
-                        />
-                        <NavbarButton icon={<IconPerson />} identifier={Scene.Persons} to={urls.persons()} />
-                        <NavbarButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
-                        <NavbarButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
-                        <NavbarButton icon={<IconApps />} identifier={Scene.Plugins} to={urls.projectApps()} />
-                    </ul>
+                    {NAVBAR_ITEMS.map((section, index) => (
+                        <ul key={index}>
+                            {section.map((item) => (
+                                <NavbarButton
+                                    key={item.identifier}
+                                    identifier={item.identifier}
+                                    icon={item.icon}
+                                    // TODO: Simplify all the pointer handling below
+                                    to={
+                                        'pointer' in item && typeof item.pointer === 'string' ? item.pointer : undefined
+                                    }
+                                    onClick={
+                                        'pointer' in item && typeof item.pointer !== 'string'
+                                            ? () => {
+                                                  if (activeNavbarItemId === item.identifier && isSidebarShown) {
+                                                      hideSidebar()
+                                                  } else {
+                                                      showSidebar(item.identifier)
+                                                  }
+                                              }
+                                            : undefined
+                                    }
+                                    active={activeNavbarItemId === item.identifier && isSidebarShown}
+                                />
+                            ))}
+                        </ul>
+                    ))}
                 </div>
                 <div className="Navbar3000__bottom">
                     <ul>
@@ -117,11 +93,7 @@ export function Navbar(): JSX.Element {
                             }
                             placement="right-end"
                         />
-                        <NavbarButton
-                            icon={<IconSettings />}
-                            identifier={Scene.ProjectSettings}
-                            to={urls.projectSettings()}
-                        />
+                        <NavbarButton icon={<IconSettings />} identifier={Scene.ProjectSettings} />
                         <Popover
                             overlay={<SitePopoverOverlay />}
                             visible={isSitePopoverOpen}

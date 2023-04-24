@@ -20,16 +20,23 @@ import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/que
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 
-export function InsightEmptyState(): JSX.Element {
+export function InsightEmptyState({
+    heading = 'There are no matching events for this query',
+    detail = 'Try changing the date range, or pick another action, event or breakdown.',
+}: {
+    heading?: string
+    detail?: string
+}): JSX.Element {
     return (
         <div className="insight-empty-state">
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                 </div>
-                <h2>There are no matching events for this query</h2>
-                <p className="text-center">Try changing the date range, or pick another action, event or breakdown.</p>
+                <h2>{heading}</h2>
+                <p className="text-center">{detail}</p>
             </div>
         </div>
     )
@@ -50,6 +57,7 @@ export function InsightTimeoutState({
 
     const { setSamplingPercentage } = useActions(_samplingFilterLogic)
     const { suggestedSamplingPercentage, samplingAvailable } = useValues(_samplingFilterLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     const speedUpBySamplingAvailable = samplingAvailable && suggestedSamplingPercentage
     return (
@@ -88,23 +96,14 @@ export function InsightTimeoutState({
                 <p className="m-auto text-center">
                     In order to improve the performance of the query, you can {speedUpBySamplingAvailable ? 'also' : ''}{' '}
                     try to reduce the date range of your query, remove breakdowns, or get in touch with us by{' '}
-                    <a
-                        data-attr="insight-timeout-raise-issue"
-                        href="https://github.com/PostHog/posthog/issues/new?labels=performance&template=performance_issue_report.md"
-                        target="_blank"
-                        rel="noreferrer noopener"
+                    <Link
+                        data-attr="insight-timeout-bug-report"
+                        onClick={() => {
+                            openSupportForm('bug', 'analytics')
+                        }}
                     >
-                        raising an issue
-                    </a>{' '}
-                    in our GitHub repository or messaging us{' '}
-                    <a
-                        data-attr="insight-timeout-slack"
-                        href="https://posthog.com/slack"
-                        rel="noopener noreferrer"
-                        target="_blank"
-                    >
-                        on Slack
-                    </a>
+                        submitting a bug report
+                    </Link>
                     .
                 </p>
                 {!!queryId ? <div className="text-muted text-xs m-auto">Query ID: {queryId}</div> : null}
@@ -120,6 +119,7 @@ export interface InsightErrorStateProps {
 }
 
 export function InsightErrorState({ excludeDetail, title, queryId }: InsightErrorStateProps): JSX.Element {
+    const { openSupportForm } = useActions(supportLogic)
     return (
         <div className={clsx(['insight-empty-state', 'error', { 'match-container': excludeDetail }])}>
             <div className="empty-state-inner">
@@ -129,43 +129,21 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                 <h2>{title || 'There was an error completing this query'}</h2>
                 {!excludeDetail && (
                     <div className="mt-4">
-                        We apologize for this unexpected situation. There are a few things you can do:
+                        We apologize for this unexpected situation. There are a couple of things you can do:
                         <ol>
                             <li>
                                 First and foremost you can <b>try again</b>. We recommended you wait a few moments
                                 before doing so.
                             </li>
                             <li>
-                                <a
-                                    data-attr="insight-error-raise-issue"
-                                    href="https://github.com/PostHog/posthog/issues/new?labels=bug&template=bug_report.md"
-                                    target="_blank"
-                                    rel="noreferrer noopener"
+                                <Link
+                                    data-attr="insight-error-bug-report"
+                                    onClick={() => {
+                                        openSupportForm('bug', 'analytics')
+                                    }}
                                 >
-                                    Raise an issue
-                                </a>{' '}
-                                in our GitHub repository.
-                            </li>
-                            <li>
-                                Get in touch with us{' '}
-                                <a
-                                    data-attr="insight-error-slack"
-                                    href="https://posthog.com/slack"
-                                    rel="noopener noreferrer"
-                                    target="_blank"
-                                >
-                                    on Slack
-                                </a>
-                                .
-                            </li>
-                            <li>
-                                Email us at{' '}
-                                <a
-                                    data-attr="insight-error-email"
-                                    href="mailto:hey@posthog.com?subject=Insight%20graph%20error"
-                                >
-                                    hey@posthog.com
-                                </a>
+                                    Submit a bug report
+                                </Link>
                                 .
                             </li>
                         </ol>

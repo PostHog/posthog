@@ -18,10 +18,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -78,10 +76,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
@@ -121,33 +117,21 @@
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.1
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_cohort_properties.2
@@ -194,15 +178,11 @@
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE 1 = 1
     AND (pdi.person_id IN
-           (SELECT person_id
+           (SELECT DISTINCT person_id
             FROM cohortpeople
             WHERE team_id = 2
               AND cohort_id = 2
-            GROUP BY person_id,
-                     cohort_id,
-                     team_id,
-                     version
-            HAVING sum(sign) > 0))
+              AND version = 0 ))
   GROUP BY session_recordings.session_id
   ORDER BY start_time DESC
   LIMIT 51
@@ -233,11 +213,9 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id ,
-            events.properties as properties
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id ,
+                                events.properties as properties
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -310,11 +288,9 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id ,
-            events.properties as properties
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id ,
+                                events.properties as properties
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -375,11 +351,9 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id ,
-            events.mat_$browser as mat_$browser
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id ,
+                                events.mat_$browser as mat_$browser
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -452,11 +426,9 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id ,
-            events.mat_$browser as mat_$browser
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id ,
+                                events.mat_$browser as mat_$browser
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -513,10 +485,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -573,10 +543,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
@@ -690,11 +658,9 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id ,
-            events.properties as properties
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id ,
+                                events.properties as properties
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -753,11 +719,9 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id ,
-            events.properties as properties
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id ,
+                                events.properties as properties
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -816,11 +780,9 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id ,
-            events.mat_$browser as mat_$browser
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id ,
+                                events.mat_$browser as mat_$browser
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -879,11 +841,9 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id ,
-            events.mat_$browser as mat_$browser
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id ,
+                                events.mat_$browser as mat_$browser
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -945,10 +905,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview', 'new-event']
@@ -1011,10 +969,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id,
-            timestamp,
-            $session_id as session_id,
-            $window_id as window_id
+            team_id, timestamp, $session_id as session_id,
+                                $window_id as window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview', 'new-event2']
@@ -1068,20 +1024,17 @@
   FROM
     (SELECT session_id,
             distinct_id ,
-            groupUniqArrayIf(100)((timestamp,
-                                   uuid,
-                                   session_id,
-                                   window_id), event_match_0 = 1) AS matching_events_0 ,
+            groupUniqArrayIf(100)((timestamp, uuid,
+                                              session_id,
+                                              window_id), event_match_0 = 1) AS matching_events_0 ,
             sum(event_match_0) AS matches_0
      FROM
        (SELECT uuid,
                distinct_id,
                event,
-               team_id,
-               timestamp,
-               $session_id as session_id,
-               $window_id as window_id ,
-               if(event = '$pageview', 1, 0) as event_match_0
+               team_id, timestamp, $session_id as session_id,
+                                   $window_id as window_id ,
+                                   if(event = '$pageview', 1, 0) as event_match_0
         FROM events
         WHERE team_id = 2
           AND event IN ['$pageview']
@@ -1132,20 +1085,17 @@
   FROM
     (SELECT session_id,
             distinct_id ,
-            groupUniqArrayIf(100)((timestamp,
-                                   uuid,
-                                   session_id,
-                                   window_id), event_match_0 = 1) AS matching_events_0 ,
+            groupUniqArrayIf(100)((timestamp, uuid,
+                                              session_id,
+                                              window_id), event_match_0 = 1) AS matching_events_0 ,
             sum(event_match_0) AS matches_0
      FROM
        (SELECT uuid,
                distinct_id,
                event,
-               team_id,
-               timestamp,
-               $session_id as session_id,
-               $window_id as window_id ,
-               if(event = '$autocapture', 1, 0) as event_match_0
+               team_id, timestamp, $session_id as session_id,
+                                   $window_id as window_id ,
+                                   if(event = '$autocapture', 1, 0) as event_match_0
         FROM events
         WHERE team_id = 2
           AND event IN ['$autocapture']
@@ -1183,33 +1133,21 @@
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_cohort_properties
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_cohort_properties.1
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestClickhouseSessionRecordingsListV2.test_event_filter_with_cohort_properties.2
@@ -1256,15 +1194,11 @@
      HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE 1 = 1
     AND (pdi.person_id IN
-           (SELECT person_id
+           (SELECT DISTINCT person_id
             FROM cohortpeople
             WHERE team_id = 2
               AND cohort_id = 2
-            GROUP BY person_id,
-                     cohort_id,
-                     team_id,
-                     version
-            HAVING sum(sign) > 0))
+              AND version = 0 ))
   GROUP BY session_recordings.session_id
   ORDER BY start_time DESC
   LIMIT 51
@@ -1581,20 +1515,17 @@
   FROM
     (SELECT session_id,
             distinct_id ,
-            groupUniqArrayIf(100)((timestamp,
-                                   uuid,
-                                   session_id,
-                                   window_id), event_match_0 = 1) AS matching_events_0 ,
+            groupUniqArrayIf(100)((timestamp, uuid,
+                                              session_id,
+                                              window_id), event_match_0 = 1) AS matching_events_0 ,
             sum(event_match_0) AS matches_0
      FROM
        (SELECT uuid,
                distinct_id,
                event,
-               team_id,
-               timestamp,
-               $session_id as session_id,
-               $window_id as window_id ,
-               if(event = '$pageview', 1, 0) as event_match_0
+               team_id, timestamp, $session_id as session_id,
+                                   $window_id as window_id ,
+                                   if(event = '$pageview', 1, 0) as event_match_0
         FROM events
         WHERE team_id = 2
           AND event IN ['$pageview']
@@ -1645,20 +1576,17 @@
   FROM
     (SELECT session_id,
             distinct_id ,
-            groupUniqArrayIf(100)((timestamp,
-                                   uuid,
-                                   session_id,
-                                   window_id), event_match_0 = 1) AS matching_events_0 ,
+            groupUniqArrayIf(100)((timestamp, uuid,
+                                              session_id,
+                                              window_id), event_match_0 = 1) AS matching_events_0 ,
             sum(event_match_0) AS matches_0
      FROM
        (SELECT uuid,
                distinct_id,
                event,
-               team_id,
-               timestamp,
-               $session_id as session_id,
-               $window_id as window_id ,
-               if(event = '$autocapture', 1, 0) as event_match_0
+               team_id, timestamp, $session_id as session_id,
+                                   $window_id as window_id ,
+                                   if(event = '$autocapture', 1, 0) as event_match_0
         FROM events
         WHERE team_id = 2
           AND event IN ['$autocapture']
@@ -1764,22 +1692,19 @@
   FROM
     (SELECT session_id,
             distinct_id ,
-            groupUniqArrayIf(100)((timestamp,
-                                   uuid,
-                                   session_id,
-                                   window_id), event_match_0 = 1) AS matching_events_0 ,
+            groupUniqArrayIf(100)((timestamp, uuid,
+                                              session_id,
+                                              window_id), event_match_0 = 1) AS matching_events_0 ,
             sum(event_match_0) AS matches_0
      FROM
        (SELECT uuid,
                distinct_id,
                event,
-               team_id,
-               timestamp,
-               $session_id as session_id,
-               $window_id as window_id ,
-               events.properties as properties ,
-               if(event = '$pageview'
-                  AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))), 1, 0) as event_match_0
+               team_id, timestamp, $session_id as session_id,
+                                   $window_id as window_id ,
+                                   events.properties as properties ,
+                                   if(event = '$pageview'
+                                      AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))), 1, 0) as event_match_0
         FROM events
         WHERE team_id = 2
           AND event IN ['$pageview']
@@ -1830,22 +1755,19 @@
   FROM
     (SELECT session_id,
             distinct_id ,
-            groupUniqArrayIf(100)((timestamp,
-                                   uuid,
-                                   session_id,
-                                   window_id), event_match_0 = 1) AS matching_events_0 ,
+            groupUniqArrayIf(100)((timestamp, uuid,
+                                              session_id,
+                                              window_id), event_match_0 = 1) AS matching_events_0 ,
             sum(event_match_0) AS matches_0
      FROM
        (SELECT uuid,
                distinct_id,
                event,
-               team_id,
-               timestamp,
-               $session_id as session_id,
-               $window_id as window_id ,
-               events.properties as properties ,
-               if(event = '$pageview'
-                  AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))), 1, 0) as event_match_0
+               team_id, timestamp, $session_id as session_id,
+                                   $window_id as window_id ,
+                                   events.properties as properties ,
+                                   if(event = '$pageview'
+                                      AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))), 1, 0) as event_match_0
         FROM events
         WHERE team_id = 2
           AND event IN ['$pageview']
@@ -1896,22 +1818,19 @@
   FROM
     (SELECT session_id,
             distinct_id ,
-            groupUniqArrayIf(100)((timestamp,
-                                   uuid,
-                                   session_id,
-                                   window_id), event_match_0 = 1) AS matching_events_0 ,
+            groupUniqArrayIf(100)((timestamp, uuid,
+                                              session_id,
+                                              window_id), event_match_0 = 1) AS matching_events_0 ,
             sum(event_match_0) AS matches_0
      FROM
        (SELECT uuid,
                distinct_id,
                event,
-               team_id,
-               timestamp,
-               $session_id as session_id,
-               $window_id as window_id ,
-               events.mat_$browser as mat_$browser ,
-                           if(event = '$pageview'
-                              AND (has(['Chrome'], "mat_$browser")), 1, 0) as event_match_0
+               team_id, timestamp, $session_id as session_id,
+                                   $window_id as window_id ,
+                                   events.mat_$browser as mat_$browser ,
+                                               if(event = '$pageview'
+                                                  AND (has(['Chrome'], "mat_$browser")), 1, 0) as event_match_0
         FROM events
         WHERE team_id = 2
           AND event IN ['$pageview']
@@ -1962,22 +1881,19 @@
   FROM
     (SELECT session_id,
             distinct_id ,
-            groupUniqArrayIf(100)((timestamp,
-                                   uuid,
-                                   session_id,
-                                   window_id), event_match_0 = 1) AS matching_events_0 ,
+            groupUniqArrayIf(100)((timestamp, uuid,
+                                              session_id,
+                                              window_id), event_match_0 = 1) AS matching_events_0 ,
             sum(event_match_0) AS matches_0
      FROM
        (SELECT uuid,
                distinct_id,
                event,
-               team_id,
-               timestamp,
-               $session_id as session_id,
-               $window_id as window_id ,
-               events.mat_$browser as mat_$browser ,
-                           if(event = '$pageview'
-                              AND (has(['Firefox'], "mat_$browser")), 1, 0) as event_match_0
+               team_id, timestamp, $session_id as session_id,
+                                   $window_id as window_id ,
+                                   events.mat_$browser as mat_$browser ,
+                                               if(event = '$pageview'
+                                                  AND (has(['Firefox'], "mat_$browser")), 1, 0) as event_match_0
         FROM events
         WHERE team_id = 2
           AND event IN ['$pageview']
@@ -2030,26 +1946,22 @@
   FROM
     (SELECT session_id,
             distinct_id ,
-            groupUniqArrayIf(100)((timestamp,
-                                   uuid,
-                                   session_id,
-                                   window_id), event_match_0 = 1) AS matching_events_0 ,
+            groupUniqArrayIf(100)((timestamp, uuid,
+                                              session_id,
+                                              window_id), event_match_0 = 1) AS matching_events_0 ,
             sum(event_match_0) AS matches_0 ,
-            groupUniqArrayIf(100)((timestamp,
-                                   uuid,
-                                   session_id,
-                                   window_id), event_match_1 = 1) AS matching_events_1 ,
+            groupUniqArrayIf(100)((timestamp, uuid,
+                                              session_id,
+                                              window_id), event_match_1 = 1) AS matching_events_1 ,
             sum(event_match_1) AS matches_1
      FROM
        (SELECT uuid,
                distinct_id,
                event,
-               team_id,
-               timestamp,
-               $session_id as session_id,
-               $window_id as window_id ,
-               if(event = '$pageview', 1, 0) as event_match_0 ,
-               if(event = 'new-event', 1, 0) as event_match_1
+               team_id, timestamp, $session_id as session_id,
+                                   $window_id as window_id ,
+                                   if(event = '$pageview', 1, 0) as event_match_0 ,
+                                   if(event = 'new-event', 1, 0) as event_match_1
         FROM events
         WHERE team_id = 2
           AND event IN ['$pageview', 'new-event']
@@ -2103,26 +2015,22 @@
   FROM
     (SELECT session_id,
             distinct_id ,
-            groupUniqArrayIf(100)((timestamp,
-                                   uuid,
-                                   session_id,
-                                   window_id), event_match_0 = 1) AS matching_events_0 ,
+            groupUniqArrayIf(100)((timestamp, uuid,
+                                              session_id,
+                                              window_id), event_match_0 = 1) AS matching_events_0 ,
             sum(event_match_0) AS matches_0 ,
-            groupUniqArrayIf(100)((timestamp,
-                                   uuid,
-                                   session_id,
-                                   window_id), event_match_1 = 1) AS matching_events_1 ,
+            groupUniqArrayIf(100)((timestamp, uuid,
+                                              session_id,
+                                              window_id), event_match_1 = 1) AS matching_events_1 ,
             sum(event_match_1) AS matches_1
      FROM
        (SELECT uuid,
                distinct_id,
                event,
-               team_id,
-               timestamp,
-               $session_id as session_id,
-               $window_id as window_id ,
-               if(event = '$pageview', 1, 0) as event_match_0 ,
-               if(event = 'new-event2', 1, 0) as event_match_1
+               team_id, timestamp, $session_id as session_id,
+                                   $window_id as window_id ,
+                                   if(event = '$pageview', 1, 0) as event_match_0 ,
+                                   if(event = 'new-event2', 1, 0) as event_match_1
         FROM events
         WHERE team_id = 2
           AND event IN ['$pageview', 'new-event2']

@@ -19,7 +19,7 @@ import { AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNod
 import { query } from '~/queries/query'
 import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
-import { objectsEqual, uuid } from 'lib/utils'
+import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
 import clsx from 'clsx'
 import api, { ApiMethodOptions } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
@@ -97,7 +97,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return data
                     } catch (e: any) {
                         actions.setElapsedTime(performance.now() - now)
-                        if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
+                        if (shouldCancelQuery(e)) {
                             actions.abortQuery({ queryId })
                         }
                         breakpoint()
@@ -247,6 +247,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadDataFailure: (_, { error, errorObject }) => {
                     if (errorObject && 'error' in errorObject) {
                         return errorObject.error
+                    }
+                    if (errorObject && 'detail' in errorObject) {
+                        return errorObject.detail
                     }
                     return error ?? 'Error loading data'
                 },

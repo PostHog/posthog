@@ -2,6 +2,7 @@ from typing import Dict, Set
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database import DateTimeDatabaseField
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
@@ -37,9 +38,13 @@ def resolve_property_types(node: ast.Expr, context: HogQLContext = None) -> ast.
     person_properties = {name: property_type for name, property_type in person_property_values if property_type}
 
     # swap them out
-    if len(event_properties) == 0 and len(person_properties) == 0:
+    if len(event_properties) == 0 and len(person_properties) == 0 and not property_finder.found_timestamps:
         return node
-    property_swapper = PropertySwapper(event_properties=event_properties, person_properties=person_properties)
+
+    timezone = context.database.get_timezone() if context and context.database else "UTC"
+    property_swapper = PropertySwapper(
+        timezone=timezone, event_properties=event_properties, person_properties=person_properties
+    )
     return property_swapper.visit(node)
 
 
@@ -48,34 +53,48 @@ class PropertyFinder(TraversingVisitor):
         super().__init__()
         self.person_properties: Set[str] = set()
         self.event_properties: Set[str] = set()
+        self.found_timestamps = False
 
-    def visit_property_ref(self, node: ast.PropertyRef):
-        if node.parent.name == "properties":
-            if isinstance(node.parent.table, ast.BaseTableRef):
-                table = node.parent.table.resolve_database_table().hogql_table()
-                if table == "persons":
-                    self.person_properties.add(node.name)
+    def visit_property_type(self, node: ast.PropertyType):
+        if node.field_type.name == "properties" and len(node.chain) == 1:
+            if isinstance(node.field_type.table_type, ast.BaseTableType):
+                table = node.field_type.table_type.resolve_database_table().hogql_table()
+                if table == "persons" or table == "raw_persons":
+                    self.person_properties.add(node.chain[0])
                 if table == "events":
-                    self.event_properties.add(node.name)
+                    self.event_properties.add(node.chain[0])
+
+    def visit_field(self, node: ast.Field):
+        super().visit_field(node)
+        if isinstance(node.type, ast.FieldType) and isinstance(
+            node.type.resolve_database_field(), DateTimeDatabaseField
+        ):
+            self.found_timestamps = True
 
 
 class PropertySwapper(CloningVisitor):
-    def __init__(self, event_properties: Dict[str, str], person_properties: Dict[str, str]):
-        super().__init__(clear_refs=False)
+    def __init__(self, timezone: str, event_properties: Dict[str, str], person_properties: Dict[str, str]):
+        super().__init__(clear_types=False)
+        self.timezone = timezone
         self.event_properties = event_properties
         self.person_properties = person_properties
 
     def visit_field(self, node: ast.Field):
-        ref = node.ref
-        if isinstance(ref, ast.PropertyRef) and ref.parent.name == "properties":
-            if isinstance(ref.parent.table, ast.BaseTableRef):
-                table = ref.parent.table.resolve_database_table().hogql_table()
-                if table == "persons":
-                    if ref.name in self.person_properties:
-                        return self._add_type_to_string_field(node, self.person_properties[ref.name])
+        if isinstance(node.type, ast.FieldType):
+            if isinstance(node.type.resolve_database_field(), DateTimeDatabaseField):
+                return ast.Call(name="toTimeZone", args=[node, ast.Constant(value=self.timezone)])
+
+        type = node.type
+        if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
+            if isinstance(type.field_type.table_type, ast.BaseTableType):
+                table = type.field_type.table_type.resolve_database_table().hogql_table()
+                if table == "persons" or table == "raw_persons":
+                    if type.chain[0] in self.person_properties:
+                        return self._add_type_to_string_field(node, self.person_properties[type.chain[0]])
                 if table == "events":
-                    if ref.name in self.event_properties:
-                        return self._add_type_to_string_field(node, self.event_properties[ref.name])
+                    if type.chain[0] in self.event_properties:
+                        return self._add_type_to_string_field(node, self.event_properties[type.chain[0]])
+
         return node
 
     def _add_type_to_string_field(self, node: ast.Field, type: str):

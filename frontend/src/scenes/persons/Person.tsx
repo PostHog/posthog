@@ -21,7 +21,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
@@ -159,6 +159,7 @@ export function Person(): JSX.Element | null {
                         sortProperties
                         embedded={false}
                         onDelete={(key) => deleteProperty(key)}
+                        filterable
                     />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
@@ -191,11 +192,11 @@ export function Person(): JSX.Element | null {
                 >
                     {!currentTeam?.session_recording_opt_in ? (
                         <div className="mb-4">
-                            <AlertMessage type="info">
+                            <LemonBanner type="info">
                                 Session recordings are currently disabled for this project. To use this feature, please
                                 go to your <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link> and
                                 enable it.
-                            </AlertMessage>
+                            </LemonBanner>
                         </div>
                     ) : null}
                     <SessionRecordingsPlaylist
@@ -255,10 +256,10 @@ export function Person(): JSX.Element | null {
                         scope={ActivityScope.PERSON}
                         id={person.id}
                         caption={
-                            <AlertMessage type="info">
+                            <LemonBanner type="info">
                                 This page only shows changes made by users in the PostHog site. Automatic changes from
                                 the API aren't shown here.
-                            </AlertMessage>
+                            </LemonBanner>
                         }
                     />
                 </TabPane>

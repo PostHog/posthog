@@ -1,3 +1,5 @@
+import json
+
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
@@ -20,6 +22,7 @@ from posthog.models import (
     PluginConfig,
     Team,
     User,
+    PluginAttachment,
 )
 
 admin.site.register(Person)
@@ -59,7 +62,7 @@ class PluginAdmin(admin.ModelAdmin):
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "organization_link", "organization_id")
-    search_fields = ("id", "name", "organization__id", "organization__name")
+    search_fields = ("id", "name", "organization__id", "organization__name", "api_token")
     readonly_fields = ["primary_dashboard", "test_account_filters"]
     exclude = [
         "event_names",
@@ -77,6 +80,45 @@ class TeamAdmin(admin.ModelAdmin):
         )
 
 
+ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES = 1024 * 1024
+
+
+class PluginAttachmentInline(admin.StackedInline):
+    extra = 0
+    model = PluginAttachment
+    fields = ("key", "content_type", "file_size", "raw_contents", "json_contents")
+    readonly_fields = fields
+
+    def raw_contents(self, attachment: PluginAttachment):
+        try:
+            if attachment.file_size > ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES:
+                raise ValueError(
+                    f"file size {attachment.file_size} is larger than {ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES} bytes"
+                )
+            return attachment.contents.tobytes()
+        except Exception as err:
+            return format_html(f"cannot preview: {err}")
+
+    def json_contents(self, attachment: PluginAttachment):
+        try:
+            if attachment.file_size > ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES:
+                raise ValueError(
+                    f"file size {attachment.file_size} is larger than {ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES} bytes"
+                )
+            return json.loads(attachment.contents.tobytes())
+        except Exception as err:
+            return format_html(f"cannot preview: {err}")
+
+    def has_add_permission(self, request, obj):
+        return False
+
+    def has_change_permission(self, request, obj):
+        return False
+
+    def has_delete_permission(self, request, obj):
+        return False
+
+
 @admin.register(PluginConfig)
 class PluginConfigAdmin(admin.ModelAdmin):
     list_select_related = ("plugin", "team")
@@ -88,6 +130,7 @@ class PluginConfigAdmin(admin.ModelAdmin):
     )
     search_fields = ("team__name", "team__organization__name", "plugin__name")
     ordering = ("-created_at",)
+    inlines = [PluginAttachmentInline]
 
     def plugin_name(self, config: PluginConfig):
         return format_html(f"{config.plugin.name} ({config.plugin_id})")
@@ -129,7 +172,7 @@ class UserAdmin(DjangoUserAdmin):
 
     inlines = [OrganizationMemberInline]
     fieldsets = (
-        (None, {"fields": ("email", "password", "current_organization")}),
+        (None, {"fields": ("email", "password", "current_organization", "is_email_verified", "pending_email")}),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
         (_("Permissions"), {"fields": ("is_active", "is_staff")}),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
@@ -207,7 +250,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "usage_posthog",
         "usage",
     ]
-    search_fields = ("name", "members__email")
+    search_fields = ("name", "members__email", "team__api_token")
     list_display = (
         "name",
         "created_at",

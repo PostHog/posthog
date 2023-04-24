@@ -14,7 +14,6 @@ import {
     IntegrationType,
     OrganizationType,
     PersonListParams,
-    PersonProperty,
     PersonType,
     PluginLogEntry,
     PropertyDefinition,
@@ -51,6 +50,7 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
+import { CommunicationResponse } from 'scenes/events/CommunicationDetailsLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -168,6 +168,10 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
+    public personCommunications(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('person_communications')
+    }
+
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('insights')
@@ -249,6 +253,10 @@ class ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('property_definitions')
             .addPathComponent(propertyDefinitionId)
+    }
+
+    public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
 
     // # Cohorts
@@ -536,6 +544,17 @@ const api = {
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
                     return new ApiRequest().pluginsActivity()
+                },
+                [ActivityScope.DATA_MANAGEMENT]: () => {
+                    return new ApiRequest().dataManagementActivity()
+                },
+                [ActivityScope.EVENT_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ event definitions?
+                    return new ApiRequest().dataManagementActivity()
+                },
+                [ActivityScope.PROPERTY_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ property definitions?
+                    return new ApiRequest().dataManagementActivity()
                 },
             }
 
@@ -878,10 +897,6 @@ const api = {
     },
 
     persons: {
-        async getProperties(): Promise<PersonProperty[]> {
-            return new ApiRequest().persons().withAction('properties').get()
-        },
-
         async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
             return new ApiRequest().person(id).update({ data: person })
         },
@@ -1145,6 +1160,12 @@ const api = {
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
+        },
+    },
+
+    personCommunications: {
+        async list(params: any, teamId: TeamType['id'] = getCurrentTeamId()): Promise<CommunicationResponse> {
+            return new ApiRequest().personCommunications(teamId).withQueryString(toParams(params)).get()
         },
     },
 

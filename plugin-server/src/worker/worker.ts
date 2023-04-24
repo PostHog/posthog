@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/node'
+import { exponentialBuckets, Histogram } from 'prom-client'
 
 import { initApp } from '../init'
 import { runInTransaction } from '../sentry'
@@ -7,6 +8,7 @@ import { processError } from '../utils/db/error'
 import { createHub } from '../utils/db/hub'
 import { status } from '../utils/status'
 import { cloneObject, pluginConfigIdFromStack } from '../utils/utils'
+import { setupMmdb } from './plugins/mmdb'
 import { setupPlugins } from './plugins/setup'
 import { workerTasks } from './tasks'
 import { TimeoutError } from './vm/vm'
@@ -31,10 +33,14 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
                 })
             })
 
+            const updateJob = await setupMmdb(hub)
             await setupPlugins(hub)
 
             for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
                 process.on(signal, closeHub)
+                if (updateJob) {
+                    process.on(signal, updateJob.cancel)
+                }
             }
 
             return createTaskRunner(hub)
@@ -52,6 +58,10 @@ export const createTaskRunner =
                 data: args,
             },
             async () => {
+                const endTimer = jobDuration.startTimer({
+                    task_name: task,
+                    task_type: task === 'runPluginJob' ? String(args.job?.type) : '',
+                })
                 const timer = new Date()
                 let response
 
@@ -71,6 +81,7 @@ export const createTaskRunner =
                 }
 
                 hub.statsd?.timing(`piscina_task.${task}`, timer)
+                endTimer()
                 if (task === 'runPluginJob') {
                     hub.statsd?.timing('plugin_job', timer, {
                         type: String(args.job?.type),
@@ -117,3 +128,12 @@ export function processUnhandledException(error: Error, server: Hub, kind: strin
     status.error('🤮', `${kind}!`)
     status.error('🤮', error)
 }
+
+const jobDuration = new Histogram({
+    name: 'piscina_task_duration_seconds',
+    help: 'Execution time of piscina tasks, per task name and type',
+    labelNames: ['task_name', 'task_type'],
+    // We need to cover a pretty wide range, so buckets are set pretty coarse for now
+    // and cover 25ms -> 102seconds. We can revisit them later on.
+    buckets: exponentialBuckets(0.025, 4, 7),
+})
