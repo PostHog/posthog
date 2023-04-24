@@ -308,7 +308,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
         response_data = response.json()
-        self.assertEqual(len(response_data["result"]["snapshot_data_by_window_id"][""]), DEFAULT_RECORDING_CHUNK_LIMIT)
+        self.assertEqual(len(response_data["snapshot_data_by_window_id"][""]), DEFAULT_RECORDING_CHUNK_LIMIT)
 
     def test_get_snapshots_is_compressed(self):
         base_time = now()
@@ -353,19 +353,19 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 response_data = response.json()
 
                 self.assertEqual(
-                    len(response_data["result"]["snapshot_data_by_window_id"]["1"]),
+                    len(response_data["snapshot_data_by_window_id"]["1"]),
                     snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
                 )
                 self.assertEqual(
-                    len(response_data["result"]["snapshot_data_by_window_id"]["2"]),
+                    len(response_data["snapshot_data_by_window_id"]["2"]),
                     snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
                 )
                 if i == expected_num_requests - 1:
-                    self.assertIsNone(response_data["result"]["next"])
+                    self.assertIsNone(response_data["next"])
                 else:
-                    self.assertIsNotNone(response_data["result"]["next"])
+                    self.assertIsNotNone(response_data["next"])
 
-                next_url = response_data["result"]["next"]
+                next_url = response_data["next"]
 
     def test_get_metadata_for_chunked_session_recording(self):
 

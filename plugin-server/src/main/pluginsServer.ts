@@ -153,6 +153,13 @@ export async function startPluginsServer(
         process.exit(0)
     })
 
+    // Code list in https://kafka.apache.org/0100/protocol.html
+    const kafkaJSIgnorableCodes = new Set([
+        22, // ILLEGAL_GENERATION
+        25, // UNKNOWN_MEMBER_ID
+        27, // REBALANCE_IN_PROGRESS
+    ])
+
     process.on('unhandledRejection', (error: Error) => {
         status.error('🤮', `Unhandled Promise Rejection: ${error.stack}`)
 
@@ -163,18 +170,14 @@ export async function startPluginsServer(
             })
 
             // Ignore some "business as usual" Kafka errors, send the rest to sentry
-            // Code list in https://kafka.apache.org/0100/protocol.html
-            switch (error.code) {
-                case 27: // REBALANCE_IN_PROGRESS
-                    hub!.statsd?.increment(`kafka_consumer_group_rebalancing`)
-                    return
-                case 22: // ILLEGAL_GENERATION
-                    hub!.statsd?.increment(`kafka_consumer_invalid_group_generation_id`)
-                    return
+            if (error.code in kafkaJSIgnorableCodes) {
+                return
             }
         }
 
-        Sentry.captureException(error)
+        Sentry.captureException(error, {
+            extra: { detected_at: `pluginServer.ts on unhandledRejection` },
+        })
     })
 
     process.on('uncaughtException', async (error: Error) => {

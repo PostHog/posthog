@@ -93,15 +93,13 @@
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([['test'], ['control'], ['']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                                                       if(has([['test'], ['control'], ['']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -233,15 +231,13 @@
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([['test'], ['control']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                                                       if(has([['test'], ['control']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -373,15 +369,13 @@
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([[''], ['test_1'], ['test'], ['control'], ['unknown_3'], ['unknown_2'], ['unknown_1'], ['test_2']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target,
+                                                                                     prop
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                                                       if(has([[''], ['test_1'], ['test'], ['control'], ['unknown_3'], ['unknown_2'], ['unknown_1'], ['test_2']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -587,9 +581,7 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id,
-                        timestamp,
-                        replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
+                (SELECT pdi.person_id as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -929,9 +921,7 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id,
-                        timestamp,
-                        replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
+                (SELECT pdi.person_id as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,

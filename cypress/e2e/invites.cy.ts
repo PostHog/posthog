@@ -56,7 +56,7 @@ describe('Invite Signup', () => {
         cy.get('.ant-progress-bg').should('not.have.css', 'width', '0px') // Password strength indicator is working
         cy.get('[data-attr="first_name"]').type(randomString('Bob'))
         cy.get('[data-attr=signup-role-at-organization]').click()
-        cy.get('.Popover button:first-child').click()
+        cy.get('.Popover li:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=password-signup]').click()
         cy.location('pathname').should('include', urls.projectHomepage())
@@ -86,7 +86,7 @@ describe('Invite Signup', () => {
         cy.get('[data-attr="password"]').type('12345678')
         cy.get('[data-attr="first_name"]').type(user)
         cy.get('[data-attr=signup-role-at-organization]').click()
-        cy.get('.Popover button:first-child').click()
+        cy.get('.Popover li:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=password-signup]').click()
         cy.location('pathname').should('include', urls.projectHomepage())

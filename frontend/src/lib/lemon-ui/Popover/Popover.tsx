@@ -55,7 +55,7 @@ export interface PopoverProps {
 }
 
 export const PopoverLevelContext = React.createContext<number>(0)
-export const PopoverPlacementContext = React.createContext<Placement | null>(null)
+export const PopoverVisibilityContext = React.createContext<[boolean, Placement] | null>(null)
 
 let nestedPopoverReceivedClick = false
 
@@ -111,11 +111,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             size({
                 padding: 4,
                 apply({ availableWidth, availableHeight, rects, elements: { floating } }) {
-                    Object.assign(floating.style, {
-                        maxHeight: `${availableHeight}px`,
-                        maxWidth: `${availableWidth}px`,
-                        width: sameWidth ? rects.reference.width : undefined,
-                    })
+                    floating.style.maxHeight = `${availableHeight}px`
+                    floating.style.maxWidth = `${availableWidth}px`
+                    floating.style.width = sameWidth ? `${rects.reference.width}px` : 'initial'
                 },
             }),
             arrow({ element: arrowRef, padding: 8 }),
@@ -194,9 +192,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     return (
         <>
-            <PopoverPlacementContext.Provider value={effectivePlacement}>
+            <PopoverVisibilityContext.Provider value={[visible, effectivePlacement]}>
                 {clonedChildren}
-            </PopoverPlacementContext.Provider>
+            </PopoverVisibilityContext.Provider>
             <FloatingPortal root={getPopupContainer?.()}>
                 <CSSTransition in={visible} timeout={100} classNames="Popover-" appear mountOnEnter unmountOnExit>
                     <PopoverLevelContext.Provider value={popoverLevel + 1}>
