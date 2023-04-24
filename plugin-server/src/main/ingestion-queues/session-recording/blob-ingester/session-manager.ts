@@ -2,7 +2,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, writeFileSync } from 'fs'
-import { appendFile, rm } from 'fs/promises'
+import { appendFile, unlink } from 'fs/promises'
 import path from 'path'
 import { Counter } from 'prom-client'
 import * as zlib from 'zlib'
@@ -29,6 +29,23 @@ type SessionBuffer = {
     createdAt: Date
     file: string
     offsets: number[]
+}
+
+async function deleteFile(file: string) {
+    try {
+        await unlink(file)
+    } catch (e) {
+        if (e && e.code === 'ENOENT') {
+            status.warn(
+                '⚠️',
+                'blob_ingester_session_manager failed deleting flush buffer file ' + file + 'on flush, file not found'
+            )
+            return
+        }
+        status.error('🧨', 'blob_ingester_session_manager failed deleting flush buffer file ' + file + 'on flush', e)
+        captureException(e)
+        throw e
+    }
 }
 
 export class SessionManager {
@@ -142,7 +159,7 @@ export class SessionManager {
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', error)
             captureException(error)
         } finally {
-            await rm(this.flushBuffer.file)
+            await deleteFile(this.flushBuffer.file)
 
             const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
@@ -157,29 +174,23 @@ export class SessionManager {
     }
 
     private createBuffer(): SessionBuffer {
-        try {
-            const id = randomUUID()
-            const buffer = {
-                id,
-                count: 0,
-                size: 0,
-                createdAt: new Date(),
-                file: path.join(
-                    this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY,
-                    `${this.teamId}.${this.sessionId}.${id}.jsonl`
-                ),
-                offsets: [],
-            }
-
-            // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
-            writeFileSync(buffer.file, '', 'utf-8')
-
-            return buffer
-        } catch (e) {
-            status.error('🧨', 'blob_ingester_session_manager failed creating session recording buffer', e)
-            captureException(e)
-            throw e
+        const id = randomUUID()
+        const buffer = {
+            id,
+            count: 0,
+            size: 0,
+            createdAt: new Date(),
+            file: path.join(
+                this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY,
+                `${this.teamId}.${this.sessionId}.${id}.jsonl`
+            ),
+            offsets: [],
         }
+
+        // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
+        writeFileSync(buffer.file, '', 'utf-8')
+
+        return buffer
     }
 
     /**
@@ -238,13 +249,7 @@ export class SessionManager {
 
     public async destroy(): Promise<void> {
         status.debug('␡', `blob_ingester_session_manager Destroying session manager ${this.sessionId}`)
-        try {
-            const filePromises = [this.flushBuffer?.file, this.buffer.file].map((x) => x && rm(x))
-            await Promise.all(filePromises)
-        } catch (e) {
-            status.error('🧨', 'blob_ingester_session_manager failed destroying session recording manager files', e)
-            captureException(e)
-            throw e
-        }
+        const filePromises = [this.flushBuffer?.file, this.buffer.file].map((x) => x && deleteFile(x))
+        await Promise.all(filePromises)
     }
 }
