@@ -57,12 +57,12 @@ function PlayerInspectorListItem({
     index: number
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
-    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
-    const { tab, recordingTimeInfo, expandedItems, windowIds } = useValues(playerInspectorLogic({ sessionRecordingId }))
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { tab, recordingTimeInfo, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
     const { timestampMode } = useValues(playerSettingsLogic)
 
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
-    const { setItemExpanded } = useActions(playerInspectorLogic({ sessionRecordingId }))
+    const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
     const showIcon = tab === SessionRecordingPlayerTab.ALL
     const fixedUnits = recordingTimeInfo.duration / 1000 > 3600 ? 3 : 2
 
@@ -265,8 +265,8 @@ function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: b
 }
 
 export function PlayerInspectorList(): JSX.Element {
-    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
-    const inspectorLogic = playerInspectorLogic({ sessionRecordingId })
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const inspectorLogic = playerInspectorLogic(logicProps)
 
     const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollingPaused, tab } =
         useValues(inspectorLogic)

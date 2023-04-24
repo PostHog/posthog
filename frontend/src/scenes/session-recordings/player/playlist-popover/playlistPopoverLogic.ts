@@ -19,12 +19,12 @@ import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/s
 export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popover', 'playlistPopoverLogic', key]),
     props({} as SessionRecordingLogicProps),
-    key((props: SessionRecordingLogicProps) => `${props.sessionRecordingId}`),
-    connect(({ sessionRecordingId }: SessionRecordingLogicProps) => ({
+    key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect((props: SessionRecordingLogicProps) => ({
         actions: [
-            sessionRecordingPlayerLogic,
+            sessionRecordingPlayerLogic(props),
             ['setPause'],
-            sessionRecordingDataLogic({ sessionRecordingId }),
+            sessionRecordingDataLogic(props),
             ['addDiffToRecordingMetaPinnedCount'],
             eventUsageLogic,
             ['reportRecordingPinnedToList', 'reportRecordingPlaylistCreated'],

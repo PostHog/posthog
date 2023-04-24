@@ -26,8 +26,8 @@ const TabToIcon = {
 }
 
 export function PlayerInspectorControls(): JSX.Element {
-    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
-    const inspectorLogic = playerInspectorLogic({ sessionRecordingId })
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const inspectorLogic = playerInspectorLogic(logicProps)
     const { windowIdFilter, tab, searchQuery, syncScrollingPaused, tabsState, windowIds, showMatchingEventsFilter } =
         useValues(inspectorLogic)
     const { setWindowIdFilter, setTab, setSearchQuery, setSyncScrollPaused } = useActions(inspectorLogic)

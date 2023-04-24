@@ -15,9 +15,9 @@ import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sess
 
 export function PlaylistPopover(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const dataLogic = sessionRecordingDataLogic({ sessionRecordingId })
+    const dataLogic = sessionRecordingDataLogic(logicProps)
     const { sessionPlayerData } = useValues(dataLogic)
-    const logic = playlistPopoverLogic({ sessionRecordingId })
+    const logic = playlistPopoverLogic(logicProps)
     const {
         playlistsLoading,
         searchQuery,

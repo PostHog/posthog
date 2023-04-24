@@ -84,7 +84,7 @@ export function PlayerMeta(): JSX.Element {
         recordingStartTime,
         sessionPlayerMetaDataLoading,
         windowIds,
-    } = useValues(playerMetaLogic({ sessionRecordingId }))
+    } = useValues(playerMetaLogic(logicProps))
 
     const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
     const { setIsMetadataExpanded } = useActions(playerSettingsLogic)

@@ -120,7 +120,7 @@ export type InspectorListItem = InspectorListItemEvent | InspectorListItemConsol
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerInspectorLogic', key]),
     props({} as SessionRecordingLogicProps),
-    key((props: SessionRecordingLogicProps) => props.sessionRecordingId),
+    key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingLogicProps) => ({
         actions: [
             playerSettingsLogic,
@@ -143,7 +143,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'sessionEventsDataLoading',
                 'windowIds',
             ],
-            sessionRecordingPlayerLogic,
+            sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
         ],
     })),

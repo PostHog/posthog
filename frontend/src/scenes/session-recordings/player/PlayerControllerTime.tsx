@@ -9,8 +9,8 @@ import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 
 export function Timestamp(): JSX.Element {
-    const { sessionRecordingId, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
-    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic({ sessionRecordingId }))
+    const { logicProps, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
 
     const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
     const endTimeSeconds = Math.floor((sessionPlayerData?.metadata?.recordingDurationMs ?? 0) / 1000)

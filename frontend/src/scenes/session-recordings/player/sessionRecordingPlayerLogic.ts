@@ -47,12 +47,12 @@ export interface Player {
 // This is the basic props used by most sub-logics
 export interface SessionRecordingLogicProps {
     sessionRecordingId: SessionRecordingId
+    playerKey: string
 }
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicProps {
     sessionRecordingData?: SessionPlayerData
     playlistShortId?: string
-    playerKey: string
     matching?: MatchedRecording[]
     recordingStartTime?: string
     embedded?: boolean // hides unimportant meta information and no border

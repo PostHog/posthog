@@ -132,16 +132,16 @@ const PlayerSeekbarTicks = memo(
 )
 
 export function Seekbar(): JSX.Element {
+    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
+    const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
+    const { endTimeMs, thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(logicProps))
+
+    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
+    const { sessionPlayerData } = useValues(sessionRecordingDataLogic(logicProps))
+
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
-
-    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
-    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
-    const { seekbarItems } = useValues(playerInspectorLogic({ sessionRecordingId }))
-    const { endTimeMs, thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic({ sessionRecordingId }))
-
-    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic({ sessionRecordingId }))
-    const { sessionPlayerData } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
     // reducers to be undefined.
