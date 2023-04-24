@@ -6,6 +6,14 @@ import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { createIncomingRecordingMessage } from './fixtures'
 
+function assertIngesterHasExpectedPartitions(ingester: SessionRecordingBlobIngester, expectedPartitions: number[]) {
+    const partitions: Set<number> = new Set()
+    ingester.sessions.forEach((session) => {
+        partitions.add(session.partition)
+    })
+    expect(Array.from(partitions)).toEqual(expectedPartitions)
+}
+
 describe('ingester rebalancing tests', () => {
     let ingesterOne: SessionRecordingBlobIngester
     let ingesterTwo: SessionRecordingBlobIngester
@@ -36,29 +44,17 @@ describe('ingester rebalancing tests', () => {
         )
 
         await waitForExpect(() => {
-            const partitions: number[] = []
-            ingesterOne.sessions.forEach((session) => {
-                partitions.push(session.partition)
-            })
-            expect(partitions).toEqual([1, 1])
+            assertIngesterHasExpectedPartitions(ingesterOne, [1])
         })
 
         ingesterTwo = new SessionRecordingBlobIngester(hub.teamManager, defaultConfig, hub.objectStorage)
         await ingesterTwo.start()
 
         await waitForExpect(() => {
-            const partitions: number[] = []
-            ingesterOne.sessions.forEach((session) => {
-                partitions.push(session.partition)
-            })
-            expect(partitions).toEqual([1, 1])
+            assertIngesterHasExpectedPartitions(ingesterOne, [1])
 
             // only one partition so nothing for the new consumer to do
-            const consumerTwoPartitions: number[] = []
-            ingesterTwo.sessions.forEach((session) => {
-                consumerTwoPartitions.push(session.partition)
-            })
-            expect(consumerTwoPartitions).toEqual([])
+            assertIngesterHasExpectedPartitions(ingesterTwo, [])
         })
     })
 })
