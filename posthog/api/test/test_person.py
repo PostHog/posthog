@@ -419,6 +419,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_person_display_name(self) -> None:
+        self.team.person_display_name_properties = ["custom_name", "custom_email"]
+        self.team.save()
         _create_person(
             team=self.team,
             distinct_ids=["distinct_id1"],
@@ -440,12 +442,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        self.team.person_display_name_properties = ["custom_name", "custom_email"]
-        self.team.save()
-
         response = self.client.get("/api/person/").json()
-        results = response["results"][::-1]  # results are in reverse order
 
+        results = response["results"][::-1]  # results are in reverse order
         self.assertEqual(results[0]["name"], "someone")
         self.assertEqual(results[1]["name"], "another_one@custom.com")
         self.assertEqual(results[2]["name"], "yet_another_one@gmail.com")
@@ -469,8 +468,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         response = self.client.get("/api/person/").json()
-        results = response["results"][::-1]  # results are in reverse order
 
+        results = response["results"][::-1]  # results are in reverse order
         self.assertEqual(results[0]["name"], "someone@gmail.com")
         self.assertEqual(results[1]["name"], "another_one")
         self.assertEqual(results[2]["name"], "distinct_id3")

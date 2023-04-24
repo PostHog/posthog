@@ -111,6 +111,7 @@ def get_person_display_name(person: Person) -> str | None:
     for property in person.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
         if person.properties.get(property):
             return person.properties.get(property)
+    return None
 
 
 class PersonsThrottle(ClickHouseSustainedRateThrottle):
