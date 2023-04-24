@@ -91,7 +91,7 @@ class EventQuery(metaclass=ABCMeta):
 
         self._should_round_interval = round_interval
 
-        self._person_id_alias = self._get_person_id_alias()
+        self._person_id_alias = self._get_person_id_alias(person_on_events_mode)
 
 
     @abstractmethod
