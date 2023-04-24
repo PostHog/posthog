@@ -22,7 +22,7 @@ import './HedgehogBuddy.scss'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20
-const FPS = 24 // 24
+const FPS = 24
 const GRAVITY_PIXELS = 10
 const MAX_JUMP_COUNT = 2
 const COLLISION_DETECTION_DISTANCE_INCREMENT = SPRITE_SIZE / 2
