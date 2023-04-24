@@ -157,23 +157,29 @@ export class SessionManager {
     }
 
     private createBuffer(): SessionBuffer {
-        const id = randomUUID()
-        const buffer = {
-            id,
-            count: 0,
-            size: 0,
-            createdAt: new Date(),
-            file: path.join(
-                this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY,
-                `${this.teamId}.${this.sessionId}.${id}.jsonl`
-            ),
-            offsets: [],
+        try {
+            const id = randomUUID()
+            const buffer = {
+                id,
+                count: 0,
+                size: 0,
+                createdAt: new Date(),
+                file: path.join(
+                    this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY,
+                    `${this.teamId}.${this.sessionId}.${id}.jsonl`
+                ),
+                offsets: [],
+            }
+
+            // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
+            writeFileSync(buffer.file, '', 'utf-8')
+
+            return buffer
+        } catch (e) {
+            status.error('🧨', 'blob_ingester_session_manager failed creating session recording buffer', e)
+            captureException(e)
+            throw e
         }
-
-        // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
-        writeFileSync(buffer.file, '', 'utf-8')
-
-        return buffer
     }
 
     /**
@@ -184,7 +190,14 @@ export class SessionManager {
         this.buffer.count += 1
         this.buffer.size += Buffer.byteLength(content)
         this.buffer.offsets.push(message.metadata.offset)
-        await appendFile(this.buffer.file, content, 'utf-8')
+
+        try {
+            await appendFile(this.buffer.file, content, 'utf-8')
+        } catch (e) {
+            status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', e)
+            captureException(e)
+            throw e
+        }
     }
 
     /**
@@ -225,7 +238,13 @@ export class SessionManager {
 
     public async destroy(): Promise<void> {
         status.debug('␡', `blob_ingester_session_manager Destroying session manager ${this.sessionId}`)
-        const filePromises = [this.flushBuffer?.file, this.buffer.file].map((x) => x && rm(x))
-        await Promise.all(filePromises)
+        try {
+            const filePromises = [this.flushBuffer?.file, this.buffer.file].map((x) => x && rm(x))
+            await Promise.all(filePromises)
+        } catch (e) {
+            status.error('🧨', 'blob_ingester_session_manager failed destroying session recording manager files', e)
+            captureException(e)
+            throw e
+        }
     }
 }
