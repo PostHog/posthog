@@ -74,6 +74,7 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
 export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX.Element {
     const { showWarningsTab, showDatabaseTab, showHistoryTab } = useValues(eventsTabsLogic)
     const { setTab } = useActions(eventsTabsLogic)
+
     return (
         <>
             <LemonTabs

@@ -552,6 +552,10 @@ const api = {
                     // TODO allow someone to load _only_ event definitions?
                     return new ApiRequest().dataManagementActivity()
                 },
+                [ActivityScope.PROPERTY_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ property definitions?
+                    return new ApiRequest().dataManagementActivity()
+                },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }

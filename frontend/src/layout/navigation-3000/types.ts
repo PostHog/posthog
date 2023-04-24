@@ -1,5 +1,6 @@
 import { Logic, LogicWrapper } from 'kea'
 import { Dayjs } from 'lib/dayjs'
+import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
 interface SidebarLogicBase extends Logic {
     actions: Record<never, never> // No actions required in the base version
@@ -59,6 +60,7 @@ export interface BasicListItem {
          */
         status?: 'muted' | 'success' | 'warning' | 'danger'
     }
+    menuItems?: LemonMenuItems
 }
 
 export type ExtraListItemContext = string | Dayjs

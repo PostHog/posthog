@@ -1,9 +1,7 @@
-import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
 import { Consumer, KafkaJSProtocolError } from 'kafkajs'
-import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
@@ -31,7 +29,6 @@ import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recordings-consumer'
 import { createHttpServer } from './services/http-server'
-import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 
 const { version } = require('../../package.json')
 
@@ -40,7 +37,6 @@ export type ServerInstance = {
     hub: Hub
     piscina: Piscina
     queue: IngestionConsumer | null
-    mmdb?: ReaderModel
     stop: () => Promise<void>
 }
 
@@ -96,7 +92,6 @@ export async function startPluginsServer(
     let schedulerTasksConsumer: Consumer | undefined
 
     let httpServer: Server | undefined // healthcheck server
-    let mmdbServer: net.Server | undefined // geoip server
 
     let graphileWorker: GraphileWorker | undefined
 
@@ -104,11 +99,9 @@ export async function startPluginsServer(
 
     let lastActivityCheck: NodeJS.Timeout | undefined
     let stopEventLoopMetrics: (() => void) | undefined
-    let mmdbUpdateJob: schedule.Job | undefined
 
     let shuttingDown = false
     async function closeJobs(): Promise<void> {
-        mmdbUpdateJob?.cancel()
         shuttingDown = true
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
@@ -136,19 +129,6 @@ export async function startPluginsServer(
             schedulerTasksConsumer?.disconnect(),
         ])
 
-        await new Promise<void>((resolve, reject) =>
-            !mmdbServer
-                ? resolve()
-                : mmdbServer.close((error) => {
-                      if (error) {
-                          reject(error)
-                      } else {
-                          status.info('🛑', 'Closed internal MMDB server!')
-                          resolve()
-                      }
-                  })
-        )
-
         if (piscina) {
             await stopPiscina(piscina)
         }
@@ -168,6 +148,13 @@ export async function startPluginsServer(
         process.exit(0)
     })
 
+    // Code list in https://kafka.apache.org/0100/protocol.html
+    const kafkaJSIgnorableCodes = new Set([
+        22, // ILLEGAL_GENERATION
+        25, // UNKNOWN_MEMBER_ID
+        27, // REBALANCE_IN_PROGRESS
+    ])
+
     process.on('unhandledRejection', (error: Error) => {
         status.error('🤮', `Unhandled Promise Rejection: ${error.stack}`)
 
@@ -178,18 +165,14 @@ export async function startPluginsServer(
             })
 
             // Ignore some "business as usual" Kafka errors, send the rest to sentry
-            // Code list in https://kafka.apache.org/0100/protocol.html
-            switch (error.code) {
-                case 27: // REBALANCE_IN_PROGRESS
-                    hub!.statsd?.increment(`kafka_consumer_group_rebalancing`)
-                    return
-                case 22: // ILLEGAL_GENERATION
-                    hub!.statsd?.increment(`kafka_consumer_invalid_group_generation_id`)
-                    return
+            if (error.code in kafkaJSIgnorableCodes) {
+                return
             }
         }
 
-        Sentry.captureException(error)
+        Sentry.captureException(error, {
+            extra: { detected_at: `pluginServer.ts on unhandledRejection` },
+        })
     })
 
     process.on('uncaughtException', async (error: Error) => {
@@ -222,19 +205,6 @@ export async function startPluginsServer(
     const healthChecks: { [service: string]: () => Promise<boolean> | boolean } = {}
 
     try {
-        if (!serverConfig.DISABLE_MMDB && capabilities.mmdb) {
-            ;[hub, closeHub] = await createHub(serverConfig, null, capabilities)
-            serverInstance = { hub }
-
-            serverInstance.mmdb = (await prepareMmdb(serverInstance)) ?? undefined
-            mmdbUpdateJob = serverInstance
-                ? schedule.scheduleJob('0 */4 * * *', async () => await performMmdbStalenessCheck(serverInstance!))
-                : undefined
-            mmdbServer = await createMmdbServer(serverInstance)
-            serverConfig.INTERNAL_MMDB_SERVER_PORT = (mmdbServer.address() as AddressInfo).port
-            hub.INTERNAL_MMDB_SERVER_PORT = serverConfig.INTERNAL_MMDB_SERVER_PORT
-        }
-
         // Based on the mode the plugin server was started, we start a number of
         // different services. Mostly this is reasonably obvious from the name.
         // There is however the `queue` which is a little more complicated.

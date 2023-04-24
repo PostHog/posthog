@@ -8,6 +8,11 @@ import type { dashboardsSidebarLogicType } from './dashboardsSidebarLogicType'
 import Fuse from 'fuse.js'
 import { DashboardType } from '~/types'
 import { subscriptions } from 'kea-subscriptions'
+import { DashboardMode } from '~/types'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
 const fuse = new Fuse<DashboardType>([], {
     keys: ['name', 'description', 'tags'],
@@ -22,6 +27,14 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             ['pinSortedDashboards', 'dashboardsLoading'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
+        ],
+        actions: [
+            dashboardsModel,
+            ['pinDashboard', 'unpinDashboard'],
+            duplicateDashboardLogic,
+            ['showDuplicateDashboardModal'],
+            deleteDashboardLogic,
+            ['showDeleteDashboardModal'],
         ],
     }),
     actions({
@@ -42,7 +55,7 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ actions }) => ({
         isLoading: [(s) => [s.dashboardsLoading], (dashboardsLoading) => dashboardsLoading],
         contents: [
             (s) => [s.relevantDashboards],
@@ -54,6 +67,49 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
                             name: dashboard.name,
                             url: urls.dashboard(dashboard.id),
                             marker: dashboard.pinned ? { type: 'fold' } : undefined,
+                            menuItems: [
+                                {
+                                    items: [
+                                        {
+                                            onClick: () => {
+                                                ;(dashboard.pinned ? actions.unpinDashboard : actions.pinDashboard)(
+                                                    dashboard.id,
+                                                    DashboardEventSource.MoreDropdown
+                                                )
+                                            },
+                                            label: dashboard.pinned ? 'Unpin' : 'Pin',
+                                        },
+                                        {
+                                            to: urls.dashboard(dashboard.id),
+                                            onClick: () => {
+                                                dashboardLogic({ id: dashboard.id }).mount()
+                                                dashboardLogic({ id: dashboard.id }).actions.setDashboardMode(
+                                                    DashboardMode.Edit,
+                                                    DashboardEventSource.DashboardsList
+                                                )
+                                            },
+                                            label: 'Edit',
+                                        },
+                                        {
+                                            onClick: () => {
+                                                actions.showDuplicateDashboardModal(dashboard.id, dashboard.name)
+                                            },
+                                            label: 'Duplicate',
+                                        },
+                                    ],
+                                },
+                                {
+                                    items: [
+                                        {
+                                            onClick: () => {
+                                                actions.showDeleteDashboardModal(dashboard.id)
+                                            },
+                                            status: 'danger',
+                                            label: 'Delete dashboard',
+                                        },
+                                    ],
+                                },
+                            ],
                         } as ExtendedListItem)
                 ),
         ],
@@ -72,7 +128,7 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
                 return pinSortedDashboards
             },
         ],
-    }),
+    })),
     subscriptions({
         pinSortedDashboards: (pinSortedDashboards) => {
             fuse.setCollection(pinSortedDashboards)
