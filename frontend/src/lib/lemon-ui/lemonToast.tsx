@@ -2,6 +2,7 @@ import { toast, ToastContentProps as ToastifyRenderProps, ToastOptions } from 'r
 import { IconCheckmark, IconClose, IconErrorOutline, IconInfo, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonButton } from './LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import posthog from 'posthog-js'
 
 export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
     return <LemonButton type="tertiary" icon={<IconClose />} onClick={closeToast} data-attr="toast-close-button" />
@@ -74,6 +75,11 @@ export const lemonToast = {
         })
     },
     warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
+        posthog.capture('toast warning', {
+            message: message.toString(),
+            button: button?.label,
+            id: toastOptions.toastId,
+        })
         toastOptions = ensureToastId(toastOptions)
         toast.warning(<ToastContent type="warning" message={message} button={button} id={toastOptions.toastId} />, {
             icon: <IconWarning />,
@@ -81,6 +87,11 @@ export const lemonToast = {
         })
     },
     error(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
+        posthog.capture('toast error', {
+            message: message.toString(),
+            button: button?.label,
+            id: toastOptions.toastId,
+        })
         toastOptions = ensureToastId(toastOptions)
         toast.error(
             <ToastContent
