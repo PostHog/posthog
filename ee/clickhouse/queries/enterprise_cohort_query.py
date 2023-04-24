@@ -268,9 +268,9 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         person_prop_query = ""
         person_prop_params: dict = {}
-
+        
         _inner_fields = [
-            f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
+            f"{self._person_id_alias} AS person_id"
         ]
         _intermediate_fields = ["person_id"]
         _outer_fields = ["person_id"]
@@ -294,7 +294,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
             person_prop_query, person_prop_params = self._get_prop_groups(
                 self._inner_property_groups,
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
-                person_id_joined_alias=f"{self.EVENT_TABLE_ALIAS}.person_id",
+                person_id_joined_alias=self._person_id_alias,
             )
 
         new_query = f"""
