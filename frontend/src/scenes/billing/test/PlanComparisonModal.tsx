@@ -1,10 +1,12 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
-import { BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
 import './PlanComparisonModal.scss'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { convertLargeNumberToWords, getUpgradeAllProductsLink } from '../billing-utils'
+import { billingLogic } from '../billingLogic'
 
 export function PlanIcon({
     feature,
@@ -40,39 +42,10 @@ export function PlanIcon({
     )
 }
 
-const convertLargeNumberToWords = (
-    // The number to convert
-    num: number | null,
-    // The previous tier's number
-    previousNum: number | null,
-    // Whether we will be showing multiple tiers (to denote the first tier with 'first')
-    multipleTiers: boolean = false,
-    // The product type (to denote the unit)
-    productType: BillingProductV2Type['type'] | null = null
-): string => {
-    if (num === null && previousNum) {
-        return `${convertLargeNumberToWords(previousNum, null)} +`
-    }
-    if (num === null) {
-        return ''
-    }
-
-    let denominator = 1
-
-    if (num >= 1000000) {
-        denominator = 1000000
-    } else if (num >= 1000) {
-        denominator = 1000
-    }
-
-    return `${previousNum ? `${(previousNum / denominator).toFixed(0)}-` : multipleTiers ? 'First ' : ''}${(
-        num / denominator
-    ).toFixed(0)}${denominator === 1000000 ? ' million' : denominator === 1000 ? 'k' : ''}${
-        !previousNum && multipleTiers ? ` ${productType}/mo` : ''
-    }`
-}
-
-const getProductTiers = (plan: BillingV2PlanType, product: BillingProductV2Type): JSX.Element => {
+const getProductTiers = (
+    plan: BillingV2PlanType,
+    product: BillingProductV2Type | BillingProductV2AddonType
+): JSX.Element => {
     const tiers = plan?.tiers
 
     return (
@@ -84,7 +57,7 @@ const getProductTiers = (plan: BillingV2PlanType, product: BillingProductV2Type)
                         className="flex justify-between items-center"
                     >
                         <span className="text-xs">
-                            {convertLargeNumberToWords(tier.up_to, tiers[i - 1]?.up_to, true, product.usage_key)}
+                            {convertLargeNumberToWords(tier.up_to, tiers[i - 1]?.up_to, true, product.unit)}
                         </span>
                         <span className="font-bold">
                             {i === 0 && parseFloat(tier.unit_amount_usd) === 0
@@ -96,7 +69,7 @@ const getProductTiers = (plan: BillingV2PlanType, product: BillingProductV2Type)
             ) : product?.free_allocation ? (
                 <div key={`${plan.key}-${product.type}-tiers`} className="flex justify-between items-center">
                     <span className="text-xs">
-                        Up to {convertLargeNumberToWords(product?.free_allocation, null)} {product?.usage_key}/mo
+                        Up to {convertLargeNumberToWords(product?.free_allocation, null)} {product?.unit}s/mo
                     </span>
                     <span className="font-bold">Free</span>
                 </div>
@@ -107,10 +80,12 @@ const getProductTiers = (plan: BillingV2PlanType, product: BillingProductV2Type)
 
 export const PlanComparisonModal = ({
     product,
+    includeAddons = false,
     modalOpen,
     onClose,
 }: {
     product: BillingProductV2Type
+    includeAddons?: boolean
     modalOpen: boolean
     onClose?: () => void
 }): JSX.Element | null => {
@@ -120,12 +95,17 @@ export const PlanComparisonModal = ({
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    const { redirectPath } = useValues(billingLogic)
 
     const upgradeButtons = plans?.map((plan) => {
         return (
             <td key={`${plan.key}-cta`}>
                 <LemonButton
-                    to={`/api/billing-v2/activation?products=${product.type}:${plan.plan_key}`}
+                    to={
+                        includeAddons
+                            ? getUpgradeAllProductsLink(product, plan.plan_key || '', redirectPath)
+                            : `/api/billing-v2/activation?products=${product.type}:${plan.plan_key}&redirectPath=${redirectPath}`
+                    }
                     type={plan.current_plan ? 'secondary' : 'primary'}
                     fullWidth
                     center
@@ -182,12 +162,48 @@ export const PlanComparisonModal = ({
 
                             <tr className={'PlanTable__tr__border'}>
                                 <th scope="row">
+                                    {includeAddons && product.addons?.length > 0 && (
+                                        <p className="ml-0">
+                                            <span className="font-bold">{product.name}</span>
+                                        </p>
+                                    )}
                                     <p className="ml-0 text-xs text-muted mt-1">Priced per {product.unit}</p>
                                 </th>
                                 {plans?.map((plan) => (
                                     <td key={`${plan.plan_key}-tiers-td`}>{getProductTiers(plan, product)}</td>
                                 ))}
                             </tr>
+
+                            {includeAddons &&
+                                product.addons?.map((addon) => {
+                                    return addon.tiered ? (
+                                        <tr key={addon.name + 'pricing-row'} className={'PlanTable__tr__border'}>
+                                            <th scope="row">
+                                                <p className="ml-0">
+                                                    <span className="font-bold">{addon.name}</span>
+                                                </p>
+                                                <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
+                                            </th>
+                                            {/* There should only be one plan for an addon. It should be available on any paid plan of its parent product. 
+                                                So, we need to count the number of plans for the parent, count the paid plans, and work backwards.
+                                            */}
+                                            {plans?.map((plan) =>
+                                                // If the plan is free, the addon isn't available
+                                                plan.free_allocation && !plan.tiers ? (
+                                                    <td key={`${addon.name}-free-tiers-td`}>
+                                                        <p className="text-muted text-xs">
+                                                            Not available on this plan.
+                                                        </p>
+                                                    </td>
+                                                ) : (
+                                                    <td key={`${addon.plan_key}-tiers-td`}>
+                                                        {getProductTiers(addon.plans?.[0], addon)}
+                                                    </td>
+                                                )
+                                            )}
+                                        </tr>
+                                    ) : null
+                                })}
 
                             <tr>
                                 <td />

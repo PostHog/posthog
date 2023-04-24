@@ -7,7 +7,7 @@ import { IconChevronRight, IconCheckmark, IconExpandMore, IconPlus, IconArticle 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
-import { summarizeUsage } from '../billing-utils'
+import { convertLargeNumberToWords, getUpgradeAllProductsLink, summarizeUsage } from '../billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from '../billingLogic'
 import { BillingLimitInput } from './BillingLimitInput'
@@ -172,22 +172,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
 
-    const getUpgradeAllProductsLink = (): string => {
-        let url = '/api/billing-v2/activation?products='
-        url += `${product.type}:${upgradeToPlanKey},`
-        if (product.addons?.length) {
-            for (const addon of product.addons) {
-                url += `${addon.type}:${addon.plans[0].plan_key},`
-            }
-        }
-        // remove the trailing comma that will be at the end of the url
-        url = url.slice(0, -1)
-        if (redirectPath) {
-            url += `&redirect_path=${redirectPath}`
-        }
-        return url
-    }
-
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         700: 'medium',
@@ -305,13 +289,23 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <More
                                         overlay={
                                             <>
-                                                <LemonButton
-                                                    status="stealth"
-                                                    fullWidth
-                                                    onClick={() => deactivateProduct(product.type)}
-                                                >
-                                                    Unsubscribe
-                                                </LemonButton>
+                                                {product.plans?.length > 0 ? (
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        fullWidth
+                                                        onClick={() => deactivateProduct(product.type)}
+                                                    >
+                                                        Unsubscribe
+                                                    </LemonButton>
+                                                ) : (
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        fullWidth
+                                                        to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
+                                                    >
+                                                        Contact support to unsubscribe
+                                                    </LemonButton>
+                                                )}
                                                 {billing?.billing_period?.interval == 'month' && (
                                                     <LemonButton
                                                         fullWidth
@@ -338,15 +332,25 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     ) : null}
                     <div className="flex w-full items-center gap-x-8">
                         {product.contact_support && !product.subscribed ? (
-                            <>
-                                <p className="m-0 p-8">
+                            <div className="py-8">
+                                {!billing?.has_active_subscription && (
+                                    <p className="ml-0">
+                                        Every product subsciption comes with free platform features such as{' '}
+                                        <b>
+                                            Multiple projects, Feature flags, Experimentation, Integrations, Apps, and
+                                            more
+                                        </b>
+                                        . Subscribe to one of the products above to get instant access.
+                                    </p>
+                                )}
+                                <p className="m-0">
                                     Need additional platform and support (aka enterprise) features?{' '}
                                     <Link to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request">
                                         Get in touch
                                     </Link>{' '}
                                     for a quick chat.
                                 </p>
-                            </>
+                            </div>
                         ) : (
                             !isOnboarding && (
                                 <>
@@ -484,6 +488,17 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 })}
                                 and more{!billing?.has_active_subscription && ', plus upgraded platform features'}.
                             </p>
+                            {upgradePlan?.tiers?.[0].unit_amount_usd &&
+                                parseInt(upgradePlan?.tiers?.[0].unit_amount_usd) === 0 && (
+                                    <p className="ml-0 mb-0 mt-4">
+                                        <b>
+                                            First {convertLargeNumberToWords(upgradePlan?.tiers?.[0].up_to, null)}{' '}
+                                            {product.unit}s free
+                                        </b>
+                                        , then ${upgradePlan?.tiers?.[1].unit_amount_usd}/{product.unit} with volume
+                                        discounts.
+                                    </p>
+                                )}
                         </div>
                         {!product.subscribed && (
                             <div className="ml-4">
@@ -499,7 +514,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         to={
                                             // if we're in onboarding we want to upgrade them to the product and the addons at once
                                             isOnboarding
-                                                ? getUpgradeAllProductsLink()
+                                                ? getUpgradeAllProductsLink(
+                                                      product,
+                                                      upgradeToPlanKey || '',
+                                                      redirectPath
+                                                  )
                                                 : // otherwise we just want to upgrade them to the product
                                                   `/api/billing-v2/activation?products=${
                                                       product.type
@@ -522,6 +541,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         )}
                         <PlanComparisonModal
                             product={product}
+                            includeAddons={isOnboarding}
                             modalOpen={isPlanComparisonModalOpen}
                             onClose={toggleIsPlanComparisonModalOpen}
                         />
