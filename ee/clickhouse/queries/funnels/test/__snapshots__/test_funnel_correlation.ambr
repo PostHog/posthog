@@ -1,11 +1,9 @@
 # name: TestClickhouseFunnelCorrelation.test_action_events_are_excluded_from_correlations
   '
   WITH funnel_actors as
-    (SELECT aggregation_target AS actor_id,
-            timestamp,
-            steps,
-            final_timestamp,
-            first_timestamp
+    (SELECT aggregation_target AS actor_id , timestamp, steps,
+                                                        final_timestamp,
+                                                        first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -29,13 +27,11 @@
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       min(latest_1) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
@@ -100,11 +96,9 @@
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties
   '
   WITH funnel_actors as
-    (SELECT aggregation_target AS actor_id,
-            timestamp,
-            steps,
-            final_timestamp,
-            first_timestamp
+    (SELECT aggregation_target AS actor_id , timestamp, steps,
+                                                        final_timestamp,
+                                                        first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -128,13 +122,11 @@
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       min(latest_1) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
@@ -192,11 +184,9 @@
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.1
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp,
-            steps,
-            final_timestamp,
-            first_timestamp
+    (SELECT aggregation_target AS actor_id , timestamp, steps,
+                                                        final_timestamp,
+                                                        first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -220,13 +210,11 @@
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       min(latest_1) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
@@ -280,11 +268,9 @@
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.2
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp,
-            steps,
-            final_timestamp,
-            first_timestamp
+    (SELECT aggregation_target AS actor_id , timestamp, steps,
+                                                        final_timestamp,
+                                                        first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -308,13 +294,11 @@
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       min(latest_1) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
@@ -368,11 +352,9 @@
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.3
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp,
-            steps,
-            final_timestamp,
-            first_timestamp
+    (SELECT aggregation_target AS actor_id , timestamp, steps,
+                                                        final_timestamp,
+                                                        first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -396,13 +378,11 @@
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       min(latest_1) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
@@ -456,11 +436,9 @@
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.4
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp,
-            steps,
-            final_timestamp,
-            first_timestamp
+    (SELECT aggregation_target AS actor_id , timestamp, steps,
+                                                        final_timestamp,
+                                                        first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -484,13 +462,11 @@
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       min(latest_1) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
@@ -544,11 +520,9 @@
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized
   '
   WITH funnel_actors as
-    (SELECT aggregation_target AS actor_id,
-            timestamp,
-            steps,
-            final_timestamp,
-            first_timestamp
+    (SELECT aggregation_target AS actor_id , timestamp, steps,
+                                                        final_timestamp,
+                                                        first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -572,13 +546,11 @@
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       min(latest_1) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
@@ -636,11 +608,9 @@
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.1
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp,
-            steps,
-            final_timestamp,
-            first_timestamp
+    (SELECT aggregation_target AS actor_id , timestamp, steps,
+                                                        final_timestamp,
+                                                        first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -664,13 +634,11 @@
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       min(latest_1) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
@@ -724,11 +692,9 @@
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.2
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp,
-            steps,
-            final_timestamp,
-            first_timestamp
+    (SELECT aggregation_target AS actor_id , timestamp, steps,
+                                                        final_timestamp,
+                                                        first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -752,13 +718,11 @@
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       min(latest_1) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
@@ -812,11 +776,9 @@
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.3
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp,
-            steps,
-            final_timestamp,
-            first_timestamp
+    (SELECT aggregation_target AS actor_id , timestamp, steps,
+                                                        final_timestamp,
+                                                        first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -840,13 +802,11 @@
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       min(latest_1) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
@@ -900,11 +860,9 @@
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.4
   '
   WITH funnel_actors AS
-    (SELECT aggregation_target AS actor_id,
-            timestamp,
-            steps,
-            final_timestamp,
-            first_timestamp
+    (SELECT aggregation_target AS actor_id , timestamp, steps,
+                                                        final_timestamp,
+                                                        first_timestamp
      FROM
        (SELECT aggregation_target,
                steps,
@@ -928,13 +886,11 @@
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        step_0,
-                        latest_0,
-                        step_1,
-                        min(latest_1) over (PARTITION by aggregation_target
-                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       min(latest_1) over (PARTITION by aggregation_target
+                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
