@@ -1,4 +1,4 @@
-import { GlobalConfig, Message } from 'node-rdkafka-acosom'
+import { GlobalConfig, Message } from 'node-rdkafka'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
 import { status } from '../utils/status'
@@ -65,22 +65,7 @@ export const startBatchConsumer = async ({
         'enable.partition.eof': true,
         'queued.min.messages': 100000, // 100000 is the default
         'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
-        // Use cooperative-sticky rebalancing strategy, which is the
-        // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
-        // in the Java Kafka Client. There its actually
-        // RangeAssignor,CooperativeStickyAssignor i.e. it mixes eager and
-        // cooperative strategies. This is however explicitly mentioned to not
-        // be supported in the [librdkafka library config
-        // docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md#partitionassignmentstrategy)
-        // so we just use cooperative-sticky. If there are other consumer
-        // members with other strategies already running, you'll need to delete
-        // e.g. the replicaset for them if on k8s.
-        //
-        // See
-        // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
-        // for details on the advantages of this rebalancing strategy as well as
-        // how it works.
-        'partition.assignment.strategy': 'cooperative-sticky',
+        'partition.assignment.strategy': 'roundrobin', // KafkaJS uses round robin, and we need to be compatible with it.
         rebalance_cb: true,
         offset_commit_cb: true,
     })
