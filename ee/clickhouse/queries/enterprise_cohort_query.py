@@ -268,10 +268,8 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         person_prop_query = ""
         person_prop_params: dict = {}
-        
-        _inner_fields = [
-            f"{self._person_id_alias} AS person_id"
-        ]
+
+        _inner_fields = [f"{self._person_id_alias} AS person_id"]
         _intermediate_fields = ["person_id"]
         _outer_fields = ["person_id"]
 
