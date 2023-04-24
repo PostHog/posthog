@@ -13,14 +13,16 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
-import { navigation3000Logic } from '../navigationLogic'
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 
 const fuse = new Fuse<DashboardType>([], {
-    keys: ['name', 'description', 'tags'],
-    threshold: 0.5,
-    distance: 200,
+    keys: [{ name: 'name', weight: 2 }, 'description', 'tags'],
+    threshold: 0.3,
+    ignoreLocation: true,
     includeMatches: true,
 })
+
+console.log(navigation3000Logic)
 
 export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'dashboardsSidebarLogic']),
@@ -30,8 +32,6 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             ['pinSortedDashboards', 'dashboardsLoading'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
-            navigation3000Logic,
-            ['searchTerm'],
         ],
         actions: [
             dashboardsModel,
@@ -48,12 +48,18 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             (s) => [s.relevantDashboards],
             (relevantDashboards) =>
                 relevantDashboards.map(
-                    (dashboard) =>
+                    ([dashboard, matches]) =>
                         ({
                             key: dashboard.id,
                             name: dashboard.name,
                             url: urls.dashboard(dashboard.id),
                             marker: dashboard.pinned ? { type: 'fold' } : undefined,
+                            searchMatch: matches
+                                ? {
+                                      matchingFields: matches.map((match) => match.key),
+                                      nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                                  }
+                                : null,
                             menuItems: [
                                 {
                                     items: [
@@ -107,12 +113,14 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             },
         ],
         relevantDashboards: [
-            (s) => [s.pinSortedDashboards, s.searchTerm],
-            (pinSortedDashboards, searchTerm) => {
+            (s) => [s.pinSortedDashboards, navigation3000Logic.selectors.searchTerm],
+            (pinSortedDashboards, searchTerm): [DashboardType, Fuse.FuseResultMatch[] | null][] => {
                 if (searchTerm) {
-                    return fuse.search(searchTerm).map((result) => result.item)
+                    return fuse
+                        .search(searchTerm)
+                        .map((result) => [result.item, result.matches as Fuse.FuseResultMatch[]])
                 }
-                return pinSortedDashboards
+                return pinSortedDashboards.map((dashboard) => [dashboard, null])
             },
         ],
     })),

@@ -48,6 +48,13 @@ export interface BasicListItem {
          */
         status?: 'muted' | 'success' | 'warning' | 'danger'
     }
+    /** If search is on, this should be present to convey why this item is included in results. */
+    searchMatch?: {
+        /** Fields that are matching the search term - they will be shown within the list item. */
+        matchingFields: readonly string[]
+        /** What parts of the name were matched - they will be bolded. */
+        nameHighlightRanges?: readonly [number, number][]
+    } | null
     menuItems?: LemonMenuItems
 }
 

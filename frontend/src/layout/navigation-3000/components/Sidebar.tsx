@@ -1,12 +1,12 @@
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { LogicWrapper, useActions, useValues } from 'kea'
 import { IconClose, IconMagnifier } from 'lib/lemon-ui/icons'
 import React from 'react'
 import { SIDEBAR_SEARCH_INPUT_ID, navigation3000Logic } from '../navigationLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
 import { SidebarAccordion, SidebarList } from './SidebarAccordion'
-import { Accordion, BasicListItem, ExtendedListItem } from '../types'
+import { Accordion, BasicListItem, ExtendedListItem, SidebarLogic } from '../types'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 
 export function Sidebar(): JSX.Element {
@@ -21,32 +21,6 @@ export function Sidebar(): JSX.Element {
         searchTerm,
     } = useValues(navigation3000Logic)
     const { beginResize, setIsSearchShown, setSearchTerm } = useActions(navigation3000Logic)
-
-    const { contents, activeListItemKey, isLoading } = useValues(activeNavbarItem.pointer)
-
-    const content: JSX.Element | null =
-        contents.length > 0 ? (
-            'items' in contents[0] ? (
-                <>
-                    {(contents as Accordion[]).map((accordion) => (
-                        <SidebarAccordion
-                            key={accordion.title}
-                            title={accordion.title}
-                            items={accordion.items}
-                            // TODO loading={accordion.loading}
-                            activeItemKey={activeListItemKey}
-                        />
-                    ))}
-                </>
-            ) : (
-                <SidebarList
-                    items={contents as BasicListItem[] | ExtendedListItem[]}
-                    activeItemKey={activeListItemKey}
-                />
-            )
-        ) : isLoading ? (
-            <SpinnerOverlay />
-        ) : null
 
     return (
         <div
@@ -93,7 +67,9 @@ export function Sidebar(): JSX.Element {
                         />
                     </div>
                 )}
-                <div className="Sidebar3000__lists">{content}</div>
+                <div className="Sidebar3000__lists">
+                    <SidebarContent activeSidebarLogic={activeNavbarItem.pointer} />
+                </div>
                 {!isSidebarKeyboardShortcutAcknowledged && <SidebarKeyboardShortcut />}
             </div>
             <div
@@ -108,7 +84,35 @@ export function Sidebar(): JSX.Element {
     )
 }
 
-export function SidebarKeyboardShortcut(): JSX.Element {
+function SidebarContent({
+    activeSidebarLogic,
+}: {
+    activeSidebarLogic: LogicWrapper<SidebarLogic>
+}): JSX.Element | null {
+    const { contents, activeListItemKey, isLoading } = useValues(activeSidebarLogic)
+
+    return contents.length > 0 ? (
+        'items' in contents[0] ? (
+            <>
+                {(contents as Accordion[]).map((accordion) => (
+                    <SidebarAccordion
+                        key={accordion.title}
+                        title={accordion.title}
+                        items={accordion.items}
+                        // TODO loading={accordion.loading}
+                        activeItemKey={activeListItemKey}
+                    />
+                ))}
+            </>
+        ) : (
+            <SidebarList items={contents as BasicListItem[] | ExtendedListItem[]} activeItemKey={activeListItemKey} />
+        )
+    ) : isLoading ? (
+        <SpinnerOverlay />
+    ) : null
+}
+
+function SidebarKeyboardShortcut(): JSX.Element {
     const { acknowledgeSidebarKeyboardShortcut } = useActions(navigation3000Logic)
 
     return (

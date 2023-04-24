@@ -16,9 +16,10 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { navigation3000Logic } from '../navigationLogic'
 
 const fuse = new Fuse<FeatureFlagType>([], {
-    keys: ['key', 'name', 'tags'],
-    threshold: 0.5,
-    distance: 200,
+    // Note: For feature flags `name` is the description field
+    keys: [{ name: 'key', weight: 2 }, 'name', 'tags'],
+    threshold: 0.3,
+    ignoreLocation: true,
     includeMatches: true,
 })
 
@@ -32,8 +33,6 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
             ['currentTeamId'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
-            navigation3000Logic,
-            ['searchTerm'],
         ],
         actions: [featureFlagsLogic, ['updateFeatureFlag', 'loadFeatureFlags']],
     }),
@@ -42,7 +41,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
         contents: [
             (s) => [s.relevantFeatureFlags, s.currentTeamId],
             (relevantFeatureFlags, currentTeamId) =>
-                relevantFeatureFlags.map((featureFlag) => {
+                relevantFeatureFlags.map(([featureFlag, matches]) => {
                     if (!featureFlag.id) {
                         throw new Error('Feature flag ID should never be missing in the sidebar')
                     }
@@ -54,6 +53,14 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                         extraContextTop: dayjs(featureFlag.created_at),
                         extraContextBottom: `by ${featureFlag.created_by?.first_name || 'unknown'}`,
                         marker: { type: 'ribbon', status: featureFlag.active ? 'success' : 'danger' },
+                        searchMatch: matches
+                            ? {
+                                  matchingFields: matches.map((match) =>
+                                      match.key === 'name' ? 'description' : match.key
+                                  ),
+                                  nameHighlightRanges: matches.find((match) => match.key === 'key')?.indices,
+                              }
+                            : null,
                         menuItems: [
                             {
                                 items: [
@@ -131,12 +138,14 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
             },
         ],
         relevantFeatureFlags: [
-            (s) => [s.featureFlags, s.searchTerm],
-            (featureFlags, searchTerm) => {
+            (s) => [s.featureFlags, navigation3000Logic.selectors.searchTerm],
+            (featureFlags, searchTerm): [FeatureFlagType, Fuse.FuseResultMatch[] | null][] => {
                 if (searchTerm) {
-                    return fuse.search(searchTerm).map((result) => result.item)
+                    return fuse
+                        .search(searchTerm)
+                        .map((result) => [result.item, result.matches as Fuse.FuseResultMatch[]])
                 }
-                return featureFlags
+                return featureFlags.map((featureFlag) => [featureFlag, null])
             },
         ],
     })),

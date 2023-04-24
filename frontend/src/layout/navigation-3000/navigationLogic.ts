@@ -87,6 +87,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
         internalSearchTerm: [
+            // Do not reference this outside of this file
+            // `searchTerm` is the outwards-facing value, as it's made empty when search is hidden
             '',
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,

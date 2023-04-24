@@ -110,8 +110,12 @@
         text-transform: none;
         letter-spacing: normal;
     }
+    b {
+        font-weight: 700;
+    }
 
     .LemonInput--type-search {
+        transition: none;
         max-width: none;
         border-color: transparent; // Only show border on focus here
         border-radius: 0;
