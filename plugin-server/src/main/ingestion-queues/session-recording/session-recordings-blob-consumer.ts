@@ -221,7 +221,9 @@ export class SessionRecordingBlobIngester {
 
                 // Assign partitions to the consumer
                 // TODO read offset position from partitions so we can read from the correct place
-                this.batchConsumer?.consumer.assign(assignments)
+                // TODO looking here https://github.com/Blizzard/node-rdkafka/blob/master/lib/kafka-consumer.js#L54
+                // TODO we should not need to handle the assignment ourself since rebalance_cb = true
+                // this.batchConsumer?.consumer.assign(assignments)
             } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
                 status.info('⚖️', 'Blob ingestion consumer has had assignments revoked', { assignments })
                 /**
@@ -236,7 +238,7 @@ export class SessionRecordingBlobIngester {
                  * This is where we could act to reduce raciness/duplication when partitions are reassigned to different consumers
                  * e.g. stop the `flushInterval` and wait for the `assign_partitions` event to start it again.
                  */
-                this.batchConsumer?.consumer.unassign()
+                // this.batchConsumer?.consumer.unassign()
             } else {
                 // We had a "real" error
                 status.error('🔥', 'Blob ingestion consumer rebalancing error', { err })
