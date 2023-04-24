@@ -81,7 +81,10 @@ export const startBatchConsumer = async ({
         // for details on the advantages of this rebalancing strategy as well as
         // how it works.
         'partition.assignment.strategy': 'cooperative-sticky',
-        rebalance_cb: true,
+        // NOTE: we need to disable rebalancer callbacks as cooperative-sticky
+        // rebalance assignment isn't provided by node-rdkafka. There is a PR to
+        // add this, see https://github.com/Blizzard/node-rdkafka/pull/965
+        // rebalance_cb: false,
         offset_commit_cb: true,
     })
 
