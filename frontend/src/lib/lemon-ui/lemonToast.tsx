@@ -78,7 +78,7 @@ export const lemonToast = {
         posthog.capture('toast warning', {
             message: message.toString(),
             button: button?.label,
-            id: toastOptions.toastId,
+            toastId: toastOptions.toastId,
         })
         toastOptions = ensureToastId(toastOptions)
         toast.warning(<ToastContent type="warning" message={message} button={button} id={toastOptions.toastId} />, {
@@ -90,7 +90,7 @@ export const lemonToast = {
         posthog.capture('toast error', {
             message: message.toString(),
             button: button?.label,
-            id: toastOptions.toastId,
+            toastId: toastOptions.toastId,
         })
         toastOptions = ensureToastId(toastOptions)
         toast.error(
