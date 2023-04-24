@@ -103,9 +103,12 @@ test.concurrent(
         const teamId = await createTeam(organizationId)
         const distinctId = new UUIDT().toString()
         const sessionId = new UUIDT().toString()
-        const veryLongString = generateVeryLongString()
 
-        const captures = Array.from({ length: 110 }).map(() => {
+        // need to send enough data to trigger the s3 upload exactly once.
+        // with a buffer of 1024, an estimated gzip compression of 0.1, and 1025 default length for generateAVeryLongString
+        // we need 25,000 events.
+        // if any of those things change then the number of events probably needs to change too
+        const captures = Array.from({ length: 25000 }).map(() => {
             return capture({
                 teamId,
                 distinctId,
@@ -114,7 +117,7 @@ test.concurrent(
                 properties: {
                     $session_id: sessionId,
                     $window_id: 'abc1234',
-                    $snapshot_data: { data: compressToString(veryLongString), chunk_count: 1 },
+                    $snapshot_data: { data: compressToString(generateVeryLongString()), chunk_count: 1 },
                 },
             })
         })

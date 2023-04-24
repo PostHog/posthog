@@ -75,11 +75,17 @@ export class SessionManager {
         if (shouldLog) {
             status.info(
                 '🚽',
-                `Buffer ${this.sessionId}:: buffer size: ${
+                `blob_ingester_session_manager Buffer ${this.sessionId}:: buffer size: ${
                     this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
                 }kb capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${this.buffer.count} ${Math.round(
                     bufferSizeKb
-                )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size})`
+                )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size})`,
+                {
+                    sizeInBufferKB: bufferSizeKb,
+                    estimatedSizeInGzipKB: gzipSizeKb,
+                    bufferThreshold: this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB,
+                    calculatedCapacity: gzippedCapacity,
+                }
             )
         }
 
@@ -90,7 +96,7 @@ export class SessionManager {
         const readyToFlush = overCapacity || timeSinceLastFlushTooLong
 
         if (readyToFlush) {
-            status.info('🚽', `Flushing buffer ${this.sessionId}...`)
+            status.info('🚽', `blob_ingester_session_manager Flushing buffer ${this.sessionId}...`)
             await this.flush()
         }
     }
@@ -101,7 +107,7 @@ export class SessionManager {
      */
     public async flush(): Promise<void> {
         if (this.flushBuffer) {
-            status.warn('⚠️', "Flush called but we're already flushing")
+            status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing")
             return
         }
 
@@ -133,7 +139,7 @@ export class SessionManager {
             // })
         } catch (error) {
             // TODO: If we fail to write to S3 we should be do something about it
-            status.error(error)
+            status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', error)
             captureException(error)
         } finally {
             await rm(this.flushBuffer.file)
@@ -141,7 +147,10 @@ export class SessionManager {
             const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
 
-            status.debug('🚽', `Flushed buffer ${this.sessionId} (removing offsets: ${offsets})`)
+            status.debug(
+                '🚽',
+                `blob_ingester_session_manager Flushed buffer ${this.sessionId} (removing offsets: ${offsets})`
+            )
             // TODO: Sync the last processed offset to redis
             this.onFinish(offsets)
         }
@@ -215,7 +224,7 @@ export class SessionManager {
     }
 
     public async destroy(): Promise<void> {
-        status.debug('␡', `Destroying session manager ${this.sessionId}`)
+        status.debug('␡', `blob_ingester_session_manager Destroying session manager ${this.sessionId}`)
         const filePromises = [this.flushBuffer?.file, this.buffer.file].map((x) => x && rm(x))
         await Promise.all(filePromises)
     }
