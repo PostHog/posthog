@@ -2,7 +2,7 @@ import { Logic, LogicWrapper } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
-interface SidebarLogicBase extends Logic {
+export interface SidebarLogic extends Logic {
     actions: Record<never, never> // No actions required in the base version
     values: {
         isLoading: boolean
@@ -10,18 +10,6 @@ interface SidebarLogicBase extends Logic {
         activeListItemKey: BasicListItem['key'] | null
     }
 }
-interface SearchMixin {
-    values: {
-        isSearchShown: boolean
-        searchTerm: string
-    }
-    actions: {
-        setIsSearchShown: (isSearchShown: boolean) => void
-        setSearchTerm: (searchTerm: string) => void
-    }
-}
-export type SidebarWithSearchLogic = SidebarLogicBase & SearchMixin
-export type SidebarLogic = SidebarLogicBase | SidebarWithSearchLogic
 
 interface NavbarItemBase {
     identifier: string

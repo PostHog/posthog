@@ -25,6 +25,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         beginResize: true,
         endResize: true,
         acknowledgeSidebarKeyboardShortcut: true,
+        setIsSearchShown: (isSearchShown: boolean) => ({ isSearchShown }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     reducers({
         isSidebarShown: [
@@ -76,6 +78,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
             {
                 showSidebar: (state, { newNavbarItemId }) => newNavbarItemId || state,
+            },
+        ],
+        isSearchShown: [
+            false,
+            {
+                setIsSearchShown: (_, { isSearchShown }) => isSearchShown,
+            },
+        ],
+        internalSearchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
     }),
@@ -135,6 +149,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 return NAVBAR_ITEM_ID_TO_ITEM[activeNavbarItemId] as SidebarNavbarItem
             },
         ],
+        searchTerm: [
+            (s) => [s.internalSearchTerm, s.isSearchShown],
+            (internalSearchTerm, isSearchShown): string => {
+                return isSearchShown ? internalSearchTerm : ''
+            },
+        ],
     }),
     subscriptions(({ cache, actions }) => ({
         isResizeInProgress: (isResizeInProgress) => {
@@ -154,7 +174,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             }
         },
     })),
-    events(({ actions, values, cache }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
             cache.onResize = () => actions.syncSidebarWidthWithViewport()
             cache.onKeyDown = (e: KeyboardEvent) => {
@@ -163,12 +183,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     e.preventDefault()
                 }
                 if (e.key === 'f' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
-                    const logic = values.activeNavbarItem.pointer.findMounted()
-                    if (logic && 'setIsSearchShown' in logic.actions) {
-                        logic.actions.setIsSearchShown(true)
-                        document.getElementById(SIDEBAR_SEARCH_INPUT_ID)?.focus()
-                        e.preventDefault()
-                    }
+                    actions.setIsSearchShown(true)
+                    document.getElementById(SIDEBAR_SEARCH_INPUT_ID)?.focus()
+                    e.preventDefault()
                 }
             }
             window.addEventListener('resize', cache.onResize)

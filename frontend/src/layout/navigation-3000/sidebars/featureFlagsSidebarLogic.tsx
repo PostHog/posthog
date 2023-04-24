@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
 import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -13,6 +13,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { navigation3000Logic } from '../navigationLogic'
 
 const fuse = new Fuse<FeatureFlagType>([], {
     keys: ['key', 'name', 'tags'],
@@ -29,26 +30,10 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
             ['currentTeamId'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
+            navigation3000Logic,
+            ['searchTerm'],
         ],
         actions: [featureFlagsLogic, ['updateFeatureFlag', 'loadFeatureFlags']],
-    }),
-    actions({
-        setIsSearchShown: (isSearchShown: boolean) => ({ isSearchShown }),
-        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-    }),
-    reducers({
-        isSearchShown: [
-            false,
-            {
-                setIsSearchShown: (_, { isSearchShown }) => isSearchShown,
-            },
-        ],
-        searchTerm: [
-            '',
-            {
-                setSearchTerm: (_, { searchTerm }) => searchTerm,
-            },
-        ],
     }),
     selectors(({ actions }) => ({
         isLoading: [(s) => [s.featureFlagsLoading], (featureFlagsLoading) => featureFlagsLoading],

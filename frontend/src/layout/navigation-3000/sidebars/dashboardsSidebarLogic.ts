@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -13,6 +13,7 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { navigation3000Logic } from '../navigationLogic'
 
 const fuse = new Fuse<DashboardType>([], {
     keys: ['name', 'description', 'tags'],
@@ -27,6 +28,8 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             ['pinSortedDashboards', 'dashboardsLoading'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
+            navigation3000Logic,
+            ['searchTerm'],
         ],
         actions: [
             dashboardsModel,
@@ -35,24 +38,6 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             ['showDuplicateDashboardModal'],
             deleteDashboardLogic,
             ['showDeleteDashboardModal'],
-        ],
-    }),
-    actions({
-        setIsSearchShown: (isSearchShown: boolean) => ({ isSearchShown }),
-        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-    }),
-    reducers({
-        isSearchShown: [
-            false,
-            {
-                setIsSearchShown: (_, { isSearchShown }) => isSearchShown,
-            },
-        ],
-        searchTerm: [
-            '',
-            {
-                setSearchTerm: (_, { searchTerm }) => searchTerm,
-            },
         ],
     }),
     selectors(({ actions }) => ({
@@ -120,9 +105,9 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             },
         ],
         relevantDashboards: [
-            (s) => [s.pinSortedDashboards, s.isSearchShown, s.searchTerm],
-            (pinSortedDashboards, isSearchShown, searchTerm) => {
-                if (isSearchShown && searchTerm) {
+            (s) => [s.pinSortedDashboards, s.searchTerm],
+            (pinSortedDashboards, searchTerm) => {
+                if (searchTerm) {
                     return fuse.search(searchTerm).map((result) => result.item)
                 }
                 return pinSortedDashboards

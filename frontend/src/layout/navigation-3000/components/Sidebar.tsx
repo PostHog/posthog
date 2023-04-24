@@ -17,18 +17,12 @@ export function Sidebar(): JSX.Element {
         sidebarOverslideDirection: overslideDirection,
         isSidebarKeyboardShortcutAcknowledged,
         activeNavbarItem,
+        isSearchShown,
+        searchTerm,
     } = useValues(navigation3000Logic)
-    const { beginResize } = useActions(navigation3000Logic)
+    const { beginResize, setIsSearchShown, setSearchTerm } = useActions(navigation3000Logic)
 
-    const activeSidebarLogicValues = useValues(activeNavbarItem.pointer)
-    const activeSidebarLogicActions = useActions(activeNavbarItem.pointer)
-    const { contents, activeListItemKey, isLoading } = activeSidebarLogicValues
-    /** If the search term is null, this means search is not supported. */
-    const isSearchShown = 'isSearchShown' in activeSidebarLogicValues ? activeSidebarLogicValues.isSearchShown : false
-    const setIsSearchShown =
-        'setIsSearchShown' in activeSidebarLogicActions ? activeSidebarLogicActions.setIsSearchShown : null
-    const searchTerm = 'searchTerm' in activeSidebarLogicValues ? activeSidebarLogicValues.searchTerm : null
-    const setSearchTerm = 'setSearchTerm' in activeSidebarLogicActions ? activeSidebarLogicActions.setSearchTerm : null
+    const { contents, activeListItemKey, isLoading } = useValues(activeNavbarItem.pointer)
 
     const content: JSX.Element | null =
         contents.length > 0 ? (
@@ -86,7 +80,7 @@ export function Sidebar(): JSX.Element {
                         />
                     )}
                 </div>
-                {isSearchShown && setSearchTerm && (
+                {isSearchShown && (
                     <div>
                         <LemonInput
                             id={SIDEBAR_SEARCH_INPUT_ID}
