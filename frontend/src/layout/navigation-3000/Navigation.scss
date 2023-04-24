@@ -1,4 +1,8 @@
 .Navigation3000 {
+    --breadcrumbs-height: 3rem;
+    --scene-padding-y: 1rem;
+    --scene-padding-x: 1rem;
+
     display: flex;
     width: 100%;
     height: 100%;
@@ -12,7 +16,10 @@
 }
 
 .Navigation3000__scene {
-    margin: 0 1rem;
+    margin: var(--scene-padding-y) var(--scene-padding-x);
+    // The below is for positioning of the scene-level spinner
+    position: relative;
+    min-height: calc(100vh - var(--breadcrumbs-height) - var(--scene-padding-y) * 2);
 }
 
 // Navbar
@@ -21,7 +28,6 @@
     flex: 0 0 3rem;
     border-right: 1px solid transparent; // This is just for sizing, the visible border is on the content
     box-sizing: content-box;
-    background: var(--accent-3000);
     z-index: var(--z-main-nav);
 
     .LemonButton {
@@ -52,22 +58,28 @@
     height: 100vh;
     padding: 0 0.375rem;
     border-right-width: 1px;
+    background: var(--accent-3000);
 }
 
 // Sidebar
 
 .Sidebar3000 {
-    --sidebar-slider-padding: 0.25rem;
+    --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
     --sidebar-row-height: 2rem;
     --sidebar-basic-leaf-row-height: 2rem;
     --sidebar-extended-leaf-row-height: 2.875rem;
+    --sidebar-background: var(--bg-3000);
     position: relative;
     // This border is just for sizing, the visible border is on the content and slider
     // Hidden when the sidebar is closed
     border-right: min(1px, var(--sidebar-width)) solid transparent;
     flex: 0 0 var(--sidebar-width);
     box-sizing: content-box;
+
+    [theme='dark'] & {
+        --sidebar-background: var(--accent-3000);
+    }
 
     &.Sidebar3000--resizing {
         will-change: flex-basis;
@@ -93,7 +105,7 @@
         font-size: 0.6875rem;
     }
     h5 {
-        font-weight: 500;
+        font-weight: 400;
         font-size: 0.75rem;
         text-transform: none;
         letter-spacing: normal;
@@ -101,7 +113,7 @@
 }
 
 .Sidebar3000__content {
-    position: sticky;
+    position: fixed;
     top: 0;
     display: flex;
     flex-direction: column;
@@ -112,13 +124,10 @@
     box-sizing: content-box;
     white-space: nowrap;
     overflow: hidden;
-    background: var(--bg-3000);
-    [theme='dark'] & {
-        background: var(--accent-3000);
-    }
+    background: var(--sidebar-background);
+    border-right: 1px solid var(--border); // So that the border extends into viewport vertical overscroll
 
     .Sidebar3000--resizing & {
-        transition: none; // Increase responsiveness when resizing
         will-change: width;
     }
 }
@@ -128,8 +137,8 @@
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    overflow-x: hidden;
     flex-grow: 1;
+    overflow-x: hidden;
 }
 
 .Sidebar3000__hint {
@@ -167,11 +176,11 @@
         width: 1px;
     }
     &::before {
-        transition: 100ms ease transform, 100ms ease background-color;
+        transition: 100ms ease transform;
         background: var(--border);
     }
     &::after {
-        transition: 100ms ease opacity, 100ms ease transform, 100ms ease background-color;
+        transition: 100ms ease transform;
         background: var(--text-3000);
         opacity: 0;
     }
@@ -218,7 +227,6 @@
 }
 
 .Accordion__header {
-    transition: 100ms ease background, 100ms ease border-color;
     display: flex;
     align-items: center;
     background: var(--accordion-header-background);
@@ -259,7 +267,6 @@
     --sidebar-list-item-fold-size: 0.5rem;
     --sidebar-list-item-ribbon-width: 0.1875rem;
     position: relative;
-    transition: 100ms ease background;
     padding: 0 var(--sidebar-horizontal-padding) 0
         calc(
             var(--accordion-inset, 0px) + var(--sidebar-horizontal-padding) +
@@ -270,9 +277,11 @@
     line-height: 1.125rem;
     height: var(--sidebar-basic-leaf-row-height);
     cursor: pointer;
+    opacity: 0.9; // Make items slightly lower contrast when not hovered
 
     &:hover,
     &[aria-current='page'] {
+        opacity: 1;
         background: var(--border-3000);
     }
     &:hover,

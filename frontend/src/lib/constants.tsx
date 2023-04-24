@@ -145,6 +145,8 @@ export const FEATURE_FLAGS = {
     ARUBUG: 'arubug', // owner: #team-arubug
     BILLING_BY_PRODUCTS: 'billing-by-products', // owner: @raquelmsmith
     RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
+    AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
+    DATA_MANAGEMENT_HISTORY: 'data-management-history', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

@@ -50,6 +50,7 @@ export interface LemonMenuProps
             | 'maxContentWidth'
             | 'visible'
             | 'onVisibilityChange'
+            | 'closeParentPopoverOnClickInside'
             | 'className'
         >,
         LemonMenuOverlayProps {
@@ -83,40 +84,104 @@ export interface LemonMenuOverlayProps {
 
 export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMenuOverlayProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const sections = useMemo(() => standardizeIntoSections(items), [items])
+    const sectionsOrItems = useMemo(() => normalizeItems(items), [items])
 
     const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
 
+    return sectionsOrItems.length > 0 && isLemonMenuSection(sectionsOrItems[0]) ? (
+        <LemonMenuSectionList
+            sections={sectionsOrItems as LemonMenuSection[]}
+            buttonSize={buttonSize}
+            tooltipPlacement={tooltipPlacement}
+            itemsRef={itemsRef}
+        />
+    ) : (
+        <LemonMenuItemList
+            items={sectionsOrItems as LemonMenuItem[]}
+            buttonSize={buttonSize}
+            tooltipPlacement={tooltipPlacement}
+            itemsRef={itemsRef}
+            itemIndexOffset={0}
+        />
+    )
+}
+
+interface LemonMenuSectionListProps {
+    sections: LemonMenuSection[]
+    buttonSize: 'small' | 'medium'
+    tooltipPlacement: TooltipPlacement | undefined
+    itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
+}
+
+export function LemonMenuSectionList({
+    sections,
+    buttonSize,
+    tooltipPlacement,
+    itemsRef,
+}: LemonMenuSectionListProps): JSX.Element {
     let rollingItemIndex = 0
+
     return (
         <ul>
-            {sections.map((section, i) => (
-                <li key={i}>
-                    <section className="space-y-px">
-                        {section.title ? (
-                            typeof section.title === 'string' ? (
-                                <h5>{section.title}</h5>
-                            ) : (
-                                section.title
-                            )
+            {sections.map((section, i) => {
+                const sectionElement = (
+                    <li key={i}>
+                        <section className="space-y-px">
+                            {section.title ? (
+                                typeof section.title === 'string' ? (
+                                    <h5>{section.title}</h5>
+                                ) : (
+                                    section.title
+                                )
+                            ) : null}
+                            <LemonMenuItemList
+                                items={section.items}
+                                buttonSize={buttonSize}
+                                tooltipPlacement={tooltipPlacement}
+                                itemsRef={itemsRef}
+                                itemIndexOffset={rollingItemIndex}
+                            />
+                            {section.footer ? <ul>{section.footer}</ul> : null}
+                        </section>
+                        {i < sections.length - 1 ? (
+                            <LemonDivider className={buttonSize === 'small' ? 'my-1' : 'my-2'} />
                         ) : null}
-                        <ul className="space-y-px">
-                            {section.items.map((item, index) => (
-                                <li key={index}>
-                                    <LemonMenuItemButton
-                                        item={item}
-                                        size={buttonSize}
-                                        tooltipPlacement={tooltipPlacement}
-                                        ref={itemsRef?.current?.[rollingItemIndex++]}
-                                    />
-                                </li>
-                            ))}
-                        </ul>
-                        {section.footer ? <ul>{section.footer}</ul> : null}
-                    </section>
-                    {i < sections.length - 1 ? (
-                        <LemonDivider className={buttonSize === 'small' ? 'my-1' : 'my-2'} />
-                    ) : null}
+                    </li>
+                )
+                rollingItemIndex += section.items.length
+                return sectionElement
+            })}
+        </ul>
+    )
+}
+
+interface LemonMenuItemListProps {
+    items: LemonMenuItem[]
+    buttonSize: 'small' | 'medium'
+    tooltipPlacement: TooltipPlacement | undefined
+    itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
+    itemIndexOffset?: number
+}
+
+export function LemonMenuItemList({
+    items,
+    buttonSize,
+    itemIndexOffset = 0,
+    tooltipPlacement,
+    itemsRef,
+}: LemonMenuItemListProps): JSX.Element {
+    let rollingItemIndex = 0
+
+    return (
+        <ul className="space-y-px">
+            {items.map((item, index) => (
+                <li key={index}>
+                    <LemonMenuItemButton
+                        item={item}
+                        size={buttonSize}
+                        tooltipPlacement={tooltipPlacement}
+                        ref={itemsRef?.current?.[itemIndexOffset + rollingItemIndex++]}
+                    />
                 </li>
             ))}
         </ul>
@@ -155,7 +220,7 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
     })
 LemonMenuItemButton.displayName = 'LemonMenuItemButton'
 
-function standardizeIntoSections(sectionsAndItems: (LemonMenuItem | LemonMenuSection)[]): LemonMenuSection[] {
+function normalizeItems(sectionsAndItems: (LemonMenuItem | LemonMenuSection)[]): LemonMenuItem[] | LemonMenuSection[] {
     const sections: LemonMenuSection[] = []
     let implicitSection: LemonMenuSection = { items: [] }
     for (const sectionOrItem of sectionsAndItems) {
@@ -173,6 +238,9 @@ function standardizeIntoSections(sectionsAndItems: (LemonMenuItem | LemonMenuSec
         sections.push(implicitSection)
     }
 
+    if (sections.length === 1 && !sections[0].title && !sections[0].footer) {
+        return sections[0].items
+    }
     return sections
 }
 

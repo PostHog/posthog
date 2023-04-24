@@ -120,7 +120,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
         incrementErrorCount: true,
-        incrementWarningCount: true,
+        incrementWarningCount: (count: number = 1) => ({ count }),
         setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
         updateFromMetadata: true,
         exportRecordingToFile: true,
@@ -173,7 +173,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
 
         errorCount: [0, { incrementErrorCount: (prevErrorCount, {}) => prevErrorCount + 1 }],
-        warningCount: [0, { incrementWarningCount: (prevWarningCount, {}) => prevWarningCount + 1 }],
+        warningCount: [0, { incrementWarningCount: (prevWarningCount, { count }) => prevWarningCount + count }],
         matching: [
             props.matching ?? ([] as SessionRecordingType['matching_events']),
             {
@@ -722,6 +722,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     events(({ values, actions, cache }) => ({
         beforeUnmount: () => {
             cache.resetConsoleWarn?.()
+            clearTimeout(cache.consoleWarnDebounceTimer)
             values.player?.replayer?.pause()
             actions.setPlayer(null)
             actions.reportRecordingViewedSummary({
@@ -748,10 +749,28 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             cache.openTime = performance.now()
 
+            // NOTE: RRweb can log _alot_ of warnings so we debounce the count otherwise we just end up making the performance worse
+            let warningCount = 0
+            cache.consoleWarnDebounceTimer = null
+
+            const debouncedCounter = (): void => {
+                warningCount += 1
+
+                if (!cache.consoleWarnDebounceTimer) {
+                    cache.consoleWarnDebounceTimer = setTimeout(() => {
+                        cache.consoleWarnDebounceTimer = null
+                        actions.incrementWarningCount(warningCount)
+                        warningCount = 0
+                    }, 1000)
+                }
+            }
+
             cache.resetConsoleWarn = wrapConsole('warn', (args) => {
                 if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
-                    actions.incrementWarningCount()
+                    debouncedCounter()
                 }
+
+                return true
             })
         },
     })),

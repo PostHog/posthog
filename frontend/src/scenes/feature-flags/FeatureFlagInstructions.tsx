@@ -64,7 +64,7 @@ export function CodeInstructions({
             ? groupTypes[featureFlag?.filters?.aggregation_group_type_index]
             : undefined
 
-    const { reportFlagsCodeExampleInteraction } = useActions(eventUsageLogic)
+    const { reportFlagsCodeExampleInteraction, reportFlagsCodeExampleLanguage } = useActions(eventUsageLogic)
     const getDocumentationLink = (): string => {
         const documentationLink = selectedOption.documentationLink
 
@@ -160,6 +160,7 @@ export function CodeInstructions({
                         onChange={(val) => {
                             if (val) {
                                 selectOption(val)
+                                reportFlagsCodeExampleLanguage(val)
                             }
                         }}
                         value={selectedOption.value}

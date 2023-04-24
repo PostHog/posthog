@@ -199,6 +199,7 @@ class TestFeatureFlag(APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "alpha-feature",
                         "short_id": None,
                     },
@@ -498,6 +499,7 @@ class TestFeatureFlag(APIBaseTest):
                             },
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": "a-feature-flag-that-is-updated",
                         "short_id": None,
                     },
@@ -511,6 +513,7 @@ class TestFeatureFlag(APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "a-feature-flag-that-is-updated",
                         "short_id": None,
                     },
@@ -580,6 +583,7 @@ class TestFeatureFlag(APIBaseTest):
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -593,6 +597,7 @@ class TestFeatureFlag(APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -648,7 +653,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:29:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(second_flag_id),
-                    "detail": {"changes": None, "trigger": None, "name": "flag-two", "short_id": None},
+                    "detail": {"changes": None, "trigger": None, "type": None, "name": "flag-two", "short_id": None},
                 },
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
@@ -667,6 +672,7 @@ class TestFeatureFlag(APIBaseTest):
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -680,6 +686,7 @@ class TestFeatureFlag(APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -2009,7 +2016,7 @@ class TestFeatureFlag(APIBaseTest):
 
         activity: List[Dict] = activity_response["results"]
         self.maxDiff = None
-        self.assertEqual(activity, expected)
+        assert activity == expected
 
     def test_patch_api_as_form_data(self):
         another_feature_flag = FeatureFlag.objects.create(
