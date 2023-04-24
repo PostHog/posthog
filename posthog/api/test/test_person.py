@@ -92,7 +92,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_filter_person_email(self):
-
         _create_person(
             team=self.team,
             distinct_ids=["distinct_id", "another_one"],
@@ -114,7 +113,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_filter_person_prop(self):
-
         _create_person(
             team=self.team,
             distinct_ids=["distinct_id", "another_one"],
@@ -140,7 +138,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
 
     def test_filter_person_list(self):
-
         person1: Person = _create_person(
             team=self.team,
             distinct_ids=["distinct_id", "another_one"],
@@ -181,7 +178,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 0)
 
     def test_cant_see_another_organization_pii_with_filters(self):
-
         # Completely different organization
         another_org: Organization = Organization.objects.create()
         another_team: Team = Team.objects.create(organization=another_org)
@@ -436,10 +432,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["distinct_id3"],
             properties={"email": "yet_another_one@gmail.com"},
         )
-        _create_person(
-            team=self.team,
-            distinct_ids=["distinct_id4"],
-        )
         flush_persons_and_events()
 
         response = self.client.get("/api/person/").json()
@@ -447,8 +439,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         results = response["results"][::-1]  # results are in reverse order
         self.assertEqual(results[0]["name"], "someone")
         self.assertEqual(results[1]["name"], "another_one@custom.com")
-        self.assertEqual(results[2]["name"], "yet_another_one@gmail.com")
-        self.assertEqual(results[3]["name"], "distinct_id4")
+        self.assertEqual(results[2]["name"], "distinct_id3")
 
     def test_person_display_name_defaults(self) -> None:
         _create_person(
