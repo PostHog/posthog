@@ -34,15 +34,18 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", destination_data)
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(ExportDestination.objects.count(), 1)
 
-        self.assertEqual(response.data["name"], destination_data["name"])
-        self.assertEqual(response.data["type"], destination_data["type"])
-        self.assertEqual(response.data["config"], destination_data["config"])
+        data = response.json()
+        self.assertEqual(data["name"], destination_data["name"])
+        self.assertEqual(data["type"], destination_data["type"])
+        self.assertEqual(data["config"], destination_data["config"])
         self.assertEqual(
-            response.data["schedule"]["cron_expressions"],
-            destination_data["schedule"]["cron_expressions"],
+            data["schedule"]["cron_expressions"],
+            # Apparently, 'destination_data["schedule"]' is not indexable.
+            # Maybe a mypy bug, as of writing, PostHog still uses mypy<1.0.
+            destination_data["schedule"]["cron_expressions"],  # type: ignore
         )
 
     def test_create_export_schedule(self):
@@ -68,7 +71,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", destination_data)
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(ExportDestination.objects.count(), 1)
         self.assertEqual(ExportSchedule.objects.count(), 1)
 
@@ -79,10 +82,10 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         }
 
         schedule_response = self.client.post(
-            f"/api/projects/{self.team.id}/batch_exports/{response.data['id']}/schedules", manual_schedule_data
+            f"/api/projects/{self.team.id}/batch_exports/{response.json()['id']}/schedules", manual_schedule_data
         )
 
-        self.assertEqual(schedule_response.status_code, status.HTTP_201_CREATED, schedule_response.data)
+        self.assertEqual(schedule_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(ExportSchedule.objects.count(), 2)
 
         export_schedule = ExportSchedule.objects.filter(name=schedule_name)[0]
@@ -123,7 +126,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", destination_data)
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(ExportDestination.objects.count(), 1)
         self.assertEqual(ExportSchedule.objects.count(), 1)
 
@@ -135,10 +138,10 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         }
 
         schedule_response = self.client.post(
-            f"/api/projects/{self.team.id}/batch_exports/{response.data['id']}/schedules", manual_schedule_data
+            f"/api/projects/{self.team.id}/batch_exports/{response.json()['id']}/schedules", manual_schedule_data
         )
 
-        self.assertEqual(schedule_response.status_code, status.HTTP_201_CREATED, schedule_response.data)
+        self.assertEqual(schedule_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(ExportSchedule.objects.count(), 2)
 
         export_schedule = ExportSchedule.objects.filter(name=schedule_name)[0]
@@ -148,13 +151,13 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.delete(
-            f"/api/projects/{self.team.id}/batch_exports/{response.data['id']}/schedules/{export_schedule.id}"
+            f"/api/projects/{self.team.id}/batch_exports/{response.json()['id']}/schedules/{export_schedule.id}"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.data)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        export_schedule = ExportSchedule.objects.filter(name=schedule_name)
-        assert not export_schedule.exists()
+        post_export_schedule = ExportSchedule.objects.filter(name=schedule_name)
+        assert not post_export_schedule.exists()
 
         with self.assertRaisesRegex(RPCError, "schedule not found"):
             async_to_sync(handle.describe)()

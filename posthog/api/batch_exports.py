@@ -2,7 +2,7 @@ from asgiref.sync import async_to_sync
 from django.conf import settings
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from temporalio.client import (
     Client,
@@ -12,8 +12,7 @@ from temporalio.client import (
 )
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models.export import ExportDestination, ExportRun, ExportSchedule
-from posthog.models.filters.mixins.utils import cached_property
+from posthog.models import ExportDestination, ExportRun, ExportSchedule, User
 from posthog.models.team import Team
 from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
@@ -35,20 +34,6 @@ async def get_temporal_client() -> Client:
 class ExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = ExportRun.objects.all()
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-
-    @cached_property
-    def schedule(self) -> ExportSchedule:
-        workflow_name = self.request.data.get("workflow_name")
-
-        if workflow_name is None:
-            raise NotFound(f"Workflow {workflow_name} not found.")
-
-        workflow = ExportSchedule.objects.get_workflow_from_name(name=workflow_name)
-
-        if workflow is None:
-            raise NotFound(f"Workflow {workflow_name} not found.")
-
-        return workflow
 
 
 class ExportScheduleSerializer(serializers.ModelSerializer):
@@ -139,6 +124,9 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             export_schedule.name,
         )
 
+        if not isinstance(request.user, User) or request.user.current_team is None:
+            raise NotAuthenticated()
+
         user_id = request.user.distinct_id
         team_id = request.user.current_team.id
 
@@ -162,6 +150,9 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         handle = client.get_schedule_handle(
             export_schedule.name,
         )
+
+        if not isinstance(request.user, User) or request.user.current_team is None:
+            raise NotAuthenticated()
 
         user_id = request.user.distinct_id
         team_id = request.user.current_team.id
@@ -210,14 +201,10 @@ class ExportDestinationSerializer(serializers.ModelSerializer):
         team = Team.objects.get(id=self.context["team_id"])
 
         schedule = ExportSchedule.objects.create(destination=export_destination, team=team, **schedule_data)
-
-        # set the schedule that it's created with as the primary schedule
         export_destination.schedule = schedule
         export_destination.save()
 
         return export_destination
-
-    # TODO: santize the secret keys
 
 
 class ExportDestinationViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -226,4 +213,7 @@ class ExportDestinationViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ExportDestinationSerializer
 
     def get_queryset(self):
+        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
+            raise NotAuthenticated()
+
         return self.queryset.filter(team_id=self.request.user.current_team.id)

@@ -12,7 +12,7 @@ class PostHogWorkflow(ABC):
     """Base class for Temporal Workflows that can be executed in PostHog."""
 
     @classmethod
-    def get_name(cls) -> bool:
+    def get_name(cls) -> str:
         """Get this workflow's name."""
         return getattr(cls, "__temporal_workflow_definition").name
 
@@ -41,7 +41,7 @@ class PostHogWorkflow(ABC):
 @dataclass
 class CreateExportRunInputs:
     team_id: int
-    schedule_name: str
+    schedule_id: str | None
     data_interval_start: str
     data_interval_end: str
 
@@ -51,10 +51,12 @@ async def create_export_run(inputs: CreateExportRunInputs) -> str:
     """Activity that creates an ExportRun."""
     activity.logger.info("Creating ExportRun model instance.")
 
-    create_run = sync_to_async(ExportRun.objects.create)
-    run = await create_run(
+    # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
+    # But one of our dependencies is pinned to asgiref==3.3.2.
+    # Remove these comments once we upgrade.
+    run = await sync_to_async(ExportRun.objects.create)(  # type: ignore
         team_id=inputs.team_id,
-        schedule_name=inputs.schedule_name,
+        schedule_id=inputs.schedule_id,
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
@@ -72,4 +74,4 @@ class UpdateExportRunStatusInputs:
 async def update_export_run_status(inputs: UpdateExportRunStatusInputs):
     """Activity that updates the status of an ExportRun."""
     update_run_status = sync_to_async(ExportRun.objects.update_status)
-    await update_run_status(run_id=inputs.run_id, status=inputs.status)
+    await update_run_status(run_id=inputs.run_id, status=inputs.status)  # type: ignore
