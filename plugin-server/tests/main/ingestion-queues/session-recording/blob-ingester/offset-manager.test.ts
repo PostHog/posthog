@@ -1,4 +1,4 @@
-import { KafkaConsumer } from 'node-rdkafka-acosom'
+import { KafkaConsumer } from 'node-rdkafka'
 
 import { OffsetManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/offset-manager'
 

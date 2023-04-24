@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
+import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
@@ -221,7 +221,7 @@ export class SessionRecordingBlobIngester {
 
                 // Assign partitions to the consumer
                 // TODO read offset position from partitions so we can read from the correct place
-                this.batchConsumer?.consumer.incrementalAssign(assignments)
+                this.batchConsumer?.consumer.assign(assignments)
             } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
                 status.info('⚖️', 'Blob ingestion consumer has had assignments revoked', { assignments })
                 /**
@@ -236,7 +236,7 @@ export class SessionRecordingBlobIngester {
                  * This is where we could act to reduce raciness/duplication when partitions are reassigned to different consumers
                  * e.g. stop the `flushInterval` and wait for the `assign_partitions` event to start it again.
                  */
-                this.batchConsumer?.consumer.incrementalUnassign(assignments)
+                this.batchConsumer?.consumer.unassign()
             } else {
                 // We had a "real" error
                 status.error('🔥', 'Blob ingestion consumer rebalancing error', { err })

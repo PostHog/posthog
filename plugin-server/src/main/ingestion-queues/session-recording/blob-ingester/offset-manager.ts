@@ -16,7 +16,7 @@
  * track everything in this single process
  */
 
-import { KafkaConsumer } from 'node-rdkafka-acosom'
+import { KafkaConsumer } from 'node-rdkafka'
 
 import { status } from '../../../../utils/status'
 
