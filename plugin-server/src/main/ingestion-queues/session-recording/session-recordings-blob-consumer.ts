@@ -73,11 +73,6 @@ export class SessionRecordingBlobIngester {
     }
 
     public async handleKafkaMessage(message: Message): Promise<void> {
-        // TODO: handle seeking to first chunk offset
-        // TODO: Handle duplicated data being stored in the case of a consumer restart
-
-        // counterMessagesReceived.add(1)
-
         const statusWarn = (reason: string, error?: Error) => {
             status.warn('⚠️', 'invalid_message', {
                 reason,
@@ -95,10 +90,6 @@ export class SessionRecordingBlobIngester {
         let event: PipelineEvent
 
         try {
-            // NOTE: we need to parse the JSON for these events because we
-            // need to add in the team_id to events, as it is possible due
-            // to a drive to remove postgres dependency on the capture
-            // endpoint we may only have `token`.
             messagePayload = JSON.parse(message.value.toString())
             event = JSON.parse(messagePayload.data)
         } catch (error) {

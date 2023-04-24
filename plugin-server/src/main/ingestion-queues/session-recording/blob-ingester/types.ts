@@ -1,13 +1,7 @@
-export type KafkaTopic = string
-// | 'recording_events'
-// | 'recording_events_retry_1'
-// | 'recording_events_retry_2'
-// | 'recording_events_retry_3'
-
 // This is the incoming message from Kafka
 export type IncomingRecordingMessage = {
     metadata: {
-        topic: KafkaTopic
+        topic: string
         partition: number
         offset: number
     }

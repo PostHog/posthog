@@ -1,6 +1,7 @@
 import { Upload } from '@aws-sdk/lib-storage'
+import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
-import { createReadStream, mkdirSync, writeFileSync } from 'fs'
+import { createReadStream, writeFileSync } from 'fs'
 import { appendFile, rm } from 'fs/promises'
 import path from 'path'
 import { Counter } from 'prom-client'
@@ -11,7 +12,6 @@ import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
-import { captureException } from '@sentry/node'
 
 export const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
