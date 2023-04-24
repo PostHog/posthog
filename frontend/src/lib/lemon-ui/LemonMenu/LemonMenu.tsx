@@ -5,6 +5,9 @@ import { TooltipPlacement } from 'antd/lib/tooltip'
 import { LemonDivider } from '../LemonDivider'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { useKeyboardNavigation } from './useKeyboardNavigation'
+import { useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface LemonMenuItemBase
     extends Pick<
@@ -16,9 +19,17 @@ export interface LemonMenuItemBase
 export interface LemonMenuItemNode extends LemonMenuItemBase {
     items: LemonMenuItemLeaf[]
 }
-export interface LemonMenuItemLeaf extends LemonMenuItemBase {
-    onClick: () => void
-}
+export type LemonMenuItemLeaf =
+    | (LemonMenuItemBase & {
+          onClick: () => void
+      })
+    | (LemonMenuItemBase & {
+          to: string
+      })
+    | (LemonMenuItemBase & {
+          onClick: () => void
+          to: string
+      })
 export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemNode
 
 export interface LemonMenuSection {
@@ -38,6 +49,7 @@ export interface LemonMenuProps
             | 'sameWidth'
             | 'maxContentWidth'
             | 'visible'
+            | 'onVisibilityChange'
             | 'closeParentPopoverOnClickInside'
             | 'className'
         >,
@@ -71,17 +83,22 @@ export interface LemonMenuOverlayProps {
 }
 
 export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMenuOverlayProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const sectionsOrItems = useMemo(() => normalizeItems(items), [items])
+
+    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
 
     return sectionsOrItems.length > 0 && isLemonMenuSection(sectionsOrItems[0]) ? (
         <LemonMenuSectionList
             sections={sectionsOrItems as LemonMenuSection[]}
+            buttonSize={buttonSize}
             tooltipPlacement={tooltipPlacement}
             itemsRef={itemsRef}
         />
     ) : (
         <LemonMenuItemList
             items={sectionsOrItems as LemonMenuItem[]}
+            buttonSize={buttonSize}
             tooltipPlacement={tooltipPlacement}
             itemsRef={itemsRef}
             itemIndexOffset={0}
@@ -91,11 +108,17 @@ export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMen
 
 interface LemonMenuSectionListProps {
     sections: LemonMenuSection[]
+    buttonSize: 'small' | 'medium'
     tooltipPlacement: TooltipPlacement | undefined
     itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
 }
 
-export function LemonMenuSectionList({ sections, tooltipPlacement, itemsRef }: LemonMenuSectionListProps): JSX.Element {
+export function LemonMenuSectionList({
+    sections,
+    buttonSize,
+    tooltipPlacement,
+    itemsRef,
+}: LemonMenuSectionListProps): JSX.Element {
     let rollingItemIndex = 0
 
     return (
@@ -113,13 +136,16 @@ export function LemonMenuSectionList({ sections, tooltipPlacement, itemsRef }: L
                             ) : null}
                             <LemonMenuItemList
                                 items={section.items}
+                                buttonSize={buttonSize}
                                 tooltipPlacement={tooltipPlacement}
                                 itemsRef={itemsRef}
                                 itemIndexOffset={rollingItemIndex}
                             />
                             {section.footer ? <ul>{section.footer}</ul> : null}
                         </section>
-                        {i < sections.length - 1 ? <LemonDivider /> : null}
+                        {i < sections.length - 1 ? (
+                            <LemonDivider className={buttonSize === 'small' ? 'my-1' : 'my-2'} />
+                        ) : null}
                     </li>
                 )
                 rollingItemIndex += section.items.length
@@ -131,6 +157,7 @@ export function LemonMenuSectionList({ sections, tooltipPlacement, itemsRef }: L
 
 interface LemonMenuItemListProps {
     items: LemonMenuItem[]
+    buttonSize: 'small' | 'medium'
     tooltipPlacement: TooltipPlacement | undefined
     itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
     itemIndexOffset?: number
@@ -138,6 +165,7 @@ interface LemonMenuItemListProps {
 
 export function LemonMenuItemList({
     items,
+    buttonSize,
     itemIndexOffset = 0,
     tooltipPlacement,
     itemsRef,
@@ -150,6 +178,7 @@ export function LemonMenuItemList({
                 <li key={index}>
                     <LemonMenuItemButton
                         item={item}
+                        size={buttonSize}
                         tooltipPlacement={tooltipPlacement}
                         ref={itemsRef?.current?.[itemIndexOffset + rollingItemIndex++]}
                     />
@@ -161,11 +190,12 @@ export function LemonMenuItemList({
 
 interface LemonMenuItemButtonProps {
     item: LemonMenuItem
+    size: 'small' | 'medium'
     tooltipPlacement: TooltipPlacement | undefined
 }
 
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
-    React.forwardRef(({ item, tooltipPlacement }, ref): JSX.Element => {
+    React.forwardRef(({ item, size, tooltipPlacement }, ref): JSX.Element => {
         const button = (
             <LemonButton
                 ref={ref}
@@ -173,6 +203,7 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                 status="stealth"
                 fullWidth
                 role="menuitem"
+                size={size}
                 {...item}
             >
                 {item.label}

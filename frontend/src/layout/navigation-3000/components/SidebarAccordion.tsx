@@ -1,10 +1,12 @@
 import { Link, TZLabel } from '@posthog/apps-common'
 import clsx from 'clsx'
 import { isDayjs } from 'lib/dayjs'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconEllipsis } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useState } from 'react'
 import { BasicListItem, ExtendedListItem, ExtraListItemContext } from '../types'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonButton } from '@posthog/lemon-ui'
 
 interface SidebarAccordionProps {
     title: string
@@ -47,50 +49,66 @@ export function SidebarAccordion({ title, items, activeItemKey, loading = false 
     )
 }
 
-interface SidebarListProps {
+export function SidebarList({
+    items,
+    activeItemKey,
+}: {
     items: BasicListItem[] | ExtendedListItem[]
     activeItemKey: BasicListItem['key'] | null
-}
-
-export function SidebarList({ items, activeItemKey }: SidebarListProps): JSX.Element {
+}): JSX.Element {
     return (
         <ul className="SidebarList">
             {items.map((item) => (
-                <li
-                    key={item.key}
-                    title={item.name}
-                    className={clsx(
-                        'SidebarList__item',
-                        item.marker && `SidebarList__item--marker-${item.marker.type}`,
-                        item.marker?.status && `SidebarList__item--marker-status-${item.marker.status}`,
-                        'summary' in item && 'SidebarList__item--extended'
-                    )}
-                    aria-current={item.key === activeItemKey ? 'page' : undefined}
-                >
-                    {' '}
-                    <Link to={item.url}>
-                        {'summary' in item ? (
-                            <>
-                                <div className="flex space-between gap-1">
-                                    <h5 className="flex-1">{item.name}</h5>
-                                    <div>
-                                        <ExtraContext data={item.extraContextTop} />
-                                    </div>
-                                </div>
-                                <div className="flex space-between gap-1">
-                                    <div className="flex-1 overflow-hidden text-ellipsis">{item.summary}</div>
-                                    <div>
-                                        <ExtraContext data={item.extraContextBottom} />
-                                    </div>
-                                </div>
-                            </>
-                        ) : (
-                            <h5>{item.name}</h5>
-                        )}
-                    </Link>
-                </li>
+                <SidebarListItem key={item.key} item={item} active={item.key === activeItemKey} />
             ))}
         </ul>
+    )
+}
+
+function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListItem; active: boolean }): JSX.Element {
+    const [isMenuOpen, setIsMenuOpen] = useState(false)
+
+    return (
+        <li
+            title={item.name}
+            className={clsx(
+                'SidebarListItem',
+                !!item.menuItems && 'SidebarListItem--has-menu',
+                isMenuOpen && 'SidebarListItem--is-menu-open',
+                !!item.marker && `SidebarListItem--marker-${item.marker.type}`,
+                !!item.marker?.status && `SidebarListItem--marker-status-${item.marker.status}`,
+                'summary' in item && 'SidebarListItem--extended'
+            )}
+            aria-current={active ? 'page' : undefined}
+        >
+            <Link to={item.url} className="SidebarListItem__link">
+                {'summary' in item ? (
+                    <>
+                        <div className="flex space-between gap-1">
+                            <h5 className="flex-1">{item.name}</h5>
+                            <div>
+                                <ExtraContext data={item.extraContextTop} />
+                            </div>
+                        </div>
+                        <div className="flex space-between gap-1">
+                            <div className="flex-1 overflow-hidden text-ellipsis">{item.summary}</div>
+                            <div>
+                                <ExtraContext data={item.extraContextBottom} />
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <h5>{item.name}</h5>
+                )}
+            </Link>
+            {item.menuItems && (
+                <LemonMenu items={item.menuItems} onVisibilityChange={setIsMenuOpen}>
+                    <div className="SidebarListItem__menu">
+                        <LemonButton size="small" icon={<IconEllipsis />} />
+                    </div>
+                </LemonMenu>
+            )}
+        </li>
     )
 }
 
