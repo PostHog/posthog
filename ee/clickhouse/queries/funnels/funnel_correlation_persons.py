@@ -14,7 +14,6 @@ from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery, SerializedGroup, SerializedPerson
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.util import get_person_properties_mode
-from posthog.utils import PersonOnEventsMode
 
 
 class FunnelCorrelationActors(ActorBaseQuery):
