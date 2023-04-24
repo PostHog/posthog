@@ -1,4 +1,4 @@
-import LibrdKafkaError from 'node-rdkafka/lib/error'
+import LibrdKafkaError from 'node-rdkafka-acosom/lib/error'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../../src/config/config'
