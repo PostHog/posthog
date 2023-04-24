@@ -12,13 +12,14 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django_prometheus.middleware import PrometheusAfterMiddleware
+from django_prometheus.middleware import PrometheusAfterMiddleware, PrometheusBeforeMiddleware, Metrics
 from statshog.defaults.django import statsd
 
 from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
+from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
@@ -303,7 +304,7 @@ class CaptureMiddleware:
         # reconciles the old style middleware with the new style middleware.
         for middleware_class in (
             CorsMiddleware,
-            PrometheusAfterMiddleware,
+            PrometheusAfterMiddlewareWithTeamIds,
         ):
             try:
                 # Some middlewares raise MiddlewareNotUsed if they are not
@@ -419,3 +420,37 @@ def user_logging_context_middleware(
         return get_response(request)
 
     return middleware
+
+
+PROMETHEUS_EXTENDED_METRICS = [
+    "django_http_requests_total_by_view_transport_method",
+    "django_http_responses_total_by_status_view_method",
+    "django_http_requests_latency_seconds_by_view_method",
+]
+
+
+class CustomPrometheusMetrics(Metrics):
+    def register_metric(self, metric_cls, name, documentation, labelnames=(), **kwargs):
+        if name in PROMETHEUS_EXTENDED_METRICS:
+            labelnames.extend([LABEL_TEAM_ID])
+        return super().register_metric(metric_cls, name, documentation, labelnames=labelnames, **kwargs)
+
+
+class PrometheusBeforeMiddlewareWithTeamIds(PrometheusBeforeMiddleware):
+    metrics_cls = CustomPrometheusMetrics
+
+
+class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
+    metrics_cls = CustomPrometheusMetrics
+
+    def label_metric(self, metric, request, response=None, **labels):
+        new_labels = labels
+        if metric._name in PROMETHEUS_EXTENDED_METRICS:
+            if request and getattr(request, "user", None) and request.user.is_authenticated:
+                team_id = request.user.current_team_id
+            else:
+                team_id = None
+
+            new_labels = {LABEL_TEAM_ID: team_id}
+            new_labels.update(labels)
+        return super().label_metric(metric, request, response=response, **new_labels)
