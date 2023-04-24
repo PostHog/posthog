@@ -249,7 +249,9 @@ export class SessionManager {
 
     public async destroy(): Promise<void> {
         status.debug('␡', `blob_ingester_session_manager Destroying session manager ${this.sessionId}`)
-        const filePromises = [this.flushBuffer?.file, this.buffer.file].map((x) => x && deleteFile(x))
+        const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
+            .filter((x): x is string => x !== undefined)
+            .map((x) => deleteFile(x))
         await Promise.all(filePromises)
     }
 }

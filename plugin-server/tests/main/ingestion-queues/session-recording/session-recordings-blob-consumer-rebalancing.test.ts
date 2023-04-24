@@ -19,6 +19,8 @@ describe('ingester rebalancing tests', () => {
 
     afterEach(async () => {
         await closeHub()
+        await ingesterOne?.stop()
+        await ingesterTwo?.stop()
     })
 
     it('rebalances partitions safely from one to two consumers', async () => {
