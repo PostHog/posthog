@@ -34,17 +34,17 @@ type SessionBuffer = {
 async function deleteFile(file: string) {
     try {
         await unlink(file)
-    } catch (e) {
-        if (e && e.code === 'ENOENT') {
-            status.warn(
-                '⚠️',
-                'blob_ingester_session_manager failed deleting flush buffer file ' + file + 'on flush, file not found'
-            )
+    } catch (err) {
+        if (err && err.code === 'ENOENT') {
+            status.warn('⚠️', 'blob_ingester_session_manager failed deleting file ' + file + ', file not found', {
+                err,
+                file,
+            })
             return
         }
-        status.error('🧨', 'blob_ingester_session_manager failed deleting flush buffer file ' + file + 'on flush', e)
-        captureException(e)
-        throw e
+        status.error('🧨', 'blob_ingester_session_manager failed deleting file ' + file, { err, file })
+        captureException(err)
+        throw err
     }
 }
 
