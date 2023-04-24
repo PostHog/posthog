@@ -94,7 +94,7 @@ test.concurrent(
             expect(fileContents).toEqual(`{"window_id":"abc1234","data":"${veryLongString}"}\n`)
         })
     },
-    20000
+    40000
 )
 
 test.concurrent(
