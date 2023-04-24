@@ -48,10 +48,6 @@ class PostHogConfig(AppConfig):
             else:
                 posthoganalytics.disabled = True
 
-        # load feature flag definitions if not already loaded
-        if posthoganalytics.feature_flag_definitions() is None:
-            posthoganalytics.default_client.load_feature_flags()
-
         if not settings.SKIP_SERVICE_VERSION_REQUIREMENTS:
             for service_version_requirement in settings.SERVICE_VERSION_REQUIREMENTS:
                 in_range, version = service_version_requirement.is_service_in_accepted_version()
