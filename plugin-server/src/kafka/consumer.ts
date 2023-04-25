@@ -171,10 +171,10 @@ export const disconnectConsumer = async (consumer: RdKafkaConsumer) => {
     await new Promise((resolve, reject) => {
         consumer.disconnect((error, data) => {
             if (error) {
-                status.error('🔥', 'Failed to disconnect session recordings consumer', { error })
+                status.error('🔥', 'Failed to disconnect noderd-kafka consumer', { error })
                 reject(error)
             } else {
-                status.info('🔁', 'Disconnected session recordings consumer')
+                status.info('🔁', 'Disconnected session noderd-kafka consumer')
                 resolve(data)
             }
         })

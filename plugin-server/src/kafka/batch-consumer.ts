@@ -163,7 +163,7 @@ export const startBatchConsumer = async ({
             // commit is allowed to complete before completing, or if in fact
             // disconnect itself handles committing offsets thus the previous
             // `commit()` call is redundant, but it shouldn't hurt.
-            await Promise.all([disconnectConsumer(consumer)])
+            await disconnectConsumer(consumer)
         }
     }
 

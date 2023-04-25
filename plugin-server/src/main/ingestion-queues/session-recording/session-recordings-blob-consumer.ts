@@ -172,7 +172,7 @@ export class SessionRecordingBlobIngester {
         status.info('🔁', 'Starting session recordings consumer')
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig as KafkaConfig)
-        const producer = await createKafkaProducer(connectionConfig)
+        this.producer = await createKafkaProducer(connectionConfig)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
@@ -248,7 +248,17 @@ export class SessionRecordingBlobIngester {
 
         // Make sure to disconnect the producer after we've finished consuming.
         this.batchConsumer.join().finally(async () => {
-            await disconnectProducer(producer)
+            if (this.producer && this.producer.isConnected()) {
+                status.debug('🔁', 'disconnecting kafka producer in session recordings batchConsumer finally')
+                await disconnectProducer(this.producer)
+            }
+        })
+
+        this.batchConsumer.consumer.on('disconnected', async (err) => {
+            // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
+            // we need to listen to disconnect and make sure we're stopped
+            status.info('🔁', 'Blob ingestion consumer disconnected, cleaning up', { err })
+            await this.stop()
         })
 
         // We trigger the flushes from this level to reduce the number of running timers
@@ -266,6 +276,10 @@ export class SessionRecordingBlobIngester {
             clearInterval(this.flushInterval)
         }
 
+        if (this.producer && this.producer.isConnected()) {
+            status.info('🔁', 'disconnecting kafka producer in session recordings batchConsumer stop')
+            await disconnectProducer(this.producer)
+        }
         await this.batchConsumer?.stop()
 
         // This is inefficient but currently necessary due to new instances restarting from the committed offset point
