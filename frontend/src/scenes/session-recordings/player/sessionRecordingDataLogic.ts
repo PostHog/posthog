@@ -375,50 +375,62 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return null
                     }
 
-                    const { startTimestamp, endTimestamp } = values.sessionPlayerData.metadata || {}
+                    const { metadata, person } = values.sessionPlayerData
+                    const { startTimestamp, endTimestamp } = metadata || {}
 
-                    const res: any = await api.query({
-                        kind: 'EventsQuery',
-                        select: [
-                            'uuid',
-                            'event',
-                            'timestamp',
-                            'elements_chain',
-                            'properties.$window_id',
-                            'properties.$current_url',
-                            'properties.$event_type',
-                        ],
-                        orderBy: ['timestamp ASC'],
-                        limit: 1000000,
-                        personId: values.sessionPlayerData.person.id,
-                        after: startTimestamp.subtract(BUFFER_MS, 'ms').format(),
-                        before: endTimestamp.add(BUFFER_MS, 'ms').format(),
-                        properties: [
-                            // TODO: Support loading events with no sessionId
+                    const [sessionEvents, relatedEvents]: any[] = await Promise.all(
+                        [
                             {
                                 key: '$session_id',
                                 value: [props.sessionRecordingId],
                                 operator: 'exact',
                                 type: 'event',
                             },
-                        ],
-                    })
-
-                    const minimalEvents = res.results.map((event: any): RecordingEventType => {
-                        return {
-                            id: event[0],
-                            event: event[1],
-                            timestamp: event[2],
-                            elements: chainToElements(event[3]),
-                            properties: {
-                                $window_id: event[4],
-                                $current_url: event[5],
-                                $event_type: event[6],
+                            {
+                                key: '$session_id',
+                                value: 'is_not_set',
+                                operator: 'is_not_set',
+                                type: 'event',
                             },
-                            playerTime: +dayjs(event[2]) - +startTimestamp,
-                            fullyLoaded: false,
+                        ].map((properties) =>
+                            api.query({
+                                kind: 'EventsQuery',
+                                select: [
+                                    'uuid',
+                                    'event',
+                                    'timestamp',
+                                    'elements_chain',
+                                    'properties.$window_id',
+                                    'properties.$current_url',
+                                    'properties.$event_type',
+                                ],
+                                orderBy: ['timestamp ASC'],
+                                limit: 1000000,
+                                personId: person.id,
+                                after: startTimestamp.subtract(BUFFER_MS, 'ms').format(),
+                                before: endTimestamp.add(BUFFER_MS, 'ms').format(),
+                                properties: [properties],
+                            })
+                        )
+                    )
+
+                    const minimalEvents = [...sessionEvents.results, ...relatedEvents.results].map(
+                        (event: any): RecordingEventType => {
+                            return {
+                                id: event[0],
+                                event: event[1],
+                                timestamp: event[2],
+                                elements: chainToElements(event[3]),
+                                properties: {
+                                    $window_id: event[4],
+                                    $current_url: event[5],
+                                    $event_type: event[6],
+                                },
+                                playerTime: +dayjs(event[2]) - +startTimestamp,
+                                fullyLoaded: false,
+                            }
                         }
-                    })
+                    )
                     // We should add a buffer here as some events may fall slightly outside the range
                     // .filter(
                     //     (x: RecordingEventType) =>
