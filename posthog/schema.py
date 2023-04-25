@@ -681,6 +681,59 @@ class EventsNode(BaseModel):
     response: Optional[Response] = Field(None, description="Return a limited set of data")
 
 
+class EventsQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    actionId: Optional[int] = Field(None, description="Show events matching a given action")
+    after: Optional[str] = Field(None, description="Only fetch events that happened after this timestamp")
+    before: Optional[str] = Field(None, description="Only fetch events that happened before this timestamp")
+    event: Optional[str] = Field(None, description="Limit to events matching this string")
+    fixedProperties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    kind: str = Field("EventsQuery", const=True)
+    limit: Optional[int] = Field(None, description="Number of rows to return")
+    offset: Optional[int] = Field(None, description="Number of rows to skip before returning rows")
+    orderBy: Optional[List[str]] = Field(None, description="Columns to order by")
+    personId: Optional[str] = Field(None, description="Show events for a given person")
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(None, description="Properties configurable in the interface")
+    response: Optional[EventsQueryResponse] = Field(None, description="Cached query response")
+    select: List[str] = Field(..., description="Return a limited set of data. Required.")
+    where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
+
+
 class NewEntityNode(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -849,6 +902,46 @@ class ActionsNode(BaseModel):
         ]
     ] = Field(None, description="Properties configurable in the interface")
     response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
+
+
+class DataTableNode(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    allowSorting: Optional[bool] = Field(
+        None, description="Can the user click on column headers to sort the table? (default: true)"
+    )
+    columns: Optional[List[str]] = Field(
+        None, description="Columns shown in the table, unless the `source` provides them."
+    )
+    expandable: Optional[bool] = Field(None, description="Can expand row to show raw event data (default: true)")
+    full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in scenes.")
+    hiddenColumns: Optional[List[str]] = Field(
+        None, description="Columns that aren't shown in the table, even if in columns or returned data"
+    )
+    kind: str = Field("DataTableNode", const=True)
+    propertiesViaUrl: Optional[bool] = Field(None, description="Link properties via the URL (default: false)")
+    showActions: Optional[bool] = Field(None, description="Show the kebab menu at the end of the row")
+    showColumnConfigurator: Optional[bool] = Field(
+        None, description="Show a button to configure the table's columns if possible"
+    )
+    showDateRange: Optional[bool] = Field(None, description="Show date range selector")
+    showElapsedTime: Optional[bool] = Field(None, description="Show the time it takes to run a query")
+    showEventFilter: Optional[bool] = Field(
+        None, description="Include an event filter above the table (EventsNode only)"
+    )
+    showExport: Optional[bool] = Field(None, description="Show the export button")
+    showHogQLEditor: Optional[bool] = Field(None, description="Include a HogQL query editor above HogQL tables")
+    showOpenEditorButton: Optional[bool] = Field(
+        None, description="Show a button to open the current query as a new insight. (default: true)"
+    )
+    showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
+    showReload: Optional[bool] = Field(None, description="Show a reload button")
+    showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
+    showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
+    source: Union[
+        EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode, HogQLQuery, TimeToSeeDataSessionsQuery
+    ] = Field(..., description="Source of the events")
 
 
 class PropertyGroupFilter(BaseModel):
@@ -1382,67 +1475,6 @@ class AnyPartialFilterTypeItem6(BaseModel):
     sampling_factor: Optional[float] = None
 
 
-class EventsQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    actionId: Optional[int] = Field(None, description="Show events matching a given action")
-    after: Optional[str] = Field(None, description="Only fetch events that happened after this timestamp")
-    before: Optional[str] = Field(None, description="Only fetch events that happened before this timestamp")
-    event: Optional[str] = Field(None, description="Limit to events matching this string")
-    fixedProperties: Optional[
-        List[
-            Union[
-                PropertyGroupFilter,
-                PropertyGroupFilterValue,
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                ],
-            ]
-        ]
-    ] = Field(
-        None,
-        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
-    )
-    kind: str = Field("EventsQuery", const=True)
-    limit: Optional[int] = Field(None, description="Number of rows to return")
-    offset: Optional[int] = Field(None, description="Number of rows to skip before returning rows")
-    orderBy: Optional[List[str]] = Field(None, description="Columns to order by")
-    personId: Optional[str] = Field(None, description="Show events for a given person")
-    properties: Optional[
-        List[
-            Union[
-                PropertyGroupFilter,
-                PropertyGroupFilterValue,
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                ],
-            ]
-        ]
-    ] = Field(None, description="Properties configurable in the interface")
-    response: Optional[EventsQueryResponse] = Field(None, description="Cached query response")
-    select: List[str] = Field(..., description="Return a limited set of data. Required.")
-    where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
-
-
 class FunnelsQuery(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -1569,46 +1601,6 @@ class PathsQuery(BaseModel):
         ]
     ] = Field(None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(None, description="Sampling rate")
-
-
-class DataTableNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    allowSorting: Optional[bool] = Field(
-        None, description="Can the user click on column headers to sort the table? (default: true)"
-    )
-    columns: Optional[List[str]] = Field(
-        None, description="Columns shown in the table, unless the `source` provides them."
-    )
-    expandable: Optional[bool] = Field(None, description="Can expand row to show raw event data (default: true)")
-    full: Optional[bool] = Field(None, description="Show with most visual options enabled. Used in scenes.")
-    hiddenColumns: Optional[List[str]] = Field(
-        None, description="Columns that aren't shown in the table, even if in columns or returned data"
-    )
-    kind: str = Field("DataTableNode", const=True)
-    propertiesViaUrl: Optional[bool] = Field(None, description="Link properties via the URL (default: false)")
-    showActions: Optional[bool] = Field(None, description="Show the kebab menu at the end of the row")
-    showColumnConfigurator: Optional[bool] = Field(
-        None, description="Show a button to configure the table's columns if possible"
-    )
-    showDateRange: Optional[bool] = Field(None, description="Show date range selector")
-    showElapsedTime: Optional[bool] = Field(None, description="Show the time it takes to run a query")
-    showEventFilter: Optional[bool] = Field(
-        None, description="Include an event filter above the table (EventsNode only)"
-    )
-    showExport: Optional[bool] = Field(None, description="Show the export button")
-    showHogQLEditor: Optional[bool] = Field(None, description="Include a HogQL query editor above HogQL tables")
-    showOpenEditorButton: Optional[bool] = Field(
-        None, description="Show a button to open the current query as a new insight. (default: true)"
-    )
-    showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
-    showReload: Optional[bool] = Field(None, description="Show a reload button")
-    showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
-    showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
-    source: Union[
-        EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode, HogQLQuery, TimeToSeeDataSessionsQuery
-    ] = Field(..., description="Source of the events")
 
 
 class InsightVizNode(BaseModel):
