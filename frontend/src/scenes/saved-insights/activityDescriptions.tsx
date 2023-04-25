@@ -12,7 +12,7 @@ import { FilterType, InsightModel, InsightShortId } from '~/types'
 import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { pluralize } from 'lib/utils'
+import { areObjectValuesEmpty, pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightQueryNode, QuerySchema } from '~/queries/schema'
@@ -67,14 +67,9 @@ const insightActionsMapping: Record<
         }
     },
     filters: function onChangedFilter(change) {
-        if (change?.action === 'deleted') {
-            // if the filter was deleted, then someone has added a query and that will be summarized
-            return null
-        }
-
         const filtersAfter = change?.after as Partial<FilterType>
 
-        return summarizeChanges(filtersAfter)
+        return areObjectValuesEmpty(filtersAfter) ? null : summarizeChanges(filtersAfter)
     },
     query: function onChangedQuery(change) {
         if (change?.action === 'deleted') {
