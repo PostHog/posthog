@@ -43,6 +43,18 @@ const defaultCreator = (values: BatchExportLogicType['values']): S3BatchExportCo
     fileName: DEFAULT_FILE_NAME as any,
 })
 
+const settingsValidation = (values: S3BatchExportConfigType): Record<string, string | undefined> => {
+    return {
+        name: values.name ? undefined : 'Name is required',
+        AWSAccessKeyID: values.AWSAccessKeyID ? undefined : 'AWS Access Key ID is required',
+        AWSSecretAccessKey: values.AWSSecretAccessKey ? undefined : 'AWS Secret Access Key is required',
+        AWSRegion: values.AWSRegion ? undefined : 'AWS Region is required',
+        AWSBucket: values.AWSBucket ? undefined : 'AWS Bucket is required',
+        fileFormat: values.fileFormat ? undefined : 'File format is required',
+        fileName: values.fileName ? undefined : 'File name is required',
+    }
+}
+
 export const DEFAULT_FILE_NAME = 'posthog-events/{year}/{month}/{day}/{hour}:{minute}:{second}/{partitionId}.csv'
 
 export const BatchExportLogic = kea<BatchExportLogicType>([
@@ -120,11 +132,7 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
     forms(({ values }) => ({
         batchExportSettings: {
             defaults: defaultCreator(values),
-            validate: (values: S3BatchExportConfigType) => {
-                return {
-                    name: values.name ? undefined : 'Name is required',
-                }
-            },
+            errors: settingsValidation,
             submit: async (values: S3BatchExportConfigType) => {
                 console.log('submitting', values)
 
