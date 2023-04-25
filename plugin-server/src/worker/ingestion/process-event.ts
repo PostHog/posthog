@@ -315,7 +315,7 @@ export const createSessionReplayEvent = (
 ) => {
     const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
 
-    const eventsSummaries: RRWebEventSummary[] = properties['$snapshot_data']['events_summary'] || []
+    const eventsSummaries: RRWebEventSummary[] = properties['$snapshot_data']?.['events_summary'] || []
     let clickCount = 0
     let keypressCount = 0
     let mouseActivity = 0
