@@ -169,12 +169,11 @@ export function cleanFilters(
     // set test account filter default from team and local storage settings
     if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
         // if the current _global_ value is true respect that over any local preference
-        if (localStorage.getItem('default_filter_test_accounts') === 'true') {
-            commonFilters.filter_test_accounts = true
+        if (localStorage.getItem('default_filter_test_accounts') !== null) {
+            commonFilters.filter_test_accounts = localStorage.getItem('default_filter_test_accounts') === 'true'
         } else if (!filters.filter_test_accounts && teamFilterTestAccounts !== undefined) {
             commonFilters.filter_test_accounts = teamFilterTestAccounts
         }
-        console.groupEnd()
     }
 
     if (isRetentionFilter(filters)) {

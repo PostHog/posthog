@@ -15,15 +15,16 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 import { compareFilters } from './utils/compareFilters'
+import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
     source: filtersToQueryNode(filters),
 })
 
-export const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
+export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
-    source: nodeKindToDefaultQuery[kind],
+    source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
 })
 
 export const insightDataLogic = kea<insightDataLogicType>([
@@ -38,6 +39,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             ['dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
         ],
         actions: [
             insightLogic,
@@ -72,12 +75,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         query: [
-            (s) => [s.insight, s.internalQuery],
-            (insight, internalQuery) =>
+            (s) => [s.insight, s.internalQuery, s.filterTestAccountsDefault],
+            (insight, internalQuery, filterTestAccountsDefault) =>
                 internalQuery ||
                 insight.query ||
                 (insight.filters && insight.filters.insight ? queryFromFilters(insight.filters) : undefined) ||
-                queryFromKind(NodeKind.TrendsQuery),
+                queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
         ],
 
         isQueryBasedInsight: [
