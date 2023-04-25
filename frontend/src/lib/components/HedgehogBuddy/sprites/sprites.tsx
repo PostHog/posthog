@@ -1,7 +1,6 @@
 import hhFall from 'public/hedgehog/sprites/fall.png'
 import hhJump from 'public/hedgehog/sprites/jump.png'
 import hhSign from 'public/hedgehog/sprites/sign.png'
-// import hhSpin from 'public/hedgehog/sprites/spin.png'
 import hhWalk from 'public/hedgehog/sprites/walk.png'
 import hhWave from 'public/hedgehog/sprites/wave.png'
 import hhHeatmaps from 'public/hedgehog/sprites/heatmaps.png'
@@ -89,12 +88,6 @@ export const standardAnimations: { [key: string]: SpriteInfo } = {
         forceDirection: 'right',
         randomChance: 1,
     },
-    // spin: {
-    //     img: hhSpin,
-    //     frames: 9,
-    //     maxIteration: 3,
-    //     randomChance: 2,
-    // },
     walk: {
         img: hhWalk,
         frames: 11,

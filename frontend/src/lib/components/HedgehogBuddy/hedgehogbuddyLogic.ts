@@ -42,12 +42,7 @@ export const hedgehogbuddyLogic = kea<hedgehogbuddyLogicType>([
         availableAccessories: [
             () => [],
             () => {
-                // Until we figure out how to do this - all accessories are available
                 return Object.keys(standardAccessories)
-                // return Object.keys(standardAccessories).filter((x) => {
-                //     const key = `hedgehog-accessory-${x}`
-                //     return featureFlags[key]
-                // })
             },
         ],
     }),
