@@ -49,13 +49,13 @@ export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { 
     return (
         <LemonIconBase {...props}>
             {/* top-right */}
-            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : '#1D4AFF'} fillOpacity={1} />
+            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : 'var(--brand-blue)'} fillOpacity={1} />
             {/* top-left */}
             <circle
                 cx="7"
                 cy="7.574"
                 r="3"
-                fill={monocolor ? 'currentColor' : '#F9BD2B'}
+                fill={monocolor ? 'currentColor' : 'var(--brand-yellow)'}
                 fillOpacity={monocolor ? 0.75 : 1}
             />
 
@@ -64,7 +64,7 @@ export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { 
                 cx="7"
                 cy="17.574"
                 r="3"
-                fill={monocolor ? 'currentColor' : '#F54E00'}
+                fill={monocolor ? 'currentColor' : 'var(--brand-red)'}
                 fillOpacity={monocolor ? 0.5 : 1}
             />
             {/* bottom-right */}
@@ -72,7 +72,7 @@ export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { 
                 cx="17"
                 cy="17.574"
                 r="3"
-                fill={monocolor ? 'currentColor' : '#000000'}
+                fill={monocolor ? 'currentColor' : 'var(--brand-key)'}
                 fillOpacity={monocolor ? 0.25 : 1}
             />
         </LemonIconBase>

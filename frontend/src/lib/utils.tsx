@@ -1308,7 +1308,7 @@ export function humanTzOffset(timezone?: string): string {
 }
 
 /** Join array of string into a list ("a, b, and c"). Uses the Oxford comma, but only if there are at least 3 items. */
-export function humanList(arr: string[]): string {
+export function humanList(arr: readonly string[]): string {
     return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.slice(-1) : arr.join(' and ')
 }
 
@@ -1668,4 +1668,10 @@ export function insightUrlForEvent(event: EventType): string | undefined {
 
 export function inStorybookTestRunner(): boolean {
     return navigator.userAgent.includes('StorybookTestRunner')
+}
+
+export function shouldCancelQuery(error: any): boolean {
+    // We cancel queries "manually" when the request times out or is aborted since in these cases
+    // the query will continue running in ClickHouse
+    return error.name === 'AbortError' || error.message?.name === 'AbortError' || error.status === 504
 }

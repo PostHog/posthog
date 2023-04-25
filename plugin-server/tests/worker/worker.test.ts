@@ -1,14 +1,16 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { DateTime } from 'luxon'
 
+import { defaultConfig } from '../../src/config/config'
 import { loadPluginSchedule } from '../../src/main/graphile-worker/schedule'
-import { Hub, PreIngestionEvent } from '../../src/types'
+import { Hub, LogLevel, PreIngestionEvent } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { ActionManager } from '../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../src/worker/ingestion/action-matcher'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { makePiscina } from '../../src/worker/piscina'
 import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
 import { runPluginTask } from '../../src/worker/plugins/run'
 import { setupPlugins } from '../../src/worker/plugins/setup'
@@ -16,6 +18,7 @@ import { teardownPlugins } from '../../src/worker/plugins/teardown'
 import { createTaskRunner } from '../../src/worker/worker'
 import { resetTestDatabase } from '../helpers/sql'
 import { setupPiscina } from '../helpers/worker'
+import { cachedMmdbPluginAttachment } from './plugins/mmdb.test'
 
 jest.mock('../../src/worker/ingestion/action-manager')
 jest.mock('../../src/worker/ingestion/action-matcher')
@@ -124,6 +127,54 @@ describe('worker', () => {
         await delay(300)
         expect(piscina.queueSize).toBe(0)
         expect(piscina.completed).toBe(10 + 2)
+
+        try {
+            await piscina.destroy()
+        } catch {}
+    })
+
+    test('geoip capability is available to plugins', async () => {
+        const testCode = `
+        async function processEvent (event, { geoip }) {
+            const record = await geoip.locate(event.ip)
+            event.properties['city'] = record?.city.names.en ?? 'unknown'
+            return event
+        }
+    `
+        await resetTestDatabase(testCode, undefined, {
+            pluginAttachments: [cachedMmdbPluginAttachment],
+        })
+        const piscina = makePiscina({
+            ...defaultConfig,
+            LOG_LEVEL: LogLevel.Log,
+            DISABLE_MMDB: false,
+        })
+
+        const runGeoIp = async (ip: string) => {
+            const result = await piscina.run({
+                task: 'runEventPipeline',
+                args: {
+                    event: {
+                        ip: ip,
+                        distinct_id: 'my_id',
+                        site_url: 'http://localhost',
+                        team_id: 2,
+                        now: new Date().toISOString(),
+                        event: 'default event',
+                        properties: { key: 'value' },
+                        uuid: new UUIDT().toString(),
+                    },
+                },
+            })
+            const resultEvent = result.args[0]
+            return { ...result, event: resultEvent }
+        }
+
+        const ingestResponse1 = await runGeoIp('89.160.20.129')
+        expect(ingestResponse1.event.properties.city).toBe('Linköping')
+
+        const ingestResponse2 = await runGeoIp('not_an_ip')
+        expect(ingestResponse2.event.properties.city).toBe('unknown')
 
         try {
             await piscina.destroy()

@@ -1,5 +1,5 @@
 .LemonInput {
-    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
+    transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease, opacity 200ms ease;
     display: flex;
     min-height: 2.5rem;
     padding: 0.25rem 0.5rem;
@@ -51,7 +51,7 @@
         flex-shrink: 0;
     }
 
-    &--small {
+    &.LemonInput--small {
         min-height: 2rem;
         padding: 0.125rem 0.25rem;
 
@@ -60,23 +60,23 @@
         }
     }
 
-    &--has-content {
+    &.LemonInput--has-content {
         > .LemonIcon {
             color: var(--primary);
         }
     }
 
-    &--focused {
+    &.LemonInput--focused {
         &:not(.LemonInput--disabled) {
             border: 1px solid var(--primary);
         }
     }
 
-    &--type-search {
+    &.LemonInput--type-search {
         // NOTE Design: Search inputs are given a specific small width
         max-width: 240px;
     }
-    &--full-width {
+    &.LemonInput--full-width {
         width: 100%;
         max-width: 100%;
     }

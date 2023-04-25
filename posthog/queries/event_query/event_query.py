@@ -91,12 +91,7 @@ class EventQuery(metaclass=ABCMeta):
 
         self._should_round_interval = round_interval
 
-        if person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
-            self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
-        elif person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
-            self._person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
-        else:
-            self._person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        self._person_id_alias = self._get_person_id_alias(person_on_events_mode)
 
     @abstractmethod
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
@@ -105,6 +100,14 @@ class EventQuery(metaclass=ABCMeta):
     @abstractmethod
     def _determine_should_join_distinct_ids(self) -> None:
         pass
+
+    def _get_person_id_alias(self, person_on_events_mode) -> str:
+        if person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            return f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
+        elif person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+            return f"{self.EVENT_TABLE_ALIAS}.person_id"
+
+        return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
 
     def _get_person_ids_query(self) -> str:
         if not self._should_join_distinct_ids:

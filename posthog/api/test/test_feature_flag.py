@@ -1,7 +1,7 @@
 import datetime
 import json
 from typing import Dict, List, Optional
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.core.cache import cache
 from django.db import connection
@@ -199,6 +199,7 @@ class TestFeatureFlag(APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "alpha-feature",
                         "short_id": None,
                     },
@@ -498,6 +499,7 @@ class TestFeatureFlag(APIBaseTest):
                             },
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": "a-feature-flag-that-is-updated",
                         "short_id": None,
                     },
@@ -511,6 +513,7 @@ class TestFeatureFlag(APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "a-feature-flag-that-is-updated",
                         "short_id": None,
                     },
@@ -580,6 +583,7 @@ class TestFeatureFlag(APIBaseTest):
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -593,6 +597,7 @@ class TestFeatureFlag(APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -648,7 +653,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:29:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(second_flag_id),
-                    "detail": {"changes": None, "trigger": None, "name": "flag-two", "short_id": None},
+                    "detail": {"changes": None, "trigger": None, "type": None, "name": "flag-two", "short_id": None},
                 },
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
@@ -667,6 +672,7 @@ class TestFeatureFlag(APIBaseTest):
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -680,6 +686,7 @@ class TestFeatureFlag(APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "feature_with_activity",
                         "short_id": None,
                     },
@@ -2009,7 +2016,7 @@ class TestFeatureFlag(APIBaseTest):
 
         activity: List[Dict] = activity_response["results"]
         self.maxDiff = None
-        self.assertEqual(activity, expected)
+        assert activity == expected
 
     def test_patch_api_as_form_data(self):
         another_feature_flag = FeatureFlag.objects.create(
@@ -2607,7 +2614,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 class QueryTimeoutWrapper:
     def __call__(self, execute, *args, **kwargs):
 
-        raise OperationalError("I am a timeout error")
+        raise OperationalError("canceling statement due to statement timeout")
         # return execute(*args, **kwargs)
 
 
@@ -2715,7 +2722,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue("default-flag" not in all_flags)
                 self.assertTrue(errors)
 
-    def test_feature_flags_v3_with_person_properties(self):
+    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
+    def test_feature_flags_v3_with_person_properties(self, mock_counter):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
@@ -2785,6 +2793,10 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
 
+                mock_counter.labels.assert_called_once_with(reason="timeout")
+                mock_counter.labels.return_value.inc.assert_called_once_with()
+
+            mock_counter.reset_mock()
             # # now db is down, but decide was sent email parameter with different email
             with self.assertNumQueries(0):
                 all_flags, _, _, errors = get_all_feature_flags(
@@ -2793,6 +2805,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertFalse(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
+
+                mock_counter.labels.assert_not_called()
 
     def test_feature_flags_v3_with_a_working_slow_db(self):
         self.organization = Organization.objects.create(name="test")
@@ -2875,7 +2889,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
 
-    def test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again(self):
+    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
+    def test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again(self, mock_counter):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
@@ -2948,7 +2963,17 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertTrue(all_flags["default-flag"])
             self.assertTrue(errors)
 
-    def test_feature_flags_v3_with_group_properties_and_slow_db(self):
+            mock_counter.labels.assert_has_calls(
+                [
+                    call(reason="timeout"),
+                    call().inc(),
+                    call(reason="flag_condition_retry"),
+                    call().inc(),
+                ]
+            )
+
+    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
+    def test_feature_flags_v3_with_group_properties_and_slow_db(self, mock_counter):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "randomXYZ@test.com", "password", "first_name")
@@ -3032,6 +3057,15 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue("default-flag" not in all_flags)
                 self.assertTrue(errors)
 
+                mock_counter.labels.assert_has_calls(
+                    [
+                        call(reason="timeout"),
+                        call().inc(),
+                        call(reason="group_mapping_retry"),
+                        call().inc(),
+                    ]
+                )
+
             # # now db is down, but decide was sent different group property overrides
             with self.assertNumQueries(2):
                 all_flags, _, _, errors = get_all_feature_flags(
@@ -3045,7 +3079,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue("default-flag" not in all_flags)
                 self.assertTrue(errors)
 
-    def test_feature_flags_v3_with_experience_continuity_working_slow_db(self):
+    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
+    def test_feature_flags_v3_with_experience_continuity_working_slow_db(self, mock_counter):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random12@test.com", "password", "first_name")
@@ -3118,3 +3153,10 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue("property-flag" not in all_flags)
                 self.assertTrue(all_flags["default-flag"])
                 self.assertTrue(errors)
+
+            mock_counter.labels.assert_has_calls(
+                [
+                    call(reason="timeout"),
+                    call().inc(),
+                ]
+            )

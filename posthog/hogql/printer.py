@@ -60,11 +60,10 @@ def prepare_ast_for_printing(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> ast.Expr:
-    type = stack[-1].type if stack else None
 
     context.database = context.database or create_hogql_database(context.team_id)
     node = expand_macros(node, stack)
-    resolve_types(node, context.database, type)
+    node = resolve_types(node, context.database, stack)
     expand_asterisks(node)
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
@@ -153,7 +152,8 @@ class _Printer(Visitor):
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
             if next_join.type is None:
-                raise HogQLException("Printing queries with a FROM clause is not permitted before type resolution")
+                if self.dialect == "clickhouse":
+                    raise HogQLException("Printing queries with a FROM clause is not permitted before type resolution")
 
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
@@ -456,6 +456,11 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
+                if (clickhouse_name == "now64" and len(args) == 0) or (
+                    clickhouse_name == "toDateTime64OrNull" and len(args) == 1
+                ):
+                    # must add precision if adding timezone in the next step
+                    args.append("6")
                 if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
                 return f"{clickhouse_name}({', '.join(args)})"

@@ -12,7 +12,7 @@ class TestAsteriskExpander(BaseTest):
 
     def test_asterisk_expander_table(self):
         node = parse_select("select * from events")
-        resolve_types(node, self.database)
+        node = resolve_types(node, self.database)
         expand_asterisks(node)
         events_table_type = ast.TableType(table=self.database.events)
         self.assertEqual(
@@ -32,7 +32,7 @@ class TestAsteriskExpander(BaseTest):
 
     def test_asterisk_expander_table_alias(self):
         node = parse_select("select * from events e")
-        resolve_types(node, self.database)
+        node = resolve_types(node, self.database)
         expand_asterisks(node)
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
@@ -62,7 +62,7 @@ class TestAsteriskExpander(BaseTest):
 
     def test_asterisk_expander_subquery(self):
         node = parse_select("select * from (select 1 as a, 2 as b)")
-        resolve_types(node, self.database)
+        node = resolve_types(node, self.database)
         expand_asterisks(node)
         select_subquery_type = ast.SelectQueryType(
             aliases={
@@ -86,7 +86,7 @@ class TestAsteriskExpander(BaseTest):
 
     def test_asterisk_expander_subquery_alias(self):
         node = parse_select("select x.* from (select 1 as a, 2 as b) x")
-        resolve_types(node, self.database)
+        node = resolve_types(node, self.database)
         expand_asterisks(node)
         select_subquery_type = ast.SelectQueryAliasType(
             alias="x",
@@ -113,7 +113,7 @@ class TestAsteriskExpander(BaseTest):
 
     def test_asterisk_expander_from_subquery_table(self):
         node = parse_select("select * from (select * from events)")
-        resolve_types(node, self.database)
+        node = resolve_types(node, self.database)
         expand_asterisks(node)
 
         events_table_type = ast.TableType(table=self.database.events)
@@ -151,14 +151,14 @@ class TestAsteriskExpander(BaseTest):
     def test_asterisk_expander_multiple_table_error(self):
         node = parse_select("select * from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a")
         with self.assertRaises(ResolverException) as e:
-            resolve_types(node, self.database)
+            node = resolve_types(node, self.database)
         self.assertEqual(
             str(e.exception), "Cannot use '*' without table name when there are multiple tables in the query"
         )
 
     def test_asterisk_expander_select_union(self):
         node = parse_select("select * from (select * from events union all select * from events)")
-        resolve_types(node, self.database)
+        node = resolve_types(node, self.database)
         expand_asterisks(node)
 
         events_table_type = ast.TableType(table=self.database.events)

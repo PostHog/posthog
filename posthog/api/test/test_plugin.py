@@ -86,6 +86,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                         "name": "helloworldplugin",
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "short_id": None,
                     },
                 }
@@ -296,6 +297,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                         "name": "helloworldplugin",
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "short_id": None,
                     },
                 },
@@ -309,6 +311,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                         "name": "helloworldplugin",
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "short_id": None,
                     },
                 },
@@ -1271,6 +1274,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "helloworldplugin",
                         "short_id": None,
                     },
@@ -1284,6 +1288,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "detail": {
                         "changes": [],
                         "trigger": None,
+                        "type": None,
                         "name": "helloworldplugin",
                         "short_id": None,
                     },

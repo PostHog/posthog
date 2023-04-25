@@ -1,10 +1,12 @@
 import { Link, TZLabel } from '@posthog/apps-common'
 import clsx from 'clsx'
 import { isDayjs } from 'lib/dayjs'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconEllipsis } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { BasicListItem, ExtendedListItem, ExtraListItemContext } from '../types'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonButton } from '@posthog/lemon-ui'
 
 interface SidebarAccordionProps {
     title: string
@@ -47,53 +49,116 @@ export function SidebarAccordion({ title, items, activeItemKey, loading = false 
     )
 }
 
-interface SidebarListProps {
+export function SidebarList({
+    items,
+    activeItemKey,
+}: {
     items: BasicListItem[] | ExtendedListItem[]
     activeItemKey: BasicListItem['key'] | null
-}
-
-export function SidebarList({ items, activeItemKey }: SidebarListProps): JSX.Element {
+}): JSX.Element {
     return (
         <ul className="SidebarList">
             {items.map((item) => (
-                <li
-                    key={item.key}
-                    title={item.name}
-                    className={clsx(
-                        'SidebarList__item',
-                        item.marker && `SidebarList__item--marker-${item.marker.type}`,
-                        item.marker?.status && `SidebarList__item--marker-status-${item.marker.status}`,
-                        'summary' in item && 'SidebarList__item--extended'
-                    )}
-                    aria-current={item.key === activeItemKey ? 'page' : undefined}
-                >
-                    {' '}
-                    <Link to={item.url}>
-                        {'summary' in item ? (
-                            <>
-                                <div className="flex space-between gap-1">
-                                    <h5 className="flex-1">{item.name}</h5>
-                                    <div>
-                                        <ExtraContext data={item.extraContextTop} />
-                                    </div>
-                                </div>
-                                <div className="flex space-between gap-1">
-                                    <div className="flex-1 overflow-hidden text-ellipsis">{item.summary}</div>
-                                    <div>
-                                        <ExtraContext data={item.extraContextBottom} />
-                                    </div>
-                                </div>
-                            </>
-                        ) : (
-                            <h5>{item.name}</h5>
-                        )}
-                    </Link>
-                </li>
+                <SidebarListItem key={item.key} item={item} active={item.key === activeItemKey} />
             ))}
         </ul>
     )
 }
 
+function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListItem; active: boolean }): JSX.Element {
+    const [isMenuOpen, setIsMenuOpen] = useState(false)
+
+    const formattedName = item.searchMatch?.nameHighlightRanges?.length ? (
+        <TextWithHighlights ranges={item.searchMatch.nameHighlightRanges}>{item.name}</TextWithHighlights>
+    ) : (
+        item.name
+    )
+
+    return (
+        <li
+            title={item.name}
+            className={clsx(
+                'SidebarListItem',
+                !!item.menuItems && 'SidebarListItem--has-menu',
+                isMenuOpen && 'SidebarListItem--is-menu-open',
+                !!item.marker && `SidebarListItem--marker-${item.marker.type}`,
+                !!item.marker?.status && `SidebarListItem--marker-status-${item.marker.status}`,
+                'summary' in item && 'SidebarListItem--extended'
+            )}
+            aria-current={active ? 'page' : undefined}
+        >
+            <Link to={item.url} className="SidebarListItem__link">
+                {'summary' in item ? (
+                    <>
+                        <div className="flex space-between gap-1">
+                            <h5 className="flex-1">{formattedName}</h5>
+                            <div>
+                                <ExtraContext data={item.extraContextTop} />
+                            </div>
+                        </div>
+                        <div className="flex space-between gap-1">
+                            <div className="flex-1 overflow-hidden text-ellipsis">
+                                {item.searchMatch
+                                    ? `Matching fields: ${item.searchMatch.matchingFields
+                                          .map((field) => field.replace(/_/g, ' '))
+                                          .join(', ')}`
+                                    : item.summary}
+                            </div>
+                            <div>
+                                <ExtraContext data={item.extraContextBottom} />
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <h5>{formattedName}</h5>
+                )}
+            </Link>
+            {item.menuItems && (
+                <LemonMenu items={item.menuItems} onVisibilityChange={setIsMenuOpen}>
+                    <div className="SidebarListItem__menu">
+                        <LemonButton size="small" icon={<IconEllipsis />} />
+                    </div>
+                </LemonMenu>
+            )}
+        </li>
+    )
+}
+
+/** Text with specified ranges highlighted by increased font weight. Great for higlighting search term matches. */
+function TextWithHighlights({
+    children,
+    ranges,
+}: {
+    children: string
+    ranges: readonly [number, number][]
+}): JSX.Element {
+    const segments: JSX.Element[] = []
+    let previousBoldEnd = 0
+    let segmentIndex = 0
+    // Divide the item name into bold and regular segments
+    for (let i = 0; i < ranges.length; i++) {
+        const [currentBoldStart, currentBoldEnd] = ranges[i]
+        if (currentBoldStart > previousBoldEnd) {
+            segments.push(
+                <React.Fragment key={segmentIndex}>{children.slice(previousBoldEnd, currentBoldStart)}</React.Fragment>
+            )
+            segmentIndex++
+        }
+        segments.push(<b key={segmentIndex}>{children.slice(currentBoldStart, currentBoldEnd)}</b>)
+        segmentIndex++
+        previousBoldEnd = currentBoldEnd
+    }
+    // If there is a non-highlighted segment left at the end, add it now
+    if (previousBoldEnd < children.length) {
+        segments.push(
+            <React.Fragment key={segmentIndex}>{children.slice(previousBoldEnd, children.length)}</React.Fragment>
+        )
+    }
+
+    return <>{segments}</>
+}
+
+/** Smart rendering of list item extra context. */
 function ExtraContext({ data }: { data: ExtraListItemContext }): JSX.Element {
     return isDayjs(data) ? <TZLabel time={data} /> : <>{data}</>
 }

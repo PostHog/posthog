@@ -28,7 +28,13 @@ export function PathCleanFilterAddItemButton({ onAdd }: PathCleanFilterAddItemBu
                 />
             }
         >
-            <LemonButton onClick={() => setVisible(!visible)} type="secondary" size="small" icon={<IconPlus />}>
+            <LemonButton
+                onClick={() => setVisible(!visible)}
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                sideIcon={null}
+            >
                 Add rule
             </LemonButton>
         </Popover>

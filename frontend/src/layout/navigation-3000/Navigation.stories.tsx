@@ -1,13 +1,13 @@
 import { Meta } from '@storybook/react'
-import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { useActions } from 'kea'
 import { themeLogic } from './themeLogic'
+import { with3000 } from 'storybook/decorators/with3000'
 
 export default {
     title: 'PostHog 3000/Navigation',
@@ -21,6 +21,7 @@ export default {
                 '/api/projects/:team_id/session_recordings/': EMPTY_PAGINATED_RESPONSE,
             },
         }),
+        with3000,
     ],
     parameters: {
         layout: 'fullscreen',
@@ -32,7 +33,6 @@ export default {
 
 export function LightMode(): JSX.Element {
     const { syncDarkModePreference } = useActions(themeLogic)
-    useFeatureFlags([FEATURE_FLAGS.POSTHOG_3000])
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
         syncDarkModePreference(false)
@@ -43,7 +43,6 @@ export function LightMode(): JSX.Element {
 
 export function DarkMode(): JSX.Element {
     const { syncDarkModePreference } = useActions(themeLogic)
-    useFeatureFlags([FEATURE_FLAGS.POSTHOG_3000])
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
         syncDarkModePreference(true)
