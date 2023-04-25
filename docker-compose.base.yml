@@ -167,6 +167,16 @@ services:
         image: temporalio/admin-tools:1.20.0
         stdin_open: true
         tty: true
+    temporal-add-search-attributes:
+        command: add-search-attributes
+        depends_on:
+            - temporal
+        environment:
+            - TEMPORAL_CLI_ADDRESS=temporal:7233
+        entrypoint: bash
+        image: temporalio/admin-tools:1.20.0
+        volumes:
+            - ./bin/add-search-attributes:/usr/local/bin/add-search-attributes
     temporal-ui:
         depends_on:
             - temporal

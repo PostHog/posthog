@@ -83,6 +83,10 @@ services:
             service: temporal
         ports:
             - 7233:7233
+    temporal-add-search-attributes:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-add-search-attributes
     temporal-admin-tools:
         extends:
             file: docker-compose.base.yml
