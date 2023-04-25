@@ -4,6 +4,7 @@ import {
     PerformanceEvent,
     RecordingConsoleLogV2,
     RecordingEventType,
+    RecordingMinimalEventType,
     RRWebRecordingConsoleLogPayload,
     SessionRecordingPlayerTab,
 } from '~/types'
@@ -102,7 +103,7 @@ type InspectorListItemBase = {
 
 export type InspectorListItemEvent = InspectorListItemBase & {
     type: SessionRecordingPlayerTab.EVENTS
-    data: RecordingEventType
+    data: RecordingMinimalEventType
 }
 
 export type InspectorListItemConsole = InspectorListItemBase & {
@@ -139,8 +140,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
                 'sessionPlayerSnapshotDataLoading',
-                'sessionEventsData',
-                'sessionEventsDataLoading',
+                'minimalRelatedEventsData',
+                'minimalRelatedEventsDataLoading',
                 'windowIds',
             ],
             sessionRecordingPlayerLogic(props),
@@ -293,7 +294,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         allItems: [
-            (s) => [s.recordingTimeInfo, s.allPerformanceEvents, s.consoleLogs, s.sessionEventsData, s.matchingEvents],
+            (s) => [
+                s.recordingTimeInfo,
+                s.allPerformanceEvents,
+                s.consoleLogs,
+                s.minimalRelatedEventsData,
+                s.matchingEvents,
+            ],
             (recordingTimeInfo, performanceEvents, consoleLogs, eventsData, matchingEvents): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -351,7 +358,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     })
                 }
 
-                for (const event of eventsData?.events || []) {
+                for (const event of eventsData || []) {
                     const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
 
                     const timestamp = dayjs(event.timestamp)
@@ -598,11 +605,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         tabsState: [
             (s) => [
-                s.sessionEventsDataLoading,
+                s.minimalRelatedEventsDataLoading,
                 s.performanceEventsLoading,
                 s.sessionPlayerMetaDataLoading,
                 s.sessionPlayerSnapshotDataLoading,
-                s.sessionEventsData,
+                s.minimalRelatedEventsData,
                 s.consoleLogs,
                 s.allPerformanceEvents,
             ],
@@ -618,11 +625,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 return {
                     [SessionRecordingPlayerTab.ALL]: 'ready',
                     [SessionRecordingPlayerTab.EVENTS]:
-                        sessionEventsDataLoading || !events?.events
-                            ? 'loading'
-                            : events?.events.length
-                            ? 'ready'
-                            : 'empty',
+                        sessionEventsDataLoading || !events ? 'loading' : events?.length ? 'ready' : 'empty',
                     [SessionRecordingPlayerTab.CONSOLE]:
                         sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !logs
                             ? 'loading'

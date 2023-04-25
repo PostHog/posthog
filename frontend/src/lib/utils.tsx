@@ -697,7 +697,7 @@ export function truncate(str: string, maxLength: number): string {
 }
 
 export function eventToDescription(
-    event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>,
+    event: Pick<EventType, 'elements' | 'event' | 'properties'>,
     shortForm: boolean = false
 ): string {
     if (['$pageview', '$pageleave'].includes(event.event)) {
