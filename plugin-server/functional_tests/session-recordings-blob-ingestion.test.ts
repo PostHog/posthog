@@ -9,7 +9,6 @@ import { UUIDT } from '../src/utils/utils'
 import { capture, createOrganization, createTeam } from './api'
 import { waitForExpect } from './expectations'
 
-// let kafka: Kafka
 let organizationId: string
 
 let s3: S3Client
