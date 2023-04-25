@@ -19,7 +19,7 @@ import { BillingGauge } from './BillingGauge'
 import { billingLogic } from '../billingLogic'
 import { BillingLimitInput } from './BillingLimitInput'
 import { billingProductLogic } from './billingProductLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { PlanComparisonModal } from './PlanComparisonModal'
@@ -201,21 +201,23 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         { title: 'Projected Total', dataIndex: 'projectedTotal' },
     ]
 
+    type TableTierDatum = {
+        volume: string
+        basePrice: string
+        [addonPrice: string]: string
+        usage: string
+        total: string
+        projectedTotal: string
+    }
+
     // TODO: SUPPORT NON-TIERED PRODUCT TYPES
     // still use the table, but the data will be different
-    const tableTierData:
-        | {
-              volume: string
-              basePrice: string
-              [addonPrice: string]: string
-              usage: string
-              total: string
-              projectedTotal: string
-          }[]
-        | undefined = product.tiers
+    const tableTierData: TableTierDatum[] | undefined = product.tiers
         ?.map((tier, i) => {
             const addonPricesForTier = product.addons?.map((addon) => ({
-                [`${addon.type}-price`]: `$${addon.tiers?.[i].unit_amount_usd}`,
+                [`${addon.type}-price`]: `${
+                    addon.tiers?.[i].unit_amount_usd !== '0' ? '$' + addon.tiers?.[i].unit_amount_usd : 'Free'
+                }`,
             }))
             // take the tier.current_amount_usd and add it to the same tier level for all the addons
             const totalForTier =
@@ -228,7 +230,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             const tierData = {
                 volume: getTierDescription(tier, i, product, billing?.billing_period?.interval || ''),
                 basePrice: tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free',
-                usage: summarizeUsage(tier.current_usage),
+                usage: compactNumber(tier.current_usage),
                 total: `$${totalForTier || '0.00'}`,
                 projectedTotal: `$${projectedTotalForTier || '0.00'}`,
             }
@@ -242,7 +244,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         .concat({
             volume: 'Total',
             basePrice: '',
-            usage: `${summarizeUsage(product.current_usage ?? 0)}`,
+            usage: `${compactNumber(product.current_usage ?? 0)}`,
             total: `$${product.current_amount_usd || '0.00'}`,
             // TODO: Make sure this projected total includes addons
             projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
