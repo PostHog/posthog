@@ -291,8 +291,8 @@ export function FunnelCorrelationTableComponent({
                             <Empty />
                         ) : (
                             <p style={{ margin: 'auto', maxWidth: 500 }}>
-                                Correlated events highlights events users have also performed that are likely to have
-                                affected their conversion rate within the funnel.{' '}
+                                Highlight events which are likely to have affected the conversion rate within the
+                                funnel.{' '}
                                 <Link to="https://posthog.com/manual/correlation">
                                     Learn more about correlation analysis.
                                 </Link>

@@ -1,5 +1,5 @@
 import { defaultConfig } from './config/config'
-import { connectObjectStorage } from './main/services/object_storage'
+import { getObjectStorage } from './main/services/object_storage'
 import { status } from './utils/status'
 import { createRedis } from './utils/utils'
 
@@ -23,11 +23,11 @@ const redisHealthcheck = async (): Promise<boolean> => {
 }
 
 const storageHealthcheck = async (): Promise<boolean> => {
-    if (!defaultConfig.OBJECT_STORAGE_ENABLED) {
+    const storage = getObjectStorage(defaultConfig)
+
+    if (!storage) {
         return true
     }
-
-    const storage = connectObjectStorage(defaultConfig)
     try {
         const storageHealthy = await storage.healthcheck()
         if (storageHealthy) {

@@ -1346,7 +1346,7 @@ export interface PluginType {
     organization_id: string
     organization_name: string
     metrics?: Record<string, StoredMetricMathOperations>
-    capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
+    capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[] | undefined>
     public_jobs?: Record<string, JobSpec>
 }
 
@@ -1580,7 +1580,6 @@ export interface TrendsFilterType extends FilterType {
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
-
     show_values_on_series?: boolean
 }
 export interface StickinessFilterType extends FilterType {
@@ -1590,7 +1589,6 @@ export interface StickinessFilterType extends FilterType {
     stickiness_days?: number
     shown_as?: ShownAsValue
     display?: ChartDisplayType
-
     show_values_on_series?: boolean
 }
 export interface FunnelsFilterType extends FilterType {

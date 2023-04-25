@@ -15,7 +15,16 @@ from posthog.models.utils import UUIDT, UUIDModel
 
 logger = structlog.get_logger(__name__)
 
-ActivityScope = Literal["FeatureFlag", "Person", "Insight", "Plugin", "PluginConfig", "SessionRecordingPlaylist"]
+ActivityScope = Literal[
+    "FeatureFlag",
+    "Person",
+    "Insight",
+    "Plugin",
+    "PluginConfig",
+    "SessionRecordingPlaylist",
+    "EventDefinition",
+    "PropertyDefinition",
+]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
 
@@ -41,6 +50,7 @@ class Detail:
     trigger: Optional[Trigger] = None
     name: Optional[str] = None
     short_id: Optional[str] = None
+    type: Optional[str] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
@@ -87,7 +97,7 @@ class ActivityLog(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
 
-field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist"], List[str]] = {
+field_exclusions: Dict[ActivityScope, List[str]] = {
     "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag", "experiment", "team", "featureflagoverride"],
     "Person": [
         "id",
@@ -132,6 +142,38 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight", "SessionRecor
         "caching_states",
     ],
     "SessionRecordingPlaylist": ["id", "short_id", "created_at", "created_by", "last_modified_at", "last_modified_by"],
+    "EventDefinition": [
+        "eventdefinition_ptr_id",
+        "id",
+        "created_at",
+        "_state",
+        "deprecated_tags",
+        "team_id",
+        "updated_at",
+        "owner_id",
+        "query_usage_30_day",
+        "verified_at",
+        "verified_by",
+        "updated_by",
+        "post_to_slack",
+    ],
+    "PropertyDefinition": [
+        "propertydefinition_ptr_id",
+        "id",
+        "created_at",
+        "_state",
+        "deprecated_tags",
+        "team_id",
+        "updated_at",
+        "owner_id",
+        "query_usage_30_day",
+        "volume_30_day",
+        "verified_at",
+        "verified_by",
+        "updated_by",
+        "post_to_slack",
+        "property_type_format",
+    ],
 }
 
 
@@ -207,7 +249,9 @@ def changes_between(
     return changes
 
 
-def dict_changes_between(model_type: ActivityScope, previous: Dict[Any, Any], new: Dict[Any, Any]) -> List[Change]:
+def dict_changes_between(
+    model_type: ActivityScope, previous: Dict[Any, Any], new: Dict[Any, Any], use_field_exclusions: bool = False
+) -> List[Change]:
     """
     Identifies changes between two dictionaries by comparing fields
     """
@@ -220,6 +264,8 @@ def dict_changes_between(model_type: ActivityScope, previous: Dict[Any, Any], ne
     new = new or {}
 
     fields = set(list(previous.keys()) + list(new.keys()))
+    if use_field_exclusions:
+        fields = fields - set(field_exclusions.get(model_type, []))
 
     for field in fields:
         previous_value = previous.get(field, None)
@@ -238,7 +284,7 @@ def dict_changes_between(model_type: ActivityScope, previous: Dict[Any, Any], ne
 
 
 def log_activity(
-    organization_id: UUIDT,
+    organization_id: Optional[UUIDT],
     team_id: int,
     user: User,
     item_id: Optional[Union[int, str, UUIDT]],

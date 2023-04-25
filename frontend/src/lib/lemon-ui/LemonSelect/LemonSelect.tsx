@@ -1,22 +1,23 @@
-import { LemonDivider } from '@posthog/lemon-ui'
-import React, { createRef, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { IconClose } from '../icons'
-import { LemonButton, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from '../LemonButton'
+import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { PopoverProps } from '../Popover'
 import './LemonSelect.scss'
 import clsx from 'clsx'
 import { TooltipProps } from '../Tooltip'
-import { TooltipPlacement } from 'antd/lib/tooltip'
+import {
+    LemonMenu,
+    LemonMenuItem,
+    LemonMenuItemBase,
+    LemonMenuItemLeaf,
+    LemonMenuItemNode,
+    LemonMenuItems,
+    LemonMenuProps,
+    LemonMenuSection,
+    isLemonMenuSection,
+} from '../LemonMenu/LemonMenu'
 
-interface LemonSelectOptionBase {
-    label: string | JSX.Element
-    icon?: React.ReactElement
-    sideIcon?: React.ReactElement
-    /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
-    disabledReason?: string
-    tooltip?: string | JSX.Element
-    'data-attr'?: string
-}
+type LemonSelectOptionBase = Omit<LemonMenuItemBase, 'active' | 'status'> // Select handles active state internally
 
 export interface LemonSelectOptionLeaf<T> extends LemonSelectOptionBase {
     value: T
@@ -35,29 +36,31 @@ export interface LemonSelectSection<T> {
     footer?: string | React.ReactNode
 }
 
+type OnChange<T> = (newValue: T | null) => void
+type OnSelect<T> = (newValue: T) => void
 export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<T>[]
 
 export interface LemonSelectProps<T>
     extends Pick<
-        LemonButtonWithDropdownProps,
+        LemonButtonProps,
         | 'id'
         | 'className'
         | 'loading'
         | 'fullWidth'
         | 'disabled'
         | 'disabledReason'
-        | 'tooltipPlacement'
         | 'data-attr'
         | 'aria-label'
         | 'onClick'
         | 'tabIndex'
     > {
     options: LemonSelectOptions<T>
-    value?: T
+    /** Null only is valid for clearable selects. */
+    value?: T | null
     /** Callback fired when a value different from the one currently set is selected. */
-    onChange?: (newValue: T | null) => void
+    onChange?: OnChange<T>
     /** Callback fired when a value is selected, even if it already is set. */
-    onSelect?: (newValue: T) => void
+    onSelect?: OnSelect<T>
     optionTooltipPlacement?: TooltipProps['placement']
     dropdownMatchSelectWidth?: boolean
     dropdownMaxContentWidth?: boolean
@@ -66,62 +69,11 @@ export interface LemonSelectProps<T>
     className?: string
     placeholder?: string
     size?: 'small' | 'medium'
-    popover?: {
-        className?: string
-        ref?: React.MutableRefObject<HTMLDivElement | null>
-    }
-}
-
-export function isLemonSelectSection<T>(
-    candidate: LemonSelectSection<T> | LemonSelectOption<T>
-): candidate is LemonSelectSection<T> {
-    return candidate && 'options' in candidate && !('label' in candidate)
-}
-
-function extractLeafOptions<T>(targetArray: LemonSelectOptionLeaf<T>[], options: LemonSelectOption<T>[]): void {
-    for (const option of options) {
-        if ('options' in option) {
-            extractLeafOptions(targetArray, option.options)
-        } else {
-            targetArray.push(option)
-        }
-    }
-}
-
-/**
- * The select can receive `options` that are either Options or Sections.
- *
- * To simplify the implementation we box the options so that the code only deals with sections
- * and also generate a single list of options since selection is separate from display structure
- * */
-export const boxToSections = <T,>(
-    sectionsAndOptions: LemonSelectSection<T>[] | LemonSelectOption<T>[]
-): [LemonSelectSection<T>[], LemonSelectOptionLeaf<T>[]] => {
-    const allOptions: LemonSelectOptionLeaf<T>[] = []
-    const sections: LemonSelectSection<T>[] = []
-    let implicitSection: LemonSelectSection<T> = { options: [] }
-    for (const sectionOrOption of sectionsAndOptions) {
-        if (isLemonSelectSection(sectionOrOption)) {
-            if (implicitSection.options.length > 0) {
-                sections.push(implicitSection)
-                implicitSection = { options: [] }
-            }
-            sections.push(sectionOrOption)
-            extractLeafOptions(allOptions, sectionOrOption.options)
-        } else {
-            extractLeafOptions(allOptions, [sectionOrOption])
-            implicitSection.options.push(sectionOrOption)
-        }
-    }
-    if (implicitSection.options.length > 0) {
-        sections.push(implicitSection)
-    }
-
-    return [sections, allOptions]
+    menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
 }
 
 export function LemonSelect<T>({
-    value,
+    value = null,
     onChange,
     onSelect,
     options,
@@ -132,87 +84,47 @@ export function LemonSelect<T>({
     dropdownPlacement,
     allowClear = false,
     className,
-    popover,
+    menu,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
-    const [localValue, setLocalValue] = useState(value)
-    const [focusedOptionIndex, setFocusedOptionIndex] = useState(-1)
-
-    const selectRef = useRef<HTMLDivElement>(null)
-
-    const isClearButtonShown = allowClear && !!localValue
+    const [activeValue, setActiveValue] = useState<T | null>(value)
 
     useEffect(() => {
         if (!buttonProps.loading) {
-            setLocalValue(value)
+            setActiveValue(value)
         }
     }, [value, buttonProps.loading])
 
-    const [sections, allLeafOptions] = useMemo(() => boxToSections(options), [options])
-
-    const elementsRef = useRef(allLeafOptions.map(() => createRef<HTMLButtonElement>()))
-
-    useEffect(() => {
-        if (focusedOptionIndex > -1) {
-            elementsRef.current?.[focusedOptionIndex]?.current?.focus()
+    const wrappedOnSelect: OnSelect<T> = (newValue) => {
+        if (newValue !== activeValue) {
+            onChange?.(newValue)
+            setActiveValue(newValue)
         }
-    }, [focusedOptionIndex])
-
-    const handleKeyboardEvents = (e: React.KeyboardEvent<HTMLElement>): void => {
-        if (e.key === 'ArrowDown' && focusedOptionIndex < allLeafOptions.length - 1) {
-            setFocusedOptionIndex(focusedOptionIndex + 1)
-        } else if (e.key === 'ArrowUp' && focusedOptionIndex > 0) {
-            setFocusedOptionIndex(focusedOptionIndex - 1)
-        }
+        onSelect?.(newValue)
     }
 
+    const [items, allLeafOptions] = useMemo(
+        () => convertSelectOptionsToMenuItems(options, activeValue, wrappedOnSelect),
+        [options, activeValue]
+    )
+
+    const isClearButtonShown = allowClear && !!activeValue
+
     return (
-        <div className="flex" tabIndex={-1} ref={selectRef}>
-            <LemonButtonWithDropdown
+        <LemonMenu
+            items={items}
+            tooltipPlacement={optionTooltipPlacement}
+            sameWidth={dropdownMatchSelectWidth}
+            placement={dropdownPlacement}
+            actionable
+            className={menu?.className}
+            maxContentWidth={dropdownMaxContentWidth}
+            activeItemIndex={items.flatMap((i) => (isLemonMenuSection(i) ? i.items : i)).findIndex((i) => i.active)}
+            closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
+        >
+            <LemonButton
                 className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
-                onKeyDown={(e) => handleKeyboardEvents(e)}
-                dropdown={{
-                    ref: popover?.ref,
-                    overlay: sections.map((section, i) => (
-                        <div key={i}>
-                            <div className="space-y-px">
-                                {section.title ? (
-                                    typeof section.title === 'string' ? (
-                                        <h5>{section.title}</h5>
-                                    ) : (
-                                        section.title
-                                    )
-                                ) : null}
-                                {section.options.map((option, index) => (
-                                    <LemonSelectOptionRow
-                                        ref={elementsRef.current?.[index]}
-                                        key={index}
-                                        option={option}
-                                        onSelect={(newValue) => {
-                                            if (newValue !== localValue) {
-                                                onChange?.(newValue)
-                                                setLocalValue(newValue)
-                                            }
-                                            onSelect?.(newValue)
-                                            selectRef.current?.focus()
-                                        }}
-                                        activeValue={localValue}
-                                        tooltipPlacement={optionTooltipPlacement}
-                                        onKeyDown={(e) => handleKeyboardEvents(e)}
-                                    />
-                                ))}
-                                {section.footer ? <div>{section.footer}</div> : null}
-                            </div>
-                            {i < sections.length - 1 ? <LemonDivider /> : null}
-                        </div>
-                    )),
-                    sameWidth: dropdownMatchSelectWidth,
-                    placement: dropdownPlacement,
-                    actionable: true,
-                    className: popover?.className,
-                    maxContentWidth: dropdownMaxContentWidth,
-                }}
-                icon={allLeafOptions.find((o) => o.value === localValue)?.icon}
+                icon={allLeafOptions.find((o) => o.value === activeValue)?.icon}
                 // so that the pop-up isn't shown along with the close button
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 type="secondary"
@@ -220,7 +132,7 @@ export function LemonSelect<T>({
                 {...buttonProps}
             >
                 <span>
-                    {allLeafOptions.find((o) => o.value === localValue)?.label ?? localValue ?? (
+                    {allLeafOptions.find((o) => o.value === activeValue)?.label ?? activeValue ?? (
                         <span className="text-muted">{placeholder}</span>
                     )}
                 </span>
@@ -234,13 +146,73 @@ export function LemonSelect<T>({
                         tooltip="Clear selection"
                         onClick={() => {
                             onChange?.(null)
-                            setLocalValue(undefined)
+                            setActiveValue(null)
                         }}
                     />
                 )}
-            </LemonButtonWithDropdown>
-        </div>
+            </LemonButton>
+        </LemonMenu>
     )
+}
+
+/**
+ * The select can receive `options` that are either Options or Sections.
+ *
+ * To simplify the implementation we box the options so that the code only deals with sections
+ * and also generate a single list of options since selection is separate from display structure
+ * */
+function convertSelectOptionsToMenuItems<T>(
+    options: LemonSelectOptions<T>,
+    activeValue: T | null,
+    onSelect: OnSelect<T>
+): [LemonMenuItems, LemonSelectOptionLeaf<T>[]] {
+    const leafOptionsAccumulator: LemonSelectOptionLeaf<T>[] = []
+    const items: LemonMenuItems = options.map((option) =>
+        convertToMenuSingle(option, activeValue, onSelect, leafOptionsAccumulator)
+    )
+    return [items, leafOptionsAccumulator]
+}
+
+function convertToMenuSingle<T>(
+    option: LemonSelectOption<T> | LemonSelectSection<T>,
+    activeValue: T | null,
+    onSelect: OnSelect<T>,
+    acc: LemonSelectOptionLeaf<T>[]
+): LemonMenuItem | LemonMenuSection {
+    if (isLemonSelectSection(option)) {
+        const { options: childOptions, ...section } = option
+        return {
+            ...section,
+            items: option.options.map((o) => convertToMenuSingle(o, activeValue, onSelect, acc)),
+        } as LemonMenuSection
+    } else if (isLemonSelectOptionNode(option)) {
+        const { options: childOptions, ...node } = option
+        return {
+            ...node,
+            active: doOptionsContainActiveValue(childOptions, activeValue),
+            items: childOptions.map((o) => convertToMenuSingle(o, activeValue, onSelect, acc)),
+        } as LemonMenuItemNode
+    } else {
+        acc.push(option)
+        const { value, ...leaf } = option
+        return {
+            ...leaf,
+            active: value === activeValue,
+            onClick: () => onSelect(value),
+        } as LemonMenuItemLeaf
+    }
+}
+
+export function isLemonSelectSection<T>(
+    candidate: LemonSelectSection<T> | LemonSelectOption<T>
+): candidate is LemonSelectSection<T> {
+    return candidate && 'options' in candidate && !('label' in candidate)
+}
+
+export function isLemonSelectOptionNode<T>(
+    candidate: LemonSelectSection<T> | LemonSelectOption<T>
+): candidate is LemonSelectOptionNode<T> {
+    return candidate && 'options' in candidate && 'label' in candidate
 }
 
 function doOptionsContainActiveValue<T>(options: LemonSelectOption<T>[], activeValue: T | null): boolean {
@@ -254,72 +226,4 @@ function doOptionsContainActiveValue<T>(options: LemonSelectOption<T>[], activeV
         }
     }
     return false
-}
-
-export type LemonSelectOptionRowProps<T> = {
-    option: LemonSelectOption<T>
-    activeValue: T | undefined
-    onSelect: (value: T) => void
-    tooltipPlacement: TooltipPlacement | undefined
-    onKeyDown?: (e: React.KeyboardEvent<HTMLElement>) => void
-}
-
-export const LemonSelectOptionRow = React.forwardRef(LemonSelectOptionRowInternal) as <T>(
-    props: LemonSelectOptionRowProps<T> & { ref?: React.ForwardedRef<HTMLElement> }
-) => ReturnType<typeof LemonSelectOptionRowInternal>
-
-function LemonSelectOptionRowInternal<T>(
-    { option, activeValue, onSelect, tooltipPlacement, onKeyDown }: LemonSelectOptionRowProps<T>,
-    ref: React.Ref<HTMLElement>
-): JSX.Element {
-    return 'options' in option ? (
-        <LemonButtonWithDropdown
-            icon={option.icon}
-            sideIcon={option.sideIcon}
-            tooltip={option.tooltip}
-            tooltipPlacement={tooltipPlacement}
-            status="stealth"
-            disabledReason={option.disabledReason}
-            fullWidth
-            data-attr={option['data-attr']}
-            active={doOptionsContainActiveValue(option.options, activeValue)}
-            dropdown={{
-                overlay: (
-                    <div className="space-y-px">
-                        {option.options.map((option, index) => (
-                            <LemonSelectOptionRow
-                                key={index}
-                                option={option}
-                                onSelect={onSelect}
-                                activeValue={activeValue}
-                                tooltipPlacement={tooltipPlacement}
-                            />
-                        ))}
-                    </div>
-                ),
-                placement: 'right-start',
-                actionable: true,
-                closeParentPopoverOnClickInside: true,
-            }}
-        >
-            {option.label}
-        </LemonButtonWithDropdown>
-    ) : (
-        <LemonButton
-            ref={ref}
-            icon={option.icon}
-            sideIcon={option.sideIcon}
-            tooltip={option.tooltip}
-            tooltipPlacement={tooltipPlacement}
-            status="stealth"
-            disabledReason={option.disabledReason}
-            fullWidth
-            data-attr={option['data-attr']}
-            active={option.value === activeValue}
-            onClick={() => onSelect(option.value)}
-            onKeyDown={onKeyDown}
-        >
-            {option.element ? option.element : option.label ?? option.value}
-        </LemonButton>
-    )
 }
