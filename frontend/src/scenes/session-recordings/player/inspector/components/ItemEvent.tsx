@@ -60,7 +60,11 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
                         </>
                     ) : null}
 
-                    <SimpleKeyValueList item={item.data.properties} />
+                    {item.data.fullyLoaded ? (
+                        <SimpleKeyValueList item={item.data.properties} />
+                    ) : (
+                        <div className="text-muted-alt">Loading...</div>
+                    )}
                 </div>
             )}
         </div>
