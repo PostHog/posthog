@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from asgiref.sync import sync_to_async
 from temporalio import activity
@@ -40,7 +41,7 @@ class PostHogWorkflow(ABC):
 
 @dataclass
 class CreateExportRunInputs:
-    """Inputs to create an ExportRun
+    """Inputs to the create_export_run activity.
 
     Attributes:
         team_id: The id of the team the ExportRun belongs to.
@@ -77,11 +78,13 @@ async def create_export_run(inputs: CreateExportRunInputs) -> str:
         data_interval_end=inputs.data_interval_end,
     )
 
-    return run.id
+    return str(run.id)
 
 
 @dataclass
 class UpdateExportRunStatusInputs:
+    """Inputs to the update_export_run_status activity."""
+
     run_id: str
     status: str
 
@@ -90,4 +93,4 @@ class UpdateExportRunStatusInputs:
 async def update_export_run_status(inputs: UpdateExportRunStatusInputs):
     """Activity that updates the status of an ExportRun."""
     update_run_status = sync_to_async(ExportRun.objects.update_status)
-    await update_run_status(run_id=inputs.run_id, status=inputs.status)  # type: ignore
+    await update_run_status(export_run_id=UUID(inputs.run_id), status=inputs.status)  # type: ignore

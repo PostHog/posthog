@@ -61,7 +61,7 @@ async def test_create_export_run(activity_environment, team, destination):
 
     inputs = CreateExportRunInputs(
         team_id=team.id,
-        destination_id=destination.id,
+        destination_id=str(destination.id),
         schedule_id=None,
         data_interval_start=start.isoformat(),
         data_interval_end=end.isoformat(),
@@ -86,20 +86,20 @@ async def test_update_export_run_status(activity_environment, team, destination)
 
     inputs = CreateExportRunInputs(
         team_id=team.id,
-        destination_id=destination.id,
+        destination_id=str(destination.id),
         schedule_id=None,
         data_interval_start=start.isoformat(),
         data_interval_end=end.isoformat(),
     )
 
     run_id = await activity_environment.run(create_export_run, inputs)
+
     runs = ExportRun.objects.filter(id=run_id)
     run = await sync_to_async(runs.first)()
-
     assert run.status == "Starting"
 
     update_inputs = UpdateExportRunStatusInputs(
-        run_id=run_id,
+        run_id=str(run_id),
         status="Completed",
     )
     await activity_environment.run(update_export_run_status, update_inputs)

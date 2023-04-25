@@ -1,10 +1,20 @@
 import datetime as dt
 from dataclasses import asdict
 from typing import Optional
+from uuid import UUID
 
+from asgiref.sync import async_to_sync
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from temporalio.client import ScheduleCalendarSpec, ScheduleIntervalSpec, ScheduleSpec
+from temporalio.client import (
+    Schedule,
+    ScheduleActionStartWorkflow,
+    ScheduleCalendarSpec,
+    ScheduleIntervalSpec,
+    ScheduleSpec,
+    ScheduleState,
+)
 
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
@@ -56,7 +66,44 @@ class ExportScheduleManager(models.Manager):
         )
         schedule.save()
 
+        self.create_temporal_schedule(schedule)
+
         return schedule
+
+    def create_temporal_schedule(self, export_schedule: "ExportSchedule"):
+        """Create an Schedule in Temporal matching ExportSchedule model."""
+        from posthog.temporal.client import sync_connect
+        from posthog.temporal.workflows import DESTINATION_WORKFLOWS
+
+        destination = export_schedule.destination
+        workflow, workflow_inputs = DESTINATION_WORKFLOWS[destination.type]
+        schedule_spec = export_schedule.get_schedule_spec()
+
+        common_search_attributes = {
+            "DestinationId": [str(destination.id)],
+            "DestinationType": [destination.type],
+            "TeamId": [export_schedule.team.id],
+            "TeamName": [export_schedule.team.name],
+        }
+
+        client = sync_connect()
+        async_to_sync(client.create_schedule)(
+            id=str(export_schedule.id),
+            schedule=Schedule(
+                action=ScheduleActionStartWorkflow(
+                    workflow.run,
+                    workflow_inputs(team_id=export_schedule.team.id, **destination.config),
+                    id=f"{export_schedule.team.id}-{destination.type}-export",
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    search_attributes=common_search_attributes | {"ScheduleId": [str(export_schedule.id)]},
+                ),
+                spec=schedule_spec,
+                state=ScheduleState(
+                    note=f"Schedule created for destination {destination.id} in team {export_schedule.team.id}."
+                ),
+            ),
+            search_attributes=common_search_attributes,
+        )
 
     def get_export_schedule_from_name(self, name: str | None) -> Optional["ExportSchedule"]:
         if not name:
@@ -68,7 +115,13 @@ class ExportScheduleManager(models.Manager):
 
 
 class ExportSchedule(UUIDModel):
-    """The Schedule an Export will follow."""
+    """The Schedule an Export will follow.
+
+    An ExportSchedule provides a model representation of a Temporal Schedule we can serve via our API.
+    In Temporal, a Schedule is just another Workflow that executes an Action as indicated by its spec.
+    This Action is usually triggering another Workflow. Our ExportSchedules are Temporal Schedules that
+    specifically trigger Export Workflows. As such, an ExportSchedule has an associated destination.
+    """
 
     objects: ExportScheduleManager = ExportScheduleManager()
 
@@ -114,6 +167,18 @@ class ExportRunManager(models.Manager):
         data_interval_start: str,
         data_interval_end: str,
     ) -> "ExportRun":
+        """Create an ExportRun.
+
+        In a first approach, this method is intended to be called only by Temporal Workflows,
+        as only the Workflows themselves can know when they start.
+
+        Args:
+            team_id: The Team's id this ExportRun belongs to.
+            destination_id: The destination targetted by this ExportRun.
+            schedule_id: If triggered by a Schedule, the Schedule's id, otherwise None.
+            data_interval_start:
+            data_interval_end:
+        """
         if schedule_id:
             schedule = ExportSchedule.objects.filter(id=schedule_id).first()
         else:
@@ -134,12 +199,12 @@ class ExportRunManager(models.Manager):
 
         return run
 
-    def update_status(self, run_id: str, status: str):
-        runs = ExportRun.objects.filter(run_id=run_id)
-        if not runs.exists():
-            raise ValueError(f"ExportRun with id {run_id} not found.")
+    def update_status(self, export_run_id: UUID, status: str):
+        """Update the status of an ExportRun with given id."""
+        run = ExportRun.objects.filter(id=export_run_id).first()
+        if not run:
+            raise ValueError(f"ExportRun with id {export_run_id} not found.")
 
-        run = runs[0]
         run.status = status
         run.save()
 

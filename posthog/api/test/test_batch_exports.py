@@ -1,19 +1,57 @@
+import logging
+from itertools import count
+
 from asgiref.sync import async_to_sync
 from rest_framework import status
 from temporalio.client import Client
 from temporalio.service import RPCError
 
-from posthog.api.batch_exports import get_temporal_client
 from posthog.models import ExportDestination, ExportSchedule
+from posthog.temporal.client import sync_connect
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
 class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.temporal: Client = get_temporal_client()
+        self.temporal: Client = sync_connect()
+        self.id_generator = count()
+        self.schedules_to_tear_down = []
+
+    def tearDown(self):
+        """Tear-down test cases by cleaning up any Temporal Schedules created during the test."""
+        for schedule_name in self.schedules_to_tear_down:
+            handle = self.temporal.get_schedule_handle(schedule_name)
+            try:
+                async_to_sync(handle.delete)()
+            except RPCError:
+                # Assume this was expected as we are tearing down, but don't fail silently.
+                logging.warn("Schedule %s has already been deleted, ignoring.", schedule_name)
+                continue
+
+    def describe_schedule(self, schedule_id: str):
+        """Return the description of a Temporal Schedule with the given id."""
+        handle = self.temporal.get_schedule_handle(schedule_id)
+        temporal_schedule = async_to_sync(handle.describe)()
+        return temporal_schedule
+
+    def get_test_schedule_name(self, prefix: str = "test-schedule") -> str:
+        """Return a Temporal Schedule test name after appending it for tear-down after used.
+
+        To construct a Temporal Schedule test name, we append a strictly increasing numeric id to the given
+        prefix.
+        """
+        schedule_name = f"{prefix}-{next(self.id_generator)}"
+        self.schedules_to_tear_down.append(schedule_name)
+        return schedule_name
 
     def test_create_export_destination(self):
+        """Test creating an ExportDestionation for S3.
+
+        As we are passing Schedule information, this should also create a Schedule.
+        """
+        schedule_name = self.get_test_schedule_name()
+
         destination_data = {
             "name": "my-production-s3-bucket-destination",
             "type": "S3",
@@ -26,7 +64,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_secret_access_key": "secret",
             },
             "schedule": {
-                "name": "test-schedule",
+                "name": schedule_name,
                 "cron_expressions": ["0 0 * * *"],
             },
         }
@@ -48,7 +86,17 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
             destination_data["schedule"]["cron_expressions"],  # type: ignore
         )
 
+        export_schedule = ExportSchedule.objects.filter(name=schedule_name)[0]
+        temporal_schedule = self.describe_schedule(str(export_schedule.id))
+        self.assertEqual(temporal_schedule.id, str(export_schedule.id))
+
     def test_create_export_schedule(self):
+        """Test creating an ExportSchedule.
+
+        An ExportSchedule is created in supposed to be created in Temporal too.
+        """
+        schedule_name = self.get_test_schedule_name()
+
         destination_data = {
             "name": "my-production-s3-bucket-destination",
             "type": "S3",
@@ -61,7 +109,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_secret_access_key": "secret",
             },
             "schedule": {
-                "name": "test-schedule",
+                "name": schedule_name,
                 "cron_expressions": ["0 0 * * *"],
             },
         }
@@ -75,7 +123,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(ExportDestination.objects.count(), 1)
         self.assertEqual(ExportSchedule.objects.count(), 1)
 
-        schedule_name = "one-off-schedule"
+        schedule_name = self.get_test_schedule_name("one-off-schedule")
         manual_schedule_data = {
             "name": schedule_name,
             "start_at": "2021-01-01T00:00:00+00:00",
@@ -93,17 +141,16 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(export_schedule.name, manual_schedule_data["name"])
         self.assertEqual(export_schedule.start_at.isoformat(), manual_schedule_data["start_at"])
 
-        handle = self.temporal.get_schedule_handle(
-            str(export_schedule.id),
-        )
-        temporal_schedule = async_to_sync(handle.describe)()
-
+        temporal_schedule = self.describe_schedule(str(export_schedule.id))
         self.assertEqual(temporal_schedule.id, str(export_schedule.id))
 
-        # Clean-up the schedule
-        async_to_sync(handle.delete)()
-
     def test_delete_export_schedule(self):
+        """Test deleting an ExportSchedule.
+
+        This call should clean-up state from both the database and Temporal.
+        """
+        schedule_name = self.get_test_schedule_name()
+
         destination_data = {
             "name": "my-production-s3-bucket-destination",
             "type": "S3",
@@ -116,7 +163,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_secret_access_key": "secret",
             },
             "schedule": {
-                "name": "test-schedule",
+                "name": schedule_name,
                 "cron_expressions": ["0 0 * * *"],
             },
         }
@@ -130,7 +177,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(ExportDestination.objects.count(), 1)
         self.assertEqual(ExportSchedule.objects.count(), 1)
 
-        schedule_name = "one-off-schedule"
+        schedule_name = self.get_test_schedule_name("one-off-schedule")
         manual_schedule_data = {
             "name": schedule_name,
             "start_at": "2021-01-01T00:00:00+00:00",

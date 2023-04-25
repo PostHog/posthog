@@ -1,15 +1,8 @@
 from asgiref.sync import async_to_sync
-from django.conf import settings
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
-from temporalio.client import (
-    Client,
-    Schedule,
-    ScheduleActionStartWorkflow,
-    ScheduleState,
-)
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import ExportDestination, ExportRun, ExportSchedule, User
@@ -18,17 +11,7 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
-from posthog.temporal.client import connect
-from posthog.temporal.workflows import DESTINATION_WORKFLOWS
-
-
-@async_to_sync
-async def get_temporal_client() -> Client:
-    """Connect to and return a Temporal Client."""
-    client = await connect(
-        settings.TEMPORAL_SCHEDULER_HOST, settings.TEMPORAL_SCHEDULER_PORT, settings.TEMPORAL_NAMESPACE
-    )
-    return client
+from posthog.temporal.client import sync_connect
 
 
 class ExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -37,10 +20,7 @@ class ExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 
 class ExportScheduleSerializer(serializers.ModelSerializer):
-    """Serializer for an ExportSchedule model.
-
-    This Serializer holds the responsibility of interacting with Temporal when required.
-    """
+    """Serializer for an ExportSchedule model."""
 
     destination = serializers.PrimaryKeyRelatedField(queryset=ExportDestination.objects.all(), required=False)
     paused_at = serializers.DateTimeField(required=False)
@@ -78,7 +58,7 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: dict):
-        """Create an ExportSchedule model and in Temporal."""
+        """Create an ExportSchedule model."""
         team = Team.objects.get(id=self.context["team_id"])
         destination = ExportDestination.objects.get(id=self.context["destination_id"])
 
@@ -86,24 +66,6 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
             team=team,
             destination=destination,
             **validated_data,
-        )
-        schedule_spec = export_schedule.get_schedule_spec()
-        destination = export_schedule.destination
-        workflow, workflow_inputs = DESTINATION_WORKFLOWS[destination.type]
-
-        client = get_temporal_client()
-        async_to_sync(client.create_schedule)(
-            id=str(export_schedule.id),
-            schedule=Schedule(
-                action=ScheduleActionStartWorkflow(
-                    workflow.run,
-                    workflow_inputs(team_id=team.id, **destination.config),
-                    id=f"{export_schedule.team.id}-{destination.type}-export",
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
-                ),
-                spec=schedule_spec,
-                state=ScheduleState(note="Schedule created."),
-            ),
         )
 
         return export_schedule
@@ -119,7 +81,7 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         """Unpause an ExportSchedule using the Temporal schedule handle."""
         export_schedule = self.get_object()
 
-        client = get_temporal_client()
+        client = sync_connect()
         handle = client.get_schedule_handle(
             export_schedule.name,
         )
@@ -146,7 +108,7 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         """Pause an ExportSchedule using the Temporal schedule handle."""
         export_schedule = self.get_object()
 
-        client = get_temporal_client()
+        client = sync_connect()
         handle = client.get_schedule_handle(
             export_schedule.name,
         )
@@ -170,7 +132,7 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance: ExportSchedule):
         """Perform a ExportSchedule destroy by clearing it from Temporal and Django."""
-        client = get_temporal_client()
+        client = sync_connect()
         handle = client.get_schedule_handle(
             str(instance.id),
         )
@@ -180,7 +142,9 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 
 class ExportDestinationSerializer(serializers.ModelSerializer):
-    schedule = ExportScheduleSerializer()
+    """Serializer for an ExportDestination model."""
+
+    schedule = ExportScheduleSerializer(required=False)
 
     class Meta:
         model = ExportDestination
@@ -195,13 +159,17 @@ class ExportDestinationSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "last_updated_at", "schedules"]
 
     def create(self, validated_data: dict):
-        schedule_data = validated_data.pop("schedule")
-        export_destination = ExportDestination.objects.create(team_id=self.context["team_id"], **validated_data)
+        """Create an ExportDestination, optionally with an ExportSchedule."""
 
         team = Team.objects.get(id=self.context["team_id"])
+        schedule_data = validated_data.pop("schedule")
 
-        schedule = ExportSchedule.objects.create(destination=export_destination, team=team, **schedule_data)
-        export_destination.schedule = schedule
+        export_destination = ExportDestination.objects.create(team_id=self.context["team_id"], **validated_data)
+
+        if schedule_data:
+            schedule = ExportSchedule.objects.create(team=team, destination=export_destination, **schedule_data)
+            export_destination.schedule = schedule
+
         export_destination.save()
 
         return export_destination
