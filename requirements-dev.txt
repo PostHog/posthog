@@ -25,8 +25,6 @@ black==22.8.0
     # via
     #   -r requirements-dev.in
     #   datamodel-code-generator
-build==0.10.0
-    # via pip-tools
 certifi==2019.11.28
     # via
     #   -c requirements.txt
@@ -148,7 +146,6 @@ packaging==23.1
     # via
     #   -c requirements.txt
     #   -r requirements-dev.in
-    #   build
     #   datamodel-code-generator
     #   prance
     #   pytest
@@ -156,7 +153,9 @@ pathable==0.4.3
     # via jsonschema-spec
 pathspec==0.9.0
     # via black
-pip-tools==6.13.0
+pep517==0.13.0
+    # via pip-tools
+pip-tools==6.6.2
     # via -r requirements-dev.in
 platformdirs==2.5.2
     # via black
@@ -183,8 +182,6 @@ pyopenssl==22.0.0
     # via
     #   -c requirements.txt
     #   urllib3
-pyproject-hooks==1.0.0
-    # via build
 pyrsistent==0.18.1
     # via
     #   -c requirements.txt
@@ -278,9 +275,8 @@ toml==0.10.1
 tomli==1.2.3
     # via
     #   black
-    #   build
     #   mypy
-    #   pyproject-hooks
+    #   pep517
 typed-ast==1.5.4
     # via datamodel-code-generator
 types-freezegun==1.1.3

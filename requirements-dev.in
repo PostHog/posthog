@@ -12,7 +12,7 @@
 -c requirements.txt
 
 ruff>=0.0.257
-pip-tools==6.13.0
+pip-tools==6.6.2
 mypy==0.981
 mypy-extensions==0.4.3
 datamodel-code-generator==0.16.1
