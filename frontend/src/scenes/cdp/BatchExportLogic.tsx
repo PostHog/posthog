@@ -7,8 +7,9 @@ import {
     ChangeExportRunStatusEnum,
     ConnectionChoiceType,
     BatchExportRunType,
-    CreateBatchExportScheduleType,
+    CreateBatchExportScheduleType as CreateOrUpdateBatchExportScheduleType,
     S3ConfigType,
+    BatchExportFrequencyType as BatchExportFrequencyEnum,
 } from './types'
 import { mockConnectionChoices, mockExportRuns } from './mocks'
 import { loaders } from 'kea-loaders'
@@ -22,14 +23,35 @@ import { Breadcrumb } from '~/types'
 import type { BatchExportLogicType } from './BatchExportLogicType'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { lemonToast } from '@posthog/lemon-ui'
+import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
 
 interface BatchExportLogicProps {
     id: string
 }
 
+const frequencyToSeconds: {
+    [key in BatchExportFrequencyEnum]: string | null
+} = {
+    none: null,
+    '1': '3600',
+    '6': '21600',
+    '12': '43200',
+    daily: '86400',
+    weekly: '604800',
+    monthly: '2592000',
+} // TODO: add type
+
+const secondsToFrequency = (seconds: string): BatchExportFrequencyEnum => {
+    const frequency = Object.keys(frequencyToSeconds).find(
+        (frequency) => frequencyToSeconds[frequency as BatchExportFrequencyEnum] === seconds
+    )
+    return frequency as BatchExportFrequencyEnum
+}
+
 const defaultCreator = (values: BatchExportLogicType['values']): S3BatchExportConfigType => ({
     name: values.connectionChoice?.name || 'New connection',
-    frequency: '12',
+    frequency: BatchExportFrequencyEnum.TwelveHours,
     firstExport: dayjsUtcToTimezone(new Date().toISOString(), values.timezone).add(1, 'day').startOf('day') as any,
     stopAtSpecificDate: false,
     stopAt: undefined,
@@ -124,19 +146,11 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
             submit: async (values: S3BatchExportConfigType) => {
                 console.log('submitting', values)
 
-                const frequencyToSeconds = {
-                    '1': '3600',
-                    '6': '21600',
-                    '12': '43200',
-                    daily: '86400',
-                    weekly: '604800',
-                    monthly: '2592000',
-                } // TODO: add type
                 // TODO: check these numbers
 
                 const name = values.name
                 const type = 'S3' // TODO: make this real
-                const primary_schedule: CreateBatchExportScheduleType['primary_schedule'] = {
+                const primary_schedule: CreateOrUpdateBatchExportScheduleType['primary_schedule'] = {
                     start_at: values.firstExport.toISOString(),
                     end_at: values.stopAtSpecificDate ? values.stopAt?.toISOString() : undefined,
                     intervals: [
@@ -147,7 +161,7 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
                     ], // TODO: work out what to do here
                 }
 
-                const config: S3ConfigType = {
+                const config: Partial<S3ConfigType> = {
                     AWSAccessKeyID: values.AWSAccessKeyID,
                     AWSSecretAccessKey: values.AWSSecretAccessKey,
                     AWSRegion: values.AWSRegion,
@@ -156,7 +170,12 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
                     fileName: values.fileName,
                 }
 
-                const createBatchExport: CreateBatchExportScheduleType = {
+                // SECRET_FIELD_VALUE is a special value that means "don't change this field"
+                if (config.AWSSecretAccessKey === SECRET_FIELD_VALUE) {
+                    delete config['AWSSecretAccessKey']
+                }
+
+                const createBatchExport: CreateOrUpdateBatchExportScheduleType = {
                     name,
                     type,
                     primary_schedule,
@@ -167,9 +186,11 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
 
                 if (props.id) {
                     await api.batchExports.exports.update(props.id, createBatchExport)
+                    lemonToast.success('Export saved')
                     return
                 } else {
                     const result = await api.batchExports.exports.create(createBatchExport)
+                    lemonToast.success('Export saved')
                     console.log(result)
                 }
 
@@ -240,10 +261,11 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
                 // schedule
                 firstExport: dayjs(batchExportDestination.primary_schedule.start_at),
                 stopAt: dayjs(batchExportDestination.primary_schedule.end_at),
-                frequency: batchExportDestination.primary_schedule.intervals[0].every,
+                frequency: secondsToFrequency(batchExportDestination.primary_schedule.intervals[0].every),
+
                 // config
                 AWSAccessKeyID: batchExportDestination.config.AWSAccessKeyID,
-                AWSSecretAccessKey: batchExportDestination.config.AWSSecretAccessKey,
+                AWSSecretAccessKey: batchExportDestination.config.AWSSecretAccessKey ?? SECRET_FIELD_VALUE,
                 AWSRegion: batchExportDestination.config.AWSRegion,
                 AWSBucket: batchExportDestination.config.AWSBucket,
                 fileFormat: batchExportDestination.config.fileFormat,

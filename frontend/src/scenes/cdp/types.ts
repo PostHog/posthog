@@ -55,7 +55,15 @@ export type S3BatchExportConfigType = {
     fileName: string
 }
 
-export type BatchExportFrequencyType = 'none' | '1' | '6' | '12' | 'daily' | 'weekly' | 'monthly'
+export enum BatchExportFrequencyType {
+    None = 'none',
+    OneHour = '1',
+    SixHours = '6',
+    TwelveHours = '12',
+    Daily = 'daily',
+    Weekly = 'weekly',
+    Monthly = 'monthly',
+}
 
 export type S3BatchExportFileFormatType = 'csv'
 
@@ -123,10 +131,10 @@ export type DestinationConfigs = S3ConfigType // Add more types here as we add m
 export type CreateBatchExportScheduleType = {
     name: string
     type: string // TODO: rename this e.g. destination_slug or id?
-    config: DestinationConfigs
+    config: Partial<DestinationConfigs>
     primary_schedule?: {
-        start_at: BatchExportSchedule['start_at']
-        end_at: BatchExportSchedule['end_at']
-        intervals: BatchExportSchedule['intervals']
+        start_at?: BatchExportSchedule['start_at']
+        end_at?: BatchExportSchedule['end_at']
+        intervals?: BatchExportSchedule['intervals']
     }
 }
