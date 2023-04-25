@@ -278,6 +278,80 @@ export const createSessionRecordingEvent = (
 
     return data
 }
+
+export interface SummarizedSessionRecordingEvent {
+    uuid: string
+    timestamp: string
+    team_id: number
+    distinct_id: string
+    session_id: string
+    window_id: string | undefined
+    url: string | undefined
+    created_at: string
+    click_count: number
+    keypress_count: number
+    // 0 to 1 representing the amount of any mouse activity in this event
+    mouse_activity_count: number
+}
+
+interface RRWebEventSummaryData {
+    href?: string
+    source?: number
+}
+
+interface RRWebEventSummary {
+    timestamp: number
+    type: number
+    data: RRWebEventSummaryData
+}
+
+export const createSessionReplayEvent = (
+    uuid: string,
+    team_id: number,
+    distinct_id: string,
+    timestamp: DateTime,
+    ip: string | null,
+    properties: Properties
+) => {
+    const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
+
+    const eventsSummaries: RRWebEventSummary[] = properties['$snapshot_data']['events_summary'] || []
+    let clickCount = 0
+    let keypressCount = 0
+    let mouseActivity = 0
+    let url: string | undefined = undefined
+    eventsSummaries.forEach((eventSummary: RRWebEventSummary) => {
+        if (eventSummary.type === 3) {
+            mouseActivity += 1
+            if (eventSummary.data.source === 2) {
+                clickCount += 1
+            }
+            if (eventSummary.data.source === 5) {
+                keypressCount += 1
+            }
+        }
+        if (!!eventSummary.data.href?.trim().length && url === undefined) {
+            url = eventSummary.data.href
+        }
+    })
+
+    const data: SummarizedSessionRecordingEvent = {
+        uuid,
+        team_id: team_id,
+        distinct_id: distinct_id,
+        session_id: properties['$session_id'],
+        window_id: properties['$window_id'],
+        timestamp: timestampString,
+        created_at: timestampString,
+        click_count: clickCount,
+        keypress_count: keypressCount,
+        mouse_activity_count: mouseActivity,
+        url: url,
+    }
+
+    return data
+}
+
 export function createPerformanceEvent(uuid: string, team_id: number, distinct_id: string, properties: Properties) {
     const data: Partial<RawPerformanceEvent> = {
         uuid,

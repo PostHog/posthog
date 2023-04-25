@@ -29,7 +29,9 @@ import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/r
 import {
     createPerformanceEvent,
     createSessionRecordingEvent,
+    createSessionReplayEvent,
     EventsProcessor,
+    SummarizedSessionRecordingEvent,
 } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
@@ -1206,6 +1208,79 @@ test('snapshot event stored as session_recording_event', () => {
         timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2} [\d\s:]+/),
         uuid: 'some-id',
         window_id: undefined,
+    })
+})
+;[
+    {
+        snapshotData: { timestamp: 123 },
+        expected: { click_count: 0, keypress_count: 0, mouse_activity_count: 0, url: undefined },
+    },
+    {
+        snapshotData: { timestamp: 123, events_summary: [{ type: 3, data: { source: 2 } }] },
+        expected: { click_count: 1, keypress_count: 0, mouse_activity_count: 1, url: undefined },
+    },
+    {
+        snapshotData: { timestamp: 123, events_summary: [{ type: 3, data: { source: 5 } }] },
+        expected: { click_count: 0, keypress_count: 1, mouse_activity_count: 1, url: undefined },
+    },
+    {
+        snapshotData: {
+            timestamp: 123,
+            events_summary: [
+                {
+                    timestamp: 1682449093693,
+                    type: 5,
+                    data: {
+                        tag: '$pageview',
+                        payload: {
+                            // doesn't match because href is nested in payload
+                            href: 'http://127.0.0.1:8000/home',
+                        },
+                    },
+                },
+                {
+                    timestamp: 1682449093469,
+                    type: 4,
+                    data: {
+                        href: 'http://127.0.0.1:8000/second/url',
+                        width: 1512,
+                        height: 833,
+                    },
+                },
+            ],
+        },
+        expected: {
+            click_count: 0,
+            keypress_count: 0,
+            mouse_activity_count: 0,
+            url: 'http://127.0.0.1:8000/second/url',
+        },
+    },
+].forEach(({ snapshotData, expected }) => {
+    test(`snapshot event ${JSON.stringify(snapshotData)} can be stored as session_replay_event`, () => {
+        const data = createSessionReplayEvent(
+            'some-id',
+            team.id,
+            '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
+            now,
+            '',
+            {
+                $session_id: 'abcf-efg',
+                $snapshot_data: snapshotData,
+            } as any as Properties
+        )
+
+        const expectedEvent: SummarizedSessionRecordingEvent = {
+            created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2} [\d\s:]+/),
+            distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
+            session_id: 'abcf-efg',
+            team_id: 2,
+            timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2} [\d\s:]+/),
+            uuid: 'some-id',
+            window_id: undefined,
+            ...expected,
+        }
+        expect(data).toEqual(expectedEvent)
     })
 })
 
