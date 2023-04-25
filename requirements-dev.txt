@@ -140,8 +140,9 @@ openapi-schema-validator==0.3.4
     # via openapi-spec-validator
 openapi-spec-validator==0.5.1
     # via datamodel-code-generator
-packaging==21.3
+packaging==23.1
     # via
+    #   -c requirements.txt
     #   -r requirements-dev.in
     #   datamodel-code-generator
     #   prance
@@ -160,8 +161,10 @@ pluggy==0.13.1
     # via pytest
 pprintpp==0.4.0
     # via pytest-icdiff
-prance==0.22.11.4.0
-    # via datamodel-code-generator
+prance==0.22.2.22.0
+    # via
+    #   -r requirements-dev.in
+    #   datamodel-code-generator
 py==1.10.0
     # via pytest
 pycparser==2.20
@@ -176,8 +179,6 @@ pyopenssl==22.0.0
     # via
     #   -c requirements.txt
     #   urllib3
-pyparsing==3.0.7
-    # via packaging
 pyrsistent==0.18.1
     # via
     #   -c requirements.txt
@@ -244,8 +245,6 @@ ruamel-yaml-clib==0.2.7
     # via ruamel-yaml
 ruff==0.0.257
     # via -r requirements-dev.in
-semver==2.13.0
-    # via prance
 six==1.16.0
     # via
     #   -c requirements.txt
