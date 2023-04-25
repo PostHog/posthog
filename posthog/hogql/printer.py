@@ -22,8 +22,7 @@ from posthog.hogql.escape_sql import (
     escape_hogql_string,
 )
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_types
-from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
-from posthog.hogql.transforms.macros import expand_macros
+from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
@@ -62,9 +61,7 @@ def prepare_ast_for_printing(
 ) -> ast.Expr:
 
     context.database = context.database or create_hogql_database(context.team_id)
-    node = expand_macros(node, stack)
-    node = resolve_types(node, context.database, stack)
-    expand_asterisks(node)
+    node = resolve_types(node, context.database, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
