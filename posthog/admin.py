@@ -24,6 +24,7 @@ from posthog.models import (
     User,
     PluginAttachment,
 )
+from posthog.models.export.export import ExportDestination, ExportSchedule
 
 admin.site.register(Person)
 admin.site.register(Element)
@@ -31,6 +32,8 @@ admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(InstanceSetting)
+admin.site.register(ExportDestination)
+admin.site.register(ExportSchedule)
 
 
 @admin.register(Insight)
