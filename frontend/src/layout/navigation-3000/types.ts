@@ -3,6 +3,7 @@ import { Dayjs } from 'lib/dayjs'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
 export interface SidebarLogic extends Logic {
+    actions: Record<never, never> // No actions required in the base version
     values: {
         isLoading: boolean
         contents: Accordion[] | BasicListItem[] | ExtendedListItem[]
@@ -47,6 +48,13 @@ export interface BasicListItem {
          */
         status?: 'muted' | 'success' | 'warning' | 'danger'
     }
+    /** If search is on, this should be present to convey why this item is included in results. */
+    searchMatch?: {
+        /** Fields that are matching the search term - they will be shown within the list item. */
+        matchingFields: readonly string[]
+        /** What parts of the name were matched - they will be bolded. */
+        nameHighlightRanges?: readonly [number, number][]
+    } | null
     menuItems?: LemonMenuItems
 }
 

@@ -272,7 +272,7 @@ class FOSSCohortQuery(EventQuery):
                 fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
                 if subq_alias == self.PERSON_TABLE_ALIAS and self.should_pushdown_persons:
-                    if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
+                    if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
                         # when using person-on-events, instead of inner join, we filter inside
                         # the event query itself
                         continue
@@ -312,7 +312,7 @@ class FOSSCohortQuery(EventQuery):
                 person_prop_query, person_prop_params = self._get_prop_groups(
                     self._inner_property_groups,
                     person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
-                    person_id_joined_alias=f"{self.EVENT_TABLE_ALIAS}.person_id",
+                    person_id_joined_alias=self._person_id_alias,
                 )
 
             date_condition, date_params = self._get_date_condition()
@@ -465,7 +465,7 @@ class FOSSCohortQuery(EventQuery):
         )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = self._person_on_events_mode == PersonOnEventsMode.DISABLED
+        self._should_join_distinct_ids = self._person_on_events_mode != PersonOnEventsMode.V1_ENABLED
 
     def _determine_should_join_persons(self) -> None:
         # :TRICKY: This doesn't apply to joining inside events query, but to the

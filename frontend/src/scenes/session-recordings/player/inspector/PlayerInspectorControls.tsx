@@ -15,7 +15,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerSettingsLogic } from '../playerSettingsLogic'
-import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
 
 const TabToIcon = {
@@ -25,10 +25,12 @@ const TabToIcon = {
     [SessionRecordingPlayerTab.NETWORK]: IconGauge,
 }
 
-export function PlayerInspectorControls(props: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlayerInspectorControls(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const inspectorLogic = playerInspectorLogic(logicProps)
     const { windowIdFilter, tab, searchQuery, syncScrollingPaused, tabsState, windowIds, showMatchingEventsFilter } =
-        useValues(playerInspectorLogic(props))
-    const { setWindowIdFilter, setTab, setSearchQuery, setSyncScrollPaused } = useActions(playerInspectorLogic(props))
+        useValues(inspectorLogic)
+    const { setWindowIdFilter, setTab, setSearchQuery, setSyncScrollPaused } = useActions(inspectorLogic)
     const { showOnlyMatching, timestampMode, miniFilters, syncScroll } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching, setTimestampMode, setMiniFilter, setSyncScroll } = useActions(playerSettingsLogic)
 
