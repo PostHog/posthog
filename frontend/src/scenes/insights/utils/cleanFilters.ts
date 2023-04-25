@@ -302,6 +302,7 @@ export function cleanFilters(
                 ? { hidden_legend_keys: filters.hidden_legend_keys }
                 : {}),
             ...(filters.show_values_on_series ? { show_values_on_series: filters.show_values_on_series } : {}),
+            ...commonFilters,
         }
 
         if (
