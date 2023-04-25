@@ -1,5 +1,5 @@
 import { GetObjectCommand, GetObjectCommandOutput, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
-// import fs from 'fs'
+import fs from 'fs'
 // import { Consumer, Kafka, KafkaMessage, logLevel } from 'kafkajs'
 import * as zlib from 'zlib'
 
@@ -58,41 +58,42 @@ afterAll(async () => {
 test.concurrent(
     `single recording event writes data to local tmp file`,
     async () => {
-        // const teamId = await createTeam(organizationId)
-        // const distinctId = new UUIDT().toString()
-        // const uuid = new UUIDT().toString()
-        // const sessionId = new UUIDT().toString()
-        // const veryLongString = generateVeryLongString()
-        // await capture({
-        //     teamId,
-        //     distinctId,
-        //     uuid,
-        //     event: '$snapshot',
-        //     properties: {
-        //         $session_id: sessionId,
-        //         $window_id: 'abc1234',
-        //         $snapshot_data: { data: compressToString(veryLongString), chunk_count: 1 },
-        //     },
-        // })
-        //
-        // let tempFiles: string[] = []
-        //
-        // await waitForExpect(async () => {
-        //     const files = await fs.promises.readdir(defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY)
-        //     tempFiles = files.filter((f) => f.startsWith(`${teamId}.${sessionId}`))
-        //     expect(tempFiles.length).toBe(1)
-        // })
-        //
-        // await waitForExpect(async () => {
-        //     const currentFile = tempFiles[0]
-        //
-        //     const fileContents = await fs.promises.readFile(
-        //         `${defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY}/${currentFile}`,
-        //         'utf8'
-        //     )
-        //
-        //     expect(fileContents).toEqual(`{"window_id":"abc1234","data":"${veryLongString}"}\n`)
-        // })
+        const teamId = await createTeam(organizationId)
+        const distinctId = new UUIDT().toString()
+        const uuid = new UUIDT().toString()
+        const sessionId = new UUIDT().toString()
+        const veryLongString = generateVeryLongString()
+        await capture({
+            teamId,
+            distinctId,
+            uuid,
+            event: '$snapshot',
+            properties: {
+                $session_id: sessionId,
+                $window_id: 'abc1234',
+                $snapshot_data: { data: compressToString(veryLongString), chunk_count: 1 },
+            },
+            topic: 'session_recording_events',
+        })
+
+        let tempFiles: string[] = []
+
+        await waitForExpect(async () => {
+            const files = await fs.promises.readdir(defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY)
+            tempFiles = files.filter((f) => f.startsWith(`${teamId}.${sessionId}`))
+            expect(tempFiles.length).toBe(1)
+        })
+
+        await waitForExpect(async () => {
+            const currentFile = tempFiles[0]
+
+            const fileContents = await fs.promises.readFile(
+                `${defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY}/${currentFile}`,
+                'utf8'
+            )
+
+            expect(fileContents).toEqual(`{"window_id":"abc1234","data":"${veryLongString}"}\n`)
+        })
     },
     40000
 )
