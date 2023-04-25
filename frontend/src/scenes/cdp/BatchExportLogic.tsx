@@ -28,7 +28,7 @@ interface BatchExportLogicProps {
 }
 
 const defaultCreator = (values: BatchExportLogicType['values']): S3BatchExportConfigType => ({
-    name: 'Test',
+    name: values.connectionChoice?.name || 'New connection',
     frequency: '12',
     firstExport: dayjsUtcToTimezone(new Date().toISOString(), values.timezone).add(1, 'day').startOf('day') as any,
     stopAtSpecificDate: false,
@@ -95,7 +95,7 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
             },
         ],
     }),
-    loaders({
+    loaders(({ props }) => ({
         connectionChoices: [
             undefined as ConnectionChoiceType[] | undefined,
             {
@@ -109,7 +109,8 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
             undefined as S3BatchExportConfigType | undefined,
             {
                 loadBatchExportSettings: async () => {
-                    const batchExportSettings = await Promise.resolve(undefined)
+                    debugger
+                    const batchExportSettings = props.id ? await api.batchExports.exports.get(props.id) : undefined
                     return batchExportSettings
                 },
             },
@@ -128,7 +129,7 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
                 },
             },
         ],
-    }),
+    })),
     forms(({ values }) => ({
         batchExportSettings: {
             defaults: defaultCreator(values),

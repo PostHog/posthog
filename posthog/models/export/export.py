@@ -22,6 +22,7 @@ class ExportDestination(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     last_updated_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     config: models.JSONField = models.JSONField(default=dict, blank=True)
+    primary_schedule: models.ForeignKey = models.ForeignKey("ExportSchedule", on_delete=models.CASCADE, null=True)
 
 
 class ExportSchedule(UUIDModel):
@@ -43,6 +44,7 @@ class ExportSchedule(UUIDModel):
     skip: ArrayField = ArrayField(models.JSONField(), default=list)
     jitter: models.DurationField = models.DurationField(null=True)
     time_zone_name: models.CharField = models.CharField(max_length=64, default="Etc/UTC", null=True)
+    primary_schedule: models.BooleanField = models.BooleanField(default=False, blank=True)
 
     def get_schedule_spec(self) -> ScheduleSpec:
         """Return a Temporal ScheduleSpec."""

@@ -181,7 +181,8 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 
 class ExportDestinationSerializer(serializers.ModelSerializer):
-    schedule = ExportScheduleSerializer()
+    primary_schedule = ExportScheduleSerializer(required=False)
+    schedules = ExportScheduleSerializer(many=True,read_only=True, required=False)
 
     class Meta:
         model = ExportDestination
@@ -191,21 +192,25 @@ class ExportDestinationSerializer(serializers.ModelSerializer):
             "name",
             "config",
             "team_id",
-            "schedule",
+            "schedules",
+            "primary_schedule"
         ]
-        read_only_fields = ["id", "created_at", "last_updated_at", "schedules"]
+        read_only_fields = ["id", "created_at", "last_updated_at", 'schedules']
 
     def create(self, validated_data: dict):
-        schedule_data = validated_data.pop("schedule")
+        schedule_data = validated_data.pop("primary_schedule")
+
         export_destination = ExportDestination.objects.create(team_id=self.context["team_id"], **validated_data)
 
         team = Team.objects.get(id=self.context["team_id"])
 
-        schedule = ExportSchedule.objects.create(destination=export_destination, team=team, **schedule_data)
+        schedule = ExportSchedule.objects.create(destination=export_destination, team=team, primary_schedule=True, **schedule_data,)
         export_destination.schedule = schedule
         export_destination.save()
 
         return export_destination
+    
+    # TODO: add update including the schedule
 
 
 class ExportDestinationViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
