@@ -310,15 +310,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 }
 
                 return {
-                    ...(values.sessionPlayerMetaData || {}),
+                    ...values.sessionPlayerMetaData,
                     person: response.person,
                     metadata,
                 }
             },
             addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
-                if (!values.sessionPlayerMetaData) {
-                    return values.sessionPlayerMetaData
-                }
                 return {
                     ...values.sessionPlayerMetaData,
                     metadata: {
@@ -481,18 +478,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     selectors({
         sessionPlayerData: [
             (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData],
-            (meta, snapshots): SessionPlayerData => {
-                return {
-                    metadata: meta?.metadata as SessionRecordingMeta, // TODO: Remove as conversion
-                    person: meta?.person,
-                    snapshotsByWindowId: snapshots?.snapshotsByWindowId || {},
-                    bufferedTo: calculateBufferedTo(
-                        meta?.metadata?.segments,
-                        snapshots?.snapshotsByWindowId,
-                        meta?.metadata?.startAndEndTimesByWindowId
-                    ),
-                }
-            },
+            (meta, snapshots): SessionPlayerData => ({
+                ...meta,
+                ...(snapshots || {
+                    snapshotsByWindowId: {},
+                }),
+                bufferedTo: calculateBufferedTo(
+                    meta.metadata?.segments,
+                    snapshots?.snapshotsByWindowId,
+                    meta.metadata?.startAndEndTimesByWindowId
+                ),
+            }),
         ],
         windowIds: [
             (s) => [s.sessionPlayerData],
