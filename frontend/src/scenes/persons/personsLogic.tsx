@@ -10,6 +10,7 @@ import {
     PersonListParams,
     PersonsTabType,
     PersonType,
+    AnyPropertyFilter,
 } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
@@ -61,6 +62,7 @@ export const personsLogic = kea<personsLogicType>({
         loadPerson: (id: string) => ({ id }),
         loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload: PersonListParams) => ({ payload }),
+        setHiddenListProperties: (payload: AnyPropertyFilter[]) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         deleteProperty: (key: string) => ({ key }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
@@ -84,6 +86,19 @@ export const personsLogic = kea<personsLogicType>({
                         )
                     }
                     return newFilters
+                },
+            },
+        ],
+        hiddenListProperties: [
+            [] as AnyPropertyFilter[],
+            {
+                setHiddenListProperties: (state, { payload }) => {
+                    let newProperties = [...state, ...payload]
+                    if (newProperties) {
+                        newProperties =
+                            convertPropertyGroupToProperties(newProperties.filter(isValidPropertyFilter)) || []
+                    }
+                    return newProperties
                 },
             },
         ],
@@ -242,10 +257,15 @@ export const personsLogic = kea<personsLogicType>({
             {
                 loadPersons: async ({ url }) => {
                     if (!url) {
+                        const newFilters = { ...values.listFilters }
+                        newFilters.properties = [
+                            ...(values.listFilters.properties || []),
+                            ...values.hiddenListProperties,
+                        ]
                         if (props.cohort) {
-                            url = `api/cohort/${props.cohort}/persons/?${toParams(values.listFilters)}`
+                            url = `api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`
                         } else {
-                            return api.persons.list(values.listFilters)
+                            return api.persons.list(newFilters)
                         }
                     }
                     return await api.get(url)
@@ -345,7 +365,7 @@ export const personsLogic = kea<personsLogicType>({
             }
 
             if (props.fixedProperties) {
-                actions.setListFilters({ properties: props.fixedProperties })
+                actions.setHiddenListProperties(props.fixedProperties)
                 actions.loadPersons()
             }
         },

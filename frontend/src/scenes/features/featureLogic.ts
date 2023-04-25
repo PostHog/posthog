@@ -26,6 +26,7 @@ export const featureLogic = kea<featureLogicType>([
     props({} as FeatureLogicProps),
     key(({ id }) => id),
     actions({
+        toggleImplementOptInInstructionsModal: true,
         cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
     }),
@@ -61,6 +62,12 @@ export const featureLogic = kea<featureLogicType>([
             false,
             {
                 editFeature: (_, { editing }) => editing,
+            },
+        ],
+        implementOptInInstructionsModal: [
+            false,
+            {
+                toggleImplementOptInInstructionsModal: (state) => !state,
             },
         ],
     }),

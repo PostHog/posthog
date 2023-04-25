@@ -170,7 +170,12 @@ function Pages(): JSX.Element {
                     />
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
                     {featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT] && (
-                        <PageButton icon={<IconRocketLaunch />} identifier={Scene.Features} to={urls.features()} />
+                        <PageButton
+                            icon={<IconRocketLaunch />}
+                            identifier={Scene.Features}
+                            title={'Beta Management'}
+                            to={urls.features()}
+                        />
                     )}
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                         !preflight?.instance_preferences?.disable_paid_fs) && (

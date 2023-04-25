@@ -2,7 +2,7 @@ import { useValues, useActions, BindLogic } from 'kea'
 import { PersonsTable } from './PersonsTable'
 import { Col, Popconfirm } from 'antd'
 import { personsLogic } from './personsLogic'
-import { CohortType, PersonPropertyFilter, PersonType } from '~/types'
+import { CohortType, PersonType } from '~/types'
 import { PersonsSearch } from './PersonsSearch'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -13,53 +13,12 @@ import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 
 interface PersonsProps {
     cohort?: CohortType['id']
-    fixedProperties?: PersonPropertyFilter[]
-    extraSceneActions?: JSX.Element[]
-    compact?: boolean
-    showFilters?: boolean
-    showExportAction?: boolean
-    extraColumns?: LemonTableColumn<PersonType, keyof PersonType | undefined>[]
-    showSearch?: boolean
-    useParentLogic?: boolean
 }
 
-export function Persons({
-    cohort,
-    fixedProperties,
-    extraSceneActions,
-    compact,
-    showFilters,
-    showExportAction,
-    extraColumns,
-    showSearch,
-    useParentLogic = false,
-}: PersonsProps = {}): JSX.Element {
-    if (useParentLogic) {
-        return (
-            <PersonsScene
-                extraSceneActions={extraSceneActions}
-                compact={compact}
-                showFilters={showFilters}
-                showExportAction={showExportAction}
-                extraColumns={extraColumns}
-                showSearch={showSearch}
-            />
-        )
-    }
-
+export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
     return (
-        <BindLogic
-            logic={personsLogic}
-            props={{ cohort: cohort, syncWithUrl: !cohort && !fixedProperties, fixedProperties }}
-        >
-            <PersonsScene
-                extraSceneActions={extraSceneActions}
-                compact={compact}
-                showFilters={showFilters}
-                showExportAction={showExportAction}
-                extraColumns={extraColumns}
-                showSearch={showSearch}
-            />
+        <BindLogic logic={personsLogic} props={{ cohort: cohort, syncWithUrl: !cohort, fixedProperties: undefined }}>
+            <PersonsScene />
         </BindLogic>
     )
 }
@@ -71,12 +30,14 @@ interface PersonsSceneProps {
     showExportAction?: boolean
     extraColumns?: LemonTableColumn<PersonType, keyof PersonType | undefined>[]
     showSearch?: boolean
+    emptyState?: JSX.Element
 }
 
 export function PersonsScene({
     extraSceneActions,
     compact,
     extraColumns,
+    emptyState,
     showFilters = true,
     showExportAction = true,
     showSearch = true,
@@ -143,6 +104,7 @@ export function PersonsScene({
                     loadNext={() => loadPersons(persons.next)}
                     compact={compact}
                     extraColumns={extraColumns}
+                    emptyState={emptyState}
                 />
             </div>
         </div>
