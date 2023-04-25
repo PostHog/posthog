@@ -3,7 +3,7 @@ import { BatchExportDestinationType, CDPTabsType, ConnectionChoiceType } from '.
 
 import { mockConnectionChoices, mockConnections } from './mocks'
 
-import type { CDPSceneLogicType } from './CDPSceneLogicType'
+import type { CDPSceneLogicType } from './cdpSceneLogicType'
 
 export const CDPSceneLogic = kea<CDPSceneLogicType>([
     path(['scenes', 'cdp', 'CDPSceneLogic']),
