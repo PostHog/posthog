@@ -115,10 +115,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
-            "schedule": {
-                "name": "test-schedule",
-                "cron_expressions": ["0 0 * * *"],
-            },
+            "schedule": {"start_at": "2023-04-26T00:00:00.000Z", "intervals": [{"every": "43200", "offset": "0"}]},
         }
 
         self.assertEqual(ExportDestination.objects.count(), 0)

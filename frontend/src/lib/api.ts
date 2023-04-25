@@ -215,12 +215,12 @@ class ApiRequest {
     // # Batch exports
 
     // ## Export destinations
-    public batchExportDestinations(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('batch_export_destinations')
+    public batchExports(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('batch_exports')
     }
 
-    public batchExportDestination(id: BatchExportDestinationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.batchExportDestinations(teamId).addPathComponent(id)
+    public batchExport(id: BatchExportDestinationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExports(teamId).addPathComponent(id)
     }
 
     // ## Export runs
@@ -583,24 +583,24 @@ const api = {
     },
 
     batchExports: {
-        destinations: {
+        exports: {
             async list(
                 teamId: TeamType['id'] = getCurrentTeamId()
             ): Promise<PaginatedResponse<BatchExportDestinationType>> {
-                return (await new ApiRequest().batchExportDestinations(teamId).get()).results
+                return (await new ApiRequest().batchExports(teamId).get()).results
             },
             async get(
                 destinationId: BatchExportDestinationType['id'],
                 teamId: TeamType['id'] = getCurrentTeamId()
             ): Promise<BatchExportDestinationType> {
-                return await new ApiRequest().batchExportDestination(destinationId, teamId).get()
+                return await new ApiRequest().batchExport(destinationId, teamId).get()
             },
 
             async create(
                 data: Partial<BatchExportDestinationType>,
                 teamId: TeamType['id'] = getCurrentTeamId()
             ): Promise<BatchExportDestinationType> {
-                return await new ApiRequest().batchExportDestinations(teamId).create({ data })
+                return await new ApiRequest().batchExports(teamId).create({ data })
             },
 
             async update(
@@ -608,7 +608,7 @@ const api = {
                 data: Partial<BatchExportDestinationType>,
                 teamId: TeamType['id'] = getCurrentTeamId()
             ): Promise<BatchExportDestinationType> {
-                return await new ApiRequest().batchExportDestination(destinationId, teamId).update({ data })
+                return await new ApiRequest().batchExport(destinationId, teamId).update({ data })
             },
         },
         runs: {

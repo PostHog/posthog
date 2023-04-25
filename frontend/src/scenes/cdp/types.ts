@@ -30,6 +30,15 @@ export type BatchExportDestinationType = {
     lastUpdatedAt?: string
 }
 
+export type S3ConfigType = {
+    AWSAccessKeyID: string
+    AWSSecretAccessKey: string
+    AWSRegion: string
+    AWSBucket: string
+    fileFormat: S3BatchExportFileFormatType
+    fileName: string
+}
+
 export type S3BatchExportConfigType = {
     name: string
     frequency: BatchExportFrequencyType
@@ -89,19 +98,35 @@ export enum ChangeExportRunStatusEnum {
 // TODO do we need this on the frontend? Seems like it's only for the backend
 export interface BatchExportSchedule {
     id: string
+    batch_export_destination_id: string
+    intervals: {
+        every: string // time in seconds
+        offset: string // time in seconds
+    }[]
+    offset: string // time in seconds
     team_id: string
     created_at: string
     last_updated_at: string
     paused_at: string | null
     unpaused_at: string | null
     start_at: string | null
-    end_at: string | null
-    name: string
-    batch_export_destination_id: string
-    calendars: Record<string, unknown>[]
-    intervals: Record<string, unknown>[]
-    cron_expressions: string[]
+    end_at?: string
     skip: Record<string, unknown>[]
     jitter: number | null
     time_zone_name: string | null
+    // cron_expressions: string[]
+    // calendars: Record<string, unknown>[]
+}
+
+export type DestinationConfigs = S3ConfigType // Add more types here as we add more destinations
+
+export type CreateBatchExportScheduleType = {
+    name: string
+    type: string // TODO: rename this e.g. destination_slug or id?
+    config: DestinationConfigs
+    schedule?: {
+        start_at: BatchExportSchedule['start_at']
+        end_at: BatchExportSchedule['end_at']
+        intervals: BatchExportSchedule['intervals']
+    }
 }

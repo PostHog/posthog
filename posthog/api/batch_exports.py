@@ -82,6 +82,8 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
         team = Team.objects.get(id=self.context["team_id"])
         destination = ExportDestination.objects.get(id=self.context["destination_id"])
 
+        # TODO: validate cron expression maximum every hour
+
         export_schedule = ExportSchedule.objects.create(
             team=team,
             destination=destination,

@@ -7,6 +7,8 @@ import {
     ChangeExportRunStatusEnum,
     ConnectionChoiceType,
     BatchExportRunType,
+    CreateBatchExportScheduleType,
+    S3ConfigType,
 } from './types'
 import { mockConnectionChoices, mockExportRuns } from './mocks'
 import { loaders } from 'kea-loaders'
@@ -19,13 +21,14 @@ import { Breadcrumb } from '~/types'
 
 import type { BatchExportLogicType } from './BatchExportLogicType'
 import { urlToAction } from 'kea-router'
+import api from 'lib/api'
 
 interface BatchExportLogicProps {
     id: string
 }
 
 const defaultCreator = (values: BatchExportLogicType['values']): S3BatchExportConfigType => ({
-    name: '',
+    name: 'Test',
     frequency: '12',
     firstExport: dayjsUtcToTimezone(new Date().toISOString(), values.timezone).add(1, 'day').startOf('day') as any,
     stopAtSpecificDate: false,
@@ -124,7 +127,54 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
             },
             submit: async (values: S3BatchExportConfigType) => {
                 console.log('submitting', values)
+
+                const frequencyToSeconds = {
+                    '1': '3600',
+                    '6': '21600',
+                    '12': '43200',
+                    daily: '86400',
+                    weekly: '604800',
+                    monthly: '2592000',
+                } // TODO: add type
+                // TODO: check these numbers
+
+                const name = values.name
+                const type = 'S3' // TODO: make this real
+                const schedule: CreateBatchExportScheduleType['schedule'] = {
+                    start_at: values.firstExport.toISOString(),
+                    end_at: values.stopAtSpecificDate ? values.stopAt?.toISOString() : undefined,
+                    intervals: [
+                        {
+                            every: frequencyToSeconds[values.frequency],
+                            offset: '0', // TODO: add in the real offset
+                        },
+                    ], // TODO: work out what to do here
+                }
+
+                const config: S3ConfigType = {
+                    AWSAccessKeyID: values.AWSAccessKeyID,
+                    AWSSecretAccessKey: values.AWSSecretAccessKey,
+                    AWSRegion: values.AWSRegion,
+                    AWSBucket: values.AWSBucket,
+                    fileFormat: values.fileFormat,
+                    fileName: values.fileName,
+                }
+
+                const createBatchExport: CreateBatchExportScheduleType = {
+                    name,
+                    type,
+                    schedule,
+                    config,
+                }
+
+                console.log('createBatchExportSchedule', createBatchExport)
+
+                const result = await api.batchExports.exports.create(createBatchExport)
+
+                console.log(result)
+
                 // TODO: don't send the placeholder AWSSecretAccessKey unless it's been changed
+                // TODO: turn off seconds in the date pickers
             },
         },
     })),

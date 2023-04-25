@@ -94,7 +94,12 @@ export function S3Settings(): JSX.Element {
     const { setEditingSecret } = useActions(BatchExportLogic)
 
     return (
-        <Form logic={BatchExportLogic} formKey={'batchExportSettings'} className="max-w-200 border rounded p-6">
+        <Form
+            logic={BatchExportLogic}
+            formKey={'batchExportSettings'}
+            enableFormOnSubmit
+            className="max-w-200 border rounded p-6"
+        >
             <div>
                 <h2>Connection</h2>
                 <Field name={'name'} label="Display Name">
