@@ -65,7 +65,14 @@ describe('sessionRecordingDataLogic', () => {
                 sessionRecordingId: null,
                 sessionPlayerData: {
                     bufferedTo: null,
-                    metadata: { recordingDurationMs: 0, segments: [], pinnedCount: 0, startAndEndTimesByWindowId: {} },
+                    metadata: {
+                        recordingDurationMs: 0,
+                        pinnedCount: 0,
+                        startTimestamp: 0,
+                        endTimestamp: 0,
+                        segments: [],
+                        startAndEndTimesByWindowId: {},
+                    },
                     person: null,
                     snapshotsByWindowId: {},
                 },

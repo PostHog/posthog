@@ -3,7 +3,7 @@ import {
     MatchedRecordingEvent,
     PerformanceEvent,
     RecordingConsoleLogV2,
-    RecordingMinimalEventType,
+    RecordingEventType,
     RRWebRecordingConsoleLogPayload,
     SessionRecordingPlayerTab,
 } from '~/types'
@@ -102,7 +102,7 @@ type InspectorListItemBase = {
 
 export type InspectorListItemEvent = InspectorListItemBase & {
     type: SessionRecordingPlayerTab.EVENTS
-    data: RecordingMinimalEventType
+    data: RecordingEventType
 }
 
 export type InspectorListItemConsole = InspectorListItemBase & {
@@ -141,8 +141,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
                 'sessionPlayerSnapshotDataLoading',
-                'minimalRelatedEventsData',
-                'minimalRelatedEventsDataLoading',
+                'sessionEventsData',
+                'sessionEventsDataLoading',
                 'windowIds',
             ],
             sessionRecordingPlayerLogic(props),
@@ -296,13 +296,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         allItems: [
-            (s) => [
-                s.recordingTimeInfo,
-                s.allPerformanceEvents,
-                s.consoleLogs,
-                s.minimalRelatedEventsData,
-                s.matchingEvents,
-            ],
+            (s) => [s.recordingTimeInfo, s.allPerformanceEvents, s.consoleLogs, s.sessionEventsData, s.matchingEvents],
             (recordingTimeInfo, performanceEvents, consoleLogs, eventsData, matchingEvents): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -607,11 +601,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         tabsState: [
             (s) => [
-                s.minimalRelatedEventsDataLoading,
+                s.sessionEventsDataLoading,
                 s.performanceEventsLoading,
                 s.sessionPlayerMetaDataLoading,
                 s.sessionPlayerSnapshotDataLoading,
-                s.minimalRelatedEventsData,
+                s.sessionEventsData,
                 s.consoleLogs,
                 s.allPerformanceEvents,
             ],

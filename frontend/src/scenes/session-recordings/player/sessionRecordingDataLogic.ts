@@ -4,19 +4,16 @@ import api from 'lib/api'
 import { sum, toParams } from 'lib/utils'
 import {
     AvailableFeature,
-    EventType,
     PerformanceEvent,
     PlayerPosition,
     RecordingEventsFilters,
     RecordingEventType,
-    RecordingMinimalEventType,
     RecordingReportLoadTimes,
     RecordingSegment,
     RecordingStartAndEndTime,
     SessionPlayerData,
     SessionPlayerMetaData,
     SessionPlayerSnapshotData,
-    SessionRecordingEvents,
     SessionRecordingId,
     SessionRecordingMeta,
     SessionRecordingType,
@@ -100,7 +97,7 @@ const generateRecordingReportDurations = (
             duration: Math.round(performance.now() - cache.snapshotsStartTime),
         },
         events: {
-            size: values.minimalRelatedEventsData?.length ?? 0,
+            size: values.sessionEventsData?.length ?? 0,
             duration: Math.round(performance.now() - cache.eventsStartTime),
         },
         performanceEvents: {
@@ -177,9 +174,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingMeta: true,
         addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
-        loadEvents: (nextUrl?: string) => ({ nextUrl }),
-        loadMinimalRelatedEvents: true,
-        loadFullEventData: (event: RecordingMinimalEventType) => ({ event }),
+        loadEvents: true,
+        loadFullEventData: (event: RecordingEventType) => ({ event }),
         loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
         reportViewed: true,
         reportUsageIfFullyLoaded: true,
@@ -222,7 +218,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 actions.loadRecordingSnapshots()
             }
             actions.loadEvents()
-            actions.loadMinimalRelatedEvents()
             actions.loadPerformanceEvents()
         },
         loadRecordingSnapshotsSuccess: () => {
@@ -244,12 +239,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
         },
         loadEventsSuccess: () => {
-            // Fetch next events
-            if (!!values.sessionEventsData?.next) {
-                actions.loadEvents(values.sessionEventsData.next)
-            } else {
-                actions.reportUsageIfFullyLoaded()
-            }
+            actions.reportUsageIfFullyLoaded()
         },
         loadPerformanceEventsSuccess: () => {
             actions.reportUsageIfFullyLoaded()
@@ -377,10 +367,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
-        minimalRelatedEventsData: [
-            null as null | RecordingMinimalEventType[],
+        sessionEventsData: [
+            null as null | RecordingEventType[],
             {
-                loadMinimalRelatedEvents: async () => {
+                loadEvents: async () => {
                     if (!values.sessionPlayerData?.person?.id || !values.recordingTimeWindow) {
                         return null
                     }
@@ -411,7 +401,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const { startTimestamp } = values.sessionPlayerData?.metadata || {}
 
-                    const minimalEvents = res.results.map((event: any): RecordingMinimalEventType => {
+                    const minimalEvents = res.results.map((event: any): RecordingEventType => {
                         return {
                             id: event[0],
                             event: event[1],
@@ -427,7 +417,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     })
                     // We should add a buffer here as some events may fall slightly outside the range
                     // .filter(
-                    //     (x: RecordingMinimalEventType) =>
+                    //     (x: RecordingEventType) =>
                     //         x.playerTime !== null && x.playerTime > 0 && x.playerTime < recordingDurationMs
                     // )
 
@@ -435,9 +425,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
 
                 loadFullEventData: async ({ event }) => {
-                    const existingEvent = values.minimalRelatedEventsData?.find((x) => x.id === event.id)
+                    const existingEvent = values.sessionEventsData?.find((x) => x.id === event.id)
                     if (!existingEvent || existingEvent.fullyLoaded) {
-                        return values.minimalRelatedEventsData
+                        return values.sessionEventsData
                     }
 
                     // TODO: Somehow check whether or not we need to load more data.
@@ -451,58 +441,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         existingEvent.fullyLoaded = true
                     }
 
-                    return values.minimalRelatedEventsData
-                },
-            },
-        ],
-
-        sessionEventsData: [
-            null as null | SessionRecordingEvents,
-            {
-                loadEvents: async ({ nextUrl }, breakpoint) => {
-                    cache.eventsStartTime = performance.now()
-                    if (!values.eventsApiParams) {
-                        return values.sessionEventsData
-                    }
-                    await breakpoint(1)
-                    // Use `nextUrl` if there is a `next` url to fetch
-                    const apiUrl =
-                        nextUrl || `api/projects/${values.currentTeamId}/events?${toParams(values.eventsApiParams)}`
-                    const response = await api.get(apiUrl)
-                    breakpoint()
-
-                    let allEvents = []
-                    // If the recording uses window_ids, then we only show events that map to the segments
-                    const eventsWithPlayerData: RecordingEventType[] = []
-                    const events = response.results ?? []
-
-                    events.forEach((event: EventType) => {
-                        // Events from other $session_ids should already be filtered out here so we don't need to worry about that
-                        const eventEpochTimeOfEvent = +dayjs(event.timestamp)
-                        const { startTimestamp, recordingDurationMs } = values.sessionPlayerData?.metadata || {}
-                        const playerTime = eventEpochTimeOfEvent - startTimestamp
-
-                        if (playerTime > 0 && playerTime < recordingDurationMs) {
-                            eventsWithPlayerData.push({
-                                ...event,
-                                playerTime,
-                            })
-                        }
-                    })
-
-                    // If we have a next url, we need to append the new events to the existing ones
-                    allEvents = [
-                        ...(nextUrl ? values.sessionEventsData?.events ?? [] : []),
-                        ...eventsWithPlayerData,
-                    ].sort(function (a, b) {
-                        return (a.playerTime ?? 0) - (b.playerTime ?? 0)
-                    })
-
-                    return {
-                        ...values.sessionEventsData,
-                        next: response?.next,
-                        events: allEvents,
-                    }
+                    return values.sessionEventsData
                 },
             },
         ],

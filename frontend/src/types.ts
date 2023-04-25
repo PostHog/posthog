@@ -897,9 +897,7 @@ export interface RecordingTimeMixinType {
     playerTime: number | null
 }
 
-export interface RecordingEventType extends EventType, RecordingTimeMixinType {}
-
-export interface RecordingMinimalEventType
+export interface RecordingEventType
     extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>,
         RecordingTimeMixinType {
     fullyLoaded: boolean
@@ -960,11 +958,6 @@ export interface SessionRecordingType {
 export interface SessionRecordingPropertiesType {
     id: string
     properties?: Record<string, any>
-}
-
-export interface SessionRecordingEvents {
-    next?: string
-    events: RecordingEventType[]
 }
 
 export interface PerformancePageView {

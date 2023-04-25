@@ -17,7 +17,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     connect((props: SessionRecordingLogicProps) => ({
         values: [
             sessionRecordingDataLogic(props),
-            ['sessionPlayerData', 'minimalRelatedEventsData', 'sessionPlayerMetaDataLoading', 'windowIds'],
+            ['sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaDataLoading', 'windowIds'],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerPosition', 'scale', 'currentPlayerTime'],
         ],
@@ -80,17 +80,17 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         lastPageviewEvent: [
-            (selectors) => [selectors.minimalRelatedEventsData, selectors.currentPlayerTime],
-            (minimalRelatedEventsData, currentPlayerTime) => {
+            (selectors) => [selectors.sessionEventsData, selectors.currentPlayerTime],
+            (sessionEventsData, currentPlayerTime) => {
                 const playerTimeClosestSecond = ceilMsToClosestSecond(currentPlayerTime ?? 0)
 
-                if (!minimalRelatedEventsData?.length) {
+                if (!sessionEventsData?.length) {
                     return null
                 }
 
                 // Go through the events in reverse to find the latest pageview
-                for (let i = minimalRelatedEventsData.length - 1; i >= 0; i--) {
-                    const event = minimalRelatedEventsData[i]
+                for (let i = sessionEventsData.length - 1; i >= 0; i--) {
+                    const event = sessionEventsData[i]
                     if (
                         (event.event === '$screen' || event.event === '$pageview') &&
                         (event.playerTime ?? 0) < playerTimeClosestSecond
