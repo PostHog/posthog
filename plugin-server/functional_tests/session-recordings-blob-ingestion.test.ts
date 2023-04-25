@@ -98,58 +98,62 @@ test.concurrent(
     40000
 )
 
-test.skip(`multiple recording events writes compressed data to s3`, async () => {
-    const teamId = await createTeam(organizationId)
-    const distinctId = new UUIDT().toString()
-    const sessionId = new UUIDT().toString()
+test.concurrent(
+    `multiple recording events writes compressed data to s3`,
+    async () => {
+        const teamId = await createTeam(organizationId)
+        const distinctId = new UUIDT().toString()
+        const sessionId = new UUIDT().toString()
 
-    // need to send enough data to trigger the s3 upload exactly once.
-    // with a buffer of 1024, an estimated gzip compression of 0.1, and 1025 default length for generateAVeryLongString
-    // we need 25,000 events.
-    // if any of those things change then the number of events probably needs to change too
-    const captures = Array.from({ length: 25000 }).map(() => {
-        return capture({
-            teamId,
-            distinctId,
-            uuid: new UUIDT().toString(),
-            event: '$snapshot',
-            properties: {
-                $session_id: sessionId,
-                $window_id: 'abc1234',
-                $snapshot_data: { data: compressToString(generateVeryLongString()), chunk_count: 1 },
-            },
+        // need to send enough data to trigger the s3 upload exactly once.
+        // with a buffer of 1024, an estimated gzip compression of 0.1, and 1025 default length for generateAVeryLongString
+        // we need 25,000 events.
+        // if any of those things change then the number of events probably needs to change too
+        const captures = Array.from({ length: 25000 }).map(() => {
+            return capture({
+                teamId,
+                distinctId,
+                uuid: new UUIDT().toString(),
+                event: '$snapshot',
+                properties: {
+                    $session_id: sessionId,
+                    $window_id: 'abc1234',
+                    $snapshot_data: { data: compressToString(generateVeryLongString()), chunk_count: 1 },
+                },
+            })
         })
-    })
-    await Promise.all(captures)
+        await Promise.all(captures)
 
-    await waitForExpect(async () => {
-        const s3Files = await s3.send(
-            new ListObjectsV2Command({
-                Bucket: defaultConfig.OBJECT_STORAGE_BUCKET,
-                Prefix: `${defaultConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${teamId}/session_id/${sessionId}`,
-            })
-        )
-        expect(s3Files.Contents?.length).toBe(1)
+        await waitForExpect(async () => {
+            const s3Files = await s3.send(
+                new ListObjectsV2Command({
+                    Bucket: defaultConfig.OBJECT_STORAGE_BUCKET,
+                    Prefix: `${defaultConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${teamId}/session_id/${sessionId}`,
+                })
+            )
+            expect(s3Files.Contents?.length).toBe(1)
 
-        const s3File = s3Files.Contents?.[0]
-        if (!s3File) {
-            throw new Error('No s3File')
-        }
-        const s3FileContents: GetObjectCommandOutput = await s3.send(
-            new GetObjectCommand({
-                Bucket: defaultConfig.OBJECT_STORAGE_BUCKET,
-                Key: s3File.Key,
-            })
-        )
-        const fileStream = await s3FileContents.Body?.transformToByteArray()
-        if (!fileStream) {
-            throw new Error('No fileStream')
-        }
-        const text = zlib.gunzipSync(fileStream).toString().trim()
-        // text contains JSON for {
-        //     "window_id": "abc1234",
-        //     "data": "random...string" // thousands of characters
-        // }
-        expect(text).toMatch(/{"window_id":"abc1234","data":"\w+"}/)
-    })
-}, 20000)
+            const s3File = s3Files.Contents?.[0]
+            if (!s3File) {
+                throw new Error('No s3File')
+            }
+            const s3FileContents: GetObjectCommandOutput = await s3.send(
+                new GetObjectCommand({
+                    Bucket: defaultConfig.OBJECT_STORAGE_BUCKET,
+                    Key: s3File.Key,
+                })
+            )
+            const fileStream = await s3FileContents.Body?.transformToByteArray()
+            if (!fileStream) {
+                throw new Error('No fileStream')
+            }
+            const text = zlib.gunzipSync(fileStream).toString().trim()
+            // text contains JSON for {
+            //     "window_id": "abc1234",
+            //     "data": "random...string" // thousands of characters
+            // }
+            expect(text).toMatch(/{"window_id":"abc1234","data":"\w+"}/)
+        })
+    },
+    20000
+)
