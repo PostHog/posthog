@@ -55,43 +55,47 @@ afterAll(async () => {
     await Promise.all([await dlqConsumer.disconnect()])
 })
 
-test.skip(`single recording event writes data to local tmp file`, async () => {
-    const teamId = await createTeam(organizationId)
-    const distinctId = new UUIDT().toString()
-    const uuid = new UUIDT().toString()
-    const sessionId = new UUIDT().toString()
-    const veryLongString = generateVeryLongString()
-    await capture({
-        teamId,
-        distinctId,
-        uuid,
-        event: '$snapshot',
-        properties: {
-            $session_id: sessionId,
-            $window_id: 'abc1234',
-            $snapshot_data: { data: compressToString(veryLongString), chunk_count: 1 },
-        },
-    })
+test.concurrent(
+    `single recording event writes data to local tmp file`,
+    async () => {
+        const teamId = await createTeam(organizationId)
+        const distinctId = new UUIDT().toString()
+        const uuid = new UUIDT().toString()
+        const sessionId = new UUIDT().toString()
+        const veryLongString = generateVeryLongString()
+        await capture({
+            teamId,
+            distinctId,
+            uuid,
+            event: '$snapshot',
+            properties: {
+                $session_id: sessionId,
+                $window_id: 'abc1234',
+                $snapshot_data: { data: compressToString(veryLongString), chunk_count: 1 },
+            },
+        })
 
-    let tempFiles: string[] = []
+        let tempFiles: string[] = []
 
-    await waitForExpect(async () => {
-        const files = await fs.promises.readdir(defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY)
-        tempFiles = files.filter((f) => f.startsWith(`${teamId}.${sessionId}`))
-        expect(tempFiles.length).toBe(1)
-    })
+        await waitForExpect(async () => {
+            const files = await fs.promises.readdir(defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY)
+            tempFiles = files.filter((f) => f.startsWith(`${teamId}.${sessionId}`))
+            expect(tempFiles.length).toBe(1)
+        })
 
-    await waitForExpect(async () => {
-        const currentFile = tempFiles[0]
+        await waitForExpect(async () => {
+            const currentFile = tempFiles[0]
 
-        const fileContents = await fs.promises.readFile(
-            `${defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY}/${currentFile}`,
-            'utf8'
-        )
+            const fileContents = await fs.promises.readFile(
+                `${defaultConfig.SESSION_RECORDING_LOCAL_DIRECTORY}/${currentFile}`,
+                'utf8'
+            )
 
-        expect(fileContents).toEqual(`{"window_id":"abc1234","data":"${veryLongString}"}\n`)
-    })
-}, 40000)
+            expect(fileContents).toEqual(`{"window_id":"abc1234","data":"${veryLongString}"}\n`)
+        })
+    },
+    40000
+)
 
 test.skip(`multiple recording events writes compressed data to s3`, async () => {
     const teamId = await createTeam(organizationId)
