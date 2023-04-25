@@ -6,6 +6,6 @@ trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 
 export DEBUG=${DEBUG:-1}
 
-python3 manage.py start_temporal_worker
+python3 manage.py start_temporal_worker --temporal_host $TEMPORAL_HOST --temporal_port $TEMPORAL_PORT --namespace $TEMPORAL_NAMESPACE --server-root-ca-cert $TEMPORAL_ROOT_CA --client-cert $TEMPORAL_CERT --client-key $TEMPORAL_KEY 
 
 wait
