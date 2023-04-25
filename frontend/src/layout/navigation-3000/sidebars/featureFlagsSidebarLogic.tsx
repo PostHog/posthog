@@ -23,6 +23,11 @@ const fuse = new Fuse<FeatureFlagType>([], {
     includeMatches: true,
 })
 
+export interface SearchMatch {
+    indices: readonly [number, number][]
+    key: string
+}
+
 export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'featureFlagsSidebarLogic']),
     connect({
@@ -139,11 +144,9 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
         ],
         relevantFeatureFlags: [
             (s) => [s.featureFlags, navigation3000Logic.selectors.searchTerm],
-            (featureFlags, searchTerm): [FeatureFlagType, Fuse.FuseResultMatch[] | null][] => {
+            (featureFlags, searchTerm): [FeatureFlagType, SearchMatch[] | null][] => {
                 if (searchTerm) {
-                    return fuse
-                        .search(searchTerm)
-                        .map((result) => [result.item, result.matches as Fuse.FuseResultMatch[]])
+                    return fuse.search(searchTerm).map((result) => [result.item, result.matches as SearchMatch[]])
                 }
                 return featureFlags.map((featureFlag) => [featureFlag, null])
             },

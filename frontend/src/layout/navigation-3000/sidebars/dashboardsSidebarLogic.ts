@@ -22,7 +22,10 @@ const fuse = new Fuse<DashboardType>([], {
     includeMatches: true,
 })
 
-console.log(navigation3000Logic)
+export interface SearchMatch {
+    indices: readonly [number, number][]
+    key: string
+}
 
 export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'dashboardsSidebarLogic']),
@@ -114,11 +117,9 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
         ],
         relevantDashboards: [
             (s) => [s.pinSortedDashboards, navigation3000Logic.selectors.searchTerm],
-            (pinSortedDashboards, searchTerm): [DashboardType, Fuse.FuseResultMatch[] | null][] => {
+            (pinSortedDashboards, searchTerm): [DashboardType, SearchMatch[] | null][] => {
                 if (searchTerm) {
-                    return fuse
-                        .search(searchTerm)
-                        .map((result) => [result.item, result.matches as Fuse.FuseResultMatch[]])
+                    return fuse.search(searchTerm).map((result) => [result.item, result.matches as SearchMatch[]])
                 }
                 return pinSortedDashboards.map((dashboard) => [dashboard, null])
             },
