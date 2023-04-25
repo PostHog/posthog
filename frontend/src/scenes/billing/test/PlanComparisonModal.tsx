@@ -1,4 +1,4 @@
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
@@ -104,7 +104,7 @@ export const PlanComparisonModal = ({
                     to={
                         includeAddons
                             ? getUpgradeAllProductsLink(product, plan.plan_key || '', redirectPath)
-                            : `/api/billing-v2/activation?products=${product.type}:${plan.plan_key}&redirectPath=${redirectPath}`
+                            : `/api/billing-v2/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`
                     }
                     type={plan.current_plan ? 'secondary' : 'primary'}
                     fullWidth
@@ -119,6 +119,17 @@ export const PlanComparisonModal = ({
                 >
                     {plan.current_plan ? 'Current plan' : 'Upgrade'}
                 </LemonButton>
+                {!plan.current_plan && includeAddons && product.addons?.length > 0 && (
+                    <p className="text-center ml-0 mt-2 mb-0">
+                        <Link
+                            to={`/api/billing-v2/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
+                            className="text-muted text-xs"
+                            disableClientSideRouting
+                        >
+                            or upgrade without addons
+                        </Link>
+                    </p>
+                )}
             </td>
         )
     })
@@ -181,6 +192,9 @@ export const PlanComparisonModal = ({
                                             <th scope="row">
                                                 <p className="ml-0">
                                                     <span className="font-bold">{addon.name}</span>
+                                                    <LemonTag type="purple" className="ml-2">
+                                                        addon
+                                                    </LemonTag>
                                                 </p>
                                                 <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
                                             </th>
