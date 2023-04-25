@@ -274,7 +274,7 @@ export class SessionRecordingBlobIngester {
             destroyPromises.push(sessionManager.destroy())
         })
 
-        await Promise.all(destroyPromises)
+        await Promise.allSettled(destroyPromises)
 
         this.sessions = new Map()
     }
