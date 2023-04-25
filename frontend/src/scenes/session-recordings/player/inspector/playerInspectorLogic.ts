@@ -274,10 +274,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             snapshot.data.plugin === NETWORK_PLUGIN_NAME
                         ) {
                             const properties = snapshot.data.payload as any
-                            const data = {
+
+                            const data: Partial<PerformanceEvent> = {
                                 timestamp: snapshot.timestamp,
-                                windowId: windowId,
-                            } as Partial<PerformanceEvent>
+                                window_id: windowId,
+                            }
 
                             Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
                                 if (key in properties) {
