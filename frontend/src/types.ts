@@ -620,7 +620,7 @@ export interface SessionPlayerMetaData {
 }
 
 export interface SessionPlayerData extends SessionPlayerSnapshotData, SessionPlayerMetaData {
-    bufferedTo?: PlayerPosition
+    bufferedTo: PlayerPosition | null
 }
 
 export enum SessionRecordingUsageType {

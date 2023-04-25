@@ -116,8 +116,8 @@ const calculateBufferedTo = (
     segments: RecordingSegment[] = [],
     snapshotsByWindowId: Record<string, eventWithTime[]> | undefined,
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime> = {}
-): PlayerPosition | undefined => {
-    let bufferedTo: PlayerPosition | undefined
+): PlayerPosition | null => {
+    let bufferedTo: PlayerPosition | null = null
     // If we don't have metadata or snapshots yet, then we can't calculate the bufferedTo.
     if (!segments || !snapshotsByWindowId || !startAndEndTimesByWindowId) {
         return bufferedTo
@@ -317,7 +317,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
             addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
                 if (!values.sessionPlayerMetaData) {
-                    return
+                    return values.sessionPlayerMetaData
                 }
                 return {
                     ...values.sessionPlayerMetaData,
