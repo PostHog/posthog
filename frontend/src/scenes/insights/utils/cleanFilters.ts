@@ -162,6 +162,11 @@ export function cleanFilters(
 ): Partial<FilterType> {
     const commonFilters: Partial<CommonFiltersType> = {
         ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+    }
+
+    if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
+        commonFilters.filter_test_accounts = defaultFilterTestAccounts(filters.filter_test_accounts || false)
     }
 
     if (isRetentionFilter(filters)) {
@@ -181,7 +186,6 @@ export function cleanFilters(
             retention_reference: filters.retention_reference,
             properties: filters.properties || [],
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
-            ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
@@ -199,7 +203,6 @@ export function cleanFilters(
             ...(filters.new_entity ? { new_entity: filters.new_entity } : {}),
             ...(filters.interval ? { interval: filters.interval } : {}),
             ...(filters.properties ? { properties: filters.properties } : {}),
-            ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
             ...(filters.funnel_from_step ? { funnel_from_step: filters.funnel_from_step } : {}),
             ...(filters.funnel_to_step ? { funnel_to_step: filters.funnel_to_step } : {}),
@@ -272,7 +275,6 @@ export function cleanFilters(
             ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
             date_from: filters.date_from,
             date_to: filters.date_to,
-            ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             path_start_key: filters.path_start_key || undefined,
             path_end_key: filters.path_end_key || undefined,
             path_dropoff_key: filters.path_dropoff_key || undefined,
@@ -302,7 +304,6 @@ export function cleanFilters(
             ...(isTrendsFilter(filters) && isStickinessFilter(filters) && filters.hidden_legend_keys
                 ? { hidden_legend_keys: filters.hidden_legend_keys }
                 : {}),
-            ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             ...(filters.show_values_on_series ? { show_values_on_series: filters.show_values_on_series } : {}),
         }
 
@@ -323,10 +324,6 @@ export function cleanFilters(
         }
 
         cleanBreakdownParams(trendLikeFilter, filters, featureFlags || {})
-
-        if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
-            trendLikeFilter.filter_test_accounts = defaultFilterTestAccounts(filters.filter_test_accounts || false)
-        }
 
         // TODO: Deprecated; should be removed once backend is updated
         trendLikeFilter['shown_as'] = isStickinessFilter(filters)
