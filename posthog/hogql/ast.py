@@ -6,7 +6,7 @@ from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
 
 from posthog.hogql.constants import ConstantDataType
-from posthog.hogql.database import (
+from posthog.hogql.database.models import (
     DatabaseField,
     FieldTraverser,
     LazyJoin,

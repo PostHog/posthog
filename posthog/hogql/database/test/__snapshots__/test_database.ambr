@@ -46,6 +46,56 @@
               ]
           },
           {
+              "key": "goe_0",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_1",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_2",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_3",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_4",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
               "key": "person",
               "type": "field_traverser",
               "chain": [
@@ -73,6 +123,10 @@
           },
           {
               "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "updated_at",
               "type": "datetime"
           },
           {
@@ -276,6 +330,32 @@
           {
               "key": "version",
               "type": "integer"
+          }
+      ],
+      "raw_groups": [
+          {
+              "key": "index",
+              "type": "integer"
+          },
+          {
+              "key": "key",
+              "type": "string"
+          },
+          {
+              "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "updated_at",
+              "type": "datetime"
+          },
+          {
+              "key": "properties",
+              "type": "json"
+          },
+          {
+              "key": "offset",
+              "type": "datetime"
           }
       ]
   }
@@ -329,6 +409,56 @@
               ]
           },
           {
+              "key": "goe_0",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_1",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_2",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_3",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "goe_4",
+              "type": "virtual_table",
+              "table": "events",
+              "fields": [
+                  "key",
+                  "created_at",
+                  "properties"
+              ]
+          },
+          {
               "key": "person",
               "type": "field_traverser",
               "chain": [
@@ -351,6 +481,10 @@
           },
           {
               "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "updated_at",
               "type": "datetime"
           },
           {
@@ -554,6 +688,32 @@
           {
               "key": "version",
               "type": "integer"
+          }
+      ],
+      "raw_groups": [
+          {
+              "key": "index",
+              "type": "integer"
+          },
+          {
+              "key": "key",
+              "type": "string"
+          },
+          {
+              "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "updated_at",
+              "type": "datetime"
+          },
+          {
+              "key": "properties",
+              "type": "json"
+          },
+          {
+              "key": "offset",
+              "type": "datetime"
           }
       ]
   }

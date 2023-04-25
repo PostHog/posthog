@@ -1,5 +1,5 @@
 from posthog.hogql import ast
-from posthog.hogql.database import create_hogql_database
+from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import ResolverException, resolve_types
 from posthog.hogql.transforms import expand_asterisks
