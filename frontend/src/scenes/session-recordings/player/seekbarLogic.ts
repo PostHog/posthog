@@ -122,7 +122,6 @@ export const seekbarLogic = kea<seekbarLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setCurrentPlayerPosition: async () => {
-            console.log(values.slider)
             if (!values.slider) {
                 return
             }
@@ -133,7 +132,6 @@ export const seekbarLogic = kea<seekbarLogicType>([
                 !values.isSeeking ||
                 values.currentPlayerPosition === values.sessionPlayerData?.metadata?.segments[0]?.startPlayerPosition
             ) {
-                console.log('HERE?!')
                 const xValue = values.currentPlayerPosition
                     ? convertPlayerPositionToX(
                           values.currentPlayerPosition,
