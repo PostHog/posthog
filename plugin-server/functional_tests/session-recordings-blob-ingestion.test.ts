@@ -120,6 +120,7 @@ test.concurrent(
                     $window_id: 'abc1234',
                     $snapshot_data: { data: compressToString(generateVeryLongString()), chunk_count: 1 },
                 },
+                topic: 'session_recording_events',
             })
         })
         await Promise.all(captures)
