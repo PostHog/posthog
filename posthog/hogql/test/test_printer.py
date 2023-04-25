@@ -54,7 +54,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("[1,2,3][1]"), "[1, 2, 3][1]")
         self.assertEqual(
             self._expr("events.properties[1]"),
-            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(self._expr("events.event[1 + 2]"), "events.event[plus(1, 2)]")
 
@@ -75,20 +75,20 @@ class TestPrinter(BaseTest):
     def test_fields_and_properties(self):
         self.assertEqual(
             self._expr("properties.bla"),
-            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(
             self._expr("properties['bla']"),
-            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(
             self._expr("properties['bla']['bla']"),
-            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
         )
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(
             self._expr("properties.$bla", context),
-            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
         )
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=False):
@@ -97,7 +97,7 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
-                "replaceRegexpAll(JSONExtractRaw(person_props, %(hogql_val_0)s), '^\"|\"$', '')",
+                "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
             )
             context = HogQLContext(team_id=self.team.pk)
             self.assertEqual(
@@ -111,12 +111,12 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
-                "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+                "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
             )
             context = HogQLContext(team_id=self.team.pk)
             self.assertEqual(
                 self._expr("person.properties.bla", context),
-                "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+                "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
             )
 
     def test_hogql_properties(self):
@@ -173,7 +173,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(
             self._expr("properties.nomat.json.yet", context),
-            "replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(context.values, {"hogql_val_0": "nomat", "hogql_val_1": "json", "hogql_val_2": "yet"})
 
@@ -189,7 +189,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(
             self._expr("properties.withmat.json.yet", context),
-            "replaceRegexpAll(JSONExtractRaw(events.mat_withmat, %(hogql_val_0)s, %(hogql_val_1)s), '^\"|\"$', '')",
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.mat_withmat, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
         )
         self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
 
@@ -258,7 +258,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._expr("properties.bla and properties.bla2"),
-            "and(replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_0)s), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(events.properties, %(hogql_val_1)s), '^\"|\"$', ''))",
+            "and(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))",
         )
         self.assertEqual(
             self._expr("event or timestamp or true or count()"),
