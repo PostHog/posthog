@@ -72,10 +72,14 @@ async def create_export_run(inputs: CreateExportRunInputs) -> str:
     # Remove these comments once we upgrade.
     run = await sync_to_async(ExportRun.objects.create)(  # type: ignore
         team_id=inputs.team_id,
-        destination_id=inputs.destination_id,
-        schedule_id=inputs.schedule_id,
+        destination_id=UUID(inputs.destination_id),
+        schedule_id=UUID(inputs.schedule_id) if inputs.schedule_id else None,
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
+    )
+
+    activity.logger.info(
+        f"Creating ExportRun {run.id} targetting destination {run.destination.id} in team {run.team.id}."
     )
 
     return str(run.id)

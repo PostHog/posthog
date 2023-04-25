@@ -5,9 +5,11 @@ from string import Template
 
 from aiochclient import ChClient
 from aiohttp import ClientSession
+from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.settings.base_variables import DEBUG, TEST
 from posthog.temporal.workflows.base import (
     CreateExportRunInputs,
     PostHogWorkflow,
@@ -28,8 +30,8 @@ SELECT_QUERY_TEMPLATE = Template(
     SELECT $fields
     FROM $table_name
     WHERE
-        timestamp >= {data_interval_start}
-        AND timestamp < {data_interval_end}
+        timestamp >= toDateTime({data_interval_start}, 'UTC')
+        AND timestamp < toDateTime({data_interval_end}, 'UTC')
         AND team_id = {team_id}
     """
 )
@@ -71,7 +73,15 @@ def build_s3_url(bucket: str, region: str, key_template: str, **template_vars):
     else:
         key = key_template.format(**template_vars)
 
-    return f"https://s3.{region}.amazonaws.com/{bucket}/{key}"
+    if TEST or DEBUG:
+        # Note we are making a request to the object storage from the local ClickHouse container.
+        # So, we are communicating via the network created by docker/podman compose. This means we
+        # can use the service name to resolve to the object storage container.
+        base_endpoint = "http://object-storage:19000"
+    else:
+        base_endpoint = f"https://s3.{region}.amazonaws.com"
+
+    return f"{base_endpoint}/{bucket}/{key}"
 
 
 def prepare_template_vars(inputs: S3InsertInputs):
@@ -103,17 +113,28 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         auth = ""
 
     async with ClientSession() as s:
-        client = ChClient(s)
+        client = ChClient(
+            s,
+            url=settings.CLICKHOUSE_HTTP_URL,
+            user=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            database=settings.CLICKHOUSE_DATABASE,
+        )
 
-        count = await client.fetchrow(
+        if not await client.is_alive():
+            raise ConnectionError("Cannot establish connection to ClickHouse")
+
+        data_interval_start_ch = dt.datetime.fromisoformat(inputs.data_interval_start).strftime("%Y-%m-%d %H:%M:%S")
+        data_interval_end_ch = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d %H:%M:%S")
+        row = await client.fetchrow(
             SELECT_QUERY_TEMPLATE.substitute(table_name=inputs.table_name, fields="count(*)"),
             params={
                 "team_id": inputs.team_id,
-                "data_interval_start": dt.datetime.fromisoformat(inputs.data_interval_start),
-                "data_interval_end": dt.datetime.fromisoformat(inputs.data_interval_end),
+                "data_interval_start": data_interval_start_ch,
+                "data_interval_end": data_interval_end_ch,
             },
         )
-        count = count[0]
+        count = row[0]
 
         if count is None or count == 0:
             activity.logger.info(
@@ -140,8 +161,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 "path": s3_url,
                 "file_format": inputs.file_format,
                 "team_id": inputs.team_id,
-                "data_interval_start": dt.datetime.fromisoformat(inputs.data_interval_start),
-                "data_interval_end": dt.datetime.fromisoformat(inputs.data_interval_end),
+                "data_interval_start": data_interval_start_ch,
+                "data_interval_end": data_interval_end_ch,
             },
         )
 
@@ -168,8 +189,9 @@ class S3ExportInputs:
     key_template: str
     batch_window_size: int
     team_id: int
+    destination_id: str
     table_name: str = "events"
-    file_format: str = "CSV"
+    file_format: str = "CSVWithNames"
     partition_key: str | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
@@ -206,11 +228,21 @@ class S3ExportWorkflow(PostHogWorkflow):
 
         create_export_run_inputs = CreateExportRunInputs(
             team_id=inputs.team_id,
+            destination_id=inputs.destination_id,
             schedule_id=parent_id,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
         )
-        run_id = await workflow.execute_activity(create_export_run, create_export_run_inputs)
+        run_id = await workflow.execute_activity(
+            create_export_run,
+            create_export_run_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=20),
+            schedule_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=RetryPolicy(
+                maximum_attempts=3,
+                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+            ),
+        )
 
         update_inputs = UpdateExportRunStatusInputs(run_id=run_id, status="Completed")
 
@@ -231,15 +263,32 @@ class S3ExportWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 insert_into_s3_activity,
                 insert_inputs,
-                start_to_close_timeout=dt.timedelta(seconds=60),
+                start_to_close_timeout=dt.timedelta(minutes=20),
                 schedule_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    non_retryable_error_types=[
+                        # If we can't connect to ClickHouse, no point in retrying.
+                        "ConnectionError",
+                        # Validation failed, and will keep failing.
+                        "ValueError",
+                    ],
+                ),
             )
+
         except Exception as e:
             workflow.logger.exception("S3 Export failed.", exc_info=e)
             update_inputs.status = "Failed"
+            raise
+
         finally:
-            await workflow.execute_activity(update_export_run_status, update_inputs)
+            await workflow.execute_activity(
+                update_export_run_status,
+                update_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=20),
+                schedule_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
 
 def get_data_interval_from_workflow_inputs(inputs: S3ExportInputs) -> tuple[dt.datetime, dt.datetime]:

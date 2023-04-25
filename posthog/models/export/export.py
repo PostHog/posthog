@@ -162,8 +162,8 @@ class ExportRunManager(models.Manager):
     def create(
         self,
         team_id: int,
-        destination_id: str,
-        schedule_id: str | None,
+        destination_id: UUID,
+        schedule_id: UUID | None,
         data_interval_start: str,
         data_interval_end: str,
     ) -> "ExportRun":

@@ -1,9 +1,31 @@
+import csv
 import datetime as dt
+import io
+from typing import TypedDict
 from unittest import mock
+from uuid import UUID, uuid4
 
 import pytest
+from asgiref.sync import sync_to_async
+from boto3 import resource
+from botocore.client import Config
+from django.conf import settings
+from temporalio.client import Client
+from temporalio.common import RetryPolicy
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models import ExportDestination, Organization, Team
+from posthog.settings import (
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+)
+from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.s3_export import (
+    S3ExportInputs,
+    S3ExportWorkflow,
     S3InsertInputs,
     build_s3_url,
     insert_into_s3_activity,
@@ -43,8 +65,15 @@ from posthog.temporal.workflows.s3_export import (
     ],
 )
 def test_build_s3_url(inputs, expected):
-    """Test the build_s3_url utility function used in the S3Export workflow."""
-    result = build_s3_url(**inputs)
+    """Test the build_s3_url utility function used in the S3Export workflow.
+
+    We mock the TEST and DEBUG variables as we have some test logic that we are not interested in
+    for this test, as we are interested in asserting production behavior!
+    """
+    with mock.patch("posthog.temporal.workflows.s3_export.TEST", False), mock.patch(
+        "posthog.temporal.workflows.s3_export.DEBUG", False
+    ):
+        result = build_s3_url(**inputs)
     assert result == expected
 
 
@@ -75,42 +104,225 @@ async def test_insert_into_s3_activity(activity_environment):
     SELECT count(*)
     FROM events
     WHERE
-        timestamp >= {data_interval_start}
-        AND timestamp < {data_interval_end}
+        timestamp >= toDateTime({data_interval_start}, 'UTC')
+        AND timestamp < toDateTime({data_interval_end}, 'UTC')
         AND team_id = {team_id}
     """
 
-    # Excuse the format. I have to make indentation match for the assert_awaited_once_with call to pass.
+    # Excuse the whitespace magic. I have to make indentation match for the assert_awaited_once_with call to pass.
     expected_execute_row_query = """
     INSERT INTO FUNCTION s3({path},  {file_format})\n    \n    \n    SELECT *
     FROM events
     WHERE
-        timestamp >= {data_interval_start}
-        AND timestamp < {data_interval_end}
+        timestamp >= toDateTime({data_interval_start}, 'UTC')
+        AND timestamp < toDateTime({data_interval_end}, 'UTC')
         AND team_id = {team_id}
     """
+    with (
+        mock.patch("posthog.temporal.workflows.s3_export.TEST", False),
+        mock.patch("posthog.temporal.workflows.s3_export.DEBUG", False),
+        mock.patch("posthog.temporal.workflows.s3_export.ChClient.fetchrow") as fetch_row,
+        mock.patch("posthog.temporal.workflows.s3_export.ChClient.execute") as execute,
+    ):
+        await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
-    with mock.patch("posthog.temporal.workflows.s3_export.ChClient.fetchrow") as fetch_row:
-        with mock.patch("posthog.temporal.workflows.s3_export.ChClient.execute") as execute:
-            await activity_environment.run(insert_into_s3_activity, insert_inputs)
+        expected_data_interval_start = dt.datetime.fromisoformat(data_interval_start).strftime("%Y-%m-%d %H:%M:%S")
+        expected_data_interval_end = dt.datetime.fromisoformat(data_interval_end).strftime("%Y-%m-%d %H:%M:%S")
+        fetch_row.assert_awaited_once_with(
+            expected_fetch_row_query,
+            params={
+                "team_id": team_id,
+                "data_interval_start": expected_data_interval_start,
+                "data_interval_end": expected_data_interval_end,
+            },
+        )
+        execute.assert_awaited_once_with(
+            expected_execute_row_query,
+            params={
+                "aws_access_key_id": None,
+                "aws_secret_access_key": None,
+                "path": expected_s3_url,
+                "file_format": file_format,
+                "team_id": team_id,
+                "data_interval_start": expected_data_interval_start,
+                "data_interval_end": expected_data_interval_end,
+            },
+        )
 
-            fetch_row.assert_awaited_once_with(
-                expected_fetch_row_query,
-                params={
-                    "team_id": team_id,
-                    "data_interval_start": dt.datetime.fromisoformat(data_interval_start),
-                    "data_interval_end": dt.datetime.fromisoformat(data_interval_end),
-                },
-            )
-            execute.assert_awaited_once_with(
-                expected_execute_row_query,
-                params={
-                    "aws_access_key_id": None,
-                    "aws_secret_access_key": None,
-                    "path": expected_s3_url,
-                    "file_format": file_format,
-                    "team_id": team_id,
-                    "data_interval_start": dt.datetime.fromisoformat(data_interval_start),
-                    "data_interval_end": dt.datetime.fromisoformat(data_interval_end),
-                },
-            )
+
+TEST_ROOT_BUCKET = "test-batch-exports"
+
+
+@pytest.fixture
+def s3_bucket():
+    """A testing S3 bucket resource."""
+    s3 = resource(
+        "s3",
+        endpoint_url=OBJECT_STORAGE_ENDPOINT,
+        aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        config=Config(signature_version="s3v4"),
+        region_name="us-east-1",
+    )
+    bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+
+    yield bucket
+
+    bucket.objects.filter(Prefix=TEST_ROOT_BUCKET).delete()
+
+
+@pytest.fixture
+def organization(django_db_setup):
+    """A test organization."""
+    org = Organization.objects.create(name="TempHog")
+    org.save()
+
+    yield org
+
+    org.delete()
+
+
+@pytest.fixture
+def team(organization):
+    """A test team."""
+    team = Team.objects.create(organization=organization, name="TempHog-1")
+    team.save()
+
+    yield team
+
+    team.delete()
+
+
+@pytest.fixture
+def destination(team):
+    """A test ExportDestination targetting an S3 bucket.
+
+    Technically, we are using a MinIO bucket. But the API is the same, so we also support it!
+    """
+    dest = ExportDestination.objects.create(
+        name="my-s3-bucket",
+        type="S3",
+        team=team,
+        config={
+            "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        },
+    )
+    dest.save()
+
+    yield dest
+
+    dest.delete()
+
+
+@pytest.fixture
+def max_datetime():
+    """An arbitrary date of reference for loading test events."""
+    return dt.datetime(2023, 4, 25, 0, 0, 0, tzinfo=dt.timezone.utc)
+
+
+class EventValues(TypedDict):
+    """Events to be inserted for testing."""
+
+    uuid: UUID
+    event: str
+    timestamp: dt.datetime
+    person_id: UUID
+    team_id: int
+
+
+@pytest.fixture
+def events_to_export(team, max_datetime):
+    """Produce some test events for testing.
+
+    These events will be yielded so that we can re-fetch them and assert their
+    person_ids have been overriden.
+    """
+    all_test_events = []
+    for n in range(1, 11):
+        values: EventValues = {
+            "uuid": uuid4(),
+            "event": f"test-event-{n}",
+            "timestamp": max_datetime - dt.timedelta(seconds=10 * n),
+            "team_id": team.id,
+            "person_id": uuid4(),
+        }
+        all_test_events.append(values)
+
+    sync_execute("INSERT INTO sharded_events (uuid, event, timestamp, team_id, person_id) VALUES", all_test_events)
+
+    yield all_test_events
+
+    # sync_execute("TRUNCATE TABLE sharded_events")
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_s3_export_workflow_with_minio_bucket(
+    s3_bucket, destination, team, organization, events_to_export, max_datetime
+):
+    """Test the S3ExportWorkflow targetting a local MinIO bucket.
+
+    The MinIO object-storage is part of the PostHog development stack. We are loading some events
+    into ClickHouse and exporting them by running the S3ExportWorkflow.
+
+    Once the Workflow finishes, we assert a new object exists in our bucket, that it matches our,
+    key, and we read it's contents as a CSV to ensure all events we loaded are accounted for.
+    """
+    client = await Client.connect(
+        f"{settings.TEMPORAL_SCHEDULER_HOST}:{settings.TEMPORAL_SCHEDULER_PORT}",
+        namespace=settings.TEMPORAL_NAMESPACE,
+    )
+
+    # To ensure these are populated in the db, we have to save them here.
+    await sync_to_async(organization.save)()
+    await sync_to_async(team.save)()
+    await sync_to_async(destination.save)()
+
+    workflow_id = str(uuid4())
+    inputs = S3ExportInputs(
+        bucket_name=s3_bucket.name,
+        region="us-east-1",
+        key_template=f"{TEST_ROOT_BUCKET}/posthog-{{table_name}}/events.csv",
+        batch_window_size=3600,
+        team_id=destination.team.id,
+        destination_id=str(destination.id),
+        aws_access_key_id=destination.config["aws_access_key_id"],
+        aws_secret_access_key=destination.config["aws_secret_access_key"],
+        data_interval_end=max_datetime.isoformat(),
+    )
+
+    async with Worker(
+        client,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        workflows=[S3ExportWorkflow],
+        activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        await client.execute_workflow(
+            S3ExportWorkflow.run,
+            inputs,
+            id=workflow_id,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+        s3_objects = list(s3_bucket.objects.filter(Prefix=TEST_ROOT_BUCKET))
+        assert len(s3_objects) == 1
+        s3_object = s3_objects[0]
+
+        assert s3_object.bucket_name == s3_bucket.name
+        assert s3_object.key == f"{TEST_ROOT_BUCKET}/posthog-events/events.csv"
+
+        file_obj = io.BytesIO()
+        s3_bucket.download_fileobj(s3_object.key, file_obj)
+
+        reader = csv.DictReader((line.decode() for line in file_obj.readlines()))
+        for row in reader:
+            event_id = row["id"]
+            matching_event = [event for event in events_to_export if event.id == event_id][0]
+
+            assert row["event"] == matching_event["event"]
+            assert row["timestamp"] == matching_event["timestamp"]
+            assert row["person_id"] == matching_event["person_id"]
+            assert row["team_id"] == matching_event["team_id"]
