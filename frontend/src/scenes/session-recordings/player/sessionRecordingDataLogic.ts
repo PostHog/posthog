@@ -287,50 +287,47 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
     })),
     loaders(({ values, props, cache, actions }) => ({
-        sessionPlayerMetaData: [
-            undefined as SessionPlayerMetaData | undefined,
-            {
-                loadRecordingMeta: async (_, breakpoint) => {
-                    cache.metaStartTime = performance.now()
-                    if (!props.sessionRecordingId) {
-                        return values.sessionPlayerMetaData
-                    }
-                    const params = toParams({
-                        save_view: true,
-                        recording_start_time: props.recordingStartTime,
+        sessionPlayerMetaData: {
+            loadRecordingMeta: async (_, breakpoint) => {
+                cache.metaStartTime = performance.now()
+                if (!props.sessionRecordingId) {
+                    return values.sessionPlayerMetaData
+                }
+                const params = toParams({
+                    save_view: true,
+                    recording_start_time: props.recordingStartTime,
+                })
+                const response = await api.recordings.get(props.sessionRecordingId, params)
+
+                const metadata = parseMetadataResponse(response)
+                breakpoint()
+
+                if (response.snapshot_data_by_window_id) {
+                    // When loaded from S3 the snapshots are already present
+                    actions.loadRecordingSnapshotsSuccess({
+                        snapshotsByWindowId: response.snapshot_data_by_window_id,
                     })
-                    const response = await api.recordings.get(props.sessionRecordingId, params)
+                }
 
-                    const metadata = parseMetadataResponse(response)
-                    breakpoint()
-
-                    if (response.snapshot_data_by_window_id) {
-                        // When loaded from S3 the snapshots are already present
-                        actions.loadRecordingSnapshotsSuccess({
-                            snapshotsByWindowId: response.snapshot_data_by_window_id,
-                        })
-                    }
-
-                    return {
-                        ...(values.sessionPlayerMetaData || {}),
-                        person: response.person,
-                        metadata,
-                    }
-                },
-                addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
-                    if (!values.sessionPlayerMetaData) {
-                        return
-                    }
-                    return {
-                        ...values.sessionPlayerMetaData,
-                        metadata: {
-                            ...values.sessionPlayerMetaData.metadata,
-                            pinnedCount: Math.max(values.sessionPlayerMetaData.metadata.pinnedCount + diffCount, 0),
-                        },
-                    }
-                },
+                return {
+                    ...(values.sessionPlayerMetaData || {}),
+                    person: response.person,
+                    metadata,
+                }
             },
-        ],
+            addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
+                if (!values.sessionPlayerMetaData) {
+                    return
+                }
+                return {
+                    ...values.sessionPlayerMetaData,
+                    metadata: {
+                        ...values.sessionPlayerMetaData.metadata,
+                        pinnedCount: Math.max(values.sessionPlayerMetaData.metadata.pinnedCount + diffCount, 0),
+                    },
+                }
+            },
+        },
         sessionPlayerSnapshotData: [
             null as SessionPlayerSnapshotData | null,
             {
