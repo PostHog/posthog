@@ -31,37 +31,37 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
 export const parseMetadataResponse = (recording: SessionRecordingType): SessionRecordingMeta => {
-    let startTimestamp: number = Infinity
-    let endTimestamp: number = 0
+    let startTimestamp: Dayjs | undefined
+    let endTimestamp: Dayjs | undefined
 
     const segments: RecordingSegment[] =
         recording.segments?.map((segment): RecordingSegment => {
-            const windowStartTime = +dayjs(recording.start_and_end_times_by_window_id?.[segment.window_id]?.start_time)
-            const startTimeEpochMs = +dayjs(segment?.start_time)
-            const endTimeEpochMs = +dayjs(segment?.end_time)
+            const windowStartTime = dayjs(recording.start_and_end_times_by_window_id?.[segment.window_id]?.start_time)
+            const segmentStartTime = dayjs(segment.start_time)
+            const segmentEndTime = dayjs(segment.end_time)
             const startPlayerPosition: PlayerPosition = {
                 windowId: segment.window_id,
-                time: startTimeEpochMs - windowStartTime,
+                time: +segmentStartTime - +windowStartTime,
             }
             const endPlayerPosition: PlayerPosition = {
                 windowId: segment.window_id,
-                time: endTimeEpochMs - windowStartTime,
+                time: +segmentEndTime - +windowStartTime,
             }
-            const durationMs = endTimeEpochMs - startTimeEpochMs
+            const durationMs = +segmentEndTime - +segmentStartTime
 
-            if (startTimeEpochMs < startTimestamp) {
-                startTimestamp = startTimeEpochMs
+            if (!startTimestamp || segmentStartTime.isBefore(startTimestamp)) {
+                startTimestamp = segmentStartTime
             }
-            if (endTimeEpochMs > endTimestamp) {
-                endTimestamp = endTimeEpochMs
+            if (!endTimestamp || segmentEndTime.isAfter(endTimestamp)) {
+                endTimestamp = segmentEndTime
             }
 
             return {
                 startPlayerPosition,
                 endPlayerPosition,
                 durationMs,
-                startTimeEpochMs,
-                endTimeEpochMs,
+                startTimeEpochMs: +segmentStartTime,
+                endTimeEpochMs: +segmentEndTime,
                 windowId: segment.window_id,
                 isActive: segment.is_active,
             }
@@ -78,8 +78,8 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionR
         segments,
         startAndEndTimesByWindowId,
         recordingDurationMs: sum(segments.map((s) => s.durationMs)),
-        startTimestamp,
-        endTimestamp,
+        startTimestamp: startTimestamp as Dayjs,
+        endTimestamp: endTimestamp as Dayjs,
     }
 }
 
@@ -116,8 +116,8 @@ const calculateBufferedTo = (
     segments: RecordingSegment[] = [],
     snapshotsByWindowId: Record<string, eventWithTime[]> | undefined,
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime> = {}
-): PlayerPosition | null => {
-    let bufferedTo: PlayerPosition | null = null
+): PlayerPosition | undefined => {
+    let bufferedTo: PlayerPosition | undefined
     // If we don't have metadata or snapshots yet, then we can't calculate the bufferedTo.
     if (!segments || !snapshotsByWindowId || !startAndEndTimesByWindowId) {
         return bufferedTo
@@ -156,14 +156,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     }),
     defaults({
         sessionPlayerMetaData: {
-            person: null,
             metadata: {
                 pinnedCount: 0,
                 segments: [],
                 startAndEndTimesByWindowId: {},
                 recordingDurationMs: 0,
-                startTimestamp: 0,
-                endTimestamp: 0,
+                startTimestamp: dayjs(),
+                endTimestamp: dayjs(),
             },
             bufferedTo: null,
         } as SessionPlayerMetaData,
@@ -288,44 +287,50 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
     })),
     loaders(({ values, props, cache, actions }) => ({
-        sessionPlayerMetaData: {
-            loadRecordingMeta: async (_, breakpoint): Promise<SessionPlayerMetaData> => {
-                cache.metaStartTime = performance.now()
-                if (!props.sessionRecordingId) {
-                    return values.sessionPlayerMetaData
-                }
-                const params = toParams({
-                    save_view: true,
-                    recording_start_time: props.recordingStartTime,
-                })
-                const response = await api.recordings.get(props.sessionRecordingId, params)
-
-                const metadata = parseMetadataResponse(response)
-                breakpoint()
-
-                if (response.snapshot_data_by_window_id) {
-                    // When loaded from S3 the snapshots are already present
-                    actions.loadRecordingSnapshotsSuccess({
-                        snapshotsByWindowId: response.snapshot_data_by_window_id,
+        sessionPlayerMetaData: [
+            undefined as SessionPlayerMetaData | undefined,
+            {
+                loadRecordingMeta: async (_, breakpoint) => {
+                    cache.metaStartTime = performance.now()
+                    if (!props.sessionRecordingId) {
+                        return values.sessionPlayerMetaData
+                    }
+                    const params = toParams({
+                        save_view: true,
+                        recording_start_time: props.recordingStartTime,
                     })
-                }
+                    const response = await api.recordings.get(props.sessionRecordingId, params)
 
-                return {
-                    ...values.sessionPlayerMetaData,
-                    person: response.person || null,
-                    metadata,
-                }
+                    const metadata = parseMetadataResponse(response)
+                    breakpoint()
+
+                    if (response.snapshot_data_by_window_id) {
+                        // When loaded from S3 the snapshots are already present
+                        actions.loadRecordingSnapshotsSuccess({
+                            snapshotsByWindowId: response.snapshot_data_by_window_id,
+                        })
+                    }
+
+                    return {
+                        ...(values.sessionPlayerMetaData || {}),
+                        person: response.person,
+                        metadata,
+                    }
+                },
+                addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
+                    if (!values.sessionPlayerMetaData) {
+                        return
+                    }
+                    return {
+                        ...values.sessionPlayerMetaData,
+                        metadata: {
+                            ...values.sessionPlayerMetaData.metadata,
+                            pinnedCount: Math.max(values.sessionPlayerMetaData.metadata.pinnedCount + diffCount, 0),
+                        },
+                    }
+                },
             },
-            addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
-                return {
-                    ...values.sessionPlayerMetaData,
-                    metadata: {
-                        ...values.sessionPlayerMetaData.metadata,
-                        pinnedCount: Math.max(values.sessionPlayerMetaData.metadata.pinnedCount + diffCount, 0),
-                    },
-                }
-            },
-        },
+        ],
         sessionPlayerSnapshotData: [
             null as SessionPlayerSnapshotData | null,
             {
@@ -371,9 +376,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as null | RecordingEventType[],
             {
                 loadEvents: async () => {
-                    if (!values.sessionPlayerData?.person?.id || !values.recordingTimeWindow) {
+                    if (!values.sessionPlayerData?.metadata || !values.sessionPlayerData?.person) {
                         return null
                     }
+
+                    const { startTimestamp, endTimestamp } = values.sessionPlayerData.metadata || {}
 
                     const res: any = await api.query({
                         kind: 'EventsQuery',
@@ -388,6 +395,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         orderBy: ['timestamp ASC'],
                         limit: 1000000,
                         personId: values.sessionPlayerData.person.id,
+                        after: startTimestamp.subtract(BUFFER_MS, 'ms').format(),
+                        before: endTimestamp.add(BUFFER_MS, 'ms').format(),
                         properties: [
                             // TODO: Support loading events with no sessionId
                             {
@@ -399,8 +408,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         ],
                     })
 
-                    const { startTimestamp } = values.sessionPlayerData?.metadata || {}
-
                     const minimalEvents = res.results.map((event: any): RecordingEventType => {
                         return {
                             id: event[0],
@@ -411,7 +418,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                 $current_url: event[4],
                                 $window_id: event[5],
                             },
-                            playerTime: +dayjs(event[2]) - startTimestamp,
+                            playerTime: +dayjs(event[2]) - +startTimestamp,
                             fullyLoaded: false,
                         }
                     })
@@ -450,21 +457,21 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as null | PerformanceEvent[],
             {
                 loadPerformanceEvents: async ({}, breakpoint) => {
-                    cache.performanceEventsStartTime = performance.now()
-                    if (
-                        !values.recordingTimeWindow ||
-                        !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
-                    ) {
+                    const { startTimestamp, endTimestamp } = values.sessionPlayerData.metadata
+
+                    if (!startTimestamp || !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)) {
                         return []
                     }
+
+                    cache.performanceEventsStartTime = performance.now()
 
                     await breakpoint(1)
 
                     // Use `nextUrl` if there is a `next` url to fetch
                     const response = await api.performanceEvents.list({
                         session_id: props.sessionRecordingId,
-                        date_from: values.recordingTimeWindow.start.subtract(BUFFER_MS, 'ms').format(),
-                        date_to: values.recordingTimeWindow.end.add(BUFFER_MS, 'ms').format(),
+                        date_from: startTimestamp.subtract(BUFFER_MS, 'ms').format(),
+                        date_to: endTimestamp.add(BUFFER_MS, 'ms').format(),
                     })
 
                     breakpoint()
@@ -477,70 +484,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     selectors({
         sessionPlayerData: [
             (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData],
-            (meta, snapshots): SessionPlayerData => ({
-                ...meta,
-                ...(snapshots || {
-                    snapshotsByWindowId: {},
-                }),
-                bufferedTo: calculateBufferedTo(
-                    meta.metadata?.segments,
-                    snapshots?.snapshotsByWindowId,
-                    meta.metadata?.startAndEndTimesByWindowId
-                ),
-            }),
-        ],
-
-        recordingTimeWindow: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData): { start: Dayjs; end: Dayjs } | undefined => {
-                const recordingStartTime = sessionPlayerData.metadata.segments.slice(0, 1).pop()?.startTimeEpochMs
-                const recordingEndTime = sessionPlayerData.metadata.segments.slice(-1).pop()?.endTimeEpochMs
-
-                if (!recordingStartTime || !recordingEndTime) {
-                    return undefined
-                }
-
+            (meta, snapshots): SessionPlayerData => {
                 return {
-                    start: dayjs.utc(recordingStartTime),
-                    end: dayjs.utc(recordingEndTime),
-                }
-            },
-        ],
-
-        eventsApiParams: [
-            (s) => [s.sessionPlayerData, s.recordingTimeWindow, (_, props) => props.sessionRecordingId],
-            (sessionPlayerData, recordingTimeWindow, sessionRecordingId) => {
-                if (!sessionPlayerData.person?.id || !recordingTimeWindow) {
-                    return null
-                }
-
-                return {
-                    person_id: sessionPlayerData.person.id,
-                    after: recordingTimeWindow.start.subtract(BUFFER_MS, 'ms').format(),
-                    before: recordingTimeWindow.end.add(BUFFER_MS, 'ms').format(),
-                    orderBy: ['timestamp'],
-                    properties: {
-                        type: 'OR',
-                        values: [
-                            {
-                                type: 'AND',
-                                values: [
-                                    { key: '$session_id', value: 'is_not_set', operator: 'is_not_set', type: 'event' },
-                                ],
-                            },
-                            {
-                                type: 'AND',
-                                values: [
-                                    {
-                                        key: '$session_id',
-                                        value: [sessionRecordingId],
-                                        operator: 'exact',
-                                        type: 'event',
-                                    },
-                                ],
-                            },
-                        ],
-                    },
+                    metadata: meta?.metadata as SessionRecordingMeta, // TODO: Remove as conversion
+                    person: meta?.person,
+                    snapshotsByWindowId: snapshots?.snapshotsByWindowId || {},
+                    bufferedTo: calculateBufferedTo(
+                        meta?.metadata?.segments,
+                        snapshots?.snapshotsByWindowId,
+                        meta?.metadata?.startAndEndTimesByWindowId
+                    ),
                 }
             },
         ],

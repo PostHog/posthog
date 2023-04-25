@@ -605,8 +605,8 @@ export interface SessionRecordingMeta {
     segments: RecordingSegment[]
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
-    startTimestamp: number
-    endTimestamp: number
+    startTimestamp: Dayjs
+    endTimestamp: Dayjs
 }
 
 export interface SessionPlayerSnapshotData {
@@ -615,12 +615,12 @@ export interface SessionPlayerSnapshotData {
 }
 
 export interface SessionPlayerMetaData {
-    person: PersonType | null
+    person?: PersonType
     metadata: SessionRecordingMeta
 }
 
 export interface SessionPlayerData extends SessionPlayerSnapshotData, SessionPlayerMetaData {
-    bufferedTo: PlayerPosition | null
+    bufferedTo?: PlayerPosition
 }
 
 export enum SessionRecordingUsageType {
