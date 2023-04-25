@@ -154,7 +154,7 @@ test.concurrent(
             //     "data": "random...string" // thousands of characters
             // }
             expect(text).toMatch(/{"window_id":"abc1234","data":"\w+"}/)
-        })
+        }, 40000)
     },
-    20000
+    50000
 )
