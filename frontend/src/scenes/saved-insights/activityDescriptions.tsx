@@ -17,6 +17,7 @@ import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightQueryNode, QuerySchema } from '~/queries/schema'
 import { isInsightQueryNode } from '~/queries/utils'
+import { captureException } from '@sentry/react'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
     const displayName = name || '(empty string)'
@@ -71,10 +72,15 @@ const insightActionsMapping: Record<
         return summarizeChanges(filtersAfter)
     },
     query: function onChangedQuery(change) {
-        const query = change?.after as QuerySchema
-        return isInsightQueryNode(query)
+        if (change?.action === 'deleted') {
+            // if the query was deleted, then someone has added a filter and that will be summarized
+            return null
+        }
+
+        const queryAfter = change?.after as QuerySchema
+        return isInsightQueryNode(queryAfter)
             ? summarizeChanges(queryNodeToFilter(change?.after as InsightQueryNode))
-            : { description: ["cannot yet summarize changes to this insight's query: " + query.kind] }
+            : { description: ["cannot yet summarize changes to this insight's query: " + queryAfter?.kind] }
     },
     deleted: function onSoftDelete(change, logItem, asNotification) {
         const isDeleted = detectBoolean(change?.after)
@@ -268,27 +274,32 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
             </>
         )
 
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !insightActionsMapping[change.field]) {
-                continue // insight updates have to have a "field" to be described
-            }
+        try {
+            for (const change of logItem.detail.changes || []) {
+                if (!change?.field || !insightActionsMapping[change.field]) {
+                    continue // insight updates have to have a "field" to be described
+                }
 
-            const actionHandler = insightActionsMapping[change.field]
-            const processedChange = actionHandler(change, logItem, asNotification)
-            if (processedChange === null) {
-                continue // // unexpected log from backend is indescribable
-            }
+                const actionHandler = insightActionsMapping[change.field]
+                const processedChange = actionHandler(change, logItem, asNotification)
+                if (processedChange === null) {
+                    continue // // unexpected log from backend is indescribable
+                }
 
-            const { description, extendedDescription: _extendedDescription, suffix } = processedChange
-            if (description) {
-                changes = changes.concat(description)
+                const { description, extendedDescription: _extendedDescription, suffix } = processedChange
+                if (description) {
+                    changes = changes.concat(description)
+                }
+                if (_extendedDescription) {
+                    extendedDescription = _extendedDescription
+                }
+                if (suffix) {
+                    changeSuffix = suffix
+                }
             }
-            if (_extendedDescription) {
-                extendedDescription = _extendedDescription
-            }
-            if (suffix) {
-                changeSuffix = suffix
-            }
+        } catch (e) {
+            console.error('Error while summarizing insight update', e)
+            captureException(e)
         }
 
         if (changes.length) {
