@@ -9,6 +9,7 @@ import {
     PlayerPosition,
     RecordingEventsFilters,
     RecordingEventType,
+    RecordingMinimalEventType,
     RecordingReportLoadTimes,
     RecordingSegment,
     RecordingStartAndEndTime,
@@ -24,11 +25,6 @@ import {
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventWithTime } from '@rrweb/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import {
-    getPlayerPositionFromEpochTime,
-    getPlayerTimeFromPlayerPosition,
-    guessPlayerPositionFromEpochTimeWithoutWindowId,
-} from './playerUtils'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -37,6 +33,9 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
 export const parseMetadataResponse = (recording: SessionRecordingType): SessionRecordingMeta => {
+    let startTimestamp: number = Infinity
+    let endTimestamp: number = 0
+
     const segments: RecordingSegment[] =
         recording.segments?.map((segment): RecordingSegment => {
             const windowStartTime = +dayjs(recording.start_and_end_times_by_window_id?.[segment.window_id]?.start_time)
@@ -51,6 +50,14 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionR
                 time: endTimeEpochMs - windowStartTime,
             }
             const durationMs = endTimeEpochMs - startTimeEpochMs
+
+            if (startTimeEpochMs < startTimestamp) {
+                startTimestamp = startTimeEpochMs
+            }
+            if (endTimeEpochMs > endTimestamp) {
+                endTimestamp = endTimeEpochMs
+            }
+
             return {
                 startPlayerPosition,
                 endPlayerPosition,
@@ -73,6 +80,8 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionR
         segments,
         startAndEndTimesByWindowId,
         recordingDurationMs: sum(segments.map((s) => s.durationMs)),
+        startTimestamp,
+        endTimestamp,
     }
 }
 
@@ -90,7 +99,7 @@ const generateRecordingReportDurations = (
             duration: Math.round(performance.now() - cache.snapshotsStartTime),
         },
         events: {
-            size: values.sessionEventsData?.events?.length ?? 0,
+            size: values.minimalRelatedEventsData?.length ?? 0,
             duration: Math.round(performance.now() - cache.eventsStartTime),
         },
         performanceEvents: {
@@ -155,6 +164,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 segments: [],
                 startAndEndTimesByWindowId: {},
                 recordingDurationMs: 0,
+                startTimestamp: 0,
+                endTimestamp: 0,
             },
             bufferedTo: null,
         } as SessionPlayerMetaData,
@@ -166,6 +177,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
+        loadMinimalRelatedEvents: true,
         loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
         reportViewed: true,
         reportUsageIfFullyLoaded: true,
@@ -208,6 +220,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 actions.loadRecordingSnapshots()
             }
             actions.loadEvents()
+            actions.loadMinimalRelatedEvents()
             actions.loadPerformanceEvents()
         },
         loadRecordingSnapshotsSuccess: () => {
@@ -362,6 +375,56 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
+        minimalRelatedEventsData: [
+            null as null | Partial<RecordingMinimalEventType>[],
+            {
+                loadMinimalRelatedEvents: async () => {
+                    if (!values.sessionPlayerData?.person?.id || !values.recordingTimeWindow) {
+                        return null
+                    }
+
+                    const res: any = await api.query({
+                        kind: 'EventsQuery',
+                        select: ['uuid', 'event', 'timestamp', 'properties.$current_url', 'properties.$window_id'],
+                        orderBy: ['timestamp ASC'],
+                        limit: 1000000,
+                        personId: values.sessionPlayerData.person.id,
+                        properties: [
+                            // TODO: Support loading events with no sessionId
+                            {
+                                key: '$session_id',
+                                value: [props.sessionRecordingId],
+                                operator: 'exact',
+                                type: 'event',
+                            },
+                        ],
+                    })
+
+                    const { startTimestamp } = values.sessionPlayerData?.metadata || {}
+
+                    const minimalEvents: RecordingMinimalEventType[] = res.results.map((event: any) => {
+                        return {
+                            id: event[0],
+                            event: event[1],
+                            timestamp: event[2],
+                            properties: {
+                                $current_url: event[3],
+                                $window_id: event[4],
+                            },
+                            playerTime: +dayjs(event[2]) - startTimestamp,
+                        }
+                    })
+                    // We should add a buffer here as some events may fall slightly outside the range
+                    // .filter(
+                    //     (x: RecordingMinimalEventType) =>
+                    //         x.playerTime !== null && x.playerTime > 0 && x.playerTime < recordingDurationMs
+                    // )
+
+                    return minimalEvents
+                },
+            },
+        ],
+
         sessionEventsData: [
             null as null | SessionRecordingEvents,
             {
@@ -385,42 +448,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     events.forEach((event: EventType) => {
                         // Events from other $session_ids should already be filtered out here so we don't need to worry about that
                         const eventEpochTimeOfEvent = +dayjs(event.timestamp)
-                        let eventPlayerPosition: PlayerPosition | null = null
+                        const { startTimestamp, recordingDurationMs } = values.sessionPlayerData?.metadata || {}
+                        const playerTime = eventEpochTimeOfEvent - startTimestamp
 
-                        // 1. If it doesn't have a $window_id, then it is likely server side - include it on any window where the time overlaps
-                        if (!event.properties.$window_id) {
-                            // Handle the case where the event is 'out of band' for the recording (it has no window_id).
-                            // This is the case where the event came from outside the recording (e.g. a server side event)
-                            // But it happens to overlap in time with the recording
-                            eventPlayerPosition = guessPlayerPositionFromEpochTimeWithoutWindowId(
-                                eventEpochTimeOfEvent,
-                                values.sessionPlayerData?.metadata?.startAndEndTimesByWindowId,
-                                values.sessionPlayerData?.metadata?.segments
-                            )
-                        } else {
-                            // 2. If it does have a $window_id, then link it to the window in question
-                            eventPlayerPosition = getPlayerPositionFromEpochTime(
-                                eventEpochTimeOfEvent,
-                                event.properties.$window_id, // If there is no window_id on the event to match the recording metadata
-                                values.sessionPlayerData.metadata.startAndEndTimesByWindowId
-                            )
-                        }
-
-                        if (eventPlayerPosition !== null) {
-                            const eventPlayerTime = getPlayerTimeFromPlayerPosition(
-                                eventPlayerPosition,
-                                values.sessionPlayerData.metadata.segments
-                            )
-                            if (eventPlayerTime !== null) {
-                                eventsWithPlayerData.push({
-                                    ...event,
-                                    playerTime: eventPlayerTime,
-                                    playerPosition: eventPlayerPosition,
-                                    capturedInWindow: !!event.properties.$window_id,
-                                })
-                            }
+                        if (playerTime > 0 && playerTime < recordingDurationMs) {
+                            eventsWithPlayerData.push({
+                                ...event,
+                                playerTime,
+                            })
                         }
                     })
+
                     // If we have a next url, we need to append the new events to the existing ones
                     allEvents = [
                         ...(nextUrl ? values.sessionEventsData?.events ?? [] : []),
