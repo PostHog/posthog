@@ -1,6 +1,6 @@
 import { GetObjectCommand, GetObjectCommandOutput, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
 // import fs from 'fs'
-import { Consumer, Kafka, KafkaMessage, logLevel } from 'kafkajs'
+// import { Consumer, Kafka, KafkaMessage, logLevel } from 'kafkajs'
 import * as zlib from 'zlib'
 
 import { defaultConfig } from '../src/config/config'
@@ -10,11 +10,11 @@ import { UUIDT } from '../src/utils/utils'
 import { capture, createOrganization, createTeam } from './api'
 import { waitForExpect } from './expectations'
 
-let kafka: Kafka
+// let kafka: Kafka
 let organizationId: string
 
-let dlq: KafkaMessage[]
-let dlqConsumer: Consumer
+// let dlq: KafkaMessage[]
+// let dlqConsumer: Consumer
 
 let s3: S3Client
 
@@ -23,17 +23,17 @@ function generateVeryLongString(length = 1025) {
 }
 
 beforeAll(async () => {
-    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
-
-    dlq = []
-    dlqConsumer = kafka.consumer({ groupId: 'session_recording_events_test' })
-    await dlqConsumer.subscribe({ topic: 'session_recording_events_dlq' })
-    await dlqConsumer.run({
-        eachMessage: ({ message }) => {
-            dlq.push(message)
-            return Promise.resolve()
-        },
-    })
+    // kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
+    //
+    // dlq = []
+    // dlqConsumer = kafka.consumer({ groupId: 'session_recording_events_test' })
+    // await dlqConsumer.subscribe({ topic: 'session_recording_events_dlq' })
+    // await dlqConsumer.run({
+    //     eachMessage: ({ message }) => {
+    //         dlq.push(message)
+    //         return Promise.resolve()
+    //     },
+    // })
 
     organizationId = await createOrganization()
 
@@ -52,7 +52,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-    await Promise.all([await dlqConsumer.disconnect()])
+    // await Promise.all([await dlqConsumer.disconnect()])
 })
 
 test.concurrent(
