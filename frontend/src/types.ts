@@ -1655,7 +1655,6 @@ export type AnyFilterType =
     | PathsFilterType
     | RetentionFilterType
     | LifecycleFilterType
-    | PropertiesTimelineFilterType
     | FilterType
 
 export type AnyPartialFilterType =

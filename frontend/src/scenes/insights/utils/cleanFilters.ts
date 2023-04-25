@@ -7,10 +7,12 @@ import {
     FunnelsFilterType,
     FunnelVizType,
     InsightType,
+    LifecycleFilterType,
     PathsFilterType,
     PathType,
     RetentionFilterType,
     RetentionPeriod,
+    StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
@@ -141,12 +143,27 @@ const cleanBreakdownParams = (
     }
 }
 
+type CommonFiltersTypeKeys = keyof TrendsFilterType &
+    keyof FunnelsFilterType &
+    keyof RetentionFilterType &
+    keyof PathsFilterType &
+    keyof StickinessFilterType &
+    keyof LifecycleFilterType
+
+type CommonFiltersType = {
+    [K in CommonFiltersTypeKeys]: FilterType[K]
+}
+
 export function cleanFilters(
     filters: Partial<AnyFilterType>,
     // @ts-expect-error
     oldFilters?: Partial<AnyFilterType>,
     featureFlags?: FeatureFlagsSet
 ): Partial<FilterType> {
+    const commonFilters: Partial<CommonFiltersType> = {
+        ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
+    }
+
     if (isRetentionFilter(filters)) {
         const retentionFilter: Partial<RetentionFilterType> = {
             insight: InsightType.RETENTION,
@@ -168,7 +185,7 @@ export function cleanFilters(
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
-            ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
+            ...commonFilters,
         }
         return retentionFilter
     } else if (isFunnelsFilter(filters)) {
@@ -217,7 +234,7 @@ export function cleanFilters(
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
-            ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
+            ...commonFilters,
         }
 
         cleanBreakdownParams(funnelsFilter, filters, featureFlags || {})
@@ -266,7 +283,7 @@ export function cleanFilters(
             edge_limit: filters.edge_limit || undefined,
             min_edge_weight: filters.min_edge_weight || undefined,
             max_edge_weight: filters.max_edge_weight || undefined,
-            ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
+            ...commonFilters,
         }
         return pathsFilter
     } else if (isTrendsFilter(filters) || isLifecycleFilter(filters) || isStickinessFilter(filters)) {
