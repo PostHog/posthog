@@ -178,6 +178,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
         loadMinimalRelatedEvents: true,
+        loadFullEventData: (event: RecordingMinimalEventType) => ({ event }),
         loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
         reportViewed: true,
         reportUsageIfFullyLoaded: true,
@@ -402,7 +403,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const { startTimestamp } = values.sessionPlayerData?.metadata || {}
 
-                    const minimalEvents: RecordingMinimalEventType[] = res.results.map((event: any) => {
+                    const minimalEvents = res.results.map((event: any): RecordingMinimalEventType => {
                         return {
                             id: event[0],
                             event: event[1],
@@ -412,6 +413,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                 $window_id: event[4],
                             },
                             playerTime: +dayjs(event[2]) - startTimestamp,
+                            fullyLoaded: false,
                         }
                     })
                     // We should add a buffer here as some events may fall slightly outside the range
@@ -421,6 +423,26 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     // )
 
                     return minimalEvents
+                },
+
+                loadFullEventData: async ({ event }) => {
+                    const existingEvent = values.minimalRelatedEventsData?.find((x) => x.id === event.id)
+                    if (!existingEvent || existingEvent.fullyLoaded) {
+                        return values.minimalRelatedEventsData
+                    }
+
+                    // TODO: Somehow check whether or not we need to load more data.
+                    const res: any = await api.query({
+                        kind: 'HogQLQuery',
+                        query: `select properties from events where uuid = '${event.id}' limit 1`,
+                    })
+
+                    if (res.results[0]) {
+                        existingEvent.properties = JSON.parse(res.results[0])
+                        existingEvent.fullyLoaded = true
+                    }
+
+                    return values.minimalRelatedEventsData
                 },
             },
         ],

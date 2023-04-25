@@ -901,7 +901,9 @@ export interface RecordingEventType extends EventType, RecordingTimeMixinType {}
 
 export interface RecordingMinimalEventType
     extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp'>,
-        RecordingTimeMixinType {}
+        RecordingTimeMixinType {
+    fullyLoaded: boolean
+}
 
 export interface SessionRecordingPlaylistType {
     /** The primary key in the database, used as well in API endpoints */

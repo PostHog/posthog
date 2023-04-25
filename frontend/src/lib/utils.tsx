@@ -1621,7 +1621,7 @@ export function downloadFile(file: File): void {
     }, 0)
 }
 
-export function insightUrlForEvent(event: EventType): string | undefined {
+export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
     let insightParams: Partial<TrendsFilterType> | undefined
     if (event.event === '$pageview') {
         insightParams = {
