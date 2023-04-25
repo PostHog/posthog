@@ -30,50 +30,37 @@ interface BatchExportLogicProps {
     id: string
 }
 
-const frequencyToSeconds: {
-    [key in BatchExportFrequencyEnum]: string | null
-} = {
-    none: null,
-    '1': '3600',
-    '6': '21600',
-    '12': '43200',
-    daily: '86400',
-    weekly: '604800',
-    monthly: '2592000',
-} // TODO: add type
-
-const secondsToFrequency = (seconds: string): BatchExportFrequencyEnum => {
-    const frequency = Object.keys(frequencyToSeconds).find(
-        (frequency) => frequencyToSeconds[frequency as BatchExportFrequencyEnum] === seconds
-    )
-    return frequency as BatchExportFrequencyEnum
-}
-
 const defaultCreator = (values: BatchExportLogicType['values']): S3BatchExportConfigType => ({
     name: values.connectionChoice?.name || 'New connection',
-    frequency: BatchExportFrequencyEnum.TwelveHours,
-    firstExport: dayjsUtcToTimezone(new Date().toISOString(), values.timezone).add(1, 'day').startOf('day') as any,
-    stopAtSpecificDate: false,
-    stopAt: undefined,
-    backfillRecords: false,
-    backfillFrom: undefined,
-    AWSAccessKeyID: '' as string,
-    AWSSecretAccessKey: '' as string,
-    AWSRegion: '' as string,
-    AWSBucket: '' as string,
-    fileFormat: 'csv' as any,
-    fileName: DEFAULT_FILE_NAME as any,
+    schedule: {
+        frequency: BatchExportFrequencyEnum.TwelveHours,
+        firstExport: dayjsUtcToTimezone(new Date().toISOString(), values.timezone).add(1, 'day').startOf('day') as any,
+        stopAtSpecificDate: false,
+        stopAt: undefined,
+        backfillRecords: false,
+        backfillFrom: undefined,
+    },
+    config: {
+        AWSAccessKeyID: '' as string,
+        AWSSecretAccessKey: '' as string,
+        AWSRegion: '' as string,
+        AWSBucket: '' as string,
+        fileFormat: 'csv' as any,
+        fileName: DEFAULT_FILE_NAME as any,
+    },
 })
 
-const settingsValidation = (values: S3BatchExportConfigType): Record<string, string | undefined> => {
+const settingsValidation = (values: S3BatchExportConfigType): Record<string, any> => {
     return {
         name: values.name ? undefined : 'Name is required',
-        AWSAccessKeyID: values.AWSAccessKeyID ? undefined : 'AWS Access Key ID is required',
-        AWSSecretAccessKey: values.AWSSecretAccessKey ? undefined : 'AWS Secret Access Key is required',
-        AWSRegion: values.AWSRegion ? undefined : 'AWS Region is required',
-        AWSBucket: values.AWSBucket ? undefined : 'AWS Bucket is required',
-        fileFormat: values.fileFormat ? undefined : 'File format is required',
-        fileName: values.fileName ? undefined : 'File name is required',
+        config: {
+            AWSAccessKeyID: values.config.AWSAccessKeyID ? undefined : 'AWS Access Key ID is required',
+            AWSSecretAccessKey: values.config.AWSSecretAccessKey ? undefined : 'AWS Secret Access Key is required',
+            AWSRegion: values.config.AWSRegion ? undefined : 'AWS Region is required',
+            AWSBucket: values.config.AWSBucket ? undefined : 'AWS Bucket is required',
+            fileFormat: values.config.fileFormat ? undefined : 'File format is required',
+            fileName: values.config.fileName ? undefined : 'File name is required',
+        },
     }
 }
 
@@ -146,28 +133,26 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
             submit: async (values: S3BatchExportConfigType) => {
                 console.log('submitting', values)
 
-                // TODO: check these numbers
-
                 const name = values.name
                 const type = 'S3' // TODO: make this real
                 const primary_schedule: CreateOrUpdateBatchExportScheduleType['primary_schedule'] = {
-                    start_at: values.firstExport.toISOString(),
-                    end_at: values.stopAtSpecificDate ? values.stopAt?.toISOString() : undefined,
+                    start_at: values.schedule.firstExport.toISOString(),
+                    end_at: values.schedule.stopAtSpecificDate ? values.schedule.stopAt?.toISOString() : undefined,
                     intervals: [
                         {
-                            every: frequencyToSeconds[values.frequency],
-                            offset: '0', // TODO: add in the real offset
+                            every: values.schedule.frequency,
+                            offset: 0, // TODO: add in the real offset
                         },
                     ], // TODO: work out what to do here
                 }
 
                 const config: Partial<S3ConfigType> = {
-                    AWSAccessKeyID: values.AWSAccessKeyID,
-                    AWSSecretAccessKey: values.AWSSecretAccessKey,
-                    AWSRegion: values.AWSRegion,
-                    AWSBucket: values.AWSBucket,
-                    fileFormat: values.fileFormat,
-                    fileName: values.fileName,
+                    AWSAccessKeyID: values.config.AWSAccessKeyID,
+                    AWSSecretAccessKey: values.config.AWSSecretAccessKey,
+                    AWSRegion: values.config.AWSRegion,
+                    AWSBucket: values.config.AWSBucket,
+                    fileFormat: values.config.fileFormat,
+                    fileName: values.config.fileName,
                 }
 
                 // SECRET_FIELD_VALUE is a special value that means "don't change this field"
@@ -221,7 +206,7 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
                     ['second', 'ss'],
                 ]
 
-                let fileNamePreview = batchExportSettings.fileName
+                let fileNamePreview = batchExportSettings.config.fileName
 
                 date_components.forEach(([component, format]) => {
                     fileNamePreview = fileNamePreview?.replace(`{${component}}`, now.format(format))
@@ -258,18 +243,12 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
             console.log(batchExportDestination)
             actions.setBatchExportSettingsValues({
                 name: batchExportDestination.name,
-                // schedule
-                firstExport: dayjs(batchExportDestination.primary_schedule.start_at),
-                stopAt: dayjs(batchExportDestination.primary_schedule.end_at),
-                frequency: secondsToFrequency(batchExportDestination.primary_schedule.intervals[0].every),
-
-                // config
-                AWSAccessKeyID: batchExportDestination.config.AWSAccessKeyID,
-                AWSSecretAccessKey: batchExportDestination.config.AWSSecretAccessKey ?? SECRET_FIELD_VALUE,
-                AWSRegion: batchExportDestination.config.AWSRegion,
-                AWSBucket: batchExportDestination.config.AWSBucket,
-                fileFormat: batchExportDestination.config.fileFormat,
-                fileName: batchExportDestination.config.fileName,
+                schedule: {
+                    firstExport: dayjs(batchExportDestination.primary_schedule.start_at),
+                    stopAt: dayjs(batchExportDestination.primary_schedule.end_at),
+                    frequency: batchExportDestination.primary_schedule.intervals[0].every,
+                },
+                config: batchExportDestination.config,
             })
         },
     })),

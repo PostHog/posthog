@@ -41,28 +41,32 @@ export type S3ConfigType = {
 
 export type S3BatchExportConfigType = {
     name: string
-    frequency: BatchExportFrequencyType
-    firstExport: Dayjs // TODO: convert dayjs to strings for saving
-    stopAtSpecificDate: false
-    stopAt: Dayjs | undefined
-    backfillRecords: boolean
-    backfillFrom: Dayjs | undefined
-    AWSAccessKeyID: string
-    AWSSecretAccessKey: string
-    AWSRegion: string
-    AWSBucket: string
-    fileFormat: S3BatchExportFileFormatType
-    fileName: string
+    schedule: {
+        frequency: BatchExportFrequencyType
+        firstExport: Dayjs // TODO: convert dayjs to strings for saving
+        stopAtSpecificDate: false
+        stopAt: Dayjs | undefined
+        backfillRecords: boolean
+        backfillFrom: Dayjs | undefined
+    }
+    config: {
+        AWSAccessKeyID: string
+        AWSSecretAccessKey: string
+        AWSRegion: string
+        AWSBucket: string
+        fileFormat: S3BatchExportFileFormatType
+        fileName: string
+    }
 }
 
 export enum BatchExportFrequencyType {
-    None = 'none',
-    OneHour = '1',
-    SixHours = '6',
-    TwelveHours = '12',
-    Daily = 'daily',
-    Weekly = 'weekly',
-    Monthly = 'monthly',
+    None = 0,
+    OneHour = 3600,
+    SixHours = 21600,
+    TwelveHours = 43200,
+    Daily = 86400,
+    Weekly = 604800,
+    Monthly = 2592000,
 }
 
 export type S3BatchExportFileFormatType = 'csv'
@@ -108,8 +112,8 @@ export interface BatchExportSchedule {
     id: string
     batch_export_destination_id: string
     intervals: {
-        every: string // time in seconds
-        offset: string // time in seconds
+        every: number // time in seconds
+        offset: number // time in seconds
     }[]
     offset: string // time in seconds
     team_id: string

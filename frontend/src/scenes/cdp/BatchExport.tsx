@@ -23,38 +23,33 @@ export const scene: SceneExport = {
 const frequencyOptions: { label: string; value: BatchExportFrequencyType; noun: string }[] = [
     {
         label: 'None',
-        value: 'none',
+        value: BatchExportFrequencyType.None,
         noun: 'nothing',
     },
     {
         label: 'Every 1 hour',
-        value: '1',
+        value: BatchExportFrequencyType.OneHour,
         noun: 'the first hour',
     },
     {
         label: 'Every 6 hours',
-        value: '6',
+        value: BatchExportFrequencyType.SixHours,
         noun: 'the first 6 hours',
     },
     {
         label: 'Every 12 hours',
-        value: '12',
+        value: BatchExportFrequencyType.TwelveHours,
         noun: 'the first 12 hours',
     },
     {
         label: 'Daily',
-        value: 'daily',
+        value: BatchExportFrequencyType.Daily,
         noun: 'the first day',
     },
     {
         label: 'Weekly',
-        value: 'weekly',
+        value: BatchExportFrequencyType.Weekly,
         noun: 'the first week',
-    },
-    {
-        label: 'Monthly',
-        value: 'monthly',
-        noun: 'the first month',
     },
 ]
 
@@ -109,24 +104,25 @@ export function S3Settings(): JSX.Element {
             <LemonDivider className="my-6" />
             <div className="space-y-4">
                 <h2>Export Schedule</h2>
-                <Field name={'frequency'} label="Frequency">
+                <h3>Schedule settings</h3>
+                <Field name={'schedule.frequency'} label="Frequency">
                     <LemonSelect options={frequencyOptions} />
                 </Field>
-                {connectionSettings?.frequency !== 'none' && (
+                {connectionSettings?.schedule?.frequency !== BatchExportFrequencyType.None && (
                     <>
                         <Field
-                            name={'firstExport'}
+                            name={'schedule.firstExport'}
                             label={`First export at (${shortTimeZone(timezone)})`} // TODO: add timezone tooltip similar to the created at column
                             className="max-w-60"
                         >
                             <DatePicker showTime />
                         </Field>
-                        <Field name={'stopAtSpecificDate'}>
+                        <Field name={'schedule.stopAtSpecificDate'}>
                             <LemonCheckbox label="Stop exporting after a specific date" showOptional />
                         </Field>
-                        {connectionSettings?.stopAtSpecificDate && (
+                        {connectionSettings?.schedule?.stopAtSpecificDate && (
                             <Field
-                                name={'stopAt'}
+                                name={'schedule.stopAt'}
                                 label={`No exports after (${shortTimeZone(timezone)})`}
                                 showOptional
                                 className="max-w-60"
@@ -136,40 +132,42 @@ export function S3Settings(): JSX.Element {
                         )}
                     </>
                 )}
-            </div>
-            {connectionSettings.frequency !== 'none' && (
-                <>
-                    <LemonDivider className="my-6" />
-                    <div className="space-y-4">
-                        <h2>Historical data</h2>
-                        <p>{generateDescription(connectionSettings.frequency)}</p>
-                        <Field name={'backfillRecords'}>
-                            <LemonCheckbox label="Backfill historical data at the time of the first run" showOptional />
-                        </Field>
-                        {connectionSettings.backfillRecords && (
-                            <Field
-                                name={'backfillFrom'}
-                                label={'Backfill from (' + shortTimeZone(timezone) + ')'}
-                                info="If blank it will backfill all data"
-                                className="max-w-60"
-                            >
-                                <DatePicker showTime />
+                {connectionSettings?.schedule?.frequency !== BatchExportFrequencyType.None && (
+                    <>
+                        <div className="space-y-4">
+                            <h3>Historical data</h3>
+                            <p>{generateDescription(connectionSettings?.schedule?.frequency)}</p>
+                            <Field name={'schedule.backfillRecords'}>
+                                <LemonCheckbox
+                                    label="Backfill historical data at the time of the first run"
+                                    showOptional
+                                />
                             </Field>
-                        )}
-                    </div>
-                </>
-            )}
+                            {connectionSettings?.schedule?.backfillRecords && (
+                                <Field
+                                    name={'schedule.backfillFrom'}
+                                    label={'Backfill from (' + shortTimeZone(timezone) + ')'}
+                                    info="If blank it will backfill all data"
+                                    className="max-w-60"
+                                >
+                                    <DatePicker showTime />
+                                </Field>
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
             <LemonDivider className="my-6" />
             <div className="space-y-4">
                 <h2>Destination</h2>
 
                 <div className="space-y-4">
                     <h3>Credentials</h3>
-                    <Field name={'AWSAccessKeyID'} label="AWS access key ID">
+                    <Field name={'config.AWSAccessKeyID'} label="AWS access key ID">
                         <LemonInput />
                     </Field>
-                    <Field name={'AWSSecretAccessKey'} label="AWS secret access key">
-                        {!editingSecret && connectionSettings?.AWSSecretAccessKey ? (
+                    <Field name={'config.AWSSecretAccessKey'} label="AWS secret access key">
+                        {!editingSecret && connectionSettings?.config.AWSSecretAccessKey ? (
                             <LemonButton
                                 icon={<EditOutlined />}
                                 onClick={() => {
@@ -186,10 +184,10 @@ export function S3Settings(): JSX.Element {
                 <div className="my-6" />
                 <div className="space-y-4">
                     <h3>Location</h3>
-                    <Field name={'AWSRegion'} label="AWS region">
+                    <Field name={'config.AWSRegion'} label="AWS region">
                         <LemonInput />
                     </Field>
-                    <Field name={'AWSBucket'} label="S3 bucket name">
+                    <Field name={'config.AWSBucket'} label="S3 bucket name">
                         <LemonInput />
                     </Field>
                 </div>
@@ -198,7 +196,7 @@ export function S3Settings(): JSX.Element {
             <LemonDivider className="my-6" />
             <div className="space-y-4">
                 <h2>Data</h2>
-                <Field name={'fileFormat'} label="File format">
+                <Field name={'config.fileFormat'} label="File format">
                     <LemonSelect options={fileFormatOptions} />
                 </Field>
                 <div>
@@ -208,7 +206,7 @@ export function S3Settings(): JSX.Element {
                         <br />
                         <code>{DEFAULT_FILE_NAME}</code>
                     </p>
-                    <Field name={'fileName'}>
+                    <Field name={'config.fileName'}>
                         <LemonInput />
                     </Field>
                     <p className="text-sm text-gray-500 my-4">
