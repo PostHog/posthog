@@ -515,9 +515,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 )}
                                 <div className="flex gap-x-2 items-center mb-2">
                                     <IconCheckCircleOutline className="text-success" />
-                                    <Link onClick={toggleIsPlanComparisonModalOpen}>
-                                        <b>And more...</b>
-                                    </Link>
+                                    {product.subscribed ? (
+                                        <b>And more</b>
+                                    ) : (
+                                        <Link onClick={toggleIsPlanComparisonModalOpen}>
+                                            <b>And more...</b>
+                                        </Link>
+                                    )}
                                 </div>
                             </div>
                             {upgradePlan?.tiers?.[0].unit_amount_usd &&
