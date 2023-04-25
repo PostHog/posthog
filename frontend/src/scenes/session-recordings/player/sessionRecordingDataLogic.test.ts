@@ -169,15 +169,27 @@ describe('sessionRecordingDataLogic', () => {
             logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
             logic.mount()
             api.get.mockClear()
+            api.create.mockClear()
         })
 
         it('load events after metadata with 1min buffer', async () => {
+            api.create
+                .mockImplementationOnce(async () => {
+                    return recordingEventsJson
+                })
+                .mockImplementationOnce(async () => {
+                    // Once is the server events
+                    return {
+                        results: [],
+                    }
+                })
+
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta()
             }).toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
 
             expect(api.create).toHaveBeenCalledWith(
-                'api/projects/997/query',
+                `api/projects/${MOCK_TEAM_ID}/query`,
                 {
                     client_query_id: undefined,
                     query: {
@@ -203,13 +215,6 @@ describe('sessionRecordingDataLogic', () => {
             )
 
             expect(logic.values.sessionEventsData).toHaveLength(recordingEventsJson.results.length)
-        })
-        it('no next url', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta()
-            })
-                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
-                .toNotHaveDispatchedActions(['loadEvents'])
         })
     })
 
