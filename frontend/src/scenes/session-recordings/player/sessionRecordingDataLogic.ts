@@ -378,7 +378,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
         minimalRelatedEventsData: [
-            null as null | Partial<RecordingMinimalEventType>[],
+            null as null | RecordingMinimalEventType[],
             {
                 loadMinimalRelatedEvents: async () => {
                     if (!values.sessionPlayerData?.person?.id || !values.recordingTimeWindow) {
