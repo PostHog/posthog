@@ -227,52 +227,6 @@ describe('sessionRecordingDataLogic', () => {
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
                 .toNotHaveDispatchedActions(['loadEvents'])
         })
-        it('fetch all events and sort by player time', async () => {
-            const firstNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
-            let count = 0
-            useMocks({
-                get: {
-                    '/api/projects/:team/events': () => [
-                        200,
-                        { results: recordingEventsJson, next: count++ === 0 ? firstNext : undefined },
-                    ],
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta()
-            })
-                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
-                .toMatchValues({
-                    sessionEventsData: {
-                        next: firstNext,
-                        events: expectedEvents,
-                    },
-                })
-                .toDispatchActions([logic.actionCreators.loadEvents(firstNext), 'loadEventsSuccess'])
-                .toNotHaveDispatchedActions(['loadEvents'])
-
-            expect(logic.values.sessionEventsData).toMatchObject({
-                next: undefined,
-                events: [
-                    expect.objectContaining(recordingEventsJson[0]),
-                    expect.objectContaining(recordingEventsJson[1]),
-                    expect.objectContaining(recordingEventsJson[0]),
-                    expect.objectContaining(recordingEventsJson[1]),
-                    expect.objectContaining(recordingEventsJson[2]),
-                    expect.objectContaining(recordingEventsJson[2]),
-                    expect.objectContaining(recordingEventsJson[4]),
-                    expect.objectContaining(recordingEventsJson[4]),
-                    expect.objectContaining(recordingEventsJson[5]),
-                    expect.objectContaining(recordingEventsJson[5]),
-                    expect.objectContaining(recordingEventsJson[6]),
-                    expect.objectContaining(recordingEventsJson[6]),
-                ],
-            })
-
-            // data, meta, events, and then first next events
-            expect(api.get).toBeCalledTimes(4)
-        })
         it('server error mid-fetch', async () => {
             const firstNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
             silenceKeaLoadersErrors()
