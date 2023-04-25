@@ -119,7 +119,9 @@ class Organization(UUIDModel):
 
     # Managed by Billing
     customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    # will be deprecated in favor of `available_product_features` once we're fully using that format in the frontend
     available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
+    available_product_features = ArrayField(models.JSONField(blank=False), blank=True, default=list)
     # Managed by Billing, cached here for usage controls
     # Like {
     #   'events': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 },
