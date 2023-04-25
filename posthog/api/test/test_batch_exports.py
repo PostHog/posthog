@@ -25,10 +25,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
-            "schedule": {
-                "name": "test-schedule",
-                "cron_expressions": ["0 0 * * *"],
-            },
+            "schedule": {"start_at": "2023-04-26T00:00:00Z", "intervals": [{"every": "43200", "offset": "0"}]},
         }
         self.assertEqual(ExportDestination.objects.count(), 0)
 
@@ -42,11 +39,11 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data["type"], destination_data["type"])
         self.assertEqual(data["config"], destination_data["config"])
         self.assertEqual(
-            data["schedule"]["cron_expressions"],
+            data["schedule"]["start_at"],
             # Apparently, 'destination_data["schedule"]' is not indexable.
             # Maybe a mypy bug, as of writing, PostHog still uses mypy<1.0.
-            destination_data["schedule"]["cron_expressions"],  # type: ignore
-        )
+            destination_data["schedule"]["start_at"],  # type: ignore
+        )  # TODO: check the schedule is correct
 
     def test_create_export_schedule(self):
         destination_data = {
@@ -60,10 +57,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
-            "schedule": {
-                "name": "test-schedule",
-                "cron_expressions": ["0 0 * * *"],
-            },
+            "schedule": {"start_at": "2023-04-26T00:00:00.000Z", "intervals": [{"every": "43200", "offset": "0"}]},
         }
 
         self.assertEqual(ExportDestination.objects.count(), 0)
@@ -75,9 +69,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(ExportDestination.objects.count(), 1)
         self.assertEqual(ExportSchedule.objects.count(), 1)
 
-        schedule_name = "one-off-schedule"
         manual_schedule_data = {
-            "name": schedule_name,
             "start_at": "2021-01-01T00:00:00+00:00",
         }
 
@@ -88,9 +80,8 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(schedule_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(ExportSchedule.objects.count(), 2)
 
-        export_schedule = ExportSchedule.objects.filter(name=schedule_name)[0]
+        export_schedule = ExportSchedule.objects.get(id=schedule_response.json()["id"])
 
-        self.assertEqual(export_schedule.name, manual_schedule_data["name"])
         self.assertEqual(export_schedule.start_at.isoformat(), manual_schedule_data["start_at"])
 
         handle = self.temporal.get_schedule_handle(
@@ -123,7 +114,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", destination_data)
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(ExportDestination.objects.count(), 1)
         self.assertEqual(ExportSchedule.objects.count(), 1)
 
@@ -141,7 +132,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(schedule_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(ExportSchedule.objects.count(), 2)
 
-        export_schedule = ExportSchedule.objects.filter(name=schedule_name)[0]
+        export_schedule = ExportSchedule.objects.get(id=schedule_response.json()["id"])
 
         handle = self.temporal.get_schedule_handle(
             str(export_schedule.id),
@@ -153,8 +144,11 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        post_export_schedule = ExportSchedule.objects.filter(name=schedule_name)
-        assert not post_export_schedule.exists()
+        try:
+            ExportSchedule.objects.get(id=export_schedule.id)
+            assert False
+        except ExportSchedule.DoesNotExist:
+            assert True
 
         with self.assertRaisesRegex(RPCError, "schedule not found"):
             async_to_sync(handle.describe)()

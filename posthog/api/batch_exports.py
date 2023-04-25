@@ -52,7 +52,6 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
         model = ExportSchedule
         fields = [
             "id",
-            "name",
             "destination",
             "created_at",
             "last_updated_at",

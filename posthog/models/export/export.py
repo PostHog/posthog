@@ -1,6 +1,4 @@
 import datetime as dt
-from dataclasses import asdict
-from typing import Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -26,51 +24,8 @@ class ExportDestination(UUIDModel):
     config: models.JSONField = models.JSONField(default=dict, blank=True)
 
 
-class ExportScheduleManager(models.Manager):
-    def create(
-        self,
-        team: Team,
-        name: str,
-        calendars: list[ScheduleCalendarSpec] | None = None,
-        intervals: list[ScheduleIntervalSpec] | None = None,
-        cron_expressions: list[str] | None = None,
-        skip: list[ScheduleCalendarSpec] | None = None,
-        start_at: dt.datetime | None = None,
-        end_at: dt.datetime | None = None,
-        jitter: dt.timedelta | None = None,
-        time_zone_name: str = "Etc/UTC",
-        destination: ExportDestination | None = None,
-    ) -> "ExportSchedule":
-        schedule = ExportSchedule(
-            team=team,
-            name=name,
-            destination=destination,
-            calendars=[asdict(calendar) for calendar in calendars or []],
-            intervals=[asdict(interval) for interval in intervals or []],
-            cron_expressions=cron_expressions or [],
-            skip=[asdict(s) for s in skip or []],
-            start_at=start_at,
-            end_at=end_at,
-            jitter=jitter,
-            time_zone_name=time_zone_name,
-        )
-        schedule.save()
-
-        return schedule
-
-    def get_export_schedule_from_name(self, name: str | None) -> Optional["ExportSchedule"]:
-        if not name:
-            return None
-        try:
-            return ExportSchedule.objects.get(name=name)
-        except ExportSchedule.DoesNotExist:
-            return None
-
-
 class ExportSchedule(UUIDModel):
     """The Schedule an Export will follow."""
-
-    objects: ExportScheduleManager = ExportScheduleManager()
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
@@ -79,7 +34,6 @@ class ExportSchedule(UUIDModel):
     unpaused_at: models.DateTimeField = models.DateTimeField(null=True)
     start_at: models.DateTimeField = models.DateTimeField(null=True)
     end_at: models.DateTimeField = models.DateTimeField(null=True)
-    name: models.CharField = models.CharField(max_length=256)
     destination: models.ForeignKey = models.ForeignKey(
         "ExportDestination", on_delete=models.CASCADE, related_name="schedules"
     )
