@@ -1,4 +1,4 @@
-import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { SidebarNavbarItem } from './types'
 
@@ -13,6 +13,7 @@ const MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE: number = 50
 
 export const navigation3000Logic = kea<navigation3000LogicType>([
     path(['layout', 'navigation-3000', 'navigationLogic']),
+    props({} as { inputElement?: HTMLInputElement | null }),
     actions({
         hideSidebar: true,
         showSidebar: (newNavbarItemId?: string) => ({ newNavbarItemId }),
@@ -24,6 +25,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         beginResize: true,
         endResize: true,
         acknowledgeSidebarKeyboardShortcut: true,
+        setIsSearchShown: (isSearchShown: boolean) => ({ isSearchShown }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     reducers({
         isSidebarShown: [
@@ -75,6 +78,20 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
             {
                 showSidebar: (state, { newNavbarItemId }) => newNavbarItemId || state,
+            },
+        ],
+        isSearchShown: [
+            false,
+            {
+                setIsSearchShown: (_, { isSearchShown }) => isSearchShown,
+            },
+        ],
+        internalSearchTerm: [
+            // Do not reference this outside of this file
+            // `searchTerm` is the outwards-facing value, as it's made empty when search is hidden
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
     }),
@@ -134,6 +151,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 return NAVBAR_ITEM_ID_TO_ITEM[activeNavbarItemId] as SidebarNavbarItem
             },
         ],
+        searchTerm: [
+            (s) => [s.internalSearchTerm, s.isSearchShown],
+            (internalSearchTerm, isSearchShown): string => {
+                return isSearchShown ? internalSearchTerm : ''
+            },
+        ],
     }),
     subscriptions(({ cache, actions }) => ({
         isResizeInProgress: (isResizeInProgress) => {
@@ -153,12 +176,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             }
         },
     })),
-    events(({ actions, cache }) => ({
+    events(({ props, actions, cache }) => ({
         afterMount: () => {
             cache.onResize = () => actions.syncSidebarWidthWithViewport()
             cache.onKeyDown = (e: KeyboardEvent) => {
                 if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
                     actions.toggleSidebar()
+                    e.preventDefault()
+                }
+                if (e.key === 'f' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+                    actions.setIsSearchShown(true)
+                    props.inputElement?.focus()
+                    e.preventDefault()
                 }
             }
             window.addEventListener('resize', cache.onResize)
