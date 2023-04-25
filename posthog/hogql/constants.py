@@ -105,6 +105,7 @@ CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     "toString": ("toString", 1, 1),
     "toJSONString": ("toJSONString", 1, 1),
     "parseDateTime": ("parseDateTimeOrNull", 2, 2),
+    "parseDateTimeBestEffort": ("parseDateTime64BestEffortOrNull", 1, 1),
     # dates and times
     "toTimeZone": ("toTimeZone", 2, 2),
     "timeZoneOf": ("timeZoneOf", 1, 1),
