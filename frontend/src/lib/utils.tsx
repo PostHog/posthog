@@ -1308,7 +1308,7 @@ export function humanTzOffset(timezone?: string): string {
 }
 
 /** Join array of string into a list ("a, b, and c"). Uses the Oxford comma, but only if there are at least 3 items. */
-export function humanList(arr: string[]): string {
+export function humanList(arr: readonly string[]): string {
     return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.slice(-1) : arr.join(' and ')
 }
 
