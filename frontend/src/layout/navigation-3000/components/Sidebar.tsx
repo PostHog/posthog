@@ -2,14 +2,16 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { LogicWrapper, useActions, useValues } from 'kea'
 import { IconClose, IconMagnifier } from 'lib/lemon-ui/icons'
-import React from 'react'
-import { SIDEBAR_SEARCH_INPUT_ID, navigation3000Logic } from '../navigationLogic'
+import React, { useRef } from 'react'
+import { navigation3000Logic } from '../navigationLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
 import { SidebarAccordion, SidebarList } from './SidebarAccordion'
 import { Accordion, BasicListItem, ExtendedListItem, SidebarLogic } from '../types'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 
 export function Sidebar(): JSX.Element {
+    const inputElementRef = useRef<HTMLInputElement>(null)
+
     const {
         sidebarWidth: width,
         isSidebarShown: isShown,
@@ -19,8 +21,10 @@ export function Sidebar(): JSX.Element {
         activeNavbarItem,
         isSearchShown,
         searchTerm,
-    } = useValues(navigation3000Logic)
-    const { beginResize, setIsSearchShown, setSearchTerm } = useActions(navigation3000Logic)
+    } = useValues(navigation3000Logic({ inputElement: inputElementRef.current }))
+    const { beginResize, setIsSearchShown, setSearchTerm } = useActions(
+        navigation3000Logic({ inputElement: inputElementRef.current })
+    )
 
     return (
         <div
@@ -57,7 +61,7 @@ export function Sidebar(): JSX.Element {
                 {isSearchShown && (
                     <div>
                         <LemonInput
-                            id={SIDEBAR_SEARCH_INPUT_ID}
+                            ref={inputElementRef}
                             type="search"
                             value={searchTerm as string}
                             onChange={(value) => setSearchTerm(value)}

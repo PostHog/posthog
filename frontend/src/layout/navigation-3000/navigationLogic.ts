@@ -1,4 +1,4 @@
-import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { SidebarNavbarItem } from './types'
 
@@ -10,10 +10,10 @@ const MINIMUM_SIDEBAR_WIDTH_PX: number = 192
 const DEFAULT_SIDEBAR_WIDTH_PX: number = 288
 const MAXIMUM_SIDEBAR_WIDTH_PX: number = 1024
 const MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE: number = 50
-export const SIDEBAR_SEARCH_INPUT_ID = 'sidebar-search'
 
 export const navigation3000Logic = kea<navigation3000LogicType>([
     path(['layout', 'navigation-3000', 'navigationLogic']),
+    props({} as { inputElement?: HTMLInputElement | null }),
     actions({
         hideSidebar: true,
         showSidebar: (newNavbarItemId?: string) => ({ newNavbarItemId }),
@@ -176,7 +176,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             }
         },
     })),
-    events(({ actions, cache }) => ({
+    events(({ props, actions, cache }) => ({
         afterMount: () => {
             cache.onResize = () => actions.syncSidebarWidthWithViewport()
             cache.onKeyDown = (e: KeyboardEvent) => {
@@ -186,7 +186,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 }
                 if (e.key === 'f' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
                     actions.setIsSearchShown(true)
-                    document.getElementById(SIDEBAR_SEARCH_INPUT_ID)?.focus()
+                    props.inputElement?.focus()
                     e.preventDefault()
                 }
             }
