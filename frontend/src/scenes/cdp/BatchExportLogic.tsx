@@ -165,7 +165,6 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
 
                 console.log('createBatchExportSchedule', createBatchExport)
 
-                debugger
                 if (props.id) {
                     await api.batchExports.exports.update(props.id, createBatchExport)
                     return

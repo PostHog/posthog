@@ -113,20 +113,78 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
             destination_data["primary_schedule"]["start_at"],  # type: ignore
         )  # TODO: check the schedule is correct
 
-        destination_data["name"] = "my-production-s3-bucket-destination-2"
-        destination_data["config"]["bucket_name"] = "my-production-s3-bucket-2"
+        update_data = {
+            "name": "my-production-s3-bucket-destination-2",
+            "config": {
+                "bucket_name": "my-production-s3-bucket-2",
+            },
+        }
 
-        response = self.client.patch(f"/api/projects/{self.team.id}/batch_exports/{data['id']}", destination_data)
+        response = self.client.patch(f"/api/projects/{self.team.id}/batch_exports/{data['id']}", update_data)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(ExportDestination.objects.count(), 1)
 
         response = self.client.get(f"/api/projects/{self.team.id}/batch_exports/{response.json()['id']}")
         data = response.json()
+        self.assertEqual(data["name"], update_data["name"])
+        self.assertEqual(data["config"]["bucket_name"], update_data["config"]["bucket_name"])
+        self.assertEqual(data["type"], destination_data["type"])  # keep the original data too
+        # Add check for schedule
+
+    def test_update_and_create_schedule_export_destination(self):
+        destination_data = {
+            "name": "my-production-s3-bucket-destination",
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "key_template": "posthog-events/{table_name}.csv",
+                "batch_window_size": 3600,
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+            },
+        }
+        self.assertEqual(ExportDestination.objects.count(), 0)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", destination_data)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(ExportDestination.objects.count(), 1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/batch_exports/{response.json()['id']}")
+
+        data = response.json()
         self.assertEqual(data["name"], destination_data["name"])
         self.assertEqual(data["type"], destination_data["type"])
         self.assertEqual(data["config"], destination_data["config"])
+        self.assertTrue(data["primary_schedule"] is None)
+
+        update_data = {
+            "name": "my-production-s3-bucket-destination-2",
+            "config": {
+                "bucket_name": "my-production-s3-bucket-2",
+            },
+            "primary_schedule": {"start_at": "2023-04-26T00:00:00Z", "intervals": [{"every": "43200", "offset": "0"}]},
+        }
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/batch_exports/{data['id']}", update_data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(ExportDestination.objects.count(), 1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/batch_exports/{response.json()['id']}")
+        data = response.json()
+        self.assertEqual(data["name"], update_data["name"])
+        self.assertEqual(data["config"]["bucket_name"], update_data["config"]["bucket_name"])
+        self.assertEqual(
+            data["primary_schedule"]["start_at"],
+            # Apparently, 'destination_data["primary_schedule"]' is not indexable.
+            # Maybe a mypy bug, as of writing, PostHog still uses mypy<1.0.
+            update_data["primary_schedule"]["start_at"],  # type: ignore
+        )  # TODO: check the schedule is correct
         # Add check for schedule
+        self.assertEqual(data["type"], destination_data["type"])  # keep the original data too
 
     def test_create_export_schedule(self):
         destination_data = {
@@ -140,7 +198,10 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
-            "primary_schedule": {"start_at": "2023-04-26T00:00:00.000Z", "intervals": [{"every": "43200", "offset": "0"}]},
+            "primary_schedule": {
+                "start_at": "2023-04-26T00:00:00.000Z",
+                "intervals": [{"every": "43200", "offset": "0"}],
+            },
         }
 
         self.assertEqual(ExportDestination.objects.count(), 0)
@@ -189,7 +250,10 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
-            "primary_schedule": {"start_at": "2023-04-26T00:00:00.000Z", "intervals": [{"every": "43200", "offset": "0"}]},
+            "primary_schedule": {
+                "start_at": "2023-04-26T00:00:00.000Z",
+                "intervals": [{"every": "43200", "offset": "0"}],
+            },
         }
 
         self.assertEqual(ExportDestination.objects.count(), 0)

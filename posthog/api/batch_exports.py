@@ -182,43 +182,43 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 class ExportDestinationSerializer(serializers.ModelSerializer):
     primary_schedule = ExportScheduleSerializer(required=False)
-    schedules = ExportScheduleSerializer(many=True,read_only=True, required=False)
+    schedules = ExportScheduleSerializer(many=True, read_only=True, required=False)
 
     class Meta:
         model = ExportDestination
-        fields = [
-            "id",
-            "type",
-            "name",
-            "config",
-            "team_id",
-            "schedules",
-            "primary_schedule"
-        ]
-        read_only_fields = ["id", "created_at", "last_updated_at", 'schedules']
+        fields = ["id", "type", "name", "config", "team_id", "schedules", "primary_schedule"]
+        read_only_fields = ["id", "created_at", "last_updated_at", "schedules"]
 
     def create(self, validated_data: dict):
-        schedule_data = validated_data.pop("primary_schedule")
+        schedule_data = validated_data.pop("primary_schedule", None)
 
         export_destination = ExportDestination.objects.create(team_id=self.context["team_id"], **validated_data)
 
-        team = Team.objects.get(id=self.context["team_id"])
-
-        schedule = ExportSchedule.objects.create(destination=export_destination, team=team, **schedule_data)
-
-        export_destination.primary_schedule = schedule
-        export_destination.save()
+        if schedule_data is not None:
+            team = Team.objects.get(id=self.context["team_id"])
+            schedule = ExportSchedule.objects.create(destination=export_destination, team=team, **schedule_data)
+            export_destination.primary_schedule = schedule
+            export_destination.save()
 
         return export_destination
-    
+
     def update(self, instance: ExportDestination, validated_data: dict):
         if "primary_schedule" in validated_data:
             primary_schedule_serializer = self.fields["primary_schedule"]
             primary_schedule_instance = instance.primary_schedule
             primary_schedule_data = validated_data.pop("primary_schedule")
 
-            primary_schedule_serializer.update(primary_schedule_instance, primary_schedule_data)
-        
+            if primary_schedule_instance is not None:
+                primary_schedule_serializer.update(primary_schedule_instance, primary_schedule_data)
+            else:
+                # Create a new primary_schedule if it does not exist
+                team = Team.objects.get(id=self.context["team_id"])
+                primary_schedule_instance = ExportSchedule.objects.create(
+                    destination=instance, team=team, **primary_schedule_data
+                )
+                instance.primary_schedule = primary_schedule_instance
+                instance.save()
+
         return super().update(instance, validated_data)
 
 
