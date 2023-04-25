@@ -163,6 +163,7 @@ export function cleanFilters(
     const commonFilters: Partial<CommonFiltersType> = {
         ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        ...(filters.properties ? { properties: filters.properties } : {}),
     }
 
     if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
@@ -184,7 +185,6 @@ export function cleanFilters(
             breakdowns: filters.breakdowns,
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
-            properties: filters.properties || [],
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
@@ -202,7 +202,6 @@ export function cleanFilters(
             ...(filters.layout ? { layout: filters.layout } : {}),
             ...(filters.new_entity ? { new_entity: filters.new_entity } : {}),
             ...(filters.interval ? { interval: filters.interval } : {}),
-            ...(filters.properties ? { properties: filters.properties } : {}),
             ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
             ...(filters.funnel_from_step ? { funnel_from_step: filters.funnel_from_step } : {}),
             ...(filters.funnel_to_step ? { funnel_to_step: filters.funnel_to_step } : {}),
@@ -263,7 +262,6 @@ export function cleanFilters(
     } else if (isPathsFilter(filters)) {
         const pathsFilter: Partial<PathsFilterType> = {
             insight: InsightType.PATHS,
-            properties: filters.properties || [],
             start_point: filters.start_point || undefined,
             end_point: filters.end_point || undefined,
             step_limit: filters.step_limit || DEFAULT_STEP_LIMIT,
@@ -300,7 +298,6 @@ export function cleanFilters(
             ...(isTrendsFilter(filters) ? { display: filters.display || ChartDisplayType.ActionsLineGraph } : {}),
             actions: Array.isArray(filters.actions) ? filters.actions : undefined,
             events: Array.isArray(filters.events) ? filters.events : undefined,
-            properties: filters.properties || [],
             ...(isTrendsFilter(filters) && isStickinessFilter(filters) && filters.hidden_legend_keys
                 ? { hidden_legend_keys: filters.hidden_legend_keys }
                 : {}),
