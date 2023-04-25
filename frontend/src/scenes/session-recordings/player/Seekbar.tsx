@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
 import { RecordingSegment } from '~/types'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { Timestamp } from './PlayerControllerTime'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
@@ -131,14 +131,17 @@ const PlayerSeekbarTicks = memo(
     }
 )
 
-export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
+export function Seekbar(): JSX.Element {
+    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
+    const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
+    const { endTimeMs, thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(logicProps))
+
+    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
+    const { sessionPlayerData } = useValues(sessionRecordingDataLogic(logicProps))
+
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
-    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(props))
-    const { sessionPlayerData } = useValues(sessionRecordingDataLogic(props))
-    const { thumbLeftPos, bufferPercent, isScrubbing, endTimeMs } = useValues(seekbarLogic(props))
-    const { seekbarItems } = useValues(playerInspectorLogic(props))
-    const { seekToTime } = useActions(sessionRecordingPlayerLogic(props))
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
     // reducers to be undefined.
@@ -147,11 +150,11 @@ export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
             setSlider(sliderRef)
             setThumb(thumbRef)
         }
-    }, [sliderRef.current, thumbRef.current, props.sessionRecordingId])
+    }, [sliderRef.current, thumbRef.current, sessionRecordingId])
 
     return (
         <div className="flex items-center h-8" data-attr="rrweb-controller">
-            <Timestamp {...props} />
+            <Timestamp />
             <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })}>
                 <div
                     className="PlayerSeekbar__slider"

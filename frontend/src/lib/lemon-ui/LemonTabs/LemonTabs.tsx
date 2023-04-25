@@ -50,22 +50,18 @@ export function LemonTabs<T extends string>({
     tabs,
     'data-attr': dataAttr,
 }: LemonTabsProps<T>): JSX.Element {
-    const { containerRef, selectionRef, sliderWidth, sliderOffset } = useSliderPositioning<
-        HTMLDivElement,
+    const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
+        HTMLUListElement,
         HTMLLIElement
-    >(activeKey)
+    >(activeKey, 200)
 
     /** Tabs with falsy entries filtered out. */
     const realTabs = tabs.filter(Boolean) as LemonTab<T>[]
     const activeTab = realTabs.find((tab) => tab.key === activeKey)
 
-    if (!activeTab) {
-        throw new Error(`No tab found with key ${activeKey}`)
-    }
-
     return (
         <div
-            className="LemonTabs"
+            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning')}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
@@ -75,32 +71,29 @@ export function LemonTabs<T extends string>({
             }
             data-attr={dataAttr}
         >
-            <div className="LemonTabs__bar" role="tablist" ref={containerRef}>
-                <ul>
-                    {sliderWidth > 0 && <div className="LemonTabs__slider" />}
-                    {realTabs.map((tab) => (
-                        <Tooltip key={tab.key} title={tab.tooltip} builtinPlacements={TAB_TOOLTIP_PLACEMENTS}>
-                            <li
-                                className={clsx('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
-                                onClick={() => onChange(tab.key)}
-                                role="tab"
-                                aria-selected={tab.key === activeKey}
-                                tabIndex={0}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        onChange(tab.key)
-                                    }
-                                }}
-                                ref={tab.key === activeKey ? selectionRef : undefined}
-                            >
-                                {tab.label}
-                                {tab.tooltip && <IconInfo className="ml-1 text-base shrink-0" />}
-                            </li>
-                        </Tooltip>
-                    ))}
-                </ul>
-            </div>
-            {'content' in activeTab && (
+            <ul className="LemonTabs__bar" role="tablist" ref={containerRef}>
+                {realTabs.map((tab) => (
+                    <Tooltip key={tab.key} title={tab.tooltip} builtinPlacements={TAB_TOOLTIP_PLACEMENTS}>
+                        <li
+                            className={clsx('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
+                            onClick={() => onChange(tab.key)}
+                            role="tab"
+                            aria-selected={tab.key === activeKey}
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    onChange(tab.key)
+                                }
+                            }}
+                            ref={tab.key === activeKey ? selectionRef : undefined}
+                        >
+                            {tab.label}
+                            {tab.tooltip && <IconInfo className="ml-1 text-base shrink-0" />}
+                        </li>
+                    </Tooltip>
+                ))}
+            </ul>
+            {activeTab && 'content' in activeTab && (
                 <div className="LemonTabs__content" key={activeKey}>
                     {activeTab.content}
                 </div>

@@ -5,6 +5,7 @@ import structlog
 from dateutil import parser
 from django.db.models import Count, Prefetch
 from django.http import JsonResponse
+from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -116,7 +117,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise exceptions.NotFound("Recording not found")
 
         recording.load_person()
-        recording.check_viewed_for_user(request.user, save_viewed=request.GET.get("save_view") is not None)
+
+        save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
+        recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
 
         serializer = SessionRecordingSerializer(recording)
 
@@ -163,15 +166,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         else:
             next_url = None
 
-        res = {
-            "next": next_url,
-            "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
-            # TODO: Remove this once the frontend is migrated to use the above values
-            "result": {
-                "next": next_url,
-                "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
-            },
-        }
+        res = {"next": next_url, "snapshot_data_by_window_id": recording.snapshot_data_by_window_id}
 
         # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
         # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error

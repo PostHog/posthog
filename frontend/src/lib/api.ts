@@ -255,6 +255,10 @@ class ApiRequest {
             .addPathComponent(propertyDefinitionId)
     }
 
+    public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
+    }
+
     // # Cohorts
     public cohorts(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('cohorts')
@@ -540,6 +544,17 @@ const api = {
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
                     return new ApiRequest().pluginsActivity()
+                },
+                [ActivityScope.DATA_MANAGEMENT]: () => {
+                    return new ApiRequest().dataManagementActivity()
+                },
+                [ActivityScope.EVENT_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ event definitions?
+                    return new ApiRequest().dataManagementActivity()
+                },
+                [ActivityScope.PROPERTY_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ property definitions?
+                    return new ApiRequest().dataManagementActivity()
                 },
             }
 

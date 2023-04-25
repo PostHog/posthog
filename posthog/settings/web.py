@@ -51,7 +51,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    "posthog.middleware.PrometheusBeforeMiddlewareWithTeamIds",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
@@ -80,7 +80,7 @@ MIDDLEWARE = [
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
-    "django_prometheus.middleware.PrometheusAfterMiddleware",
+    "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
 ]
 
 if STATSD_HOST is not None:

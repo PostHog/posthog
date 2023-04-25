@@ -13,11 +13,12 @@ from typing import (
 )
 
 from django.db.models import Prefetch
+from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, NotFound
+from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -27,7 +28,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
-from posthog.api.routing import PKorUUIDViewSet, StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_function
@@ -153,7 +154,7 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
     return funnel_actor_class
 
 
-class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewSet):
+class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
     To create or update persons, use a PostHog library of your choice and [use an identify call](/docs/integrate/identifying-users). This API endpoint is only for reading and deleting.
     """
@@ -173,6 +174,24 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
         return queryset
+
+    def get_object(self):
+        queryset = self.filter_queryset(self.get_queryset())
+        person_id = self.kwargs[self.lookup_field]
+
+        try:
+            queryset = get_pk_or_uuid(queryset, person_id)
+        except ValueError:
+            raise ValidationError(
+                f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
+            )
+
+        obj = get_object_or_404(queryset)
+
+        # May raise a permission denied
+        self.check_object_permissions(self.request, obj)
+
+        return obj
 
     @extend_schema(
         parameters=[

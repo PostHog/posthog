@@ -12,6 +12,7 @@ import {
     PHPSnippet,
     GolangSnippet,
     JSBootstrappingSnippet,
+    ReactSnippet,
 } from './FeatureFlagSnippets'
 
 const DOC_BASE_URL = 'https://posthog.com/docs/'
@@ -58,6 +59,12 @@ export const OPTIONS: InstructionOption[] = [
         type: LibraryType.Client,
     },
     {
+        value: 'React',
+        documentationLink: `${DOC_BASE_URL}libraries/react${UTM_TAGS}`,
+        Snippet: ReactSnippet,
+        type: LibraryType.Client,
+    },
+    {
         value: 'Node.js',
         documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}`,
         Snippet: NodeJSSnippet,
@@ -97,7 +104,7 @@ export const OPTIONS: InstructionOption[] = [
 
 export const LOCAL_EVALUATION_LIBRARIES: string[] = ['Node.js', 'Python', 'Ruby', 'PHP', 'Go']
 
-export const PAYLOAD_LIBRARIES: string[] = ['JavaScript', 'Node.js', 'Python', 'Ruby']
+export const PAYLOAD_LIBRARIES: string[] = ['JavaScript', 'Node.js', 'Python', 'Ruby', 'React']
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
     {

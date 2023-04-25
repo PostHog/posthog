@@ -69,11 +69,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         DISABLE_MMDB: isTestEnv(),
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
-        INTERNAL_MMDB_SERVER_PORT: 0,
         JOB_QUEUES: 'graphile',
         JOB_QUEUE_GRAPHILE_URL: '',
         JOB_QUEUE_GRAPHILE_SCHEMA: 'graphile_worker',
         JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: false,
+        JOB_QUEUE_GRAPHILE_CONCURRENCY: 1,
         JOB_QUEUE_S3_AWS_ACCESS_KEY: '',
         JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: '',
         JOB_QUEUE_S3_AWS_REGION: 'us-west-1',
@@ -96,11 +96,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         BUFFER_CONVERSION_SECONDS: isDevEnv() ? 2 : 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
-        OBJECT_STORAGE_ENABLED: false,
+        OBJECT_STORAGE_ENABLED: true,
         OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
+        OBJECT_STORAGE_REGION: 'us-east-1',
         OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
-        OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
         KAFKAJS_LOG_LEVEL: 'WARN',
@@ -112,6 +112,14 @@ export function getDefaultConfig(): PluginsServerConfig {
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
+
+        SESSION_RECORDING_BLOB_PROCESSING_TEAMS: '', // TODO: BW Change this to 'all' when we release it fully
+        SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
+        SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10, // NOTE: 10 minutes
+        SESSION_RECORDING_MAX_BUFFER_SIZE_KB: ['dev', 'test'].includes(process.env.NODE_ENV || 'undefined')
+            ? 1024 // NOTE: ~100KB in dev or test, so that even with gzipped content we still flush pretty frequently
+            : 1024 * 50, // ~50MB after compression in prod
+        SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
     }
 }
 
@@ -145,6 +153,7 @@ export function overrideWithEnv(
             'ingestion-overflow',
             'analytics-ingestion',
             'recordings-ingestion',
+            'recordings-blob-ingestion',
             null,
         ].includes(newConfig.PLUGIN_SERVER_MODE)
     ) {
