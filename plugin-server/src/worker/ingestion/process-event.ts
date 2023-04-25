@@ -290,7 +290,6 @@ export interface SummarizedSessionRecordingEvent {
     url: string | undefined
     click_count: number
     keypress_count: number
-    // 0 to 1 representing the amount of any mouse activity in this event
     mouse_activity_count: number
 }
 
