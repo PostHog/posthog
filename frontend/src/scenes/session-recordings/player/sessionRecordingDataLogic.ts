@@ -28,6 +28,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+import { chainToElements } from 'lib/utils/elements-chain'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -386,7 +387,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const res: any = await api.query({
                         kind: 'EventsQuery',
-                        select: ['uuid', 'event', 'timestamp', 'properties.$current_url', 'properties.$window_id'],
+                        select: [
+                            'uuid',
+                            'event',
+                            'timestamp',
+                            'elements_chain',
+                            'properties.$current_url',
+                            'properties.$window_id',
+                        ],
                         orderBy: ['timestamp ASC'],
                         limit: 1000000,
                         personId: values.sessionPlayerData.person.id,
@@ -408,9 +416,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             id: event[0],
                             event: event[1],
                             timestamp: event[2],
+                            elements: chainToElements(event[3]),
                             properties: {
-                                $current_url: event[3],
-                                $window_id: event[4],
+                                $current_url: event[4],
+                                $window_id: event[5],
                             },
                             playerTime: +dayjs(event[2]) - startTimestamp,
                             fullyLoaded: false,

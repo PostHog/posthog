@@ -3,7 +3,6 @@ import {
     MatchedRecordingEvent,
     PerformanceEvent,
     RecordingConsoleLogV2,
-    RecordingEventType,
     RecordingMinimalEventType,
     RRWebRecordingConsoleLogPayload,
     SessionRecordingPlayerTab,
