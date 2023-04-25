@@ -427,7 +427,7 @@ class FunnelCorrelation:
 
     def _get_aggregation_target_join_query(self) -> str:
 
-        if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED:
+        if self._team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
             aggregation_person_join = f"""
                 JOIN funnel_actors as actors
                     ON event.person_id = actors.actor_id
