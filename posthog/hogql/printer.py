@@ -457,7 +457,7 @@ class _Printer(Visitor):
 
             if self.dialect == "clickhouse":
                 if (clickhouse_name == "now64" and len(args) == 0) or (
-                    clickhouse_name == "toDateTime64OrNull" and len(args) == 1
+                    clickhouse_name == "parseDateTime64BestEffortOrNull" and len(args) == 1
                 ):
                     # must add precision if adding timezone in the next step
                     args.append("6")
