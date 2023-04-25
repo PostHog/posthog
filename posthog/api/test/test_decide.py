@@ -1143,7 +1143,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
             self.assertTrue(response.json()["errorsWhileComputingFlags"])
 
-            mock_counter.labels.assert_called_once_with(team_id=self.team.pk, reason="timeout")
+            mock_counter.labels.assert_called_once_with(reason="timeout")
 
     def test_feature_flags_v3_with_database_errors_and_no_flags(self):
         self.team.app_urls = ["https://example.com"]

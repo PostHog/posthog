@@ -12,7 +12,6 @@ from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from sentry_sdk.api import capture_exception
 
-from posthog.metrics import LABEL_TEAM_ID
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
@@ -38,8 +37,8 @@ FLAG_MATCHING_QUERY_TIMEOUT_MS = 1 * 1000  # 1 second. Any longer and we'll just
 
 FLAG_EVALUATION_ERROR_COUNTER = Counter(
     "flag_evaluation_error_total",
-    "Failed decide requests per team_id, and reason.",
-    labelnames=[LABEL_TEAM_ID, "reason"],
+    "Failed decide requests with reason.",
+    labelnames=["reason"],
 )
 
 
@@ -188,7 +187,7 @@ class FeatureFlagMatcher:
                 }
             except Exception as err:
                 faced_error_computing_flags = True
-                handle_feature_flag_exception(err, feature_flag.team_id, "[Feature Flags] Error computing flags")
+                handle_feature_flag_exception(err, "[Feature Flags] Error computing flags")
 
         return flag_values, flag_evaluation_reasons, flag_payloads, faced_error_computing_flags
 
@@ -512,9 +511,7 @@ def get_all_feature_flags(
             # since the set_feature_flag_hash_key_overrides call will fail.
 
             # For this case, and for any other case, do not error out on decide, just continue assuming continuity couldn't happen.
-            handle_feature_flag_exception(
-                e, team_id, "[Feature Flags] Error while setting feature flag hash key overrides"
-            )
+            handle_feature_flag_exception(e, "[Feature Flags] Error while setting feature flag hash key overrides")
 
     # This is the read-path for experience continuity. We need to get the overrides, and to do that, we get the person_id.
     try:
@@ -605,10 +602,10 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
                 raise e
 
 
-def handle_feature_flag_exception(err: Exception, team_id: int, log_message: str = ""):
+def handle_feature_flag_exception(err: Exception, log_message: str = ""):
     logger.exception(log_message)
     reason = parse_exception_for_error_message(err)
-    FLAG_EVALUATION_ERROR_COUNTER.labels(team_id=team_id, reason=reason).inc()
+    FLAG_EVALUATION_ERROR_COUNTER.labels(reason=reason).inc()
     if reason == "unknown":
         capture_exception(err)
 

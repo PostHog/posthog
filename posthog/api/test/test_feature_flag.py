@@ -2793,7 +2793,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
 
-                mock_counter.labels.assert_called_once_with(team_id=self.team.pk, reason="timeout")
+                mock_counter.labels.assert_called_once_with(reason="timeout")
                 mock_counter.labels.return_value.inc.assert_called_once_with()
 
             mock_counter.reset_mock()
@@ -2965,9 +2965,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
             mock_counter.labels.assert_has_calls(
                 [
-                    call(team_id=self.team.pk, reason="timeout"),
+                    call(reason="timeout"),
                     call().inc(),
-                    call(team_id=self.team.pk, reason="flag_condition_retry"),
+                    call(reason="flag_condition_retry"),
                     call().inc(),
                 ]
             )
@@ -3059,9 +3059,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
                 mock_counter.labels.assert_has_calls(
                     [
-                        call(team_id=self.team.pk, reason="timeout"),
+                        call(reason="timeout"),
                         call().inc(),
-                        call(team_id=self.team.pk, reason="group_mapping_retry"),
+                        call(reason="group_mapping_retry"),
                         call().inc(),
                     ]
                 )
@@ -3156,7 +3156,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
             mock_counter.labels.assert_has_calls(
                 [
-                    call(team_id=self.team.pk, reason="timeout"),
+                    call(reason="timeout"),
                     call().inc(),
                 ]
             )
