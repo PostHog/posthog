@@ -59,10 +59,10 @@ class Table(BaseModel):
     def get_asterisk(self) -> Dict[str, DatabaseField]:
         asterisk: Dict[str, DatabaseField] = {}
         fields_to_avoid = self.avoid_asterisk_fields() + ["team_id"]
-        for key, field in self.__fields__.items():
+        for key in self.dict().keys():
             if key in fields_to_avoid:
                 continue
-            database_field = field.default
+            database_field = getattr(self, key)
             if isinstance(database_field, DatabaseField):
                 asterisk[key] = database_field
             elif (
@@ -270,6 +270,94 @@ class EventsPersonSubTable(VirtualTable):
         return "events"
 
 
+def select_from_groups_table(requested_fields: Dict[str, Any]):
+    from posthog.hogql import ast
+
+    if not requested_fields:
+        requested_fields = {}
+    if "index" not in requested_fields:
+        requested_fields["index"] = ast.Field(chain=["index"])
+    if "key" not in requested_fields:
+        requested_fields["key"] = ast.Field(chain=["key"])
+
+    fields_to_select: List[ast.Expr] = []
+    fields_to_group: List[ast.Expr] = []
+    argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
+        name="argMax", args=[field, ast.Field(chain=["offset"])]
+    )
+    for field, expr in requested_fields.items():
+        if field == "index" or field == "key":
+            fields_to_select.append(ast.Alias(alias=field, expr=expr))
+            fields_to_group.append(expr)
+        else:
+            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(expr)))
+
+    return ast.SelectQuery(
+        select=fields_to_select,
+        select_from=ast.JoinExpr(table=ast.Field(chain=["raw_groups"])),
+        group_by=fields_to_group,
+    )
+
+
+class GroupsTable(LazyTable):
+    index: IntegerDatabaseField = IntegerDatabaseField(name="group_type_index")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+
+    key: StringDatabaseField = StringDatabaseField(name="group_key")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    updated_at: DateTimeDatabaseField = DateTimeDatabaseField(name="_timestamp")
+    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="group_properties")
+
+    def lazy_select(self, requested_fields: Dict[str, Any]):
+        return select_from_groups_table(requested_fields)
+
+    def clickhouse_table(self):
+        return "groups"
+
+    def hogql_table(self):
+        return "groups"
+
+
+class RawGroupsTable(Table):
+    index: IntegerDatabaseField = IntegerDatabaseField(name="group_type_index")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+
+    key: StringDatabaseField = StringDatabaseField(name="group_key")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    updated_at: DateTimeDatabaseField = DateTimeDatabaseField(name="_timestamp")
+    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="group_properties")
+
+    offset: DateTimeDatabaseField = DateTimeDatabaseField(name="_offset")
+
+    def clickhouse_table(self):
+        return "groups"
+
+    def hogql_table(self):
+        return "groups"
+
+
+class EventsGroupSubTable(VirtualTable):
+    key: StringDatabaseField
+    created_at: DateTimeDatabaseField
+    properties: StringJSONDatabaseField
+
+    def __init__(self, group_index: int):
+        super().__init__(
+            key=StringDatabaseField(name=f"$group_{group_index}"),
+            created_at=DateTimeDatabaseField(name=f"group{group_index}_created_at"),
+            properties=StringJSONDatabaseField(name=f"group{group_index}_properties"),
+        )
+
+    def avoid_asterisk_fields(self):
+        return []
+
+    def clickhouse_table(self):
+        return "events"
+
+    def hogql_table(self):
+        return "events"
+
+
 class EventsTable(Table):
     uuid: StringDatabaseField = StringDatabaseField(name="uuid")
     event: StringDatabaseField = StringDatabaseField(name="event")
@@ -286,8 +374,14 @@ class EventsTable(Table):
         join_table=PersonDistinctIdTable(),
         join_function=join_with_person_distinct_ids_table,
     )
-    # person fields on the event itself
+
+    # person and group fields on the event itself
     poe: EventsPersonSubTable = EventsPersonSubTable()
+    goe_0: EventsGroupSubTable = EventsGroupSubTable(group_index=0)
+    goe_1: EventsGroupSubTable = EventsGroupSubTable(group_index=1)
+    goe_2: EventsGroupSubTable = EventsGroupSubTable(group_index=2)
+    goe_3: EventsGroupSubTable = EventsGroupSubTable(group_index=3)
+    goe_4: EventsGroupSubTable = EventsGroupSubTable(group_index=4)
 
     # These are swapped out if the user has PoE enabled
     person: BaseModel = FieldTraverser(chain=["pdi", "person"])
@@ -373,27 +467,13 @@ class StaticCohortPeople(Table):
         return "static_cohort_people"
 
 
-class Groups(Table):
-    index: IntegerDatabaseField = IntegerDatabaseField(name="group_type_index")
-    key: StringDatabaseField = StringDatabaseField(name="group_key")
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
-    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="group_properties")
-
-    def clickhouse_table(self):
-        return "groups"
-
-    def hogql_table(self):
-        return "groups"
-
-
 class Database(BaseModel):
     class Config:
         extra = Extra.allow
 
     # Users can query from the tables below
     events: EventsTable = EventsTable()
-    groups: Groups = Groups()
+    groups: GroupsTable = GroupsTable()
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
 
@@ -403,6 +483,7 @@ class Database(BaseModel):
 
     raw_person_distinct_ids: RawPersonDistinctIdTable = RawPersonDistinctIdTable()
     raw_persons: RawPersonsTable = RawPersonsTable()
+    raw_groups: RawGroupsTable = RawGroupsTable()
 
     def __init__(self, timezone: Optional[str]):
         super().__init__()
