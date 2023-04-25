@@ -318,6 +318,27 @@
   
   '
 ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_session_replay_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      session_id VARCHAR,
+      window_id VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      url VARCHAR,
+      click_count int,
+      keypress_count int,
+      mouse_activity_count int
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
+  
+  '
+---
 # name: test_create_table_query[app_metrics]
   '
   
@@ -880,6 +901,27 @@
   
   '
 ---
+# name: test_create_table_query[kafka_session_replay_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_session_replay_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      session_id VARCHAR,
+      window_id VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      url VARCHAR,
+      click_count int,
+      keypress_count int,
+      mouse_activity_count int
+      
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
+  
+  '
+---
 # name: test_create_table_query[performance_events]
   '
   
@@ -1273,6 +1315,52 @@
   
   '
 ---
+# name: test_create_table_query[session_replay_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS session_replay_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      session_id VARCHAR,
+      window_id VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      url VARCHAR,
+      click_count int,
+      keypress_count int,
+      mouse_activity_count int
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
+  
+  '
+---
+# name: test_create_table_query[session_replay_events_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER 'posthog'
+  TO posthog_test.writable_session_replay_events
+  AS SELECT
+  uuid,
+  timestamp,
+  team_id,
+  distinct_id,
+  session_id,
+  window_id,
+  url,
+  click_count,
+  keypress_count,
+  mouse_activity_count,
+  _timestamp,
+  _offset
+  FROM posthog_test.kafka_session_replay_events
+  
+  '
+---
 # name: test_create_table_query[sharded_app_metrics]
   '
   
@@ -1471,6 +1559,36 @@
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
   
+  SETTINGS index_granularity=512
+  
+  '
+---
+# name: test_create_table_query[sharded_session_replay_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS sharded_session_replay_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      session_id VARCHAR,
+      window_id VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      url VARCHAR,
+      click_count int,
+      keypress_count int,
+      mouse_activity_count int
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+      , INDEX kafka_timestamp_minmax_sharded_session_replay_events _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}', _timestamp)
+  PARTITION BY toYYYYMMDD(timestamp)
+  ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
   SETTINGS index_granularity=512
   
   '
@@ -2047,6 +2165,36 @@
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
   
+  SETTINGS index_granularity=512
+  
+  '
+---
+# name: test_create_table_query_replicated_and_storage[sharded_session_replay_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS sharded_session_replay_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      session_id VARCHAR,
+      window_id VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      url VARCHAR,
+      click_count int,
+      keypress_count int,
+      mouse_activity_count int
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+      , INDEX kafka_timestamp_minmax_sharded_session_replay_events _timestamp TYPE minmax GRANULARITY 3
+      
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}', _timestamp)
+  PARTITION BY toYYYYMMDD(timestamp)
+  ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
   SETTINGS index_granularity=512
   
   '

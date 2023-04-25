@@ -286,8 +286,8 @@ export interface SummarizedSessionRecordingEvent {
     distinct_id: string
     session_id: string
     window_id: string | undefined
-    url: string | undefined
     created_at: string
+    url: string | undefined
     click_count: number
     keypress_count: number
     // 0 to 1 representing the amount of any mouse activity in this event
