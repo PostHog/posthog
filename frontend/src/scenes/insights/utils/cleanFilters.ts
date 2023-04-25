@@ -17,7 +17,6 @@ import {
 } from '~/types'
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
-import { defaultFilterTestAccounts } from 'scenes/insights/insightLogic'
 import {
     BIN_COUNT_AUTO,
     NON_VALUES_ON_SERIES_DISPLAY_TYPES,
@@ -158,7 +157,8 @@ export function cleanFilters(
     filters: Partial<AnyFilterType>,
     // @ts-expect-error
     oldFilters?: Partial<AnyFilterType>,
-    featureFlags?: FeatureFlagsSet
+    featureFlags?: FeatureFlagsSet,
+    teamFilterTestAccounts?: boolean
 ): Partial<FilterType> {
     const commonFilters: Partial<CommonFiltersType> = {
         ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
@@ -166,8 +166,15 @@ export function cleanFilters(
         ...(filters.properties ? { properties: filters.properties } : {}),
     }
 
+    // set test account filter default from team and local storage settings
     if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
-        commonFilters.filter_test_accounts = defaultFilterTestAccounts(filters.filter_test_accounts || false)
+        // if the current _global_ value is true respect that over any local preference
+        if (localStorage.getItem('default_filter_test_accounts') === 'true') {
+            commonFilters.filter_test_accounts = true
+        } else if (!filters.filter_test_accounts && teamFilterTestAccounts !== undefined) {
+            commonFilters.filter_test_accounts = teamFilterTestAccounts
+        }
+        console.groupEnd()
     }
 
     if (isRetentionFilter(filters)) {
