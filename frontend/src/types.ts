@@ -615,7 +615,7 @@ export interface SessionPlayerSnapshotData {
 }
 
 export interface SessionPlayerMetaData {
-    person?: PersonType
+    person: PersonType | null
     metadata: SessionRecordingMeta
 }
 

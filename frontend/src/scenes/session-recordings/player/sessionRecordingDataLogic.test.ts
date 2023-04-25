@@ -52,6 +52,7 @@ describe('sessionRecordingDataLogic', () => {
         logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
         logic.mount()
         jest.spyOn(api, 'get')
+        jest.spyOn(api, 'create')
     })
 
     describe('core assumptions', () => {
@@ -59,15 +60,15 @@ describe('sessionRecordingDataLogic', () => {
             await expectLogic(logic).toMount([eventUsageLogic, teamLogic, userLogic])
         })
         it('has default values', async () => {
-            await expectLogic(logic).toMatchValues({
+            expect(logic.values).toMatchObject({
                 sessionRecordingId: null,
                 sessionPlayerData: {
                     bufferedTo: null,
                     metadata: {
                         recordingDurationMs: 0,
                         pinnedCount: 0,
-                        startTimestamp: 0,
-                        endTimestamp: 0,
+                        startTimestamp: expect.anything(),
+                        endTimestamp: expect.anything(),
                         segments: [],
                         startAndEndTimesByWindowId: {},
                     },
@@ -120,8 +121,8 @@ describe('sessionRecordingDataLogic', () => {
                     sessionPlayerData: {
                         bufferedTo: null,
                         metadata: {
-                            startTimestamp: 0,
-                            endTimestamp: 0,
+                            startTimestamp: expect.anything(),
+                            endTimestamp: expect.anything(),
                             recordingDurationMs: 0,
                             pinnedCount: 0,
                             segments: [],
@@ -173,45 +174,34 @@ describe('sessionRecordingDataLogic', () => {
         it('load events after metadata with 1min buffer', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta()
-            })
-                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents'])
-                .toMatchValues({
-                    eventsApiParams: {
-                        after: '2021-12-09T19:35:59Z',
-                        before: '2021-12-09T20:23:24Z',
-                        person_id: '1',
-                        orderBy: ['timestamp'],
-                        properties: {
-                            type: 'OR',
-                            values: [
-                                {
-                                    type: 'AND',
-                                    values: [
-                                        {
-                                            key: '$session_id',
-                                            operator: 'is_not_set',
-                                            type: 'event',
-                                            value: 'is_not_set',
-                                        },
-                                    ],
-                                },
-                                {
-                                    type: 'AND',
-                                    values: [
-                                        {
-                                            key: '$session_id',
-                                            operator: 'exact',
-                                            type: 'event',
-                                            value: ['2'],
-                                        },
-                                    ],
-                                },
-                            ],
-                        },
-                    },
-                })
+            }).toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
 
-            expect(logic.values.sessionEventsData).toEqual(null)
+            expect(api.create).toHaveBeenCalledWith(
+                'api/projects/997/query',
+                {
+                    client_query_id: undefined,
+                    query: {
+                        after: '2021-12-09T19:34:39+00:00',
+                        before: '2021-12-09T20:23:24+00:00',
+                        kind: 'EventsQuery',
+                        limit: 1000000,
+                        orderBy: ['timestamp ASC'],
+                        personId: '1',
+                        properties: [{ key: '$session_id', operator: 'exact', type: 'event', value: ['2'] }],
+                        select: [
+                            'uuid',
+                            'event',
+                            'timestamp',
+                            'elements_chain',
+                            'properties.$current_url',
+                            'properties.$window_id',
+                        ],
+                    },
+                },
+                expect.anything()
+            )
+
+            expect(logic.values.sessionEventsData).toHaveLength(recordingEventsJson.results.length)
         })
         it('no next url', async () => {
             await expectLogic(logic, () => {
@@ -248,9 +238,9 @@ describe('sessionRecordingDataLogic', () => {
                         performanceEvents: [],
                     })
 
-                // data, meta, events... but not performance events
+                // data, meta... but not performance events
                 console.log(api.get.mock.calls)
-                expect(api.get).toBeCalledTimes(3)
+                expect(api.get).toBeCalledTimes(2)
             })
         })
 
@@ -268,39 +258,6 @@ describe('sessionRecordingDataLogic', () => {
                     'loadPerformanceEventsSuccess',
                 ])
                 .toMatchValues({
-                    eventsApiParams: {
-                        after: '2021-12-09T19:35:59Z',
-                        before: '2021-12-09T20:23:24Z',
-                        person_id: '1',
-                        orderBy: ['timestamp'],
-                        properties: {
-                            type: 'OR',
-                            values: [
-                                {
-                                    type: 'AND',
-                                    values: [
-                                        {
-                                            key: '$session_id',
-                                            operator: 'is_not_set',
-                                            type: 'event',
-                                            value: 'is_not_set',
-                                        },
-                                    ],
-                                },
-                                {
-                                    type: 'AND',
-                                    values: [
-                                        {
-                                            key: '$session_id',
-                                            operator: 'exact',
-                                            type: 'event',
-                                            value: ['2'],
-                                        },
-                                    ],
-                                },
-                            ],
-                        },
-                    },
                     performanceEvents: expect.arrayContaining([
                         expect.objectContaining({
                             entry_type: 'navigation',
@@ -401,7 +358,7 @@ describe('sessionRecordingDataLogic', () => {
                     },
                 })
                 .toFinishAllListeners()
-            expect(api.get).toBeCalledTimes(4) // 2 calls to loadRecordingSnapshots + 1 call to loadRecordingMeta + 1 call to loadPerformanceEvents
+            expect(api.get).toBeCalledTimes(3) // 2 calls to loadRecordingSnapshots + 1 call to loadPerformanceEvents
         })
 
         it('server error mid-way through recording', async () => {

@@ -156,6 +156,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     }),
     defaults({
         sessionPlayerMetaData: {
+            person: null,
             metadata: {
                 pinnedCount: 0,
                 segments: [],
@@ -311,7 +312,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                 return {
                     ...values.sessionPlayerMetaData,
-                    person: response.person,
+                    person: response.person || null,
                     metadata,
                 }
             },
@@ -383,8 +384,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             'event',
                             'timestamp',
                             'elements_chain',
-                            'properties.$current_url',
                             'properties.$window_id',
+                            'properties.$current_url',
+                            'properties.$event_type',
                         ],
                         orderBy: ['timestamp ASC'],
                         limit: 1000000,
@@ -409,8 +411,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             timestamp: event[2],
                             elements: chainToElements(event[3]),
                             properties: {
-                                $current_url: event[4],
-                                $window_id: event[5],
+                                $window_id: event[4],
+                                $current_url: event[5],
+                                $event_type: event[6],
                             },
                             playerTime: +dayjs(event[2]) - +startTimestamp,
                             fullyLoaded: false,

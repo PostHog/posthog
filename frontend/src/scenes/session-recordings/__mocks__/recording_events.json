@@ -48,7 +48,8 @@
         "order": 3,
         "timestamp": "2021-12-09T19:37:39.223000Z",
         "properties": {
-            "$window_id": "wrong_window_id"
+            "$window_id": "wrong_window_id",
+            "$event_name": "click"
         },
         "elements": [],
         "elements_hash": ""
