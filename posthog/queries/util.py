@@ -134,6 +134,7 @@ def correct_result_for_sampling(
     return result
 
 
+# TODO: Get rid of person_properties_mode altogether and only use PersonOnEventsMode
 def get_person_properties_mode(team: Team) -> PersonPropertiesMode:
     if team.person_on_events_mode == PersonOnEventsMode.DISABLED:
         return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN

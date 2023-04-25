@@ -142,6 +142,7 @@ class TrendsBreakdown:
 
         prop_filters, prop_filter_params = self._props_to_filter
 
+        # TODO: verify this person_id_alias
         aggregate_operation, _, math_params = process_math(
             self.entity,
             self.team,
@@ -396,7 +397,7 @@ class TrendsBreakdown:
             self.team,
             extra_params=math_params,
             column_optimizer=self.column_optimizer,
-            person_properties_mode=self._person_properties_mode,
+            person_on_events_mode=self.person_on_events_mode,
         )
 
         # :TRICKY: We only support string breakdown for event/person properties

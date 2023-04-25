@@ -252,7 +252,7 @@ class SessionRecordingList(EventQuery):
             entity=entity,
             prepend=prepend,
             filter_by_team=False,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=self._person_id_alias,
             hogql_context=self._filter.hogql_context,
         )
 

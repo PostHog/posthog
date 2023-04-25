@@ -845,7 +845,7 @@ class ClickhouseFunnelBase(ABC):
                 self._team,
                 extra_params={"offset": 0},
                 use_all_funnel_entities=use_all_funnel_entities,
-                person_properties_mode=get_person_properties_mode(self._team),
+                person_on_events_mode=self._team.person_on_events_mode,
             )
 
         return None

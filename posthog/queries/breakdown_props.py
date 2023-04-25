@@ -28,6 +28,7 @@ from posthog.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import PersonOnEventsMode
+from posthog.queries.util import get_person_properties_mode
 
 ALL_USERS_COHORT_ID = 0
 
@@ -39,7 +40,7 @@ def get_breakdown_prop_values(
     team: Team,
     extra_params={},
     column_optimizer: Optional[ColumnOptimizer] = None,
-    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+    person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
     use_all_funnel_entities: bool = False,
 ):
     """
@@ -78,9 +79,13 @@ def get_breakdown_prop_values(
         f"AND notEmpty(e.person_id)" if team.person_on_events_mode != PersonOnEventsMode.DISABLED else ""
     )
 
-    if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+    if person_on_events_mode != PersonOnEventsMode.DISABLED:
         outer_properties: Optional[PropertyGroup] = props_to_filter
-        person_id_joined_alias = "e.person_id"
+        person_id_joined_alias = (
+            "e.person_id"
+            if person_on_events_mode == PersonOnEventsMode.V1_ENABLED
+            else "if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)"
+        )
 
         if not groups_on_events_querying_enabled():
             groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
@@ -104,6 +109,7 @@ def get_breakdown_prop_values(
 
         groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
 
+    person_properties_mode = get_person_properties_mode(team)
     session_query = SessionQuery(filter=filter, team=team)
     if session_query.is_used:
         session_query_clause, sessions_join_params = session_query.get_query()
