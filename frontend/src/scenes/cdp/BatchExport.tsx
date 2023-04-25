@@ -81,7 +81,7 @@ const generateDescription = (interval: Exclude<BatchExportFrequencyType, 'none'>
         monthly: { period: '1-month', frequency: 'monthly' },
     }
 
-    return `The job is set to export ${intervals[interval].period} data segments ${intervals[interval].frequency}. This means only the first ${intervals[interval].period} period's data is included in the first run. To conduct an additional one-time export of all existing historical data during this first execution, enable this option.`
+    return `The job is set to export ${intervals[interval]?.period} data segments ${intervals[interval]?.frequency}. This means only the first ${intervals[interval]?.period} period's data is included in the first run. To conduct an additional one-time export of all existing historical data during this first execution, enable this option.`
 }
 
 export function S3Settings(): JSX.Element {
@@ -228,15 +228,11 @@ export function S3Settings(): JSX.Element {
 }
 
 export function BatchExport(): JSX.Element {
-    const {
-        connectionChoice: batchExportChoice,
-        activeTab,
-        connection: batchExportDestination,
-    } = useValues(BatchExportLogic)
+    const { batchExportDestination, activeTab } = useValues(BatchExportLogic)
     const { setTab } = useActions(BatchExportLogic)
     return (
         <>
-            <PageHeader title={batchExportChoice?.name || 'undefined'} />
+            <PageHeader title={batchExportDestination?.name || 'undefined'} />
             <LemonTabs
                 tabs={[
                     {

@@ -124,7 +124,7 @@ export type CreateBatchExportScheduleType = {
     name: string
     type: string // TODO: rename this e.g. destination_slug or id?
     config: DestinationConfigs
-    schedule?: {
+    primary_schedule?: {
         start_at: BatchExportSchedule['start_at']
         end_at: BatchExportSchedule['end_at']
         intervals: BatchExportSchedule['intervals']

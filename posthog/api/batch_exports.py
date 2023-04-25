@@ -204,13 +204,22 @@ class ExportDestinationSerializer(serializers.ModelSerializer):
 
         team = Team.objects.get(id=self.context["team_id"])
 
-        schedule = ExportSchedule.objects.create(destination=export_destination, team=team, primary_schedule=True, **schedule_data,)
-        export_destination.schedule = schedule
+        schedule = ExportSchedule.objects.create(destination=export_destination, team=team, **schedule_data)
+
+        export_destination.primary_schedule = schedule
         export_destination.save()
 
         return export_destination
     
-    # TODO: add update including the schedule
+    def update(self, instance: ExportDestination, validated_data: dict):
+        if "primary_schedule" in validated_data:
+            primary_schedule_serializer = self.fields["primary_schedule"]
+            primary_schedule_instance = instance.primary_schedule
+            primary_schedule_data = validated_data.pop("primary_schedule")
+
+            primary_schedule_serializer.update(primary_schedule_instance, primary_schedule_data)
+        
+        return super().update(instance, validated_data)
 
 
 class ExportDestinationViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

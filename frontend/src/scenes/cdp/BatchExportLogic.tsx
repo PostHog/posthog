@@ -69,18 +69,6 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
         setEditingSecret: (editingSecret: boolean) => ({ editingSecret }),
     }),
     reducers({
-        batchExportDestination: [
-            {
-                id: '123',
-                name: 'Test Batch Export Destination',
-                status: 'active',
-                connection_type_id: 's3',
-                successRate: '100%',
-                imageUrl: 'https://posthog.com/static/brand/favicon.png',
-                config: {},
-            } as BatchExportDestinationType,
-            {},
-        ],
         connectionChoices: [mockConnectionChoices as ConnectionChoiceType[], {}],
         activeTab: [
             'sync-history' as BatchExportTabsType,
@@ -105,13 +93,12 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
                 },
             },
         ],
-        batchExportSettings: [
-            undefined as S3BatchExportConfigType | undefined,
+        batchExportDestination: [
+            undefined as BatchExportDestinationType | undefined,
             {
-                loadBatchExportSettings: async () => {
-                    debugger
-                    const batchExportSettings = props.id ? await api.batchExports.exports.get(props.id) : undefined
-                    return batchExportSettings
+                loadBatchExportDestination: async () => {
+                    const batchExport = props.id ? await api.batchExports.exports.get(props.id) : undefined
+                    return batchExport
                 },
             },
         ],
@@ -130,7 +117,7 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
             },
         ],
     })),
-    forms(({ values }) => ({
+    forms(({ values, props }) => ({
         batchExportSettings: {
             defaults: defaultCreator(values),
             errors: settingsValidation,
@@ -149,7 +136,7 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
 
                 const name = values.name
                 const type = 'S3' // TODO: make this real
-                const schedule: CreateBatchExportScheduleType['schedule'] = {
+                const primary_schedule: CreateBatchExportScheduleType['primary_schedule'] = {
                     start_at: values.firstExport.toISOString(),
                     end_at: values.stopAtSpecificDate ? values.stopAt?.toISOString() : undefined,
                     intervals: [
@@ -172,15 +159,20 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
                 const createBatchExport: CreateBatchExportScheduleType = {
                     name,
                     type,
-                    schedule,
+                    primary_schedule,
                     config,
                 }
 
                 console.log('createBatchExportSchedule', createBatchExport)
 
-                const result = await api.batchExports.exports.create(createBatchExport)
-
-                console.log(result)
+                debugger
+                if (props.id) {
+                    await api.batchExports.exports.update(props.id, createBatchExport)
+                    return
+                } else {
+                    const result = await api.batchExports.exports.create(createBatchExport)
+                    console.log(result)
+                }
 
                 // TODO: don't send the placeholder AWSSecretAccessKey unless it's been changed
                 // TODO: turn off seconds in the date pickers
@@ -242,11 +234,29 @@ export const BatchExportLogic = kea<BatchExportLogicType>([
         loadConnectionSettingsSuccess: ({ connectionSettings }) => {
             actions.setEditingSecret(!connectionSettings?.AWSSecretAccessKey)
         },
+        loadBatchExportDestinationSuccess: ({ batchExportDestination }) => {
+            console.log(batchExportDestination)
+            actions.setBatchExportSettingsValues({
+                name: batchExportDestination.name,
+                // schedule
+                firstExport: dayjs(batchExportDestination.primary_schedule.start_at),
+                stopAt: dayjs(batchExportDestination.primary_schedule.end_at),
+                frequency: batchExportDestination.primary_schedule.intervals[0].every,
+                // config
+                AWSAccessKeyID: batchExportDestination.config.AWSAccessKeyID,
+                AWSSecretAccessKey: batchExportDestination.config.AWSSecretAccessKey,
+                AWSRegion: batchExportDestination.config.AWSRegion,
+                AWSBucket: batchExportDestination.config.AWSBucket,
+                fileFormat: batchExportDestination.config.fileFormat,
+                fileName: batchExportDestination.config.fileName,
+            })
+        },
     })),
     afterMount(({ actions }) => {
+        console.log('after mount')
         actions.loadConnectionChoices()
+        actions.loadBatchExportDestination()
         actions.loadExportRuns()
-        actions.loadBatchExportSettings()
     }),
     urlToAction(({ actions }) => ({
         [urls.featureFlags()]: async (_, searchParams) => {

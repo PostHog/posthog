@@ -79,6 +79,55 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
             destination_data["primary_schedule"]["start_at"],  # type: ignore
         )  # TODO: check the schedule is correct
 
+    def test_update_export_destination(self):
+        destination_data = {
+            "name": "my-production-s3-bucket-destination",
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "key_template": "posthog-events/{table_name}.csv",
+                "batch_window_size": 3600,
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+            },
+            "primary_schedule": {"start_at": "2023-04-26T00:00:00Z", "intervals": [{"every": "43200", "offset": "0"}]},
+        }
+        self.assertEqual(ExportDestination.objects.count(), 0)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", destination_data)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(ExportDestination.objects.count(), 1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/batch_exports/{response.json()['id']}")
+
+        data = response.json()
+        self.assertEqual(data["name"], destination_data["name"])
+        self.assertEqual(data["type"], destination_data["type"])
+        self.assertEqual(data["config"], destination_data["config"])
+        self.assertEqual(
+            data["primary_schedule"]["start_at"],
+            # Apparently, 'destination_data["primary_schedule"]' is not indexable.
+            # Maybe a mypy bug, as of writing, PostHog still uses mypy<1.0.
+            destination_data["primary_schedule"]["start_at"],  # type: ignore
+        )  # TODO: check the schedule is correct
+
+        destination_data["name"] = "my-production-s3-bucket-destination-2"
+        destination_data["config"]["bucket_name"] = "my-production-s3-bucket-2"
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/batch_exports/{data['id']}", destination_data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(ExportDestination.objects.count(), 1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/batch_exports/{response.json()['id']}")
+        data = response.json()
+        self.assertEqual(data["name"], destination_data["name"])
+        self.assertEqual(data["type"], destination_data["type"])
+        self.assertEqual(data["config"], destination_data["config"])
+        # Add check for schedule
+
     def test_create_export_schedule(self):
         destination_data = {
             "name": "my-production-s3-bucket-destination",
