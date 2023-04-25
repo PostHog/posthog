@@ -153,6 +153,7 @@ export function overrideWithEnv(
             'ingestion-overflow',
             'analytics-ingestion',
             'recordings-ingestion',
+            'recordings-blob-ingestion',
             null,
         ].includes(newConfig.PLUGIN_SERVER_MODE)
     ) {
