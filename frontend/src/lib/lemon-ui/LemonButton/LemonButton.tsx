@@ -6,7 +6,7 @@ import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
 import './LemonButton.scss'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
-import { PopoverPlacementContext } from '../Popover'
+import { PopoverVisibilityContext } from '../Popover'
 
 export type LemonButtonDropdown = Omit<LemonDropdownProps, 'children'>
 
@@ -102,7 +102,11 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             },
             ref
         ): JSX.Element => {
-            const popoverPlacement = useContext(PopoverPlacementContext)
+            const [popoverVisibility, popoverPlacement] = useContext(PopoverVisibilityContext) || [false, null]
+
+            if (!active && popoverVisibility) {
+                active = true
+            }
 
             if (popoverPlacement) {
                 if (!children) {
@@ -116,6 +120,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             if (loading) {
                 icon = <Spinner monocolor />
             }
+
             let tooltipContent: TooltipProps['title']
             if (disabledReason) {
                 disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
