@@ -67,6 +67,11 @@ const insightActionsMapping: Record<
         }
     },
     filters: function onChangedFilter(change) {
+        if (change?.action === 'deleted') {
+            // if the filter was deleted, then someone has added a query and that will be summarized
+            return null
+        }
+
         const filtersAfter = change?.after as Partial<FilterType>
 
         return summarizeChanges(filtersAfter)
