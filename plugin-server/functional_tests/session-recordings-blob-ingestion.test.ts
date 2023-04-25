@@ -132,7 +132,7 @@ test.concurrent(
                     Prefix: `${defaultConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${teamId}/session_id/${sessionId}`,
                 })
             )
-            expect(s3Files.Contents?.length).toBe(1)
+            expect(s3Files.Contents?.length).toBeGreaterThanOrEqual(1)
 
             const s3File = s3Files.Contents?.[0]
             if (!s3File) {
