@@ -61,10 +61,6 @@ cryptography==37.0.2
     #   urllib3
 datamodel-code-generator==0.16.1
     # via -r requirements-dev.in
-deprecated==1.2.13
-    # via
-    #   -c requirements.txt
-    #   redis
 django==3.2.18
     # via
     #   -c requirements.txt
@@ -88,7 +84,7 @@ email-validator==1.3.1
     # via pydantic
 faker==17.5.0
     # via -r requirements-dev.in
-fakeredis==1.9.1
+fakeredis==2.11.0
     # via -r requirements-dev.in
 flaky==3.7.0
     # via -r requirements-dev.in
@@ -146,12 +142,10 @@ openapi-spec-validator==0.5.1
     # via datamodel-code-generator
 packaging==21.3
     # via
-    #   -c requirements.txt
     #   -r requirements-dev.in
     #   datamodel-code-generator
     #   prance
     #   pytest
-    #   redis
 pathable==0.4.3
     # via jsonschema-spec
 pathspec==0.9.0
@@ -183,9 +177,7 @@ pyopenssl==22.0.0
     #   -c requirements.txt
     #   urllib3
 pyparsing==3.0.7
-    # via
-    #   -c requirements.txt
-    #   packaging
+    # via packaging
 pyrsistent==0.18.1
     # via
     #   -c requirements.txt
@@ -236,7 +228,7 @@ pyyaml==6.0
     #   -c requirements.txt
     #   jsonschema-spec
     #   openapi-spec-validator
-redis==4.3.4
+redis==4.5.4
     # via
     #   -c requirements.txt
     #   fakeredis
@@ -257,7 +249,6 @@ semver==2.13.0
 six==1.16.0
     # via
     #   -c requirements.txt
-    #   fakeredis
     #   prance
     #   python-dateutil
 sortedcontainers==2.4.0
@@ -321,10 +312,6 @@ watchdog==2.1.8
     # via pytest-watch
 wheel==0.38.1
     # via pip-tools
-wrapt==1.14.1
-    # via
-    #   -c requirements.txt
-    #   deprecated
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip
