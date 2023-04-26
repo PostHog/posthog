@@ -62,24 +62,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
-    def test_person_property_names(self) -> None:
-        _create_person(
-            distinct_ids=["person_1"], team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"}
-        )
-        _create_person(distinct_ids=["person_2"], team=self.team, properties={"random_prop": "asdf"})
-        _create_person(distinct_ids=["person_3"], team=self.team, properties={"random_prop": "asdf"})
-        flush_persons_and_events()
-
-        response = self.client.get("/api/person/properties/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(response_data[0]["name"], "random_prop")
-        self.assertEqual(response_data[0]["count"], 2)
-        self.assertEqual(response_data[2]["name"], "$os")
-        self.assertEqual(response_data[2]["count"], 1)
-        self.assertEqual(response_data[1]["name"], "$browser")
-        self.assertEqual(response_data[1]["count"], 1)
-
     @also_test_with_materialized_columns(person_properties=["random_prop"])
     @snapshot_clickhouse_queries
     def test_person_property_values(self):
@@ -253,6 +235,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": str(person.uuid),
                         "short_id": None,
                     },
@@ -335,6 +318,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         ],
                         "name": str(person1.uuid),
                         "trigger": None,
+                        "type": None,
                         "short_id": None,
                     },
                     "created_at": "2021-08-25T22:09:14.252000Z",
@@ -533,6 +517,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": None,
                         "short_id": None,
                     },
@@ -581,6 +566,36 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
+
+    def test_retrieve_person(self):
+        person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+            team=self.team, distinct_ids=["123456789"]
+        )
+
+        response = self.client.get(f"/api/person/{person.id}").json()
+
+        assert response["id"] == person.id
+        assert response["uuid"] == str(person.uuid)
+        assert response["distinct_ids"] == ["123456789"]
+
+    def test_retrieve_person_by_uuid(self):
+        person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+            team=self.team, distinct_ids=["123456789"]
+        )
+
+        response = self.client.get(f"/api/person/{person.uuid}").json()
+
+        assert response["id"] == person.id
+        assert response["uuid"] == str(person.uuid)
+        assert response["distinct_ids"] == ["123456789"]
+
+    def test_retrieve_person_by_distinct_id_with_useful_error(self):
+        response = self.client.get(f"/api/person/NOT_A_UUID").json()
+
+        assert (
+            response["detail"]
+            == "The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id=NOT_A_UUID instead."
+        )
 
     @patch("posthog.api.person.PersonsThrottle.rate", new="6/minute")
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")

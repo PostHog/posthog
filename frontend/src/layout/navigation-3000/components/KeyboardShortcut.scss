@@ -1,5 +1,10 @@
 .KeyboardShortcut {
     margin: 0 0.125rem;
+    color: var(--default);
+
+    &.KeyboardShortcut--muted {
+        color: var(--muted);
+    }
 }
 
 .KeyboardShortcut__key {

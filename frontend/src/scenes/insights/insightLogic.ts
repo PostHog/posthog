@@ -1,6 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { promptLogic } from 'lib/logic/promptLogic'
-import { getEventNamesForAction, objectsEqual, sum, toParams, uuid } from 'lib/utils'
+import { getEventNamesForAction, objectsEqual, shouldCancelQuery, sum, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import type { insightLogicType } from './insightLogicType'
@@ -41,7 +41,6 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
-
 import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -54,7 +53,7 @@ import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
-import { dayjs, now } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
 import { globalInsightLogic } from './globalInsightLogic'
@@ -160,7 +159,7 @@ export const insightLogic = kea<insightLogicType>([
         }),
         saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
-        cancelChanges: (goToViewMode?: boolean) => ({ goToViewMode }),
+        cancelChanges: true,
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
@@ -355,7 +354,7 @@ export const insightLogic = kea<insightLogicType>([
                         }
                         response = await getJSONOrThrow(fetchResponse)
                     } catch (e: any) {
-                        if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
+                        if (shouldCancelQuery(e)) {
                             actions.abortQuery({
                                 queryId,
                                 view: insight,
@@ -650,12 +649,16 @@ export const insightLogic = kea<insightLogicType>([
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
         insightChanged: [
-            (s) => [s.insight, s.savedInsight, s.filters],
-            (insight, savedInsight, filters): boolean =>
-                (insight.name || '') !== (savedInsight.name || '') ||
-                (insight.description || '') !== (savedInsight.description || '') ||
-                !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
-                !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})),
+            (s) => [s.insight, s.savedInsight, s.filters, s.isUsingDataExploration],
+            (insight, savedInsight, filters, isUsingDataExploration): boolean => {
+                return (
+                    (insight.name || '') !== (savedInsight.name || '') ||
+                    (insight.description || '') !== (savedInsight.description || '') ||
+                    !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
+                    (!isUsingDataExploration &&
+                        !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})))
+                )
+            },
         ],
         isInDashboardContext: [
             () => [router.selectors.location],
@@ -801,26 +804,24 @@ export const insightLogic = kea<insightLogicType>([
                 return !!featureFlags[FEATURE_FLAGS.HOGQL]
             },
         ],
-        insightRefreshButtonDisabledReason: [
+        getInsightRefreshButtonDisabledReason: [
             (s) => [s.nextAllowedRefresh, s.lastRefresh],
-            (nextAllowedRefresh: string | null, lastRefresh: string | null): string => {
+            (nextAllowedRefresh: string | null, lastRefresh: string | null) => (): string => {
+                const now = dayjs()
                 let disabledReason = ''
-
-                if (!!nextAllowedRefresh && now().isBefore(dayjs(nextAllowedRefresh))) {
+                if (!!nextAllowedRefresh && now.isBefore(dayjs(nextAllowedRefresh))) {
                     // If this is a saved insight, the result will contain nextAllowedRefresh and we use that to disable the button
-                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).fromNow()}`
+                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).from(now)}`
                 } else if (
                     !!lastRefresh &&
-                    now()
-                        .subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
-                        .isBefore(lastRefresh)
+                    now.subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes').isBefore(lastRefresh)
                 ) {
                     // Unsaved insights don't get cached and get refreshed on every page load, but we avoid allowing users to click
                     // 'refresh' more than once every UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES. This can be bypassed by simply
                     // refreshing the page though, as there's no cache layer on the backend
                     disabledReason = `You can refresh this insight again ${dayjs(lastRefresh)
                         .add(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
-                        .fromNow()}`
+                        .from(now)}`
                 }
 
                 return disabledReason
@@ -1153,12 +1154,8 @@ export const insightLogic = kea<insightLogicType>([
             }
             actions.setFilters(newFilters)
         },
-        cancelChanges: ({ goToViewMode }) => {
+        cancelChanges: () => {
             actions.setFilters(values.savedInsight.filters || {})
-            if (goToViewMode) {
-                insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
-                eventUsageLogic.actions.reportInsightsTabReset()
-            }
         },
     })),
     events(({ props, values, actions }) => ({
@@ -1171,7 +1168,7 @@ export const insightLogic = kea<insightLogicType>([
                 (Object.keys(props.cachedInsight?.filters || {}).length > 0 ||
                     Object.keys(props.cachedInsight?.query || {}).length > 0)
 
-            if (!isCachedWithResultAndFilters) {
+            if (!isCachedWithResultAndFilters || !!values.isUsingDataExploration) {
                 if (hasDashboardItemId) {
                     const insight = findInsightFromMountedLogic(
                         props.dashboardItemId as string | InsightShortId,
@@ -1188,7 +1185,7 @@ export const insightLogic = kea<insightLogicType>([
                     }
                 }
                 if (!props.doNotLoad) {
-                    if (props.cachedInsight?.filters && !props.cachedInsight?.query) {
+                    if (props.cachedInsight?.filters && !props.cachedInsight?.query && !values.isUsingDataExploration) {
                         actions.loadResults()
                     } else if (hasDashboardItemId) {
                         actions.loadInsight(props.dashboardItemId as InsightShortId)

@@ -447,15 +447,6 @@ $decorations: underline, overline, line-through, no-underline;
     vertical-align: middle;
 }
 
-// Position
-.relative {
-    position: relative;
-}
-
-.absolute {
-    position: absolute;
-}
-
 // Display
 
 .block {
@@ -992,6 +983,8 @@ $decorations: underline, overline, line-through, no-underline;
 .resize-y {
     resize: vertical;
 }
+
+// Position
 
 .static {
     position: static;

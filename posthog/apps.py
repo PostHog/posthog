@@ -20,6 +20,7 @@ class PostHogConfig(AppConfig):
     def ready(self):
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
+        posthoganalytics.poll_interval = 90
 
         if settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
@@ -46,6 +47,10 @@ class PostHogConfig(AppConfig):
                 posthoganalytics.host = settings.SITE_URL
             else:
                 posthoganalytics.disabled = True
+
+        # load feature flag definitions if not already loaded
+        if posthoganalytics.feature_flag_definitions() is None:
+            posthoganalytics.default_client.load_feature_flags()
 
         if not settings.SKIP_SERVICE_VERSION_REQUIREMENTS:
             for service_version_requirement in settings.SERVICE_VERSION_REQUIREMENTS:

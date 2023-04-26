@@ -5,9 +5,9 @@ import time
 import structlog
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from django.db import DatabaseError, IntegrityError, transaction
+from prometheus_client import Counter
+from django.db import DatabaseError, IntegrityError, OperationalError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
-from django.db.backends.utils import CursorWrapper
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from sentry_sdk.api import capture_exception
@@ -34,6 +34,12 @@ logger = structlog.get_logger(__name__)
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
 FLAG_MATCHING_QUERY_TIMEOUT_MS = 1 * 1000  # 1 second. Any longer and we'll just error out.
+
+FLAG_EVALUATION_ERROR_COUNTER = Counter(
+    "flag_evaluation_error_total",
+    "Failed decide requests with reason.",
+    labelnames=["reason"],
+)
 
 
 class FeatureFlagMatchReason(str, Enum):
@@ -181,7 +187,7 @@ class FeatureFlagMatcher:
                 }
             except Exception as err:
                 faced_error_computing_flags = True
-                capture_exception(err)
+                handle_feature_flag_exception(err, "[Feature Flags] Error computing flags")
 
         return flag_values, flag_evaluation_reasons, flag_payloads, faced_error_computing_flags
 
@@ -487,29 +493,25 @@ def get_all_feature_flags(
     if hash_key_override is not None:
         try:
             hash_key_override = str(hash_key_override)
-            # make the entire hash key override logic a single transaction
-            # with a small timeout
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as timeout_cursor:
-                # :TRICKY: There are a few cases for write we need to handle:
-                # 1. Ingestion delay causing the person to not have been created yet or the distinct_id not yet associated
-                # 2. Merging of two different already existing persons, which results in 1 person_id being deleted and ff hash key overrides to be moved.
-                # 3. Person being deleted via UI or API (this is rare)
-                #
-                # In all cases, we simply try to find all personIDs associated with the distinct_id
-                # and the hash_key_override, and add overrides for all these personIDs.
-                # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
-                # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L696 (addFeatureFlagHashKeysForMergedPerson)
 
-                set_feature_flag_hash_key_overrides(
-                    timeout_cursor, team_id, [distinct_id, hash_key_override], hash_key_override
-                )
+            # :TRICKY: There are a few cases for write we need to handle:
+            # 1. Ingestion delay causing the person to not have been created yet or the distinct_id not yet associated
+            # 2. Merging of two different already existing persons, which results in 1 person_id being deleted and ff hash key overrides to be moved.
+            # 3. Person being deleted via UI or API (this is rare)
+            #
+            # In all cases, we simply try to find all personIDs associated with the distinct_id
+            # and the hash_key_override, and add overrides for all these personIDs.
+            # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
+            # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L696 (addFeatureFlagHashKeysForMergedPerson)
+
+            set_feature_flag_hash_key_overrides(team_id, [distinct_id, hash_key_override], hash_key_override)
 
         except Exception as e:
             # If the database is in read-only mode, we can't handle experience continuity flags,
             # since the set_feature_flag_hash_key_overrides call will fail.
 
             # For this case, and for any other case, do not error out on decide, just continue assuming continuity couldn't happen.
-            capture_exception(e)
+            handle_feature_flag_exception(e, "[Feature Flags] Error while setting feature flag hash key overrides")
 
     # This is the read-path for experience continuity. We need to get the overrides, and to do that, we get the person_id.
     try:
@@ -545,9 +547,7 @@ def get_all_feature_flags(
     )
 
 
-def set_feature_flag_hash_key_overrides(
-    cursor: CursorWrapper, team_id: int, distinct_ids: List[str], hash_key_override: str
-) -> None:
+def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], hash_key_override: str) -> None:
     # As a product decision, the first override wins, i.e consistency matters for the first walkthrough.
     # Thus, we don't need to do upserts here.
 
@@ -556,9 +556,11 @@ def set_feature_flag_hash_key_overrides(
     max_retries = 2
     retry_delay = 0.1  # seconds
 
-    for _ in range(max_retries):
+    for retry in range(max_retries):
         try:
-            with transaction.atomic():
+            # make the entire hash key override logic a single transaction
+            # with a small timeout
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as cursor:
                 query = """
                     WITH target_person_ids AS (
                         SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
@@ -591,10 +593,34 @@ def set_feature_flag_hash_key_overrides(
             break
 
         except IntegrityError as e:
-            if "violates foreign key constraint" in str(e):
+            if "violates foreign key constraint" in str(e) and retry < max_retries - 1:
                 # This can happen if a person is deleted while we're trying to add overrides for it.
                 # This is the only case when we retry.
                 logger.info("Retrying set_feature_flag_hash_key_overrides due to person deletion", exc_info=True)
                 time.sleep(retry_delay)
             else:
                 raise e
+
+
+def handle_feature_flag_exception(err: Exception, log_message: str = ""):
+    logger.exception(log_message)
+    reason = parse_exception_for_error_message(err)
+    FLAG_EVALUATION_ERROR_COUNTER.labels(reason=reason).inc()
+    if reason == "unknown":
+        capture_exception(err)
+
+
+def parse_exception_for_error_message(err: Exception):
+    reason = "unknown"
+    if isinstance(err, OperationalError):
+        if "statement timeout" in str(err):
+            reason = "timeout"
+        elif "no more connections" in str(err):
+            reason = "no_more_connections"
+    elif isinstance(err, DatabaseError):
+        if "Failed to fetch conditions" in str(err):
+            reason = "flag_condition_retry"
+        elif "Failed to fetch group" in str(err):
+            reason = "group_mapping_retry"
+
+    return reason

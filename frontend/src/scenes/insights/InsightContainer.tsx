@@ -29,7 +29,7 @@ import { AnimationType } from 'lib/animations/animations'
 import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 import { FunnelInsight } from './views/Funnels/FunnelInsight'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
@@ -179,11 +179,11 @@ export function InsightContainer({
         <>
             {isUsingSessionAnalysis ? (
                 <div className="mb-4">
-                    <AlertMessage type="info">
+                    <LemonBanner type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the
                         set of results.{' '}
                         <a href="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</a>
-                    </AlertMessage>
+                    </LemonBanner>
                 </div>
             ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}

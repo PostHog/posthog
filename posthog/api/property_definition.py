@@ -16,6 +16,8 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import PropertyDefinition, TaggedItem, User
+from posthog.models.activity_logging.activity_log import log_activity, Detail
+from posthog.models.utils import UUIDT
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 
 
@@ -478,12 +480,25 @@ class PropertyDefinitionViewSet(
         return super().list(request, *args, **kwargs)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        instance = self.get_object()
+        instance: PropertyDefinition = self.get_object()
+        instance_id = str(instance.id)
         self.perform_destroy(instance)
         # Casting, since an anonymous use CANNOT access this endpoint
         report_user_action(
             cast(User, request.user),
             "property definition deleted",
             {"name": instance.name, "type": instance.get_type_display()},
+        )
+
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            item_id=instance_id,
+            scope="PropertyDefinition",
+            activity="deleted",
+            detail=Detail(
+                name=cast(str, instance.name), type=PropertyDefinition.Type(instance.type).label, changes=None
+            ),
         )
         return response.Response(status=status.HTTP_204_NO_CONTENT)

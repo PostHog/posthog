@@ -171,6 +171,8 @@ describe('Dashboard', () => {
         dashboard.addInsightToEmptyDashboard(insightToLeave)
         dashboard.addInsightToEmptyDashboard(insightToMove)
 
+        cy.wait(200)
+
         // create the target dashboard and get it cached by turbo-mode
         cy.clickNavMenu('dashboards')
         dashboards.createAndGoToEmptyDashboard(targetDashboard)

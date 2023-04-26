@@ -27,7 +27,10 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
+    create_person_id_override_by_distinct_id,
 )
+import uuid
+from django.test import override_settings
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 
@@ -2893,6 +2896,94 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                     },
                 ],
             )
+
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @snapshot_clickhouse_queries
+    def test_paths_person_on_events_v2(self):
+        self._create_groups()
+        # P1 for pageview event, org:5
+        p1_person_id = str(uuid.uuid4())
+        _create_person(team_id=self.team.pk, distinct_ids=["poev2_p1"])
+        p1 = [
+            _create_event(
+                properties={"$current_url": "/1", "$group_0": "org:5"},
+                distinct_id="poev2_p1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2012-01-01 03:21:34",
+                person_id=p1_person_id,
+            ),
+            _create_event(
+                properties={"$current_url": "/2/", "$group_0": "org:5"},
+                distinct_id="poev2_p1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2012-01-01 03:22:34",
+                person_id=p1_person_id,
+            ),
+            _create_event(
+                properties={"$current_url": "/3", "$group_0": "org:5"},
+                distinct_id="poev2_p1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2012-01-01 03:24:34",
+                person_id=p1_person_id,
+            ),
+        ]
+
+        # P2 for screen event, org:6
+        p2_person_id = str(uuid.uuid4())
+        _create_person(team_id=self.team.pk, distinct_ids=["poev2_p2"])
+        p2 = [
+            _create_event(
+                properties={"$current_url": "/1", "$group_0": "org:6"},
+                distinct_id="poev2_p2",
+                event="$pageview",
+                team=self.team,
+                timestamp="2012-01-01 03:21:34",
+                person_id=p2_person_id,
+            ),
+            _create_event(
+                properties={"$current_url": "/2/", "$group_0": "org:6"},
+                distinct_id="poev2_p2",
+                event="$pageview",
+                team=self.team,
+                timestamp="2012-01-01 03:22:34",
+                person_id=p2_person_id,
+            ),
+            _create_event(
+                properties={"$current_url": "/3", "$group_0": "org:6"},
+                distinct_id="poev2_p2",
+                event="$pageview",
+                team=self.team,
+                timestamp="2012-01-01 03:24:34",
+                person_id=p2_person_id,
+            ),
+        ]
+
+        _ = [*p1, *p2]
+
+        create_person_id_override_by_distinct_id("poev2_p1", "poev2_p2", self.team.pk)
+
+        filter = PathFilter(
+            data={
+                "step_limit": 4,
+                "date_from": "2012-01-01",
+                "date_to": "2012-02-01",
+                "include_event_types": ["$pageview", "$screen", "custom_event"],
+            }
+        )
+        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                # we expect 1s for the "value"s because the two persons above are actually the same person
+                # due to the override
+                {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+            ],
+        )
 
     # Note: not using `@snapshot_clickhouse_queries` here because the ordering of the session_ids in the recording
     # query is not guaranteed, so adding it would lead to a flaky test.

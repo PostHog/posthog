@@ -14,7 +14,6 @@ import {
     IntegrationType,
     OrganizationType,
     PersonListParams,
-    PersonProperty,
     PersonType,
     PluginLogEntry,
     PropertyDefinition,
@@ -254,6 +253,10 @@ class ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('property_definitions')
             .addPathComponent(propertyDefinitionId)
+    }
+
+    public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
 
     // # Cohorts
@@ -541,6 +544,17 @@ const api = {
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
                     return new ApiRequest().pluginsActivity()
+                },
+                [ActivityScope.DATA_MANAGEMENT]: () => {
+                    return new ApiRequest().dataManagementActivity()
+                },
+                [ActivityScope.EVENT_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ event definitions?
+                    return new ApiRequest().dataManagementActivity()
+                },
+                [ActivityScope.PROPERTY_DEFINITION]: () => {
+                    // TODO allow someone to load _only_ property definitions?
+                    return new ApiRequest().dataManagementActivity()
                 },
             }
 
@@ -883,10 +897,6 @@ const api = {
     },
 
     persons: {
-        async getProperties(): Promise<PersonProperty[]> {
-            return new ApiRequest().persons().withAction('properties').get()
-        },
-
         async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
             return new ApiRequest().person(id).update({ data: person })
         },

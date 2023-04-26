@@ -54,13 +54,25 @@ class TestPropertyTypes(BaseTest):
         )
         self.assertEqual(printed, expected)
 
-    def test_resolve_property_types_person(self):
+    def test_resolve_property_types_person_raw(self):
         printed = self._print_select(
-            "select properties.tickets, properties.provided_timestamp, properties.$initial_browser from persons"
+            "select properties.tickets, properties.provided_timestamp, properties.$initial_browser from raw_persons"
         )
         expected = (
             "SELECT toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', '')), "
-            "toDateTimeOrNull(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_1)s), '^\"|\"$', ''), %(hogql_val_2)s), "
+            "parseDateTime64BestEffortOrNull(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_1)s), '^\"|\"$', ''), 6, %(hogql_val_2)s), "
+            "replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_3)s), '^\"|\"$', '') "
+            f"FROM person WHERE equals(person.team_id, {self.team.pk}) LIMIT 65535"
+        )
+        self.assertEqual(printed, expected)
+
+    def test_resolve_property_types_person(self):
+        printed = self._print_select(
+            "select properties.tickets, properties.provided_timestamp, properties.$initial_browser from raw_persons"
+        )
+        expected = (
+            "SELECT toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', '')), "
+            "parseDateTime64BestEffortOrNull(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_1)s), '^\"|\"$', ''), 6, %(hogql_val_2)s), "
             "replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_3)s), '^\"|\"$', '') "
             f"FROM person WHERE equals(person.team_id, {self.team.pk}) LIMIT 65535"
         )

@@ -62,32 +62,28 @@
        (SELECT person_id,
                event,
                properties,
-               distinct_id,
-               timestamp,
-               event_0_latest_0,
-               min(event_0_latest_1) over (PARTITION by person_id
-                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1,
-                                          event_1_latest_0,
-                                          min(event_1_latest_1) over (PARTITION by person_id
-                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_1_latest_1
+               distinct_id, timestamp, event_0_latest_0,
+                                       min(event_0_latest_1) over (PARTITION by person_id
+                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1,
+                                                                  event_1_latest_0,
+                                                                  min(event_1_latest_1) over (PARTITION by person_id
+                                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_1_latest_1
         FROM
           (SELECT pdi.person_id AS person_id,
                   event,
                   properties,
-                  distinct_id,
-                  timestamp,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_0_step_0,
-                  if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_0_step_1,
-                  if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1,
-                  if(event = '$new_view'
-                     AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_1_step_0,
-                  if(event_1_step_0 = 1, timestamp, null) AS event_1_latest_0,
-                  if(event = '$new_view'
-                     AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_1_step_1,
-                  if(event_1_step_1 = 1, timestamp, null) AS event_1_latest_1
+                  distinct_id, timestamp, if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_0_step_0,
+                                          if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
+                                          if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_0_step_1,
+                                          if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1,
+                                          if(event = '$new_view'
+                                             AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_1_step_0,
+                                          if(event_1_step_0 = 1, timestamp, null) AS event_1_latest_0,
+                                          if(event = '$new_view'
+                                             AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_1_step_1,
+                                          if(event_1_step_1 = 1, timestamp, null) AS event_1_latest_1
            FROM events AS e
            INNER JOIN
              (SELECT distinct_id,
@@ -212,23 +208,19 @@
        (SELECT person_id,
                event,
                properties,
-               distinct_id,
-               timestamp,
-               event_0_latest_0,
-               min(event_0_latest_1) over (PARTITION by person_id
-                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
+               distinct_id, timestamp, event_0_latest_0,
+                                       min(event_0_latest_1) over (PARTITION by person_id
+                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
           (SELECT pdi.person_id AS person_id,
                   event,
                   properties,
-                  distinct_id,
-                  timestamp,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
-                  if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
-                  if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
+                  distinct_id, timestamp, if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
+                                          if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
+                                          if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
+                                          if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
            INNER JOIN
              (SELECT distinct_id,
@@ -262,23 +254,19 @@
        (SELECT person_id,
                event,
                properties,
-               distinct_id,
-               timestamp,
-               event_0_latest_0,
-               min(event_0_latest_1) over (PARTITION by person_id
-                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
+               distinct_id, timestamp, event_0_latest_0,
+                                       min(event_0_latest_1) over (PARTITION by person_id
+                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
           (SELECT pdi.person_id AS person_id,
                   event,
                   properties,
-                  distinct_id,
-                  timestamp,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
-                  if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
-                  if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
+                  distinct_id, timestamp, if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
+                                          if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
+                                          if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
+                                          if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
            INNER JOIN
              (SELECT distinct_id,
@@ -313,23 +301,19 @@
        (SELECT person_id,
                event,
                properties,
-               distinct_id,
-               timestamp,
-               event_0_latest_0,
-               min(event_0_latest_1) over (PARTITION by person_id
-                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
+               distinct_id, timestamp, event_0_latest_0,
+                                       min(event_0_latest_1) over (PARTITION by person_id
+                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
           (SELECT pdi.person_id AS person_id,
                   event,
                   properties,
-                  distinct_id,
-                  timestamp,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
-                  if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
-                  if(event = '$pageview'
-                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
-                  if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
+                  distinct_id, timestamp, if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
+                                          if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
+                                          if(event = '$pageview'
+                                             AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
+                                          if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
            INNER JOIN
              (SELECT distinct_id,
@@ -512,33 +496,21 @@
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.1
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.2

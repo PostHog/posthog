@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import math
 
+from posthog.hogql.errors import HogQLException
 from posthog.models.utils import UUIDT
 
 # Copied from clickhouse_driver.util.escape, adapted only from single quotes to backquotes.
@@ -66,7 +67,7 @@ class SQLValueEscaper:
         method_name = f"visit_{node.__class__.__name__.lower()}"
         if hasattr(self, method_name):
             return getattr(self, method_name)(node)
-        raise ValueError(f"SQLValueEscaper has no method {method_name}")
+        raise HogQLException(f"SQLValueEscaper has no method {method_name}")
 
     def visit_nonetype(self, value: None):
         return "NULL"
@@ -103,10 +104,10 @@ class SQLValueEscaper:
         return self.visit_datetime(value)
 
     def visit_datetime(self, value: datetime):
-        datetime_string = value.astimezone(ZoneInfo(self._timezone)).strftime("%Y-%m-%d %H:%M:%S")
+        datetime_string = value.astimezone(ZoneInfo(self._timezone)).strftime("%Y-%m-%d %H:%M:%S.%f")
         if self._dialect == "hogql":
             return f"toDateTime({self.visit(datetime_string)})"  # no timezone for hogql
-        return f"toDateTime({self.visit(datetime_string)}, {self.visit(self._timezone)})"
+        return f"toDateTime64({self.visit(datetime_string)}, 6, {self.visit(self._timezone)})"
 
     def visit_date(self, value: date):
         return f"toDate({self.visit(value.strftime('%Y-%m-%d'))})"

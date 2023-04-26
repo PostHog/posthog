@@ -1826,10 +1826,9 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides(self):
 
-        with connection.cursor() as cursor:
-            set_feature_flag_hash_key_overrides(
-                cursor, team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
-            )
+        set_feature_flag_hash_key_overrides(
+            team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
+        )
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -1841,10 +1840,9 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_retrieving_hash_key_overrides(self):
 
-        with connection.cursor() as cursor:
-            set_feature_flag_hash_key_overrides(
-                cursor, team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
-            )
+        set_feature_flag_hash_key_overrides(
+            team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
+        )
 
         hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["example_id"])
 
@@ -1860,13 +1858,8 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             team=self.team, distinct_ids=["2"], properties={"email": "beuk2@posthog.com", "team": "posthog"}
         )
 
-        with connection.cursor() as cursor:
-            set_feature_flag_hash_key_overrides(
-                cursor, team_id=self.team.pk, distinct_ids=["1"], hash_key_override="other_id1"
-            )
-            set_feature_flag_hash_key_overrides(
-                cursor, team_id=self.team.pk, distinct_ids=["2"], hash_key_override="aother_id2"
-            )
+        set_feature_flag_hash_key_overrides(team_id=self.team.pk, distinct_ids=["1"], hash_key_override="other_id1")
+        set_feature_flag_hash_key_overrides(team_id=self.team.pk, distinct_ids=["2"], hash_key_override="aother_id2")
 
         hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["1", "2"])
 
@@ -1888,10 +1881,9 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         )
 
         # and now we come to get new overrides
-        with connection.cursor() as cursor:
-            set_feature_flag_hash_key_overrides(
-                cursor, team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
-            )
+        set_feature_flag_hash_key_overrides(
+            team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
+        )
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -1903,10 +1895,9 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides_when_persons_dont_exist(self):
 
-        with connection.cursor() as cursor:
-            set_feature_flag_hash_key_overrides(
-                cursor, team_id=self.team.pk, distinct_ids=["1", "2", "3", "4"], hash_key_override="other_id"
-            )
+        set_feature_flag_hash_key_overrides(
+            team_id=self.team.pk, distinct_ids=["1", "2", "3", "4"], hash_key_override="other_id"
+        )
 
         with connection.cursor() as cursor:
             cursor.execute(
