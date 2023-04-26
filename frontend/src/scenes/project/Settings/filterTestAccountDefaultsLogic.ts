@@ -1,7 +1,9 @@
 import { kea, path, reducers, actions, listeners, events, selectors, connect } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
-export const filterTestAccountsDefaultsLogic = kea([
+import type { filterTestAccountsDefaultsLogicType } from './filterTestAccountDefaultsLogicType'
+
+export const filterTestAccountsDefaultsLogic = kea<filterTestAccountsDefaultsLogicType>([
     path(['scenes', 'project', 'Settings', 'filterTestAccountsDefaultLogic']),
     connect({
         values: [teamLogic, ['currentTeam']],
