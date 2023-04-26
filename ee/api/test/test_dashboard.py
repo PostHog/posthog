@@ -4,6 +4,7 @@ from django.utils import timezone
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.license import License
 from posthog.constants import AvailableFeature
@@ -292,6 +293,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         self.client.logout()
 
         self.organization.available_features = [AvailableFeature.DASHBOARD_COLLABORATION]
+        self.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
         self.organization.save()
         self.team.access_control = True
         self.team.save()
