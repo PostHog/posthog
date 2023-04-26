@@ -102,18 +102,19 @@ class PersonQuery:
         )
         updated_after_clause, updated_after_params = self._get_updated_after_clause()
 
+        cohort_subquery = f"""AND id IN (
+            SELECT id FROM person
+            {cohort_query}
+            WHERE team_id = %(team_id)s
+            {person_filters}
+        )
+        {cohort_filters}""" if cohort_query else ""
         return (
             f"""
             SELECT {fields}
             FROM person
             WHERE team_id = %(team_id)s
-            AND id IN (
-                SELECT id FROM person
-                {cohort_query}
-                WHERE team_id = %(team_id)s
-                {person_filters}
-            )
-            {cohort_filters}
+            {cohort_subquery}
             GROUP BY id
             HAVING max(is_deleted) = 0 {filter_future_persons_query} {updated_after_clause}
             {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
