@@ -990,9 +990,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
             <div className="feature-flag-form-row">
                 <div data-attr="feature-flag-release-conditions">
                     {readOnly ? (
-                        <div className="mb-2">
-                            <b>Release conditions</b>
-                        </div>
+                        <h3 className="l4 mb-2">Release conditions</h3>
                     ) : (
                         <>
                             <h3 className="l3">Release conditions</h3>
