@@ -7,6 +7,7 @@ import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
 import { UserType } from '~/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 function getSessionReplayLink(): string {
     const LOOK_BACK = 30
@@ -169,4 +170,35 @@ export const supportLogic = kea<supportLogicType>([
                 })
         },
     })),
+
+    urlToAction(({ actions, values }) => ({
+        '*': (_, _search, hashParams) => {
+            if ('supportModal' in hashParams && !values.isSupportFormOpen) {
+                const [kind, area] = (hashParams['supportModal'] || '').split(':')
+
+                actions.openSupportForm(
+                    ['bug', 'feedback'].includes(kind) ? kind : null,
+                    Object.keys(TargetAreaToName).includes(area) ? area : null
+                )
+            }
+        },
+    })),
+    actionToUrl(({ values }) => {
+        const updateUrl = (): any => {
+            const hashParams = router.values.hashParams
+            hashParams['supportModal'] = `${values.sendSupportRequest.kind || ''}:${
+                values.sendSupportRequest.target_area || ''
+            }`
+            return [router.values.location.pathname, router.values.searchParams, hashParams]
+        }
+        return {
+            openSupportForm: () => updateUrl(),
+            setSendSupportRequestValue: () => updateUrl(),
+            closeSupportForm: () => {
+                const hashParams = router.values.hashParams
+                delete hashParams['supportModal']
+                return [router.values.location.pathname, router.values.searchParams, hashParams]
+            },
+        }
+    }),
 ])
