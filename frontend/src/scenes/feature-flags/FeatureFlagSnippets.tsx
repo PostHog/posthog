@@ -440,14 +440,15 @@ export function JSSnippet({
 
     const propertyName = samplePropertyName || 'is_authorized'
 
-    const propertyOverrideSnippet = `
-// Your flag depends on properties that are not instantly available. If you can compute these properties
-// yourself, you can set them for flag evaluation to make them available instantly, like so:
+    const propertyOverrideSnippet = `// Your flag depends on properties that are not instantly available. If you want
+// to make them available without waiting for server delays, send these properties for flag evaluation, like so:
+// Make sure to call this before evaluating flags. More info: https://posthog.com/docs/libraries/js#overriding-server-properties 
 posthog.${
         groupType
             ? `setGroupPropertiesForFlags({ '${groupType.group_type}': {'${propertyName}': 'value'}})`
             : `setPersonPropertiesForFlags({'${propertyName}': 'value'})`
     }
+
 `
 
     const clientSuffix = 'posthog.'
@@ -457,9 +458,8 @@ posthog.${
     return (
         <>
             <CodeSnippet language={Language.JavaScript} wrap>
-                {`// Ensure flags are loaded before usage.
+                {`${instantlyAvailableProperties ? '' : propertyOverrideSnippet}// Ensure flags are loaded before usage.
 // You'll only need to call this on the code for when the first time a user visits.
-
 ${clientSuffix}onFeatureFlags(function() {
     // feature flags should be available at this point
     if (${clientSuffix}${flagFunction}('${flagKey ?? ''}') ${variantSuffix}) {
@@ -470,8 +470,7 @@ ${clientSuffix}onFeatureFlags(function() {
 // Otherwise, you can just do
 if (${clientSuffix}${flagFunction}('${flagKey ?? ''}') ${variantSuffix}) {
     // do something
-}${instantlyAvailableProperties ? '' : propertyOverrideSnippet}
-`}
+}`}
             </CodeSnippet>
         </>
     )
