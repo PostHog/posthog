@@ -1,5 +1,6 @@
 import base64
 import json
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import connection
@@ -1055,7 +1056,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             )  # different hash, different variant assigned
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
-    def test_feature_flags_v3_with_database_errors(self):
+    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
+    def test_feature_flags_v3_with_database_errors(self, mock_counter):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
@@ -1140,6 +1142,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
             self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
             self.assertTrue(response.json()["errorsWhileComputingFlags"])
+
+            mock_counter.labels.assert_called_once_with(reason="timeout")
 
     def test_feature_flags_v3_with_database_errors_and_no_flags(self):
         self.team.app_urls = ["https://example.com"]

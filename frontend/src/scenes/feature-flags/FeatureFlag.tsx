@@ -306,8 +306,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                     >
                                         <div>
-                                            <h3 className="l4">Advanced settings</h3>
-                                            <div className="text-muted mb-4 font-medium">
+                                            <h3 className="l4 mt-2">Advanced settings</h3>
+                                            <div className="text-muted mb-2 font-medium">
                                                 Define who can modify this flag.
                                             </div>
                                         </div>
@@ -664,9 +664,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                     <LemonDivider className="my-3" />
                     {featureFlag.filters.multivariate && (
                         <>
-                            <div className="mb-2">
-                                <b>Variant keys</b>
-                            </div>
+                            <h3 className="l3">Variant keys</h3>
                             <div className="border rounded p-4 mb-4">
                                 <Row gutter={16} className="font-semibold">
                                     <Col span={6}>Key</Col>
@@ -719,7 +717,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                 </>
             ) : (
                 <div className="mb-8">
-                    <h3 className="l4">Served value</h3>
+                    <h3 className="l3">Served value</h3>
                     <div className="mb-2">
                         <Popconfirm
                             placement="top"
@@ -799,7 +797,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
             )}
             {!multivariateEnabled && (
                 <div className="mb-6">
-                    <h3 className="l4">Payload</h3>
+                    <h3 className="l3">Payload</h3>
                     {readOnly ? (
                         featureFlag.filters.payloads?.['true'] ? (
                             <JSONEditorInput readOnly={readOnly} value={featureFlag.filters.payloads?.['true']} />
@@ -990,12 +988,10 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
             <div className="feature-flag-form-row">
                 <div data-attr="feature-flag-release-conditions">
                     {readOnly ? (
-                        <div className="mb-2">
-                            <b>Release conditions</b>
-                        </div>
+                        <h3 className="l3">Release conditions</h3>
                     ) : (
                         <>
-                            <h3 className="l4">Release conditions</h3>
+                            <h3 className="l3">Release conditions</h3>
                             <div className="text-muted mb-4">
                                 Specify the {aggregationTargetName} to which you want to release this flag. Note that
                                 condition sets are rolled out independently of each other.

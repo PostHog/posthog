@@ -335,8 +335,34 @@ const MyComponent = () => {
 }
 
 // Or calling on the method directly
-${clientSuffix}${flagFunction}('my-flag')
+${clientSuffix}${flagFunction}('${flagKey}')
             `}
+        </CodeSnippet>
+    )
+}
+
+export function ReactSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+    const flagFunction = payload
+        ? 'useFeatureFlagPayload'
+        : multivariant
+        ? 'useFeatureFlagVariantKey'
+        : 'useFeatureFlagEnabled'
+
+    const variable = payload ? 'payload' : multivariant ? 'variant' : 'flagEnabled'
+    const variantSuffix = multivariant ? ` == 'example-variant'` : ''
+
+    return (
+        <CodeSnippet language={Language.JSX} wrap>
+            {`
+import { ${flagFunction} } from 'posthog-js/react'
+
+function App() {
+    const ${variable} = ${flagFunction}('${flagKey}')
+
+    if (${variable}${variantSuffix}) {
+        // do something
+    }
+}`}
         </CodeSnippet>
     )
 }

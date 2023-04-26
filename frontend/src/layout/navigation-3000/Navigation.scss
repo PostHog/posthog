@@ -110,6 +110,16 @@
         text-transform: none;
         letter-spacing: normal;
     }
+    b {
+        font-weight: 700;
+    }
+
+    .LemonInput--type-search {
+        transition: none;
+        max-width: none;
+        border-color: transparent; // Only show border on focus here
+        border-radius: 0;
+    }
 }
 
 .Sidebar3000__content {
@@ -125,10 +135,15 @@
     white-space: nowrap;
     overflow: hidden;
     background: var(--sidebar-background);
-    border-right: 1px solid var(--border); // So that the border extends into viewport vertical overscroll
+    // Extend the border into viewport overscroll
+    border-right: min(1px, var(--sidebar-width)) solid var(--border);
 
     .Sidebar3000--resizing & {
         will-change: width;
+    }
+
+    > div:not(:first-child) {
+        border-top-width: 1px;
     }
 }
 
@@ -198,9 +213,10 @@
 }
 
 .Sidebar3000__header {
+    display: flex;
+    align-items: center;
     height: var(--sidebar-row-height);
     padding: 0 var(--sidebar-horizontal-padding);
-    border-bottom-width: 1px;
 }
 
 // Accordion
@@ -267,11 +283,6 @@
     --sidebar-list-item-fold-size: 0.5rem;
     --sidebar-list-item-ribbon-width: 0.1875rem;
     position: relative;
-    padding: 0 var(--sidebar-horizontal-padding) 0
-        calc(
-            var(--accordion-inset, 0px) + var(--sidebar-horizontal-padding) +
-                var(--sidebar-list-item-marker-offset, 0px)
-        );
     color: var(--muted);
     border-bottom-width: 1px;
     line-height: 1.125rem;
@@ -285,6 +296,7 @@
         background: var(--border-3000);
     }
     &:hover,
+    &:focus-within,
     &[aria-current='page'],
     &.SidebarListItem--is-menu-open {
         .SidebarListItem__menu {
@@ -294,13 +306,14 @@
         &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__link {
             padding-right: 1.25rem;
         }
-        &.SidebarListItem--has-menu.SidebarListItem--extended .SidebarListItem__link {
+        &.SidebarListItem--has-menu.SidebarListItem--extended {
             &::after {
                 content: '';
                 position: absolute;
-                top: 0;
-                right: 0;
-                bottom: 0;
+                // Position 1px away so that the :focus-visible border isn't overlaid
+                top: 1px;
+                right: 1px;
+                bottom: 1px;
                 width: 3.5rem;
                 background: linear-gradient(to left, var(--border-3000) 0%, var(--border-3000) 50%, transparent 100%);
             }
@@ -349,21 +362,37 @@
 }
 
 .SidebarListItem__link {
+    position: relative;
     display: flex;
     flex-direction: column;
     justify-content: center;
     width: 100%;
     height: 100%;
     color: inherit;
+    padding: 0 var(--sidebar-horizontal-padding) 0
+        calc(
+            var(--accordion-inset, 0px) + var(--sidebar-horizontal-padding) +
+                var(--sidebar-list-item-marker-offset, 0px)
+        );
     &:hover {
         color: inherit;
+    }
+    &:focus-visible::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        right: 0;
+        border: 1px solid var(--default);
     }
 }
 
 .SidebarListItem__menu {
+    z-index: 1; // Show above .SidebarListItem::after gradient
     position: absolute;
     right: 0.25rem;
     top: 50%;
     transform: translateY(-50%);
-    display: none; // Only show on hover or for current page
+    display: none; // Only show on hover/focus or for current page
 }

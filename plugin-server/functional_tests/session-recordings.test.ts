@@ -41,19 +41,12 @@ afterAll(async () => {
 })
 
 test.concurrent(
-    `snapshot captured, processed, ingested via events_plugin_ingestion topic`,
+    `snapshot captured, processed, ingested`,
     async () => {
-        // We have switched from pushing the `events_plugin_ingestion` to
-        // pushing to `session_recording_events`. There will still be session
-        // recording events in the `events_plugin_ingestion` topic for a while
-        // so we need to still handle these events with the current consumer.
-        // TODO: we push recording events that we get from
-        // `events_plugin_ingestion` to `session_recording_events`. We should be
-        // able to remove this push and this test once we know there are no more
-        // recording events in `events_plugin_ingestion`.
         const teamId = await createTeam(organizationId)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
+        const sessionId = new UUIDT().toString()
 
         await capture({
             teamId,
@@ -61,7 +54,7 @@ test.concurrent(
             uuid,
             event: '$snapshot',
             properties: {
-                $session_id: '1234abc',
+                $session_id: sessionId,
                 $window_id: 'abc1234',
                 $snapshot_data: 'yes way',
             },
@@ -84,7 +77,7 @@ test.concurrent(
             has_full_snapshot: 0,
             keypress_count: 0,
             last_event_timestamp: null,
-            session_id: '1234abc',
+            session_id: sessionId,
             snapshot_data: 'yes way',
             team_id: teamId,
             timestamp: expect.any(String),
@@ -98,12 +91,8 @@ test.concurrent(
 )
 
 test.concurrent(
-    `snapshot captured, processed, ingested via session_recording_events topic with no team_id set`,
+    `snapshot captured, processed, ingested with no team_id set`,
     async () => {
-        // We have switched from pushing the `events_plugin_ingestion` to
-        // pushing to `session_recording_events`. There will still be session
-        // recording events in the `events_plugin_ingestion` topic for a while
-        // so we need to still handle these events with the current consumer.
         const token = uuidv4()
         const teamId = await createTeam(organizationId, undefined, token)
         const distinctId = new UUIDT().toString()
@@ -122,7 +111,6 @@ test.concurrent(
             sentAt: new Date(),
             eventTime: new Date(),
             now: new Date(),
-            topic: 'session_recording_events',
         })
 
         await waitForExpect(async () => {
@@ -161,7 +149,6 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
         sentAt: new Date(),
         eventTime: new Date(),
         now: new Date(),
-        topic: 'session_recording_events',
     })
 
     const tokenOptedIn = uuidv4()
@@ -181,7 +168,6 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
         sentAt: new Date(),
         eventTime: new Date(),
         now: new Date(),
-        topic: 'session_recording_events',
     })
 
     await waitForExpect(async () => {
@@ -198,77 +184,8 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
 })
 
 test.concurrent(
-    `snapshot captured, processed, ingested via session_recording_events topic same as events_plugin_ingestion`,
+    `ingests $performance_event`,
     async () => {
-        // We are moving from using `events_plugin_ingestion` as the kafka topic
-        // for session recordings, so we want to make sure that they still work
-        // when sent through `session_recording_events`.
-        const teamId = await createTeam(organizationId)
-        const distinctId = new UUIDT().toString()
-        const uuid = new UUIDT().toString()
-
-        await capture({
-            teamId,
-            distinctId,
-            uuid,
-            event: '$snapshot',
-            properties: {
-                $session_id: '1234abc',
-                $snapshot_data: 'yes way',
-            },
-        })
-
-        await waitForExpect(async () => {
-            const events = await fetchSessionRecordingsEvents(teamId)
-            expect(events.length).toBe(1)
-            return events
-        })
-
-        await capture({
-            teamId,
-            distinctId,
-            uuid,
-            event: '$snapshot',
-            properties: {
-                $session_id: '1234abc',
-                $snapshot_data: 'yes way',
-            },
-            token: null,
-            sentAt: new Date(),
-            eventTime: new Date(),
-            now: new Date(),
-            topic: 'session_recording_events',
-        })
-
-        const eventsThroughNewTopic = await waitForExpect(async () => {
-            const eventsThroughNewTopic = await fetchSessionRecordingsEvents(teamId)
-            expect(eventsThroughNewTopic.length).toBe(2)
-            return eventsThroughNewTopic
-        })
-
-        expect(eventsThroughNewTopic[0]).toEqual({
-            ...eventsThroughNewTopic[1],
-            _offset: expect.any(Number),
-            _timestamp: expect.any(String),
-            created_at: expect.any(String),
-            timestamp: expect.any(String),
-        })
-    },
-    20000
-)
-
-test.concurrent(
-    `ingests $performance_event via events_plugin_ingestion topic`,
-    async () => {
-        // We have switched from pushing the `events_plugin_ingestion` to
-        // pushing to `session_recording_events`. There will still be
-        // `$performance_event` events in the `events_plugin_ingestion` topic
-        // for a while so we need to still handle these events with the current
-        // consumer.
-        // TODO: we push recording events that we get from
-        // `events_plugin_ingestion` to `session_recording_events`. We should be
-        // able to remove this push and this test once we know there are no more
-        // recording events in `events_plugin_ingestion`.
         const teamId = await createTeam(organizationId)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
@@ -377,72 +294,6 @@ test.concurrent(
             uuid: uuid,
             window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
             worker_start: 0,
-        })
-    },
-    20000
-)
-
-test.concurrent(
-    `ingests $performance_event via session_recording_events topic same as events_plugin_ingestion`,
-    async () => {
-        // We have switched from pushing the `events_plugin_ingestion` to
-        // pushing to `session_recording_events`. so we want to make sure that
-        // they still work when sent through `session_recording_events` topic.
-        const teamId = await createTeam(organizationId)
-        const distinctId = new UUIDT().toString()
-        const uuid = new UUIDT().toString()
-        const now = new Date()
-
-        await capture({
-            teamId,
-            distinctId,
-            uuid,
-            event: '$performance_event',
-            properties: {
-                '0': 'resource',
-                '1': now.getTime(),
-                '40': now.getTime() + 1000,
-                $session_id: '1234abc',
-                $snapshot_data: 'yes way',
-            },
-        })
-
-        await waitForExpect(async () => {
-            const events = await fetchPerformanceEvents(teamId)
-            expect(events.length).toBe(1)
-            return events
-        })
-
-        await capture({
-            teamId,
-            distinctId,
-            uuid,
-            event: '$performance_event',
-            properties: {
-                '0': 'resource',
-                '1': now.getTime(),
-                '40': now.getTime() + 1000,
-                $session_id: '1234abc',
-                $snapshot_data: 'yes way',
-            },
-            token: null,
-            sentAt: now,
-            eventTime: now,
-            now,
-            topic: 'session_recording_events',
-        })
-
-        const eventsThroughNewTopic = await waitForExpect(async () => {
-            const eventsThroughNewTopic = await fetchPerformanceEvents(teamId)
-            expect(eventsThroughNewTopic.length).toBe(2)
-            return eventsThroughNewTopic
-        })
-
-        expect(eventsThroughNewTopic[0]).toEqual({
-            ...eventsThroughNewTopic[1],
-            _offset: expect.any(Number),
-            _timestamp: expect.any(String),
-            timestamp: expect.any(String),
         })
     },
     20000

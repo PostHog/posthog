@@ -1,4 +1,4 @@
-import { GlobalConfig, Message } from 'node-rdkafka-acosom'
+import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka-acosom'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
 import { status } from '../utils/status'
@@ -11,6 +11,13 @@ import {
     instrumentConsumerMetrics,
 } from './consumer'
 
+export interface BatchConsumer {
+    consumer: KafkaConsumer
+    join: () => Promise<void>
+    stop: () => Promise<void>
+    isHealthy: () => boolean
+}
+
 export const startBatchConsumer = async ({
     connectionConfig,
     groupId,
@@ -21,6 +28,7 @@ export const startBatchConsumer = async ({
     consumerMaxWaitMs,
     fetchBatchSize,
     eachBatch,
+    autoCommit = true,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -31,7 +39,8 @@ export const startBatchConsumer = async ({
     consumerMaxWaitMs: number
     fetchBatchSize: number
     eachBatch: (messages: Message[]) => Promise<void>
-}) => {
+    autoCommit?: boolean
+}): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
     // to Kafka. We commit offsets after each batch has been processed,
@@ -139,6 +148,11 @@ export const startBatchConsumer = async ({
                 const messages = await consumeMessages(consumer, fetchBatchSize)
                 status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
 
+                if (!messages.length) {
+                    // For now
+                    continue
+                }
+
                 consumerBatchSize.labels({ topic, groupId }).observe(messages.length)
                 for (const message of messages) {
                     consumedMessageSizeBytes.labels({ topic, groupId }).observe(message.size)
@@ -148,7 +162,9 @@ export const startBatchConsumer = async ({
                 // the implementation of `eachBatch`.
                 await eachBatch(messages)
 
-                commitOffsetsForMessages(messages, consumer)
+                if (autoCommit) {
+                    commitOffsetsForMessages(messages, consumer)
+                }
             }
         } catch (error) {
             status.error('🔁', 'main_loop_error', { error })
@@ -193,7 +209,7 @@ export const startBatchConsumer = async ({
         }
     }
 
-    return { isHealthy, stop, join }
+    return { isHealthy, stop, join, consumer }
 }
 
 export const consumerBatchSize = new Histogram({
