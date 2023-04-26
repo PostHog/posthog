@@ -260,14 +260,6 @@
               "type": "integer"
           },
           {
-              "key": "sign",
-              "type": "integer"
-          },
-          {
-              "key": "version",
-              "type": "integer"
-          },
-          {
               "key": "person",
               "type": "lazy_table",
               "table": "persons"
@@ -352,10 +344,29 @@
           {
               "key": "properties",
               "type": "json"
+          }
+      ],
+      "raw_cohort_people": [
+          {
+              "key": "person_id",
+              "type": "string"
           },
           {
-              "key": "offset",
-              "type": "datetime"
+              "key": "cohort_id",
+              "type": "integer"
+          },
+          {
+              "key": "sign",
+              "type": "integer"
+          },
+          {
+              "key": "version",
+              "type": "integer"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
           }
       ]
   }
@@ -618,14 +629,6 @@
               "type": "integer"
           },
           {
-              "key": "sign",
-              "type": "integer"
-          },
-          {
-              "key": "version",
-              "type": "integer"
-          },
-          {
               "key": "person",
               "type": "lazy_table",
               "table": "persons"
@@ -710,10 +713,29 @@
           {
               "key": "properties",
               "type": "json"
+          }
+      ],
+      "raw_cohort_people": [
+          {
+              "key": "person_id",
+              "type": "string"
           },
           {
-              "key": "offset",
-              "type": "datetime"
+              "key": "cohort_id",
+              "type": "integer"
+          },
+          {
+              "key": "sign",
+              "type": "integer"
+          },
+          {
+              "key": "version",
+              "type": "integer"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
           }
       ]
   }

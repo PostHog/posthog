@@ -14,7 +14,7 @@ from posthog.hogql.database.models import (
     VirtualTable,
     Table,
 )
-from posthog.hogql.database.schema.cohort_people import CohortPeople
+from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTable, RawPersonDistinctIdTable
@@ -41,6 +41,7 @@ class Database(BaseModel):
     raw_person_distinct_ids: RawPersonDistinctIdTable = RawPersonDistinctIdTable()
     raw_persons: RawPersonsTable = RawPersonsTable()
     raw_groups: RawGroupsTable = RawGroupsTable()
+    raw_cohort_people: RawCohortPeople = RawCohortPeople()
 
     def __init__(self, timezone: Optional[str]):
         super().__init__()
