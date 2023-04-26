@@ -245,7 +245,6 @@ describe('sessionRecordingDataLogic', () => {
                     })
 
                 // data, meta... but not performance events
-                console.log(api.get.mock.calls)
                 expect(api.get).toBeCalledTimes(2)
             })
         })
