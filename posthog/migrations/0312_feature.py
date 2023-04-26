@@ -35,7 +35,6 @@ class Migration(migrations.Migration):
                         max_length=40,
                     ),
                 ),
-                ("image_url", models.URLField(blank=True, max_length=800)),
                 ("documentation_url", models.URLField(blank=True, max_length=800)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (

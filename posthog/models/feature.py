@@ -23,7 +23,6 @@ class Feature(UUIDModel):
     name: models.CharField = models.CharField(max_length=200)
     description: models.TextField = models.TextField(blank=True)
     stage: models.CharField = models.CharField(max_length=40, choices=Stage.choices)
-    image_url: models.URLField = models.URLField(max_length=800, blank=True)
     documentation_url: models.URLField = models.URLField(max_length=800, blank=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
 

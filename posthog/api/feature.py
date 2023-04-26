@@ -15,7 +15,6 @@ class FeaturePreviewSerializer(serializers.ModelSerializer):
     to posthog-js via the decide endpoint. Sync with posthog-js's FeaturePreview interface!
     """
 
-    imageUrl = serializers.URLField(source="image_url")
     documentationUrl = serializers.URLField(source="documentation_url")
     flagKey = serializers.CharField(source="feature_flag.key")
 
@@ -26,7 +25,6 @@ class FeaturePreviewSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "stage",
-            "imageUrl",
             "documentationUrl",
             "flagKey",
         ]
@@ -44,7 +42,6 @@ class FeatureSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "stage",
-            "image_url",
             "documentation_url",
             "created_at",
         ]
@@ -61,7 +58,6 @@ class FeatureSerializerCreateOnly(FeatureSerializer):
             "name",
             "description",
             "stage",
-            "image_url",
             "documentation_url",
             "created_at",
             "feature_flag_id",

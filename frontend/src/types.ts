@@ -2043,8 +2043,6 @@ export interface FeatureType {
     name: string
     description: string
     stage: 'concept' | 'alpha' | 'beta' | 'general-availability'
-    /** Preview image URL. Can be empty. */
-    image_url: string
     /** Documentation URL. Can be empty. */
     documentation_url: string
     created_at: string

@@ -11,7 +11,6 @@ const NEW_FEATURE: NewFeatureType = {
     name: '',
     description: '',
     stage: 'alpha',
-    image_url: '',
     documentation_url: '',
     feature_flag_id: undefined,
 }
