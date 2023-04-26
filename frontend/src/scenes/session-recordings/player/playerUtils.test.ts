@@ -3,7 +3,6 @@ import { parseMetadataResponse } from './sessionRecordingDataLogic'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import {
     comparePlayerPositions,
-    getEpochTimeFromPlayerPosition,
     getPlayerPositionFromPlayerTime,
     getPlayerTimeFromPlayerPosition,
     getSegmentFromPlayerPosition,
@@ -113,25 +112,5 @@ describe('getPlayerPositionFromPlayerTime', () => {
 
     it('returns null if it does not find the player time', () => {
         expect(getPlayerPositionFromPlayerTime(10000000000, segments)).toEqual(null)
-    })
-})
-
-describe('getEpochTimeFromPlayerPosition', () => {
-    it('calculates epoch time based on the player position', () => {
-        expect(
-            getEpochTimeFromPlayerPosition(
-                { windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f', time: 227777 },
-                metadata.startAndEndTimesByWindowId ?? {}
-            )
-        ).toEqual(1639078847000)
-    })
-
-    it('returns null if it does not find the player position', () => {
-        expect(
-            getEpochTimeFromPlayerPosition(
-                { windowId: '21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f', time: 227777 },
-                metadata.startAndEndTimesByWindowId ?? {}
-            )
-        ).toEqual(null)
     })
 })

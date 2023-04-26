@@ -235,6 +235,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return 0
             },
         ],
+        absolutePlayerTime: [
+            (selectors) => [selectors.currentPlayerTime, selectors.sessionPlayerData],
+            (currentPlayerTime, sessionPlayerData) => {
+                return +sessionPlayerData.start + (currentPlayerTime ?? 0)
+            },
+        ],
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
         matchingEvents: [
             (s) => [s.matching],

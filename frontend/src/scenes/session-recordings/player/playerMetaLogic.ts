@@ -8,7 +8,6 @@ import {
 import { eventWithTime } from '@rrweb/types'
 import { PersonType } from '~/types'
 import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
-import { getEpochTimeFromPlayerPosition } from './playerUtils'
 
 export const playerMetaLogic = kea<playerMetaLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key]),
@@ -19,7 +18,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingDataLogic(props),
             ['sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaDataLoading', 'windowIds'],
             sessionRecordingPlayerLogic(props),
-            ['currentPlayerPosition', 'scale', 'currentPlayerTime'],
+            ['currentPlayerPosition', 'scale', 'currentPlayerTime', 'absolutePlayerTime'],
         ],
         actions: [sessionRecordingDataLogic(props), ['loadRecordingMetaSuccess']],
     })),
@@ -31,24 +30,24 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         resolution: [
-            (selectors) => [selectors.sessionPlayerData, selectors.currentPlayerPosition],
-            (sessionPlayerData, currentPlayerPosition): { width: number; height: number } | null => {
+            (selectors) => [selectors.sessionPlayerData, selectors.absolutePlayerTime, selectors.currentPlayerPosition],
+            (
+                sessionPlayerData,
+                absolutePlayerTime,
+                currentPlayerPosition
+            ): { width: number; height: number } | null => {
                 // Find snapshot to pull resolution from
-                if (!currentPlayerPosition) {
+                if (!currentPlayerPosition || !absolutePlayerTime) {
                     return null
                 }
                 const snapshots = sessionPlayerData.snapshotsByWindowId[currentPlayerPosition.windowId] ?? []
 
-                const currentEpochTime =
-                    getEpochTimeFromPlayerPosition(
-                        currentPlayerPosition,
-                        sessionPlayerData.startAndEndTimesByWindowId
-                    ) ?? 0
-
                 const currIndex = findLastIndex(
                     snapshots,
-                    (s: eventWithTime) => s.timestamp < currentEpochTime && (s.data as any).width
+                    (s: eventWithTime) => s.timestamp < absolutePlayerTime && (s.data as any).width
                 )
+
+                console.log(currIndex, absolutePlayerTime, snapshots.length, snapshots[0]?.timestamp)
                 if (currIndex === -1) {
                     return null
                 }

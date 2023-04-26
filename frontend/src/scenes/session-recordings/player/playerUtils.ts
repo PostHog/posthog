@@ -1,11 +1,5 @@
 import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
-import {
-    PlayerPosition,
-    RecordingSegment,
-    RecordingStartAndEndTime,
-    SessionRecordingPlaylistType,
-    SessionRecordingType,
-} from '~/types'
+import { PlayerPosition, RecordingSegment, SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
@@ -116,17 +110,6 @@ export function getPlayerPositionFromPlayerTime(
     // If we're at the end of the recording, return the final player position
     if (playerTime === currentTime && segments.length > 0) {
         return segments.slice(-1)[0].endPlayerPosition
-    }
-    return null
-}
-
-export function getEpochTimeFromPlayerPosition(
-    playerPosition: PlayerPosition,
-    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
-): number | null {
-    if (playerPosition.windowId in startAndEndTimesByWindowId) {
-        const windowStartTime = startAndEndTimesByWindowId[playerPosition.windowId].startTimeEpochMs
-        return windowStartTime + playerPosition.time
     }
     return null
 }
