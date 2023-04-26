@@ -81,7 +81,6 @@ class TestFeatureFlag(APIBaseTest):
                     "documentation_url": "",
                     "feature_flag": None,
                     "id": ANY,
-                    "image_url": "",
                     "name": "Click counter",
                     "stage": "beta",
                 },

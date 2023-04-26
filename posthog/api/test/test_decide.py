@@ -1090,7 +1090,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
                         "name": "Sprocket",
                         "description": "A fancy new sprocket.",
                         "stage": "beta",
-                        "imageUrl": "",
                         "documentationUrl": "",
                         "flagKey": "sprocket",
                     }
