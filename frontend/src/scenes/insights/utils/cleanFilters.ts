@@ -166,12 +166,13 @@ export function cleanFilters(
         ...(filters.properties ? { properties: filters.properties } : {}),
     }
 
-    // set test account filter default from team and local storage settings
+    // set test account filter default for new insights from team and local storage settings
     if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
-        // if the current _global_ value is true respect that over any local preference
         if (localStorage.getItem('default_filter_test_accounts') !== null) {
+            // use current user default
             commonFilters.filter_test_accounts = localStorage.getItem('default_filter_test_accounts') === 'true'
         } else if (!filters.filter_test_accounts && teamFilterTestAccounts !== undefined) {
+            // overwrite with team default, only if not set
             commonFilters.filter_test_accounts = teamFilterTestAccounts
         }
     }
