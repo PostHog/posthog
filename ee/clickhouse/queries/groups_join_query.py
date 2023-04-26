@@ -70,6 +70,7 @@ class GroupsJoinQuery:
             var: group_type_index,
         }
 
+        # fine
         aggregated_group_filters, filter_params = parse_prop_grouped_clauses(
             self._team_id,
             self._filter.property_groups,

@@ -96,7 +96,9 @@ def get_breakdown_prop_values(
         person_query = PersonQuery(
             filter, team.pk, column_optimizer=column_optimizer, entity=entity if not use_all_funnel_entities else None
         )
-        if person_query.is_used:
+        if person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+            person_join_clauses = 
+        elif person_query.is_used:
             person_subquery, person_join_params = person_query.get_query()
             person_join_clauses = f"""
                 INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id

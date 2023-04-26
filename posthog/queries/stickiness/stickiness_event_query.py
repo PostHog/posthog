@@ -99,7 +99,7 @@ class StickinessEventsQuery(EventQuery):
                 team_id=self._team_id,
                 action=self._entity.get_action(),
                 person_properties_mode=get_person_properties_mode(self._team),
-                person_id_joined_alias=f"{self.aggregation_target()}",
+                person_id_joined_alias=self.aggregation_target(),
                 hogql_context=self._filter.hogql_context,
             )
         else:
