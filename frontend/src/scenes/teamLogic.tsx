@@ -23,6 +23,7 @@ const parseUpdatedAttributeName = (attr: string | null): string => {
     return attr ? identifierToHuman(attr) : 'Project'
 }
 
+/** Return whether the provided value is a full TeamType object that's only available when authenticated. */
 export function isAuthenticatedTeam(team: TeamType | TeamPublicType | undefined | null): team is TeamType {
     return !!team && 'api_token' in team
 }
