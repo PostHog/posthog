@@ -53,7 +53,7 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import DashboardTile, Filter, Insight, Team, User
+from posthog.models import DashboardTile, Filter, Insight, Team, User, SharingConfiguration
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -70,7 +70,6 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
-    HasValidSharingAccessToken,
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
@@ -517,7 +516,6 @@ class InsightViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
-    queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [
         IsAuthenticated,
@@ -558,21 +556,33 @@ class InsightViewSet(
         return context
 
     def get_permissions(self):
-        if self.action == "retrieve" and self.request.query_params.get("sharing_access_token"):
-            return [HasValidSharingAccessToken()]
+        if (
+            self.action in ("retrieve", "list")
+            and self.request.user.is_anonymous
+            and self.request.query_params.get("sharing_access_token")
+        ):
+            # We only restrict based on SharingConfiguration for retrieval of insights from a shared insight/dashboard
+            return []
         return super().get_permissions()
 
     def get_queryset(self) -> QuerySet:
-        if (
+        if not self.get_permissions():
+            # If we have no permissions, we are retrieving shared insights and must filter down accordingly
+            sharing_configuration = SharingConfiguration.objects.get(
+                access_token=self.request.query_params["sharing_access_token"], enabled=True
+            )
+            # sharing_configuration must be non-None here, per SharingAccessTokenAuthentication
+            queryset = Insight.objects.filter(id__in=sharing_configuration.get_connected_insight_ids())
+        elif (
             self.action == "partial_update"
             and "deleted" in self.request.data
             and not self.request.data.get("deleted")
             and len(self.request.data) == 1
         ):
             # an insight can be un-deleted by patching {"deleted": False}
-            queryset: QuerySet = Insight.objects_including_soft_deleted
+            queryset = Insight.objects_including_soft_deleted.all()
         else:
-            queryset = super().get_queryset()
+            queryset = Insight.objects.all()
 
         queryset = queryset.prefetch_related(
             Prefetch(

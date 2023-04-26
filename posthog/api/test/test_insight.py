@@ -1675,10 +1675,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             response_invalid_token.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
         )
-        self.assertEqual(response_incorrect_token.status_code, 403, response_incorrect_token.json())
+        self.assertEqual(response_incorrect_token.status_code, 404, response_incorrect_token.json())
         self.assertEqual(
             response_incorrect_token.json(),
-            self.permission_denied_response("Sharing access token is incorrect for this resource."),
+            self.not_found_response(),
         )
         self.assertEqual(response_correct_token.status_code, 200, response_correct_token.json())
         self.assertDictContainsSubset(

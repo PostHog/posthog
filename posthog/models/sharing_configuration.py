@@ -1,4 +1,5 @@
 import secrets
+from typing import List
 
 from django.db import models
 
@@ -19,3 +20,13 @@ class SharingConfiguration(models.Model):
     access_token: models.CharField = models.CharField(
         max_length=400, null=True, blank=True, default=get_default_access_token, unique=True
     )
+
+    def get_connected_insight_ids(self) -> List[int]:
+        if self.insight:
+            return [self.insight.id]
+        elif self.dashboard:
+            # Check whether this sharing configuration's dashboard contains this insight
+            return self.dashboard.tiles.exclude(deleted=True, insight__isnull=True, insight__deleted=True).values_list(
+                "insight__id", flat=True
+            )
+        return []
