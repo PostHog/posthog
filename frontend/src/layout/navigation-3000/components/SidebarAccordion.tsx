@@ -7,6 +7,7 @@ import React, { useState } from 'react'
 import { BasicListItem, ExtendedListItem, ExtraListItemContext } from '../types'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonButton } from '@posthog/lemon-ui'
+import { navigation3000Logic } from '../navigationLogic'
 
 interface SidebarAccordionProps {
     title: string
@@ -74,6 +75,10 @@ function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListI
         item.name
     )
 
+    if (!item.ref) {
+        item.ref = React.createRef()
+    }
+
     return (
         <li
             title={item.name}
@@ -87,7 +92,23 @@ function SidebarListItem({ item, active }: { item: BasicListItem | ExtendedListI
             )}
             aria-current={active ? 'page' : undefined}
         >
-            <Link to={item.url} className="SidebarListItem__link">
+            <Link
+                to={item.url}
+                className="SidebarListItem__link"
+                ref={item.ref}
+                onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown') {
+                        navigation3000Logic.actions.focusNextItem()
+                        e.preventDefault()
+                    } else if (e.key === 'ArrowUp') {
+                        navigation3000Logic.actions.focusPreviousItem()
+                        e.preventDefault()
+                    }
+                }}
+                onFocus={() => {
+                    navigation3000Logic.actions.setLastFocusedItemByKey(item.key)
+                }}
+            >
                 {'summary' in item ? (
                     <>
                         <div className="flex space-between gap-1">
