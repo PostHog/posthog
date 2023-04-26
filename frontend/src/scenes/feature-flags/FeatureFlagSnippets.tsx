@@ -15,6 +15,9 @@ export interface FeatureFlagSnippet {
     instantlyAvailableProperties?: boolean
 }
 
+const LOCAL_EVAL_REMINDER = `// Remember to set a personal API key in the SDK to enable local evaluation.
+`
+
 export function NodeJSSnippet({
     flagKey,
     groupType,
@@ -71,7 +74,7 @@ if (${conditional}) {
     return (
         <>
             <CodeSnippet language={Language.JavaScript} wrap>
-                {`const ${variableName} = ${flagSnippet}${followUpCode}`}
+                {`${localEvaluation ? LOCAL_EVAL_REMINDER : ''}const ${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
@@ -124,7 +127,7 @@ export function PHPSnippet({
     return (
         <>
             <CodeSnippet language={Language.PHP} wrap>
-                {`${variableName} = ${flagSnippet}
+                {`${localEvaluation ? LOCAL_EVAL_REMINDER : ''}${variableName} = ${flagSnippet}
 
 if (${conditional}) {
     // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
@@ -182,7 +185,7 @@ export function GolangSnippet({
     return (
         <>
             <CodeSnippet language={Language.Go} wrap>
-                {`${variableName} := ${flagSnippet}
+                {`${localEvaluation ? LOCAL_EVAL_REMINDER : ''}${variableName} := ${flagSnippet}
 
 if ${conditional} {
     // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
@@ -244,7 +247,7 @@ end`
     return (
         <>
             <CodeSnippet language={Language.Ruby} wrap>
-                {`${variableName} = ${flagSnippet}${followUpCode}`}
+                {`${localEvaluation ? '# ' + LOCAL_EVAL_REMINDER : ''}${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
@@ -302,7 +305,7 @@ if ${conditional}:
     return (
         <>
             <CodeSnippet language={Language.Python} wrap>
-                {`${variableName} = ${flagSnippet}${followUpCode}`}
+                {`${localEvaluation ? '# ' + LOCAL_EVAL_REMINDER : ''}${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
