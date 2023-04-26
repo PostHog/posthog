@@ -15,7 +15,7 @@ from temporalio.common import RetryPolicy
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import ExportDestination, ExportRun
+from posthog.models import BatchExportDestination, BatchExportRun
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -23,9 +23,9 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
-from posthog.temporal.workflows.s3_export import (
-    S3ExportInputs,
-    S3ExportWorkflow,
+from posthog.temporal.workflows.s3_batch_export import (
+    S3BatchExportInputs,
+    S3BatchExportWorkflow,
     S3InsertInputs,
     build_s3_url,
     insert_into_s3_activity,
@@ -65,13 +65,13 @@ from posthog.temporal.workflows.s3_export import (
     ],
 )
 def test_build_s3_url(inputs, expected):
-    """Test the build_s3_url utility function used in the S3Export workflow.
+    """Test the build_s3_url utility function used in the S3BatchExport workflow.
 
     We mock the TEST and DEBUG variables as we have some test logic that we are not interested in
     for this test, as we are interested in asserting production behavior!
     """
-    with mock.patch("posthog.temporal.workflows.s3_export.TEST", False), mock.patch(
-        "posthog.temporal.workflows.s3_export.DEBUG", False
+    with mock.patch("posthog.temporal.workflows.s3_batch_export.TEST", False), mock.patch(
+        "posthog.temporal.workflows.s3_batch_export.DEBUG", False
     ):
         result = build_s3_url(**inputs)
     assert result == expected
@@ -79,7 +79,7 @@ def test_build_s3_url(inputs, expected):
 
 @pytest.mark.asyncio
 async def test_insert_into_s3_activity(activity_environment):
-    """Test the insert_into_s3_activity part of the S3Export workflow.
+    """Test the insert_into_s3_activity part of the S3BatchExport workflow.
 
     We mock calls to the ClickHouse client and assert the queries sent to it.
     """
@@ -119,8 +119,8 @@ async def test_insert_into_s3_activity(activity_environment):
         AND team_id = {team_id}
     """
     with (
-        mock.patch("posthog.temporal.workflows.s3_export.TEST", False),
-        mock.patch("posthog.temporal.workflows.s3_export.DEBUG", False),
+        mock.patch("posthog.temporal.workflows.s3_batch_export.TEST", False),
+        mock.patch("posthog.temporal.workflows.s3_batch_export.DEBUG", False),
         mock.patch("aiochclient.ChClient.fetchrow") as fetch_row,
         mock.patch("aiochclient.ChClient.execute") as execute,
     ):
@@ -173,11 +173,11 @@ def s3_bucket():
 
 @pytest.fixture
 def destination(team):
-    """A test ExportDestination targetting an S3 bucket.
+    """A test BatchExportDestination targetting an S3 bucket.
 
     Technically, we are using a MinIO bucket. But the API is the same, so we also support it!
     """
-    dest = ExportDestination.objects.create(
+    dest = BatchExportDestination.objects.create(
         name="my-s3-bucket",
         type="S3",
         team=team,
@@ -239,10 +239,10 @@ def events_to_export(team, max_datetime):
 async def test_s3_export_workflow_with_minio_bucket(
     s3_bucket, destination, team, organization, events_to_export, max_datetime
 ):
-    """Test the S3ExportWorkflow targetting a local MinIO bucket.
+    """Test the S3BatchExportWorkflow targetting a local MinIO bucket.
 
     The MinIO object-storage is part of the PostHog development stack. We are loading some events
-    into ClickHouse and exporting them by running the S3ExportWorkflow.
+    into ClickHouse and exporting them by running the S3BatchExportWorkflow.
 
     Once the Workflow finishes, we assert a new object exists in our bucket, that it matches our,
     key, and we read it's contents as a CSV to ensure all events we loaded are accounted for.
@@ -258,7 +258,7 @@ async def test_s3_export_workflow_with_minio_bucket(
     await sync_to_async(destination.save)()
 
     workflow_id = str(uuid4())
-    inputs = S3ExportInputs(
+    inputs = S3BatchExportInputs(
         bucket_name=s3_bucket.name,
         region="us-east-1",
         key_template=f"{TEST_ROOT_BUCKET}/posthog-{{table_name}}/events.csv",
@@ -273,12 +273,12 @@ async def test_s3_export_workflow_with_minio_bucket(
     async with Worker(
         client,
         task_queue=settings.TEMPORAL_TASK_QUEUE,
-        workflows=[S3ExportWorkflow],
+        workflows=[S3BatchExportWorkflow],
         activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         await client.execute_workflow(
-            S3ExportWorkflow.run,
+            S3BatchExportWorkflow.run,
             inputs,
             id=workflow_id,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
@@ -305,9 +305,9 @@ async def test_s3_export_workflow_with_minio_bucket(
             assert row["person_id"] == matching_event["person_id"]
             assert row["team_id"] == matching_event["team_id"]
 
-        assert await sync_to_async(ExportRun.objects.filter(team_id=destination.team.id).count)() == 1
+        assert await sync_to_async(BatchExportRun.objects.filter(team_id=destination.team.id).count)() == 1
 
-        run = await sync_to_async(ExportRun.objects.filter(team_id=destination.team.id).first)()
+        run = await sync_to_async(BatchExportRun.objects.filter(team_id=destination.team.id).first)()
         assert run is not None
         assert run.status == "Completed"
         assert run.data_interval_end == max_datetime

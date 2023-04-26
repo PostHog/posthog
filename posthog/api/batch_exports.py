@@ -5,7 +5,12 @@ from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import ExportDestination, ExportRun, ExportSchedule, User
+from posthog.models import (
+    BatchExportDestination,
+    BatchExportRun,
+    BatchExportSchedule,
+    User,
+)
 from posthog.models.team import Team
 from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
@@ -14,22 +19,22 @@ from posthog.permissions import (
 from posthog.temporal.client import sync_connect
 
 
-class ExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = ExportRun.objects.all()
+class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    queryset = BatchExportRun.objects.all()
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
 
-class ExportScheduleSerializer(serializers.ModelSerializer):
-    """Serializer for an ExportSchedule model."""
+class BatchExportScheduleSerializer(serializers.ModelSerializer):
+    """Serializer for an BatchExportSchedule model."""
 
-    destination = serializers.PrimaryKeyRelatedField(queryset=ExportDestination.objects.all(), required=False)
+    destination = serializers.PrimaryKeyRelatedField(queryset=BatchExportDestination.objects.all(), required=False)
     paused_at = serializers.DateTimeField(required=False)
     unpaused_at = serializers.DateTimeField(required=False)
     start_at = serializers.DateTimeField(required=False)
     end_at = serializers.DateTimeField(required=False)
 
     class Meta:
-        model = ExportSchedule
+        model = BatchExportSchedule
         fields = [
             "id",
             "name",
@@ -58,11 +63,11 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: dict):
-        """Create an ExportSchedule model."""
+        """Create an BatchExportSchedule model."""
         team = Team.objects.get(id=self.context["team_id"])
-        destination = ExportDestination.objects.get(id=self.context["destination_id"])
+        destination = BatchExportDestination.objects.get(id=self.context["destination_id"])
 
-        export_schedule = ExportSchedule.objects.create(
+        export_schedule = BatchExportSchedule.objects.create(
             team=team,
             destination=destination,
             **validated_data,
@@ -71,14 +76,14 @@ class ExportScheduleSerializer(serializers.ModelSerializer):
         return export_schedule
 
 
-class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = ExportSchedule.objects.all()
+class BatchExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    queryset = BatchExportSchedule.objects.all()
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    serializer_class = ExportScheduleSerializer
+    serializer_class = BatchExportScheduleSerializer
 
     @action(methods=["PUT"], detail=True)
     def unpause(self, request: request.Request) -> response.Response:
-        """Unpause an ExportSchedule using the Temporal schedule handle."""
+        """Unpause an BatchExportSchedule using the Temporal schedule handle."""
         export_schedule = self.get_object()
 
         client = sync_connect()
@@ -105,7 +110,7 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["PUT"], detail=True)
     def pause(self, request: request.Request) -> response.Response:
-        """Pause an ExportSchedule using the Temporal schedule handle."""
+        """Pause an BatchExportSchedule using the Temporal schedule handle."""
         export_schedule = self.get_object()
 
         client = sync_connect()
@@ -130,8 +135,8 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(export_schedule)
         return response.Response(serializer.data)
 
-    def perform_destroy(self, instance: ExportSchedule):
-        """Perform a ExportSchedule destroy by clearing it from Temporal and Django."""
+    def perform_destroy(self, instance: BatchExportSchedule):
+        """Perform a BatchExportSchedule destroy by clearing it from Temporal and Django."""
         client = sync_connect()
         handle = client.get_schedule_handle(
             str(instance.id),
@@ -141,13 +146,13 @@ class ExportScheduleViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         instance.delete()
 
 
-class ExportDestinationSerializer(serializers.ModelSerializer):
-    """Serializer for an ExportDestination model."""
+class BatchExportDestinationSerializer(serializers.ModelSerializer):
+    """Serializer for an BatchExportDestination model."""
 
-    schedule = ExportScheduleSerializer(required=False)
+    schedule = BatchExportScheduleSerializer(required=False)
 
     class Meta:
-        model = ExportDestination
+        model = BatchExportDestination
         fields = [
             "id",
             "type",
@@ -159,15 +164,15 @@ class ExportDestinationSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "last_updated_at", "schedules"]
 
     def create(self, validated_data: dict):
-        """Create an ExportDestination, optionally with an ExportSchedule."""
+        """Create an BatchExportDestination, optionally with an BatchExportSchedule."""
 
         team = Team.objects.get(id=self.context["team_id"])
         schedule_data = validated_data.pop("schedule")
 
-        export_destination = ExportDestination.objects.create(team_id=self.context["team_id"], **validated_data)
+        export_destination = BatchExportDestination.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if schedule_data:
-            schedule = ExportSchedule.objects.create(team=team, destination=export_destination, **schedule_data)
+            schedule = BatchExportSchedule.objects.create(team=team, destination=export_destination, **schedule_data)
             export_destination.schedule = schedule
 
         export_destination.save()
@@ -175,10 +180,10 @@ class ExportDestinationSerializer(serializers.ModelSerializer):
         return export_destination
 
 
-class ExportDestinationViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = ExportDestination.objects.all()
+class BatchExportDestinationViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    queryset = BatchExportDestination.objects.all()
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    serializer_class = ExportDestinationSerializer
+    serializer_class = BatchExportDestinationSerializer
 
     def get_queryset(self):
         if not isinstance(self.request.user, User) or self.request.user.current_team is None:

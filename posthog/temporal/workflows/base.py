@@ -6,7 +6,7 @@ from uuid import UUID
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
-from posthog.models.export import ExportRun
+from posthog.models.batch_export import BatchExportRun
 
 
 class PostHogWorkflow(ABC):
@@ -40,15 +40,15 @@ class PostHogWorkflow(ABC):
 
 
 @dataclass
-class CreateExportRunInputs:
+class CreateBatchExportRunInputs:
     """Inputs to the create_export_run activity.
 
     Attributes:
-        team_id: The id of the team the ExportRun belongs to.
-        destination_id: The id of the destination the ExportRun is targetting.
-        schedule_id: If this ExportRun was triggered by a schedule, it's id, otherwise None.
-        data_interval_start: Start of this ExportRun's data interval.
-        data_interval_end: End of this ExportRun's data interval.
+        team_id: The id of the team the BatchExportRun belongs to.
+        destination_id: The id of the destination the BatchExportRun is targetting.
+        schedule_id: If this BatchExportRun was triggered by a schedule, it's id, otherwise None.
+        data_interval_start: Start of this BatchExportRun's data interval.
+        data_interval_end: End of this BatchExportRun's data interval.
     """
 
     team_id: int
@@ -59,18 +59,18 @@ class CreateExportRunInputs:
 
 
 @activity.defn
-async def create_export_run(inputs: CreateExportRunInputs) -> str:
-    """Activity that creates an ExportRun.
+async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
+    """Activity that creates an BatchExportRun.
 
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
-    activity.logger.info("Creating ExportRun model instance.")
+    activity.logger.info("Creating BatchExportRun model instance.")
 
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
-    run = await sync_to_async(ExportRun.objects.create)(  # type: ignore
+    run = await sync_to_async(BatchExportRun.objects.create)(  # type: ignore
         team_id=inputs.team_id,
         destination_id=UUID(inputs.destination_id),
         schedule_id=UUID(inputs.schedule_id) if inputs.schedule_id else None,
@@ -79,14 +79,14 @@ async def create_export_run(inputs: CreateExportRunInputs) -> str:
     )
 
     activity.logger.info(
-        f"Creating ExportRun {run.id} targetting destination {run.destination.id} in team {run.team.id}."
+        f"Creating BatchExportRun {run.id} targetting destination {run.destination.id} in team {run.team.id}."
     )
 
     return str(run.id)
 
 
 @dataclass
-class UpdateExportRunStatusInputs:
+class UpdateBatchExportRunStatusInputs:
     """Inputs to the update_export_run_status activity."""
 
     run_id: str
@@ -94,7 +94,7 @@ class UpdateExportRunStatusInputs:
 
 
 @activity.defn
-async def update_export_run_status(inputs: UpdateExportRunStatusInputs):
-    """Activity that updates the status of an ExportRun."""
-    update_run_status = sync_to_async(ExportRun.objects.update_status)
+async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
+    """Activity that updates the status of an BatchExportRun."""
+    update_run_status = sync_to_async(BatchExportRun.objects.update_status)
     await update_run_status(export_run_id=UUID(inputs.run_id), status=inputs.status)  # type: ignore

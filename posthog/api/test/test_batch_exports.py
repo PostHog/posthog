@@ -6,12 +6,12 @@ from rest_framework import status
 from temporalio.client import Client
 from temporalio.service import RPCError
 
-from posthog.models import ExportDestination, ExportSchedule
+from posthog.models import BatchExportDestination, BatchExportSchedule
 from posthog.temporal.client import sync_connect
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
-class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
+class TestBatchBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.temporal: Client = sync_connect()
@@ -46,7 +46,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         return schedule_name
 
     def test_create_export_destination(self):
-        """Test creating an ExportDestionation for S3.
+        """Test creating an BatchExportDestionation for S3.
 
         As we are passing Schedule information, this should also create a Schedule.
         """
@@ -68,12 +68,12 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "cron_expressions": ["0 0 * * *"],
             },
         }
-        self.assertEqual(ExportDestination.objects.count(), 0)
+        self.assertEqual(BatchExportDestination.objects.count(), 0)
 
         response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", destination_data)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(ExportDestination.objects.count(), 1)
+        self.assertEqual(BatchExportDestination.objects.count(), 1)
 
         data = response.json()
         self.assertEqual(data["name"], destination_data["name"])
@@ -86,14 +86,14 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
             destination_data["schedule"]["cron_expressions"],  # type: ignore
         )
 
-        export_schedule = ExportSchedule.objects.filter(name=schedule_name)[0]
+        export_schedule = BatchExportSchedule.objects.filter(name=schedule_name)[0]
         temporal_schedule = self.describe_schedule(str(export_schedule.id))
         self.assertEqual(temporal_schedule.id, str(export_schedule.id))
 
     def test_create_export_schedule(self):
-        """Test creating an ExportSchedule.
+        """Test creating an BatchExportSchedule.
 
-        An ExportSchedule is created in supposed to be created in Temporal too.
+        An BatchExportSchedule is created in supposed to be created in Temporal too.
         """
         schedule_name = self.get_test_schedule_name()
 
@@ -114,14 +114,14 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
             },
         }
 
-        self.assertEqual(ExportDestination.objects.count(), 0)
-        self.assertEqual(ExportSchedule.objects.count(), 0)
+        self.assertEqual(BatchExportDestination.objects.count(), 0)
+        self.assertEqual(BatchExportSchedule.objects.count(), 0)
 
         response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", destination_data)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(ExportDestination.objects.count(), 1)
-        self.assertEqual(ExportSchedule.objects.count(), 1)
+        self.assertEqual(BatchExportDestination.objects.count(), 1)
+        self.assertEqual(BatchExportSchedule.objects.count(), 1)
 
         schedule_name = self.get_test_schedule_name("one-off-schedule")
         manual_schedule_data = {
@@ -134,9 +134,9 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(schedule_response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(ExportSchedule.objects.count(), 2)
+        self.assertEqual(BatchExportSchedule.objects.count(), 2)
 
-        export_schedule = ExportSchedule.objects.filter(name=schedule_name)[0]
+        export_schedule = BatchExportSchedule.objects.filter(name=schedule_name)[0]
 
         self.assertEqual(export_schedule.name, manual_schedule_data["name"])
         self.assertEqual(export_schedule.start_at.isoformat(), manual_schedule_data["start_at"])
@@ -145,7 +145,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(temporal_schedule.id, str(export_schedule.id))
 
     def test_delete_export_schedule(self):
-        """Test deleting an ExportSchedule.
+        """Test deleting an BatchExportSchedule.
 
         This call should clean-up state from both the database and Temporal.
         """
@@ -168,14 +168,14 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
             },
         }
 
-        self.assertEqual(ExportDestination.objects.count(), 0)
-        self.assertEqual(ExportSchedule.objects.count(), 0)
+        self.assertEqual(BatchExportDestination.objects.count(), 0)
+        self.assertEqual(BatchExportSchedule.objects.count(), 0)
 
         response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", destination_data)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(ExportDestination.objects.count(), 1)
-        self.assertEqual(ExportSchedule.objects.count(), 1)
+        self.assertEqual(BatchExportDestination.objects.count(), 1)
+        self.assertEqual(BatchExportSchedule.objects.count(), 1)
 
         schedule_name = self.get_test_schedule_name("one-off-schedule")
         manual_schedule_data = {
@@ -189,9 +189,9 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(schedule_response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(ExportSchedule.objects.count(), 2)
+        self.assertEqual(BatchExportSchedule.objects.count(), 2)
 
-        export_schedule = ExportSchedule.objects.filter(name=schedule_name)[0]
+        export_schedule = BatchExportSchedule.objects.filter(name=schedule_name)[0]
 
         handle = self.temporal.get_schedule_handle(
             str(export_schedule.id),
@@ -203,7 +203,7 @@ class TestBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        post_export_schedule = ExportSchedule.objects.filter(name=schedule_name)
+        post_export_schedule = BatchExportSchedule.objects.filter(name=schedule_name)
         assert not post_export_schedule.exists()
 
         with self.assertRaisesRegex(RPCError, "schedule not found"):

@@ -5,6 +5,7 @@ from .activity_logging.notification_viewed import NotificationViewed
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from .batch_export import BatchExportDestination, BatchExportRun, BatchExportSchedule
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile, Text
@@ -16,7 +17,6 @@ from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
-from .export import ExportDestination, ExportRun, ExportSchedule
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
@@ -54,6 +54,9 @@ __all__ = [
     "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
+    "BatchExportDestination",
+    "BatchExportRun",
+    "BatchExportSchedule",
     "Cohort",
     "CohortPeople",
     "Dashboard",
@@ -68,9 +71,6 @@ __all__ = [
     "EventProperty",
     "Experiment",
     "ExportedAsset",
-    "ExportDestination",
-    "ExportRun",
-    "ExportSchedule",
     "FeatureFlag",
     "Filter",
     "Group",

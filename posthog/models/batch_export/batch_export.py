@@ -20,8 +20,8 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
 
 
-class ExportDestination(UUIDModel):
-    """A destination for an Export."""
+class BatchExportDestination(UUIDModel):
+    """A destination for a BatchExport."""
 
     class Destination(models.TextChoices):
         """Enumeration of supported destinations."""
@@ -36,7 +36,7 @@ class ExportDestination(UUIDModel):
     config: models.JSONField = models.JSONField(default=dict, blank=True)
 
 
-class ExportScheduleManager(models.Manager):
+class BatchExportScheduleManager(models.Manager):
     def create(
         self,
         team: Team,
@@ -49,9 +49,9 @@ class ExportScheduleManager(models.Manager):
         end_at: dt.datetime | None = None,
         jitter: dt.timedelta | None = None,
         time_zone_name: str = "Etc/UTC",
-        destination: ExportDestination | None = None,
-    ) -> "ExportSchedule":
-        schedule = ExportSchedule(
+        destination: BatchExportDestination | None = None,
+    ) -> "BatchExportSchedule":
+        schedule = BatchExportSchedule(
             team=team,
             name=name,
             destination=destination,
@@ -70,8 +70,8 @@ class ExportScheduleManager(models.Manager):
 
         return schedule
 
-    def create_temporal_schedule(self, export_schedule: "ExportSchedule"):
-        """Create an Schedule in Temporal matching ExportSchedule model."""
+    def create_temporal_schedule(self, export_schedule: "BatchExportSchedule"):
+        """Create an Schedule in Temporal matching BatchExportSchedule model."""
         from posthog.temporal.client import sync_connect
         from posthog.temporal.workflows import DESTINATION_WORKFLOWS
 
@@ -107,25 +107,25 @@ class ExportScheduleManager(models.Manager):
             search_attributes=common_search_attributes,
         )
 
-    def get_export_schedule_from_name(self, name: str | None) -> Optional["ExportSchedule"]:
+    def get_export_schedule_from_name(self, name: str | None) -> Optional["BatchExportSchedule"]:
         if not name:
             return None
         try:
-            return ExportSchedule.objects.get(name=name)
-        except ExportSchedule.DoesNotExist:
+            return BatchExportSchedule.objects.get(name=name)
+        except BatchExportSchedule.DoesNotExist:
             return None
 
 
-class ExportSchedule(UUIDModel):
-    """The Schedule an Export will follow.
+class BatchExportSchedule(UUIDModel):
+    """The Schedule a BatchExport will follow.
 
-    An ExportSchedule provides a model representation of a Temporal Schedule we can serve via our API.
+    An BatchExportSchedule provides a model representation of a Temporal Schedule we can serve via our API.
     In Temporal, a Schedule is just another Workflow that executes an Action as indicated by its spec.
-    This Action is usually triggering another Workflow. Our ExportSchedules are Temporal Schedules that
-    specifically trigger Export Workflows. As such, an ExportSchedule has an associated destination.
+    This Action is usually triggering another Workflow. Our BatchExportSchedules are Temporal Schedules that
+    specifically trigger BatchExport Workflows. As such, a BatchExportSchedule has an associated destination.
     """
 
-    objects: ExportScheduleManager = ExportScheduleManager()
+    objects: BatchExportScheduleManager = BatchExportScheduleManager()
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
@@ -136,7 +136,7 @@ class ExportSchedule(UUIDModel):
     end_at: models.DateTimeField = models.DateTimeField(null=True)
     name: models.CharField = models.CharField(max_length=256)
     destination: models.ForeignKey = models.ForeignKey(
-        "ExportDestination", on_delete=models.CASCADE, related_name="schedules"
+        "BatchExportDestination", on_delete=models.CASCADE, related_name="schedules"
     )
     calendars: ArrayField = ArrayField(models.JSONField(), default=list, blank=True)
     intervals: ArrayField = ArrayField(models.JSONField(), default=list, blank=True)
@@ -158,8 +158,8 @@ class ExportSchedule(UUIDModel):
         )
 
 
-class ExportRunManager(models.Manager):
-    """ExportRun model manager."""
+class BatchExportRunManager(models.Manager):
+    """BatchExportRun model manager."""
 
     def create(
         self,
@@ -168,32 +168,32 @@ class ExportRunManager(models.Manager):
         schedule_id: UUID | None,
         data_interval_start: str,
         data_interval_end: str,
-    ) -> "ExportRun":
-        """Create an ExportRun.
+    ) -> "BatchExportRun":
+        """Create an BatchExportRun.
 
         In a first approach, this method is intended to be called only by Temporal Workflows,
         as only the Workflows themselves can know when they start.
 
         Args:
-            team_id: The Team's id this ExportRun belongs to.
-            destination_id: The destination targetted by this ExportRun.
+            team_id: The Team's id this BatchExportRun belongs to.
+            destination_id: The destination targetted by this BatchExportRun.
             schedule_id: If triggered by a Schedule, the Schedule's id, otherwise None.
             data_interval_start:
             data_interval_end:
         """
         if schedule_id:
-            schedule = ExportSchedule.objects.filter(id=schedule_id).first()
+            schedule = BatchExportSchedule.objects.filter(id=schedule_id).first()
         else:
             schedule = None
 
         team = Team.objects.filter(id=team_id).first()
-        destination = ExportDestination.objects.filter(id=destination_id).first()
+        destination = BatchExportDestination.objects.filter(id=destination_id).first()
 
-        run = ExportRun(
+        run = BatchExportRun(
             destination=destination,
             schedule=schedule,
             team=team,
-            status=ExportRun.Status.STARTING,
+            status=BatchExportRun.Status.STARTING,
             data_interval_start=dt.datetime.fromisoformat(data_interval_start),
             data_interval_end=dt.datetime.fromisoformat(data_interval_end),
         )
@@ -202,17 +202,17 @@ class ExportRunManager(models.Manager):
         return run
 
     def update_status(self, export_run_id: UUID, status: str):
-        """Update the status of an ExportRun with given id."""
-        run = ExportRun.objects.filter(id=export_run_id).first()
+        """Update the status of an BatchExportRun with given id."""
+        run = BatchExportRun.objects.filter(id=export_run_id).first()
         if not run:
-            raise ValueError(f"ExportRun with id {export_run_id} not found.")
+            raise ValueError(f"BatchExportRun with id {export_run_id} not found.")
 
         run.status = status
         run.save()
 
 
-class ExportRun(UUIDModel):
-    """Model to represent an instance of an Export.
+class BatchExportRun(UUIDModel):
+    """Model to represent an instance of an BatchExport.
 
     The state of this instance is populated by all necessary parameters to execute an export.
     """
@@ -232,11 +232,11 @@ class ExportRun(UUIDModel):
         RUNNING = "Running"
         STARTING = "Starting"
 
-    objects: ExportRunManager = ExportRunManager()
+    objects: BatchExportRunManager = BatchExportRunManager()
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    destination: models.ForeignKey = models.ForeignKey("ExportDestination", on_delete=models.CASCADE)
-    schedule: models.ForeignKey = models.ForeignKey("ExportSchedule", on_delete=models.SET_NULL, null=True)
+    destination: models.ForeignKey = models.ForeignKey("BatchExportDestination", on_delete=models.CASCADE)
+    schedule: models.ForeignKey = models.ForeignKey("BatchExportSchedule", on_delete=models.SET_NULL, null=True)
     run_id: models.TextField = models.TextField()
     status: models.CharField = models.CharField(choices=Status.choices, max_length=64)
     opened_at: models.DateTimeField = models.DateTimeField(null=True)

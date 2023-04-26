@@ -10,9 +10,9 @@ from temporalio.common import RetryPolicy
 
 from posthog.settings.base_variables import DEBUG, TEST
 from posthog.temporal.workflows.base import (
-    CreateExportRunInputs,
+    CreateBatchExportRunInputs,
     PostHogWorkflow,
-    UpdateExportRunStatusInputs,
+    UpdateBatchExportRunStatusInputs,
     create_export_run,
     update_export_run_status,
 )
@@ -143,7 +143,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             )
             return
 
-        activity.logger.info("Exporting %s rows to S3", count)
+        activity.logger.info("BatchExporting %s rows to S3", count)
 
         template_vars = prepare_template_vars(inputs)
         s3_url = build_s3_url(inputs.bucket_name, inputs.region, inputs.key_template, **template_vars)
@@ -169,7 +169,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
 
 @dataclass
-class S3ExportInputs:
+class S3BatchExportInputs:
     """Inputs for S3 export workflow.
 
     Attributes:
@@ -200,7 +200,7 @@ class S3ExportInputs:
 
 
 @workflow.defn(name="s3-export")
-class S3ExportWorkflow(PostHogWorkflow):
+class S3BatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into S3.
 
     This Workflow is intended to be executed both manually and by a Temporal Schedule.
@@ -209,13 +209,13 @@ class S3ExportWorkflow(PostHogWorkflow):
     """
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> S3ExportInputs:
+    def parse_inputs(inputs: list[str]) -> S3BatchExportInputs:
         """Parse inputs from the management command CLI."""
         loaded = json.loads(inputs[0])
-        return S3ExportInputs(**loaded)
+        return S3BatchExportInputs(**loaded)
 
     @workflow.run
-    async def run(self, inputs: S3ExportInputs):
+    async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
         workflow.logger.info("Starting S3 export")
 
@@ -227,7 +227,7 @@ class S3ExportWorkflow(PostHogWorkflow):
         else:
             parent_id = parent.workflow_id
 
-        create_export_run_inputs = CreateExportRunInputs(
+        create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
             destination_id=inputs.destination_id,
             schedule_id=parent_id,
@@ -245,7 +245,7 @@ class S3ExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateExportRunStatusInputs(run_id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(run_id=run_id, status="Completed")
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
@@ -278,7 +278,7 @@ class S3ExportWorkflow(PostHogWorkflow):
             )
 
         except Exception as e:
-            workflow.logger.exception("S3 Export failed.", exc_info=e)
+            workflow.logger.exception("S3 BatchExport failed.", exc_info=e)
             update_inputs.status = "Failed"
             raise
 
@@ -292,11 +292,11 @@ class S3ExportWorkflow(PostHogWorkflow):
             )
 
 
-def get_data_interval_from_workflow_inputs(inputs: S3ExportInputs) -> tuple[dt.datetime, dt.datetime]:
+def get_data_interval_from_workflow_inputs(inputs: S3BatchExportInputs) -> tuple[dt.datetime, dt.datetime]:
     """Return the start and end of an export's data interval.
 
     Args:
-        inputs: The S3 Export inputs.
+        inputs: The S3 BatchExport inputs.
 
     Raises:
         TypeError: If when trying to obtain the data interval end we run into non-str types.
@@ -315,7 +315,7 @@ def get_data_interval_from_workflow_inputs(inputs: S3ExportInputs) -> tuple[dt.d
             msg = (
                 "Expected 'TemporalScheduledStartTime' of type 'list[str]', found 'NoneType'."
                 "This should be set by the Temporal Schedule unless triggering workflow manually."
-                "In the latter case, ensure 'S3ExportInputs.data_interval_end' is set."
+                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
             )
             raise TypeError(msg)
 

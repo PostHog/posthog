@@ -3,10 +3,10 @@ import datetime as dt
 import pytest
 from asgiref.sync import sync_to_async
 
-from posthog.models import ExportDestination, ExportRun, Organization, Team
+from posthog.models import BatchExportDestination, BatchExportRun, Organization, Team
 from posthog.temporal.workflows.base import (
-    CreateExportRunInputs,
-    UpdateExportRunStatusInputs,
+    CreateBatchExportRunInputs,
+    UpdateBatchExportRunStatusInputs,
     create_export_run,
     update_export_run_status,
 )
@@ -36,8 +36,8 @@ def team(organization):
 
 @pytest.fixture
 def destination(team):
-    """Fixture providing an ExportDestination for testing."""
-    dest = ExportDestination.objects.create(
+    """Fixture providing an BatchExportDestination for testing."""
+    dest = BatchExportDestination.objects.create(
         name="test-s3-dest",
         type="S3",
         team=team,
@@ -54,12 +54,12 @@ def destination(team):
 async def test_create_export_run(activity_environment, team, destination):
     """Test the create_export_run activity.
 
-    We check if an ExportRun is created after the activity runs.
+    We check if an BatchExportRun is created after the activity runs.
     """
     start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
     end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
 
-    inputs = CreateExportRunInputs(
+    inputs = CreateBatchExportRunInputs(
         team_id=team.id,
         destination_id=str(destination.id),
         schedule_id=None,
@@ -69,7 +69,7 @@ async def test_create_export_run(activity_environment, team, destination):
 
     run_id = await activity_environment.run(create_export_run, inputs)
 
-    runs = ExportRun.objects.filter(id=run_id)
+    runs = BatchExportRun.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()
 
     run = await sync_to_async(runs.first)()
@@ -84,7 +84,7 @@ async def test_update_export_run_status(activity_environment, team, destination)
     start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
     end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
 
-    inputs = CreateExportRunInputs(
+    inputs = CreateBatchExportRunInputs(
         team_id=team.id,
         destination_id=str(destination.id),
         schedule_id=None,
@@ -94,16 +94,16 @@ async def test_update_export_run_status(activity_environment, team, destination)
 
     run_id = await activity_environment.run(create_export_run, inputs)
 
-    runs = ExportRun.objects.filter(id=run_id)
+    runs = BatchExportRun.objects.filter(id=run_id)
     run = await sync_to_async(runs.first)()
     assert run.status == "Starting"
 
-    update_inputs = UpdateExportRunStatusInputs(
+    update_inputs = UpdateBatchExportRunStatusInputs(
         run_id=str(run_id),
         status="Completed",
     )
     await activity_environment.run(update_export_run_status, update_inputs)
 
-    runs = ExportRun.objects.filter(id=run_id)
+    runs = BatchExportRun.objects.filter(id=run_id)
     run = await sync_to_async(runs.first)()
     assert run.status == "Completed"
