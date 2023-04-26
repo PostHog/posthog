@@ -436,11 +436,6 @@
                       (SELECT id
                        FROM person
                        WHERE team_id = 2
-                         AND id IN
-                           (SELECT id
-                            FROM person
-                            WHERE team_id = 2
-                              AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -569,11 +564,6 @@
                       (SELECT id
                        FROM person
                        WHERE team_id = 2
-                         AND id IN
-                           (SELECT id
-                            FROM person
-                            WHERE team_id = 2
-                              AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -700,11 +690,6 @@
                       (SELECT id
                        FROM person
                        WHERE team_id = 2
-                         AND id IN
-                           (SELECT id
-                            FROM person
-                            WHERE team_id = 2
-                              AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(person.properties, 'foo'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
