@@ -299,14 +299,16 @@ const eachMessage =
                             event.ip,
                             event.properties || {}
                         )
-                        producePromises.push(
-                            produce(
-                                producer,
-                                KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-                                Buffer.from(JSON.stringify(replayRecord)),
-                                message.key ? Buffer.from(message.key) : null
+                        if (replayRecord) {
+                            producePromises.push(
+                                produce(
+                                    producer,
+                                    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+                                    Buffer.from(JSON.stringify(replayRecord)),
+                                    message.key ? Buffer.from(message.key) : null
+                                )
                             )
-                        )
+                        }
                     }
                     return producePromises
                 } else if (event.event === '$performance_event') {

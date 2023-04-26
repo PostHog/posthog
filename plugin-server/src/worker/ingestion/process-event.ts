@@ -285,9 +285,7 @@ export interface SummarizedSessionRecordingEvent {
     team_id: number
     distinct_id: string
     session_id: string
-    window_id: string | undefined
-    created_at: string
-    url: string | undefined
+    first_url: string | undefined
     click_count: number
     keypress_count: number
     mouse_activity_count: number
@@ -315,6 +313,11 @@ export const createSessionReplayEvent = (
     const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
 
     const eventsSummaries: RRWebEventSummary[] = properties['$snapshot_data']?.['events_summary'] || []
+
+    if (eventsSummaries.length === 0) {
+        return null
+    }
+
     let clickCount = 0
     let keypressCount = 0
     let mouseActivity = 0
@@ -339,13 +342,11 @@ export const createSessionReplayEvent = (
         team_id: team_id,
         distinct_id: distinct_id,
         session_id: properties['$session_id'],
-        window_id: properties['$window_id'],
         timestamp: timestampString,
-        created_at: timestampString,
         click_count: clickCount,
         keypress_count: keypressCount,
         mouse_activity_count: mouseActivity,
-        url: url,
+        first_url: url,
     }
 
     return data
