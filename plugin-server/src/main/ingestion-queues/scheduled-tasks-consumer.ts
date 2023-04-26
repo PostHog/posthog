@@ -9,8 +9,7 @@ import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 import { latestOffsetTimestampGauge } from './metrics'
 
 // The valid task types that can be scheduled.
-// TODO: not sure if there is another place that defines these but it would be
-// good to unify.
+// TODO: not sure if there is another place that defines these but it would be good to unify.
 const taskTypes = ['runEveryMinute', 'runEveryHour', 'runEveryDay'] as const
 
 export const startScheduledTasksConsumer = async ({
