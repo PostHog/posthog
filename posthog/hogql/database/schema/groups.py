@@ -26,7 +26,7 @@ def select_from_groups_table(requested_fields: Dict[str, Any]):
         name="argMax", args=[field, ast.Field(chain=["updated_at"])]
     )
     for field, expr in requested_fields.items():
-        if field == "index" or field == "key":
+        if field == "index" or field == "key" or field == "updated_at":
             fields_to_select.append(ast.Alias(alias=field, expr=expr))
             fields_to_group.append(expr)
         else:
