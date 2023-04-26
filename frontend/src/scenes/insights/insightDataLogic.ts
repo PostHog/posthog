@@ -100,11 +100,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         queryChanged: [
-            (s) => [s.isQueryBasedInsight, s.query, s.insight, s.savedInsight],
-            (isQueryBasedInsight, query, insight, savedInsight) => {
+            (s) => [s.isQueryBasedInsight, s.isUsingDataExploration, s.query, s.insight, s.savedInsight],
+            (isQueryBasedInsight, isUsingDataExploration, query, insight, savedInsight) => {
                 if (isQueryBasedInsight) {
                     return !objectsEqual(query, insight.query)
-                } else {
+                } else if (isUsingDataExploration) {
                     const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
                     const savedFilters =
                         savedInsight.filters ||
@@ -115,6 +115,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     delete savedFilters.filter_test_accounts
 
                     return !compareFilters(currentFilters, savedFilters)
+                } else {
+                    return false
                 }
             },
         ],
