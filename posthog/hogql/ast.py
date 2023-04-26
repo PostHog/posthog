@@ -21,7 +21,8 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
-# NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
+# :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
+# :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
 
 camel_case_pattern = re.compile(r"(?<!^)(?=[A-Z])")
 
@@ -59,7 +60,7 @@ class Expr(AST):
 class Macro(Expr):
     name: str
     expr: Expr
-    # Whether the macro is an inlined column "SELECT 1 AS a" or a subquery "SELECT a AS (SELECT 1)"
+    # Whether the macro is an inlined column "WITH 1 AS a" or a subquery "WITH a AS (SELECT 1)"
     macro_format: Literal["column", "subquery"]
 
 
@@ -436,6 +437,7 @@ class Call(Expr):
 
 
 class JoinExpr(Expr):
+    # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType]
 
     join_type: Optional[str] = None
@@ -448,6 +450,7 @@ class JoinExpr(Expr):
 
 
 class SelectQuery(Expr):
+    # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
     macros: Optional[Dict[str, Macro]] = None
     select: List[Expr]

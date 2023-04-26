@@ -1,9 +1,9 @@
 import { MutableRefObject } from 'react'
-import { kea } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { seekbarLogicType } from './seekbarLogicType'
 import {
+    SessionRecordingLogicProps,
     sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { clamp } from 'lib/utils'
 import { PlayerPosition } from '~/types'
@@ -19,21 +19,15 @@ import {
     THUMB_SIZE,
 } from './playerUtils'
 
-export const seekbarLogic = kea<seekbarLogicType>({
-    path: (key) => ['scenes', 'session-recordings', 'player', 'seekbarLogic', key],
-    props: {} as SessionRecordingPlayerLogicProps,
-    key: (props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`,
-    connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps) => ({
-        values: [
-            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
-            ['sessionPlayerData', 'currentPlayerPosition'],
-        ],
-        actions: [
-            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
-            ['seek', 'startScrub', 'endScrub', 'setCurrentPlayerPosition'],
-        ],
-    }),
-    actions: {
+export const seekbarLogic = kea<seekbarLogicType>([
+    path((key) => ['scenes', 'session-recordings', 'player', 'seekbarLogic', key]),
+    props({} as SessionRecordingLogicProps),
+    key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect((props: SessionRecordingLogicProps) => ({
+        values: [sessionRecordingPlayerLogic(props), ['sessionPlayerData', 'currentPlayerPosition']],
+        actions: [sessionRecordingPlayerLogic(props), ['seek', 'startScrub', 'endScrub', 'setCurrentPlayerPosition']],
+    })),
+    actions({
         setThumbLeftPos: (thumbLeftPos: number, shouldSeek: boolean) => ({ thumbLeftPos, shouldSeek }),
         setCursorDiff: (cursorDiff: number) => ({ cursorDiff }),
         handleSeek: (newX: number, shouldSeek: boolean = true) => ({ newX, shouldSeek }),
@@ -46,8 +40,8 @@ export const seekbarLogic = kea<seekbarLogicType>({
         setThumb: (ref: MutableRefObject<HTMLDivElement | null>) => ({ ref }),
         debouncedSetTime: (time: number) => ({ time }),
         endSeeking: true,
-    },
-    reducers: {
+    }),
+    reducers({
         thumbLeftPos: [
             -THUMB_OFFSET,
             {
@@ -86,8 +80,8 @@ export const seekbarLogic = kea<seekbarLogicType>({
                 endScrub: () => false,
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         endTimeMs: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
@@ -125,8 +119,8 @@ export const seekbarLogic = kea<seekbarLogicType>({
                 return 0
             },
         ],
-    },
-    listeners: ({ values, actions }) => ({
+    }),
+    listeners(({ values, actions }) => ({
         setCurrentPlayerPosition: async () => {
             if (!values.slider) {
                 return
@@ -222,16 +216,14 @@ export const seekbarLogic = kea<seekbarLogicType>({
                 )
             }
         },
+    })),
+    afterMount(({ actions, values, cache }) => {
+        cache.setCurrentPlayerPosition = () => {
+            actions.setCurrentPlayerPosition(values.currentPlayerPosition)
+        }
+        window.addEventListener('resize', cache.setCurrentPlayerPosition)
     }),
-    events: ({ actions, values, cache }) => ({
-        afterMount: () => {
-            cache.setCurrentPlayerPosition = () => {
-                actions.setCurrentPlayerPosition(values.currentPlayerPosition)
-            }
-            window.addEventListener('resize', cache.setCurrentPlayerPosition)
-        },
-        beforeUnmount: () => {
-            window.removeEventListener('resize', cache.setCurrentPlayerPosition)
-        },
+    beforeUnmount(({ cache }) => {
+        window.removeEventListener('resize', cache.setCurrentPlayerPosition)
     }),
-})
+])

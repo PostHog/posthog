@@ -100,12 +100,12 @@ CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     "toFloat": ("toFloat64OrNull", 1, 1),
     "toDecimal": ("toDecimal64OrNull", 1, 1),
     "toDate": ("toDateOrNull", 1, 1),
-    "toDateTime": ("toDateTime64OrNull", 1, 1),
+    "toDateTime": ("parseDateTime64BestEffortOrNull", 1, 1),
     "toUUID": ("toUUIDOrNull", 1, 1),
     "toString": ("toString", 1, 1),
     "toJSONString": ("toJSONString", 1, 1),
     "parseDateTime": ("parseDateTimeOrNull", 2, 2),
-    "parseDateTimeBestEffort": ("parseDateTimeBestEffortOrNull", 2, 2),
+    "parseDateTimeBestEffort": ("parseDateTime64BestEffortOrNull", 1, 1),
     # dates and times
     "toTimeZone": ("toTimeZone", 2, 2),
     "timeZoneOf": ("timeZoneOf", 1, 1),
@@ -632,7 +632,7 @@ HOGQL_AGGREGATIONS = {
     "maxIntersectionsPosition": 2,
     "maxIntersectionsPositionIf": 3,
 }
-ADD_TIMEZONE_TO_FUNCTIONS = ("now", "NOW", "toDateTime")
+ADD_TIMEZONE_TO_FUNCTIONS = ("now", "NOW", "toDateTime", "parseDateTime", "parseDateTimeBestEffort")
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
 
@@ -648,5 +648,4 @@ class HogQLSettings(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    readonly: Optional[int] = 1
     max_execution_time: Optional[int] = 60

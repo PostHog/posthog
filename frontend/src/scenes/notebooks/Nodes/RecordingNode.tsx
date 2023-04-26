@@ -3,7 +3,6 @@ import { ReactNodeViewRenderer } from '@tiptap/react'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
-import { PlayerMeta } from 'scenes/session-recordings/player/PlayerMeta'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const recordingLogicProps = {
@@ -17,7 +16,8 @@ const Component = (props: NodeViewProps): JSX.Element => {
             {...props}
             className={NotebookNodeType.Recording}
             title="Recording"
-            preview={<PlayerMeta {...recordingLogicProps} />}
+            // TODO: Fix "meta" preview
+            // preview={<PlayerMeta {...recordingLogicProps} />}
         >
             {/* TODO: replace hardcoded height, 32 (top) + 500 (player) + 16 (margins) + 88 (seekbar) = 620 */}
             <div style={{ maxHeight: 636 }}>
