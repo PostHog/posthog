@@ -17,9 +17,9 @@ export const filterTestAccountsDefaultsLogic = kea<filterTestAccountsDefaultsLog
         localFilterTestAccountsDefault: [
             null as null | boolean,
             {
-                setDefault: ({ value }) => value,
-                setTeamDefault: ({ value }) => value,
-                setLocalDefault: ({ value }) => value,
+                setDefault: (_, { value }) => value,
+                setTeamDefault: (_, { value }) => value,
+                setLocalDefault: (_, { value }) => value,
             },
         ],
     }),
