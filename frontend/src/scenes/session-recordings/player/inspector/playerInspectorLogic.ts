@@ -304,8 +304,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // ALSO: We could move the individual filtering logic into the MiniFilters themselves
                 const items: InspectorListItem[] = []
 
-                console.log(sessionPlayerMetaData)
-
                 // PERFORMANCE EVENTS
                 const performanceEventsArr = performanceEvents || []
                 for (const event of performanceEventsArr) {
