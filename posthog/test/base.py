@@ -692,6 +692,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             ]
         )
+
         run_clickhouse_statement_in_parallel(
             [
                 EVENTS_TABLE_SQL(),
