@@ -741,6 +741,7 @@ class TestResolver(BaseTest):
             ],
         )
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_table_alias(self):
         node = parse_select("select * from events e")
         node = resolve_types(node, self.database)
@@ -820,6 +821,7 @@ class TestResolver(BaseTest):
             ],
         )
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_from_subquery_table(self):
         node = parse_select("select * from (select * from events)")
         node = resolve_types(node, self.database)
@@ -864,6 +866,7 @@ class TestResolver(BaseTest):
             str(e.exception), "Cannot use '*' without table name when there are multiple tables in the query"
         )
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_select_union(self):
         node = parse_select("select * from (select * from events union all select * from events)")
         node = resolve_types(node, self.database)
