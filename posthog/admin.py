@@ -8,6 +8,7 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
+
 from posthog.models import (
     Action,
     ActionStep,
@@ -24,6 +25,8 @@ from posthog.models import (
     User,
     PluginAttachment,
 )
+
+from posthog.warehouse.admin import *
 
 admin.site.register(Person)
 admin.site.register(Element)

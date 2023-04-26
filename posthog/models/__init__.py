@@ -110,4 +110,7 @@ __all__ = [
     "User",
     "UserManager",
     "UserPromptState",
+    "Cluster",
+    "ClusterUser",
+    "Node",
 ]

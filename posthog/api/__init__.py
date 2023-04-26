@@ -38,6 +38,7 @@ from . import (
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
+from posthog.warehouse.api import cluster
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -140,6 +141,7 @@ organizations_router.register(
     "organization_domains",
     ["organization_id"],
 )
+organizations_router.register(r"cluster", cluster.ClusterViewSet, "warehouse_cluster", ["organization_id"])
 
 # Project nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet, "projects")
