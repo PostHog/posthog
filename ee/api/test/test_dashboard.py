@@ -264,6 +264,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         self.client.logout()
 
         self.organization.available_features = []
+        self.organization.available_product_features = []
         self.organization.save()
         self.team.access_control = True
         self.team.save()
