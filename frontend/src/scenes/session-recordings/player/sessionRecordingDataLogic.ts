@@ -31,9 +31,6 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
 export const parseMetadataResponse = (recording: SessionRecordingType): SessionRecordingMeta => {
-    let startTimestamp: Dayjs | undefined
-    let endTimestamp: Dayjs | undefined
-
     const segments: RecordingSegment[] =
         recording.segments?.map((segment): RecordingSegment => {
             const windowStartTime = dayjs(recording.start_and_end_times_by_window_id?.[segment.window_id]?.start_time)
@@ -48,13 +45,6 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionR
                 time: +segmentEndTime - +windowStartTime,
             }
             const durationMs = +segmentEndTime - +segmentStartTime
-
-            if (!startTimestamp || segmentStartTime.isBefore(startTimestamp)) {
-                startTimestamp = segmentStartTime
-            }
-            if (!endTimestamp || segmentEndTime.isAfter(endTimestamp)) {
-                endTimestamp = segmentEndTime
-            }
 
             return {
                 startPlayerPosition,
@@ -75,11 +65,13 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionR
     })
     return {
         pinnedCount: recording.pinned_count ?? 0,
+        recordingDurationMs: recording.recording_duration * 1000,
+        startTimestamp: dayjs(recording.start_time),
+        endTimestamp: dayjs(recording.end_time),
+
+        // TODO: Build these ourselves later
         segments,
         startAndEndTimesByWindowId,
-        recordingDurationMs: sum(segments.map((s) => s.durationMs)),
-        startTimestamp: startTimestamp as Dayjs,
-        endTimestamp: endTimestamp as Dayjs,
     }
 }
 
