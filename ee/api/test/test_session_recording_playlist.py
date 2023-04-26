@@ -44,8 +44,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
     def test_creates_too_many_playlists(self):
         limit = 0
         for feature in AVAILABLE_PRODUCT_FEATURES:
-            if feature["key"] == "recordings_playlists":
-                limit = feature["limit"]
+            if "key" in feature and feature["key"] == "recordings_playlists":
+                limit = int(feature["limit"])
         for _ in range(limit):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": "test"}
