@@ -18,6 +18,7 @@ local_ip = "127.0.0.1"
 )
 def test_geoip_results(test_input, expected):
     properties = get_geoip_properties(test_input)
+    print(properties, "properties")
     assert properties["$geoip_country_name"] == expected
     assert len(properties) == 6
 
@@ -31,7 +32,6 @@ class TestGeoIPDBError(TestCase):
         geoip.city = self.geoip_city_method  # type: ignore
 
     def test_geoip_with_invalid_database_file_returns_successfully(self):
-
         properties = get_geoip_properties(australia_ip)
 
         self.assertEqual(properties, {})
@@ -39,13 +39,11 @@ class TestGeoIPDBError(TestCase):
 
 class TestGeoIPError(TestCase):
     def test_geoip_on_local_ip_returns_successfully(self):
-
         properties = get_geoip_properties(local_ip)
 
         self.assertEqual(properties, {})
 
     def test_geoip_on_invalid_ip_returns_successfully(self):
-
         properties = get_geoip_properties(None)
 
         self.assertEqual(properties, {})
