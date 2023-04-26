@@ -34,8 +34,8 @@ class LicensedTestMixin:
             )
             if hasattr(cls, "organization") and cls.organization:  # type: ignore
                 cls.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES  # type: ignore
-                cls.organization.save()  # type: ignore
                 cls.organization.update_available_features()  # type: ignore
+                cls.organization.save()  # type: ignore
 
 
 class APILicensedTest(LicensedTestMixin, APIBaseTest):
