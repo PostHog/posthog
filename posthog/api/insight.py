@@ -485,7 +485,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         refresh_insight_now, refresh_frequency = should_refresh_insight(
             insight, dashboard_tile, request=self.context["request"], is_shared=self.context.get("is_shared")
         )
-        if insight.filters and refresh_insight_now:
+        if refresh_insight_now:
             return synchronously_update_cache(insight, dashboard, refresh_frequency)
 
         # :TODO: Clear up if tile can be null or not
