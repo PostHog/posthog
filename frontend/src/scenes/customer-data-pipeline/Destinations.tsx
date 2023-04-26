@@ -32,14 +32,14 @@ export const DestinationsList = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
 
     const { destinations, loading, error } = useDestinations()
-    const { destinationTypes, loading: loadingDestinationTypes, error: errorDestinationTypes } = useDestinationTypes()
+    const { destinationTypes } = useDestinationTypes()
 
-    if (loading || loadingDestinationTypes) {
+    if (loading) {
         return <Spinner />
     }
 
-    if (error || errorDestinationTypes) {
-        return <div>Error: {error?.message || errorDestinationTypes?.message}</div>
+    if (error) {
+        return <div>Error: {error?.message}</div>
     }
 
     if (!currentTeam) {
@@ -122,7 +122,10 @@ const useDestinations = (): { destinations: Destination[]; loading: boolean; err
 
     useEffect(() => {
         if (currentTeam) {
-            fetch(`/api/projects/${currentTeam.id}/destinations/`)
+            setLoading(true)
+            setError(null)
+            const controller = new AbortController()
+            fetch(`/api/projects/${currentTeam.id}/destinations/`, { signal: controller.signal })
                 .then(async (response) => {
                     if (response.ok) {
                         const data = (await response.json()) as DestinationsListResponse
@@ -134,30 +137,87 @@ const useDestinations = (): { destinations: Destination[]; loading: boolean; err
                     }
                 })
                 .catch((error) => {
-                    setError(error)
-                    setLoading(false)
+                    if (error.name !== 'AbortError') {
+                        setError(error)
+                        setLoading(false)
+                    }
                 })
+            return () => {
+                controller.abort()
+            }
         }
     }, [currentTeam])
 
     return { destinations, loading, error }
 }
 
-export type Destination = {
-    id: string
+export type GenericDestinationData = {
     name: string
     type: string
-    config: Record<string, any>
     description: string
+
+    mappings: {
+        filter: {
+            type: string
+            value: string
+        }
+        transformation: {
+            type: 'jsonata'
+            value: string
+        }
+    }[]
+}
+
+export type WebhookDestination = {
+    type: 'webhook'
+    config: {
+        url: string
+        headers: {
+            name: string
+            value: string
+        }[]
+    }
+} & GenericDestinationData
+
+export type AmplitudeDestination = {
+    type: 'amplitude'
+    config: {
+        api_key: string
+    }
+} & GenericDestinationData
+
+export type OptimizelyDestination = {
+    type: 'optimizely'
+    config: {
+        sdk_key: string
+    }
+} & GenericDestinationData
+
+export type MixpanelDestination = {
+    type: 'mixpanel'
+    config: {
+        api_secret: string
+    }
+} & GenericDestinationData
+
+export type DestinationMetadata = {
+    id: string
+
     created_at: string
     updated_at: string
+}
 
+export type DestinationStats = {
     stats: {
         events_sent_last_24_hours: number
         failures_last_24_hours: number
         successes_last_24_hours: number
     }
 }
+
+export type DestinationData = WebhookDestination | AmplitudeDestination | OptimizelyDestination | MixpanelDestination
+
+export type Destination = DestinationData & DestinationMetadata & DestinationStats
 
 type DestinationsListResponse = {
     destinations: Destination[]

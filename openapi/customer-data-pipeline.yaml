@@ -1,6 +1,7 @@
-openapi: 3.0.0
+openapi: 3.0.3
 info:
     title: Customer Data Pipeline
+    version: 0.0.1
     description: |
         The Customer Data Pipeline (CDP) is a service that allows users to
         upload data to the platform. It allows users to specify `Destination`s
@@ -13,52 +14,6 @@ info:
         event data into the format required by the destination.
 
 paths:
-    /api/projects/{project_id}/destination-types:
-        get:
-            summary: List destination types
-            description: |
-                List all destination types.
-            operationId: listDestinationTypes
-            parameters:
-                - name: project_id
-                  in: path
-                  description: ID of the project
-                  required: true
-                  schema:
-                      type: string
-            responses:
-                '200':
-                    description: List of destination types
-                    content:
-                        application/json:
-                            schema:
-                                type: array
-                                items:
-                                    $ref: '#/components/schemas/DestinationType'
-                '401':
-                    description: Unauthorized
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Error'
-                '403':
-                    description: Forbidden
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Error'
-                '404':
-                    description: Project not found
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Error'
-                '500':
-                    description: Internal server error
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Error'
     /api/projects/{project_id}/destinations:
         get:
             summary: List destinations
@@ -80,7 +35,9 @@ paths:
                             schema:
                                 type: array
                                 items:
-                                    $ref: '#/components/schemas/Destination'
+                                    allOf:
+                                        - $ref: '#/components/schemas/DestinationData'
+                                        - $ref: '#/components/schemas/DestinationMetadata'
                 '401':
                     description: Unauthorized
                     content:
@@ -123,14 +80,16 @@ paths:
                 content:
                     application/json:
                         schema:
-                            $ref: '#/components/schemas/Destination'
+                            $ref: '#/components/schemas/DestinationData'
             responses:
                 '201':
                     description: Destination created
                     content:
                         application/json:
                             schema:
-                                $ref: '#/components/schemas/Destination'
+                                allOf:
+                                    - $ref: '#/components/schemas/DestinationData'
+                                    - $ref: '#/components/schemas/DestinationMetadata'
                 '400':
                     description: Bad request
                     content:
@@ -186,7 +145,10 @@ paths:
                     content:
                         application/json:
                             schema:
-                                $ref: '#/components/schemas/Destination'
+                                allOf:
+                                    - $ref: '#/components/schemas/DestinationData'
+                                    - $ref: '#/components/schemas/DestinationMetadata'
+
                 '401':
                     description: Unauthorized
                     content:
@@ -235,20 +197,22 @@ paths:
                 content:
                     application/json:
                         schema:
-                            $ref: '#/components/schemas/Destination'
+                            $ref: '#/components/schemas/DestinationData'
             responses:
                 '200':
                     description: Destination updated
                     content:
                         application/json:
                             schema:
-                                $ref: '#/components/schemas/Destination'
+                                allOf:
+                                    - $ref: '#/components/schemas/DestinationData'
+                                    - $ref: '#/components/schemas/DestinationMetadata'
                 '400':
                     description: Bad request
                     content:
                         application/json:
                             schema:
-                                $ref: '#/components/schemas/Error'
+                                $ref: '#/components/schemas/CreateError'
                 '401':
                     description: Unauthorized
                     content:
@@ -319,54 +283,92 @@ paths:
                             schema:
                                 $ref: '#/components/schemas/Error'
 
-    components:
-        schemas:
-            DestinationType:
-                type: object
-                properties:
-                    id:
-                        type: string
-                        description: ID of the destination type
-                    name:
-                        type: string
-                        description: Name of the destination type
-                    description:
-                        type: string
-                        description: Description of the destination type
-                    created_at:
-                        type: string
-                        format: date-time
-                        description: Date and time when the destination type was created
-                    updated_at:
-                        type: string
-                        format: date-time
-                        description: Date and time when the destination type was updated
-            Destination:
-                type: object
-                properties:
-                    id:
-                        type: string
-                        description: ID of the destination
-                    type:
-                        type: string
-                        description: Type of the destination
-                    name:
-                        type: string
-                        description: Name of the destination
-                    description:
-                        type: string
-                        description: Description of the destination
-                    created_at:
-                        type: string
-                        format: date-time
-                        description: Date and time when the destination was created
-                    updated_at:
-                        type: string
-                        format: date-time
-                        description: Date and time when the destination was updated
-            Error:
-                type: object
-                properties:
-                    message:
-                        type: string
-                        description: Error message
+components:
+    schemas:
+        DestinationData:
+            type: object
+            properties:
+                type:
+                    type: string
+                    description: Type of the destination
+                    enum: [webhook]
+                name:
+                    type: string
+                    description: Name of the destination
+                description:
+                    type: string
+                    description: Description of the destination
+                config:
+                    type: object
+                    description: |
+                        Configuration of the destination. At the moment only
+                        supports webhook config. As we are hardcoding the types
+                        that are available, we are also hardcoding the schema.
+                        This may well change in the future but in reality the
+                        addition of new destination types and config will likely
+                        also include a code component.
+                    properties:
+                        url:
+                            type: string
+                            description: URL to send the webhook to
+                        headers:
+                            type: array
+                            description: Headers to send with the webhook
+                            items:
+                                type: object
+                                properties:
+                                    key:
+                                        type: string
+                                        description: Header key
+                                    value:
+                                        type: string
+                                        description: Header value
+        DestinationMetadata:
+            type: object
+            properties:
+                stats:
+                    type: object
+                    description: Destination statistics
+                    properties:
+                        events_sent_last_24_hours:
+                            type: integer
+                            description: Number of events sent in the last 24 hours
+                        failures_last_24_hours:
+                            type: integer
+                            description: Number of failures in the last 24 hours
+                        successes_last_24_hours:
+                            type: integer
+                            description: Number of successes in the last 24 hours
+                created_at:
+                    type: string
+                    format: date-time
+                    description: Date and time when the destination was created
+                updated_at:
+                    type: string
+                    format: date-time
+                    description: Date and time when the destination was updated
+        Error:
+            type: object
+            properties:
+                message:
+                    type: string
+                    description: Error message
+
+        CreateError:
+            type: object
+            properties:
+                message:
+                    type: string
+                    description: Error message
+                errors:
+                    type: array
+                    description: List of errors
+                    items:
+                        type: object
+                        properties:
+                            field:
+                                type: string
+                                description: Field with error
+                            message:
+                                type: string
+                                description: Error message
