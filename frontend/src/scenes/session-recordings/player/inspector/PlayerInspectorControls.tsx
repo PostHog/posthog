@@ -87,11 +87,11 @@ export function PlayerInspectorControls(): JSX.Element {
                         <LemonSelect
                             size="small"
                             data-attr="player-window-select"
-                            value={windowIdFilter ?? undefined}
+                            value={windowIdFilter}
                             onChange={(val) => setWindowIdFilter(val || null)}
                             options={[
                                 {
-                                    value: undefined,
+                                    value: null,
                                     label: 'All windows',
                                     icon: <IconWindow size="small" value="A" className="text-muted" />,
                                 },
