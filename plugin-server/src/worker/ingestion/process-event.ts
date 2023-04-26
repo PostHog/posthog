@@ -325,14 +325,14 @@ export const createSessionReplayEvent = (
     eventsSummaries.forEach((eventSummary: RRWebEventSummary) => {
         if (eventSummary.type === 3) {
             mouseActivity += 1
-            if (eventSummary.data.source === 2) {
+            if (eventSummary.data?.source === 2) {
                 clickCount += 1
             }
-            if (eventSummary.data.source === 5) {
+            if (eventSummary.data?.source === 5) {
                 keypressCount += 1
             }
         }
-        if (!!eventSummary.data.href?.trim().length && url === undefined) {
+        if (!!eventSummary.data?.href?.trim().length && url === undefined) {
             url = eventSummary.data.href
         }
     })

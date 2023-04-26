@@ -82,7 +82,13 @@ describe('session-recordings-consumer', () => {
         await eachBachWithDependencies([
             {
                 key: 'test',
-                value: JSON.stringify({ team_id: teamId, data: JSON.stringify({ event: '$snapshot' }) }),
+                value: JSON.stringify({
+                    team_id: teamId,
+                    data: JSON.stringify({
+                        event: '$snapshot',
+                        properties: { $snapshot_data: { events_summary: [{}] } },
+                    }),
+                }),
                 timestamp: 123,
             },
         ])
@@ -99,7 +105,13 @@ describe('session-recordings-consumer', () => {
         await eachBachWithDependencies([
             {
                 key: 'test',
-                value: JSON.stringify({ team_id: teamId, data: JSON.stringify({ event: '$snapshot' }) }),
+                value: JSON.stringify({
+                    team_id: teamId,
+                    data: JSON.stringify({
+                        event: '$snapshot',
+                        properties: { $snapshot_data: { events_summary: [{}] } },
+                    }),
+                }),
                 timestamp: 123,
             },
         ])
