@@ -57,14 +57,14 @@ class EventsTable(Table):
     elements_chain: StringDatabaseField = StringDatabaseField(name="elements_chain")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
 
-    # lazy table that adds a join to the persons table
+    # Lazy table that adds a join to the persons table
     pdi: LazyJoin = LazyJoin(
         from_field="distinct_id",
         join_table=PersonDistinctIdTable(),
         join_function=join_with_person_distinct_ids_table,
     )
 
-    # person and group fields on the event itself
+    # Person and group fields on the event itself. Should not be used directly.
     poe: EventsPersonSubTable = EventsPersonSubTable()
     goe_0: EventsGroupSubTable = EventsGroupSubTable(group_index=0)
     goe_1: EventsGroupSubTable = EventsGroupSubTable(group_index=1)
