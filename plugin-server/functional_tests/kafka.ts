@@ -1,6 +1,6 @@
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
-import { HighLevelProducer } from 'node-rdkafka'
+import { HighLevelProducer } from 'node-rdkafka-acosom'
 
 import { defaultConfig } from '../src/config/config'
 

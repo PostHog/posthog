@@ -144,6 +144,7 @@ export const FEATURE_FLAGS = {
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
     FEATURE_MANAGEMENT: 'feature-management', // owner: @Twixes
     ARUBUG: 'arubug', // owner: #team-arubug
+    HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     BILLING_BY_PRODUCTS: 'billing-by-products', // owner: @raquelmsmith
     RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries

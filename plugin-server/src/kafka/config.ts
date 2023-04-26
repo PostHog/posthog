@@ -1,4 +1,4 @@
-import { GlobalConfig } from 'node-rdkafka'
+import { GlobalConfig } from 'node-rdkafka-acosom'
 import { hostname } from 'os'
 
 import { KafkaConfig } from '../utils/db/hub'

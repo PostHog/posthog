@@ -666,9 +666,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                     <LemonDivider className="my-3" />
                     {featureFlag.filters.multivariate && (
                         <>
-                            <div className="mb-2">
-                                <b>Variant keys</b>
-                            </div>
+                            <h3 className="l3">Variant keys</h3>
                             <div className="border rounded p-4 mb-4">
                                 <Row gutter={16} className="font-semibold">
                                     <Col span={6}>Key</Col>
@@ -1100,9 +1098,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
             <div className="feature-flag-form-row">
                 <div data-attr="feature-flag-release-conditions">
                     {readOnly ? (
-                        <div className="mb-2">
-                            <b>Release conditions</b>
-                        </div>
+                        <h3 className="l3">Release conditions</h3>
                     ) : (
                         <>
                             <h3 className="l3">Release conditions</h3>

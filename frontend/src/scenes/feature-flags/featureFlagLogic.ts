@@ -543,7 +543,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({
                 endpoint: `projects/${values.currentTeamId}/feature_flags`,
-                object: { name: featureFlag.name, id: featureFlag.id },
+                object: { name: featureFlag.key, id: featureFlag.id },
                 callback: () => {
                     featureFlag.id && featureFlagsLogic.findMounted()?.actions.deleteFlag(featureFlag.id)
                     featureFlagsLogic.findMounted()?.actions.loadFeatureFlags()
