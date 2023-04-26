@@ -388,8 +388,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             },
                             {
                                 key: '$session_id',
-                                value: 'is_not_set',
-                                operator: 'is_not_set',
+                                value: '', // 'is_not_set',
+                                operator: 'exact',
                                 type: 'event',
                             },
                         ].map((properties) =>
