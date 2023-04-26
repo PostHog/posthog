@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka'
+import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
@@ -33,10 +33,7 @@ export class SessionRecordingBlobIngester {
         private objectStorage: ObjectStorage
     ) {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
-        this.enabledTeams =
-            enabledTeamsString === 'all' || enabledTeamsString.trim().length === 0
-                ? null
-                : enabledTeamsString.split(',').map(parseInt)
+        this.enabledTeams = enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').map(parseInt)
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {

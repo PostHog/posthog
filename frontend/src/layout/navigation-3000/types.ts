@@ -1,6 +1,7 @@
 import { Logic, LogicWrapper } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { RefObject } from 'react'
 
 export interface SidebarLogic extends Logic {
     actions: Record<never, never> // No actions required in the base version
@@ -8,6 +9,11 @@ export interface SidebarLogic extends Logic {
         isLoading: boolean
         contents: Accordion[] | BasicListItem[] | ExtendedListItem[]
         activeListItemKey: BasicListItem['key'] | null
+    }
+    selectors: {
+        isLoading: (state: any, props?: any) => boolean
+        contents: (state: any, props?: any) => Accordion[] | BasicListItem[] | ExtendedListItem[]
+        activeListItemKey: (state: any, props?: any) => BasicListItem['key'] | null
     }
 }
 
@@ -56,6 +62,8 @@ export interface BasicListItem {
         nameHighlightRanges?: readonly [number, number][]
     } | null
     menuItems?: LemonMenuItems
+    /** Ref to the corresponding <a> element. This is injected automatically when the element is rendered. */
+    ref?: RefObject<HTMLAnchorElement>
 }
 
 export type ExtraListItemContext = string | Dayjs

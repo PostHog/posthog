@@ -1,5 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka'
+import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka-acosom'
 
 import {
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
