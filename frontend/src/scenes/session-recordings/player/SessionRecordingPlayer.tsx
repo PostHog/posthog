@@ -63,7 +63,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             f: {
                 action: () => setIsFullScreen(!isFullScreen),
             },
-            ' ': {
+            space: {
                 action: () => togglePlayPause(),
             },
             arrowleft: {
