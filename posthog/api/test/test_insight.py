@@ -1653,6 +1653,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             team=self.team,
             short_id="12345678",
         )
+        Insight.objects.create(
+            name="Foobar",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="abcdfghi",
+        )
         sharing_configuration = SharingConfiguration.objects.create(
             team=self.team, insight=insight, enabled=True, access_token="xyz"
         )
@@ -1660,32 +1666,46 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             team=self.team, enabled=True, access_token="klm"
         )
 
-        response_invalid_token = self.client.get(
+        response_invalid_token_retrieve = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token=abc",
         )
-        response_incorrect_token = self.client.get(
+        response_incorrect_token_retrieve = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={other_sharing_configuration.access_token}",
         )
-        response_correct_token = self.client.get(
+        response_correct_token_retrieve = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
         )
+        response_correct_token_list = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?sharing_access_token={sharing_configuration.access_token}",
+        )
 
-        self.assertEqual(response_invalid_token.status_code, 401, response_invalid_token.json())
+        self.assertEqual(response_invalid_token_retrieve.status_code, 401, response_invalid_token_retrieve.json())
         self.assertEqual(
-            response_invalid_token.json(),
+            response_invalid_token_retrieve.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
         )
-        self.assertEqual(response_incorrect_token.status_code, 404, response_incorrect_token.json())
+        self.assertEqual(response_incorrect_token_retrieve.status_code, 404, response_incorrect_token_retrieve.json())
         self.assertEqual(
-            response_incorrect_token.json(),
+            response_incorrect_token_retrieve.json(),
             self.not_found_response(),
         )
-        self.assertEqual(response_correct_token.status_code, 200, response_correct_token.json())
+        self.assertEqual(response_correct_token_retrieve.status_code, 200, response_correct_token_retrieve.json())
         self.assertDictContainsSubset(
             {
                 "name": "Foobar",
             },
-            response_correct_token.json(),
+            response_correct_token_retrieve.json(),
+        )
+        self.assertEqual(response_correct_token_list.status_code, 200, response_correct_token_list.json())
+        # abcdfghi not returned as it's not related to this sharing configuration
+        self.assertEqual(response_correct_token_list.json()["count"], 1)
+        self.assertDictContainsSubset(
+            {
+                "id": insight.id,
+                "name": "Foobar",
+                "short_id": "12345678",
+            },
+            response_correct_token_list.json()["results"][0],
         )
 
     def test_logged_out_user_cannot_retrieve_insight_with_disabled_insight_sharing_access_token(self) -> None:
@@ -1699,13 +1719,22 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             team=self.team, insight=insight, enabled=False, access_token="xyz"  # DISABLED!
         )
 
-        response = self.client.get(
+        response_retrieve = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
         )
+        response_list = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?short_id={insight.short_id}&sharing_access_token={sharing_configuration.access_token}",
+        )
 
-        self.assertEqual(response.status_code, 401, response.json())
+        self.assertEqual(response_retrieve.status_code, 401, response_retrieve.json())
         self.assertEqual(
-            response.json(), self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed")
+            response_retrieve.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
+        )
+        self.assertEqual(response_list.status_code, 401, response_retrieve.json())
+        self.assertEqual(
+            response_list.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
         )
 
     def test_logged_out_user_can_retrieve_insight_with_correct_dashboard_sharing_access_token(self) -> None:
