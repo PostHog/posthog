@@ -9,7 +9,7 @@ import {
     InsightShortId,
     ItemMode,
 } from '~/types'
-import { IconEvent, IconLock } from 'lib/lemon-ui/icons'
+import { IconLock } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -328,11 +328,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
                         {isUsingDataExploration && isInsightVizNode(query) ? (
                             <LemonButton
-                                tooltip={showQueryEditor ? 'Hide JSON editor' : 'Edit as JSON'}
+                                tooltip={showQueryEditor ? 'Hide source (Beta)' : 'View source (Beta)'}
                                 type={'secondary'}
                                 onClick={toggleQueryEditorPanel}
                             >
-                                <IconEvent />
+                                {'{}'}
                             </LemonButton>
                         ) : null}
                     </div>

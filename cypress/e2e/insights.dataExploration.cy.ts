@@ -29,7 +29,7 @@ describe('Insights (with data exploration on)', () => {
 
     it('can open the query editor', () => {
         insight.newInsight('TRENDS')
-        cy.get('[aria-label="Edit as JSON"]').click()
+        cy.get('[aria-label="View source (Beta)"]').click()
         cy.get('[data-attr="query-editor"]').should('exist')
     })
 
