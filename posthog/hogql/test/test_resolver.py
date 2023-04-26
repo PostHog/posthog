@@ -1,4 +1,5 @@
 from datetime import timezone, datetime, date
+from django.test import override_settings
 from uuid import UUID
 
 from freezegun import freeze_time
@@ -719,6 +720,7 @@ class TestResolver(BaseTest):
             ),
         )
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_table(self):
         node = parse_select("select * from events")
         node = resolve_types(node, self.database)
