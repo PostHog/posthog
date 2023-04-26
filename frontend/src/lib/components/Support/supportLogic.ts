@@ -40,18 +40,19 @@ export const TargetAreaToName = {
     experiments: 'Experiments',
     feature_flags: 'Feature Flags',
     login: 'Login / Sign up / Invites',
-    session_reply: 'Session Replay',
+    session_replay: 'Session Replay',
 }
 export type supportTicketTargetArea = keyof typeof TargetAreaToName | null
 export type supportTicketKind = 'bug' | 'feedback' | null
 
 export const URLPathToTargetArea: Record<string, supportTicketTargetArea> = {
     insights: 'analytics',
-    recordings: 'session_reply',
+    recordings: 'session_replay',
+    replay: 'session_replay',
     dashboard: 'analytics',
     feature_flags: 'feature_flags',
     experiments: 'experiments',
-    'web-performance': 'session_reply',
+    'web-performance': 'session_replay',
     events: 'analytics',
     'data-management': 'data_management',
     cohorts: 'cohorts',
