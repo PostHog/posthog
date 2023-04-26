@@ -3,16 +3,23 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { IconChevronRight, IconCheckmark, IconExpandMore, IconPlus, IconArticle } from 'lib/lemon-ui/icons'
+import {
+    IconChevronRight,
+    IconCheckmark,
+    IconExpandMore,
+    IconPlus,
+    IconArticle,
+    IconCheckCircleOutline,
+} from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
-import { summarizeUsage } from '../billing-utils'
+import { convertLargeNumberToWords, getUpgradeAllProductsLink, summarizeUsage } from '../billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from '../billingLogic'
 import { BillingLimitInput } from './BillingLimitInput'
 import { billingProductLogic } from './billingProductLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { PlanComparisonModal } from './PlanComparisonModal'
@@ -172,22 +179,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
 
-    const getUpgradeAllProductsLink = (): string => {
-        let url = '/api/billing-v2/activation?products='
-        url += `${product.type}:${upgradeToPlanKey},`
-        if (product.addons?.length) {
-            for (const addon of product.addons) {
-                url += `${addon.type}:${addon.plans[0].plan_key},`
-            }
-        }
-        // remove the trailing comma that will be at the end of the url
-        url = url.slice(0, -1)
-        if (redirectPath) {
-            url += `&redirect_path=${redirectPath}`
-        }
-        return url
-    }
-
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         700: 'medium',
@@ -210,21 +201,23 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         { title: 'Projected Total', dataIndex: 'projectedTotal' },
     ]
 
+    type TableTierDatum = {
+        volume: string
+        basePrice: string
+        [addonPrice: string]: string
+        usage: string
+        total: string
+        projectedTotal: string
+    }
+
     // TODO: SUPPORT NON-TIERED PRODUCT TYPES
     // still use the table, but the data will be different
-    const tableTierData:
-        | {
-              volume: string
-              basePrice: string
-              [addonPrice: string]: string
-              usage: string
-              total: string
-              projectedTotal: string
-          }[]
-        | undefined = product.tiers
+    const tableTierData: TableTierDatum[] | undefined = product.tiers
         ?.map((tier, i) => {
             const addonPricesForTier = product.addons?.map((addon) => ({
-                [`${addon.type}-price`]: `$${addon.tiers?.[i].unit_amount_usd}`,
+                [`${addon.type}-price`]: `${
+                    addon.tiers?.[i].unit_amount_usd !== '0' ? '$' + addon.tiers?.[i].unit_amount_usd : 'Free'
+                }`,
             }))
             // take the tier.current_amount_usd and add it to the same tier level for all the addons
             const totalForTier =
@@ -237,7 +230,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             const tierData = {
                 volume: getTierDescription(tier, i, product, billing?.billing_period?.interval || ''),
                 basePrice: tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free',
-                usage: summarizeUsage(tier.current_usage),
+                usage: compactNumber(tier.current_usage),
                 total: `$${totalForTier || '0.00'}`,
                 projectedTotal: `$${projectedTotalForTier || '0.00'}`,
             }
@@ -251,7 +244,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         .concat({
             volume: 'Total',
             basePrice: '',
-            usage: `${summarizeUsage(product.current_usage ?? 0)}`,
+            usage: `${compactNumber(product.current_usage ?? 0)}`,
             total: `$${product.current_amount_usd || '0.00'}`,
             // TODO: Make sure this projected total includes addons
             projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
@@ -305,13 +298,23 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <More
                                         overlay={
                                             <>
-                                                <LemonButton
-                                                    status="stealth"
-                                                    fullWidth
-                                                    onClick={() => deactivateProduct(product.type)}
-                                                >
-                                                    Unsubscribe
-                                                </LemonButton>
+                                                {product.plans?.length > 0 ? (
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        fullWidth
+                                                        onClick={() => deactivateProduct(product.type)}
+                                                    >
+                                                        Unsubscribe
+                                                    </LemonButton>
+                                                ) : (
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        fullWidth
+                                                        to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
+                                                    >
+                                                        Contact support to unsubscribe
+                                                    </LemonButton>
+                                                )}
                                                 {billing?.billing_period?.interval == 'month' && (
                                                     <LemonButton
                                                         fullWidth
@@ -338,15 +341,26 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     ) : null}
                     <div className="flex w-full items-center gap-x-8">
                         {product.contact_support && !product.subscribed ? (
-                            <>
-                                <p className="m-0 p-8">
-                                    Need additional platform and support (aka enterprise) features?{' '}
+                            <div className="py-8">
+                                {!billing?.has_active_subscription && (
+                                    <p className="ml-0">
+                                        Every product subsciption comes with free platform features such as{' '}
+                                        <b>
+                                            Multiple projects, Feature flags, Experimentation, Integrations, Apps, and
+                                            more
+                                        </b>
+                                        . Subscribe to one of the products above to get instant access.
+                                    </p>
+                                )}
+                                <p className="m-0">
+                                    Need additional platform and support (aka enterprise) features like SSO and advanced
+                                    permissioning?{' '}
                                     <Link to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request">
                                         Get in touch
                                     </Link>{' '}
                                     for a quick chat.
                                 </p>
-                            </>
+                            </div>
                         ) : (
                             !isOnboarding && (
                                 <>
@@ -471,19 +485,56 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             <h4 className={`${product.subscribed ? 'text-success-dark' : 'text-warning-dark'}`}>
                                 You're on the {product.subscribed ? 'paid' : 'free'} plan for {product.name}.
                             </h4>
-                            <p className="m-0 max-w-200">
-                                {product.subscribed ? 'You now' : 'Upgrade to'} get sweet features such as{' '}
+                            <p className="ml-0 max-w-200">
+                                {product.subscribed ? 'You now' : 'Upgrade to'} get sweet features such as:
+                            </p>
+                            <div>
                                 {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
                                     return (
                                         i < 3 && (
-                                            <Tooltip key={feature.key} title={feature.description}>
-                                                <b>{feature.name}, </b>
-                                            </Tooltip>
+                                            <div className="flex gap-x-2 items-center mb-2">
+                                                <IconCheckCircleOutline className="text-success" />
+                                                <Tooltip key={feature.key} title={feature.description}>
+                                                    <b>{feature.name} </b>
+                                                </Tooltip>
+                                            </div>
                                         )
                                     )
                                 })}
-                                and more{!billing?.has_active_subscription && ', plus upgraded platform features'}.
-                            </p>
+                                {!billing?.has_active_subscription && (
+                                    <div className="flex gap-x-2 items-center mb-2">
+                                        <IconCheckCircleOutline className="text-success" />
+                                        <Tooltip
+                                            title={
+                                                'Multiple projects, Feature flags, Experiments, Integrations, Apps, and more'
+                                            }
+                                        >
+                                            <b>Upgraded platform features</b>
+                                        </Tooltip>
+                                    </div>
+                                )}
+                                <div className="flex gap-x-2 items-center mb-2">
+                                    <IconCheckCircleOutline className="text-success" />
+                                    {product.subscribed ? (
+                                        <b>And more</b>
+                                    ) : (
+                                        <Link onClick={toggleIsPlanComparisonModalOpen}>
+                                            <b>And more...</b>
+                                        </Link>
+                                    )}
+                                </div>
+                            </div>
+                            {upgradePlan?.tiers?.[0].unit_amount_usd &&
+                                parseInt(upgradePlan?.tiers?.[0].unit_amount_usd) === 0 && (
+                                    <p className="ml-0 mb-0 mt-4">
+                                        <b>
+                                            First {convertLargeNumberToWords(upgradePlan?.tiers?.[0].up_to, null)}{' '}
+                                            {product.unit}s free
+                                        </b>
+                                        , then ${upgradePlan?.tiers?.[1].unit_amount_usd}/{product.unit} with volume
+                                        discounts.
+                                    </p>
+                                )}
                         </div>
                         {!product.subscribed && (
                             <div className="ml-4">
@@ -492,6 +543,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         type="secondary"
                                         onClick={toggleIsPlanComparisonModalOpen}
                                         className="grow"
+                                        center
                                     >
                                         Compare plans
                                     </LemonButton>
@@ -499,7 +551,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         to={
                                             // if we're in onboarding we want to upgrade them to the product and the addons at once
                                             isOnboarding
-                                                ? getUpgradeAllProductsLink()
+                                                ? getUpgradeAllProductsLink(
+                                                      product,
+                                                      upgradeToPlanKey || '',
+                                                      redirectPath
+                                                  )
                                                 : // otherwise we just want to upgrade them to the product
                                                   `/api/billing-v2/activation?products=${
                                                       product.type
@@ -514,6 +570,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             reportBillingUpgradeClicked(product.type)
                                         }}
                                         className="grow"
+                                        center
                                     >
                                         Upgrade
                                     </LemonButton>
@@ -522,6 +579,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         )}
                         <PlanComparisonModal
                             product={product}
+                            includeAddons={isOnboarding}
                             modalOpen={isPlanComparisonModalOpen}
                             onClose={toggleIsPlanComparisonModalOpen}
                         />
