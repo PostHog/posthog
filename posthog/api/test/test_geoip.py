@@ -18,7 +18,6 @@ local_ip = "127.0.0.1"
 )
 def test_geoip_results(test_input, expected):
     properties = get_geoip_properties(test_input)
-    print(properties, "properties")
     assert properties["$geoip_country_name"] == expected
     assert len(properties) == 6
 
