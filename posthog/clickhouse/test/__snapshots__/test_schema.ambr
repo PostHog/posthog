@@ -1339,7 +1339,7 @@
   session_id,
   team_id,
   any(distinct_id),
-  max(timestamp),
+  any(timestamp),
   minState(timestamp) AS first_timestamp,
   maxState(timestamp) AS last_timestamp,
   any(first_url),

@@ -2,13 +2,13 @@ from datetime import datetime
 from uuid import uuid4
 
 import pytz
-from freezegun.api import freeze_time
 
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models import Team
 from posthog.models.event.util import format_clickhouse_timestamp
+from posthog.models.session_replay_event.sql import SELECT_ALL_SUMMARIZED_SESSIONS
 
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries, ClickhouseDestroyTablesMixin
@@ -19,7 +19,6 @@ INSERT INTO sharded_session_replay_events (
         session_id,
     team_id,
     distinct_id,
-    timestamp,
     first_timestamp,
     last_timestamp,
     first_url,
@@ -31,7 +30,6 @@ SELECT
     %(session_id)s,
     %(team_id)s,
     %(distinct_id)s,
-    %(timestamp)s,
     minState(toDateTime64(%(timestamp)s, 6, 'UTC')),
     maxState(toDateTime64(%(timestamp)s, 6, 'UTC')),
     anyState(%(first_url)s),
@@ -39,6 +37,8 @@ SELECT
     %(keypress_count)s,
     %(mouse_activity_count)s
 """
+
+fake_offset = 0
 
 
 def produce_replay_summary(
@@ -51,6 +51,8 @@ def produce_replay_summary(
     keypress_count: int,
     mouse_activity_count: int,
 ):
+    global fake_offset
+    fake_offset += 1
     timestamp = cast_timestamp_or_now(timestamp)
     data = {
         "session_id": session_id,
@@ -73,26 +75,12 @@ def make_filter(serializer_klass=AppMetricsRequestSerializer, **kwargs) -> AppMe
 
 
 class SessionReplaySummaryQuery:
-    QUERY = """
-    select
-           session_id,
-           any(team_id),
-           any(distinct_id),
-           minMerge(first_timestamp),
-           maxMerge(last_timestamp),
-           sum(click_count),
-           sum(keypress_count),
-           sum(mouse_activity_count)
-    from session_replay_events
-    group by session_id
-    """
-
     def __init__(self, team: Team):
         self.team = team
 
     def run(self):
         results = sync_execute(
-            self.QUERY,
+            SELECT_ALL_SUMMARIZED_SESSIONS,
             # {"team_id": self.team.pk, "from_date": format_clickhouse_timestamp(datetime.now() - timedelta(hours=24))},
         )
         return results
@@ -100,14 +88,14 @@ class SessionReplaySummaryQuery:
 
 # TODO remove the ClickhouseDestroyTablesMixin once queries are being targeted by date/session_id
 class TestReceiveSummarizedSessionReplays(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseTest):
-    @freeze_time("2021-12-05T13:23:00Z")
     @snapshot_clickhouse_queries
     def test_something(self):
         session_id = str(uuid4())
+
         produce_replay_summary(
             session_id=session_id,
             team_id=self.team.pk,
-            timestamp="2021-12-01T00:10:00",
+            timestamp="2023-04-26T19:17:38.116",
             distinct_id=str(self.user.distinct_id),
             first_url=None,
             click_count=2,
@@ -118,7 +106,7 @@ class TestReceiveSummarizedSessionReplays(ClickhouseDestroyTablesMixin, Clickhou
         produce_replay_summary(
             session_id=session_id,
             team_id=self.team.pk,
-            timestamp="2021-12-05T00:10:00",
+            timestamp="2023-04-26T19:18:04.118",
             distinct_id=str(self.user.distinct_id),
             first_url=None,
             click_count=2,
@@ -128,17 +116,7 @@ class TestReceiveSummarizedSessionReplays(ClickhouseDestroyTablesMixin, Clickhou
         produce_replay_summary(
             session_id=session_id,
             team_id=self.team.pk,
-            timestamp="2021-12-05T00:10:00",
-            distinct_id=str(self.user.distinct_id),
-            first_url=None,
-            click_count=2,
-            keypress_count=2,
-            mouse_activity_count=2,
-        )
-        produce_replay_summary(
-            session_id=session_id,
-            team_id=self.team.pk,
-            timestamp="2021-12-05T00:10:00",
+            timestamp="2023-04-26T19:18:24.597",
             distinct_id=str(self.user.distinct_id),
             first_url=None,
             click_count=2,
@@ -152,31 +130,15 @@ class TestReceiveSummarizedSessionReplays(ClickhouseDestroyTablesMixin, Clickhou
                 session_id,
                 self.team.pk,
                 str(self.user.distinct_id),
-                datetime(2021, 12, 1, 0, 10, tzinfo=pytz.UTC),
-                datetime(2021, 12, 5, 0, 10, tzinfo=pytz.UTC),
-                8,
-                8,
-                8,
+                datetime(2023, 4, 26, 19, 17, 38, 116000, tzinfo=pytz.UTC),
+                datetime(2023, 4, 26, 19, 18, 24, 597000, tzinfo=pytz.UTC),
+                6,
+                6,
+                6,
             )
         ]
 
 
-#     @freeze_time("2021-12-05T13:23:00Z")
-#     def test_ignores_out_of_bound_metrics(self):
-#         produce_replay_summary(
-#             team_id=-1, category="processEvent", plugin_config_id=3, timestamp="2021-12-05T00:10:00Z", successes=5
-#         )
-#         produce_replay_summary(
-#             team_id=self.team.pk,
-#             category="processEvent",
-#             plugin_config_id=1,
-#             timestamp="2021-12-04T00:10:00Z",
-#             failures=1,
-#         )
-#         results = TeamPluginsDeliveryRateQuery(self.team).run()
-#         self.assertEqual(results, {})
-#
-#
 # class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
 #     @freeze_time("2021-12-05T13:23:00Z")
 #     @snapshot_clickhouse_queries
