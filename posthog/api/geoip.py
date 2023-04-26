@@ -51,6 +51,7 @@ def get_geoip_properties(ip_address: Optional[str]) -> Dict[str, str]:
         return {}
 
     properties = {}
+    print(geoip_properties, "geoip_properties")
     for key, value in geoip_properties.items():
         if value and key in VALID_GEOIP_PROPERTIES:
             properties[f"$geoip_{key}"] = value
