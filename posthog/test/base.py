@@ -765,10 +765,10 @@ def also_test_with_different_timezones(fn):
 
 
 def _create_insight(
-    team: Team, insight_filters: Dict[str, Any], dashboard_filters: Dict[str, Any], *, id: Optional[int] = None
+    team: Team, insight_filters: Dict[str, Any], dashboard_filters: Dict[str, Any]
 ) -> Tuple[Insight, Dashboard, DashboardTile]:
     dashboard = Dashboard.objects.create(team=team, filters=dashboard_filters)
-    insight = Insight.objects.create(id=id, team=team, filters=insight_filters)
+    insight = Insight.objects.create(team=team, filters=insight_filters)
     dashboard_tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
     return insight, dashboard, dashboard_tile
 

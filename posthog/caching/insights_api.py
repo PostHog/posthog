@@ -98,7 +98,7 @@ def _is_refresh_currently_running_somewhere_else(caching_state: Optional[Insight
     """Return whether the refresh is most likely still running somewhere else."""
     if (
         caching_state is not None
-        # A refresh must has queued at some point in the past
+        # A refresh must have been queued at some point in the past
         and caching_state.last_refresh_queued_at is not None
         # That point was recent enough that the query might still be running
         and caching_state.last_refresh_queued_at > now - timedelta(seconds=CLICKHOUSE_MAX_EXECUTION_TIME)
