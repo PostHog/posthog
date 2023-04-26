@@ -53,48 +53,45 @@ def should_refresh_insight(
         delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
 
     refresh_frequency = BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
-    if getattr(filter, "interval", None) == "hour" or (delta_days is not None and delta_days <= 7):
-        if not is_shared:  # The interval is always longer for shared insights/dashboard
-            refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-    elif is_shared:  # The interval is always longer for shared insights/dashboard
+    if is_shared:
+        # The interval is longer for shared insights/dashboards
         refresh_frequency = INCREASED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+    elif getattr(filter, "interval", None) == "hour" or (delta_days is not None and delta_days <= 7):
+        # The interval is shorter for short-term insights
+        refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
-    refresh_insight_now = False
-    if caching_state is None or caching_state.last_refresh is None:
-        refresh_insight_now = True
-    # Only refresh if the user has requested a refresh or if we're on a shared dashboard/insight
-    # (those have no explicit way of reloading)
-    elif refresh_requested_by_client(request) or is_shared:
-        refresh_insight_now = caching_state.last_refresh + refresh_frequency <= now
+    refresh_insight_now = refresh_requested_by_client(request) and (
+        caching_state is None
+        or caching_state.last_refresh is None
+        or (caching_state.last_refresh + refresh_frequency <= now)
+    )
 
-    # Prevent the same query from needlessly running concurrently
-    is_refresh_currently_running = _is_refresh_currently_running_somewhere_else(caching_state, now)
-    if refresh_insight_now and is_refresh_currently_running:
-        assert caching_state is not None
-        if not is_shared:
-            # If this insight has been requested by a logged-in user, wait for the refresh to finish
-            while is_refresh_currently_running:
-                sleep(1)
-                caching_state.refresh_from_db()
-                has_refresh_completed = (
-                    caching_state.last_refresh is not None
-                    and caching_state.last_refresh >= caching_state.last_refresh_queued_at
-                )
-                if has_refresh_completed:
-                    # Refreshed successfully! Refresh is no longer needed
-                    refresh_insight_now = False
-                    break
-                is_refresh_currently_running = _is_refresh_currently_running_somewhere_else(
-                    caching_state, datetime.now(tz=pytz.timezone("UTC"))
-                )
-        else:
-            # Prevent concurrent refreshes of shared insights/dashboards from hammering ClickHouse plus from taking up
-            # too many Nginx/Gunicorn connections. This means that if user B loads a shared insight/dashboard
-            # that's currently being calculated for user A, user B will get stale results. That's intentional:
-            # we just don't want to go down if some blog post with a PostHog iframe goes viral.
+    if refresh_insight_now:
+        has_refreshed_somewhere_else = _sleep_if_refresh_is_running_somewhere_else(caching_state, now)
+        if has_refreshed_somewhere_else:
             refresh_insight_now = False
 
     return refresh_insight_now, refresh_frequency
+
+
+def _sleep_if_refresh_is_running_somewhere_else(caching_state: Optional[InsightCachingState], now: datetime) -> bool:
+    """Prevent the same query from running concurrently needlessly."""
+    is_refresh_currently_running = _is_refresh_currently_running_somewhere_else(caching_state, now)
+    if is_refresh_currently_running:
+        assert caching_state is not None  # Isn't None due to condition in _is_refresh_currently_running_somewhere_else
+        while is_refresh_currently_running:
+            sleep(1)
+            caching_state.refresh_from_db()
+            has_refresh_completed = (
+                caching_state.last_refresh is not None
+                and caching_state.last_refresh >= caching_state.last_refresh_queued_at
+            )
+            if has_refresh_completed:
+                return True  # Refresh has completed while being intitiated from somewhere else!
+            is_refresh_currently_running = _is_refresh_currently_running_somewhere_else(
+                caching_state, datetime.now(tz=pytz.timezone("UTC"))
+            )
+    return False
 
 
 def _is_refresh_currently_running_somewhere_else(caching_state: Optional[InsightCachingState], now: datetime) -> bool:
