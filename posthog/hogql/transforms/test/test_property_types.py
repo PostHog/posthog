@@ -60,7 +60,7 @@ class TestPropertyTypes(BaseTest):
         )
         expected = (
             "SELECT toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')), "
-            "toDateTime64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), 6, %(hogql_val_2)s), "
+            "parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), 6, %(hogql_val_2)s), "
             "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s), ''), 'null'), '^\"|\"$', '') "
             f"FROM person WHERE equals(person.team_id, {self.team.pk}) LIMIT 65535"
         )
@@ -72,7 +72,7 @@ class TestPropertyTypes(BaseTest):
         )
         expected = (
             "SELECT toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')), "
-            "toDateTime64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), 6, %(hogql_val_2)s), "
+            "parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), 6, %(hogql_val_2)s), "
             "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s), ''), 'null'), '^\"|\"$', '') "
             f"FROM person WHERE equals(person.team_id, {self.team.pk}) LIMIT 65535"
         )

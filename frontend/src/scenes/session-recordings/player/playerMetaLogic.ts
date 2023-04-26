@@ -1,29 +1,29 @@
-import { kea } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
+    SessionRecordingLogicProps,
     sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from '@rrweb/types'
 import { PersonType } from '~/types'
 import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
 
-export const playerMetaLogic = kea<playerMetaLogicType>({
-    path: (key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key],
-    props: {} as SessionRecordingPlayerLogicProps,
-    key: (props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`,
-    connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps) => ({
+export const playerMetaLogic = kea<playerMetaLogicType>([
+    path((key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key]),
+    props({} as SessionRecordingLogicProps),
+    key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect((props: SessionRecordingLogicProps) => ({
         values: [
-            sessionRecordingDataLogic({ sessionRecordingId }),
+            sessionRecordingDataLogic(props),
             ['sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaDataLoading', 'windowIds'],
-            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
+            sessionRecordingPlayerLogic(props),
             ['currentPlayerPosition', 'scale', 'currentPlayerTime'],
         ],
-        actions: [sessionRecordingDataLogic({ sessionRecordingId }), ['loadRecordingMetaSuccess']],
-    }),
-    selectors: () => ({
+        actions: [sessionRecordingDataLogic(props), ['loadRecordingMetaSuccess']],
+    })),
+    selectors(() => ({
         sessionPerson: [
             (selectors) => [selectors.sessionPlayerData],
             (playerData): PersonType | null => {
@@ -97,5 +97,5 @@ export const playerMetaLogic = kea<playerMetaLogicType>({
                 }
             },
         ],
-    }),
-})
+    })),
+])
