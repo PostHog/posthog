@@ -15,7 +15,7 @@ from temporalio.common import RetryPolicy
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import ExportDestination, Organization, Team
+from posthog.models import ExportDestination, ExportRun
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -121,8 +121,8 @@ async def test_insert_into_s3_activity(activity_environment):
     with (
         mock.patch("posthog.temporal.workflows.s3_export.TEST", False),
         mock.patch("posthog.temporal.workflows.s3_export.DEBUG", False),
-        mock.patch("posthog.temporal.workflows.s3_export.ChClient.fetchrow") as fetch_row,
-        mock.patch("posthog.temporal.workflows.s3_export.ChClient.execute") as execute,
+        mock.patch("aiochclient.ChClient.fetchrow") as fetch_row,
+        mock.patch("aiochclient.ChClient.execute") as execute,
     ):
         await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
@@ -169,28 +169,6 @@ def s3_bucket():
     yield bucket
 
     bucket.objects.filter(Prefix=TEST_ROOT_BUCKET).delete()
-
-
-@pytest.fixture
-def organization(django_db_setup):
-    """A test organization."""
-    org = Organization.objects.create(name="TempHog")
-    org.save()
-
-    yield org
-
-    org.delete()
-
-
-@pytest.fixture
-def team(organization):
-    """A test team."""
-    team = Team.objects.create(organization=organization, name="TempHog-1")
-    team.save()
-
-    yield team
-
-    team.delete()
 
 
 @pytest.fixture
@@ -326,3 +304,10 @@ async def test_s3_export_workflow_with_minio_bucket(
             assert row["timestamp"] == matching_event["timestamp"]
             assert row["person_id"] == matching_event["person_id"]
             assert row["team_id"] == matching_event["team_id"]
+
+        assert await sync_to_async(ExportRun.objects.filter(team_id=destination.team.id).count)() == 1
+
+        run = await sync_to_async(ExportRun.objects.filter(team_id=destination.team.id).first)()
+        assert run is not None
+        assert run.status == "Completed"
+        assert run.data_interval_end == max_datetime

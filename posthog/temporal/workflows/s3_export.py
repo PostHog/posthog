@@ -3,7 +3,6 @@ import json
 from dataclasses import dataclass
 from string import Template
 
-from aiochclient import ChClient
 from aiohttp import ClientSession
 from django.conf import settings
 from temporalio import activity, workflow
@@ -95,6 +94,8 @@ def prepare_template_vars(inputs: S3InsertInputs):
 @activity.defn
 async def insert_into_s3_activity(inputs: S3InsertInputs):
     """Activity that runs a INSERT INTO query in ClickHouse targetting an S3 table function."""
+    from aiochclient import ChClient
+
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
     if inputs.table_name not in TABLE_PARTITION_KEYS:

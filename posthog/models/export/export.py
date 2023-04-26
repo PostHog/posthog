@@ -92,7 +92,9 @@ class ExportScheduleManager(models.Manager):
             schedule=Schedule(
                 action=ScheduleActionStartWorkflow(
                     workflow.run,
-                    workflow_inputs(team_id=export_schedule.team.id, **destination.config),
+                    workflow_inputs(
+                        team_id=export_schedule.team.id, destination_id=destination.id, **destination.config
+                    ),
                     id=f"{export_schedule.team.id}-{destination.type}-export",
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     search_attributes=common_search_attributes | {"ScheduleId": [str(export_schedule.id)]},
