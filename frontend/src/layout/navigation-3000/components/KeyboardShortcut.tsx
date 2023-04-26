@@ -28,8 +28,8 @@ interface KeyboardShortcutProps extends Partial<Record<HotKeyOrModifier, true>> 
 export function KeyboardShortcut({ muted, ...keys }: KeyboardShortcutProps): JSX.Element {
     const sortedKeys = Object.keys(keys).sort(
         (a, b) =>
-            (MODIFIER_PRIORITY.indexOf(a as HotKeyOrModifier) || 0) -
-            (MODIFIER_PRIORITY.indexOf(b as HotKeyOrModifier) || 0)
+            (-MODIFIER_PRIORITY.indexOf(a as HotKeyOrModifier) || 0) -
+            (-MODIFIER_PRIORITY.indexOf(b as HotKeyOrModifier) || 0)
     ) as HotKeyOrModifier[]
 
     return (
