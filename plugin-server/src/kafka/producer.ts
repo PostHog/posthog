@@ -3,7 +3,7 @@ import {
     HighLevelProducer as RdKafkaProducer,
     NumberNullUndefined,
     ProducerGlobalConfig,
-} from 'node-rdkafka'
+} from 'node-rdkafka-acosom'
 
 import { status } from '../utils/status'
 

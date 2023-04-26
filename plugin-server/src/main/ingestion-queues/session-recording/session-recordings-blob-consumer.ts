@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka'
+import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
