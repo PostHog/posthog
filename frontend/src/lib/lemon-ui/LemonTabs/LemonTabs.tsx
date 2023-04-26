@@ -59,10 +59,6 @@ export function LemonTabs<T extends string>({
     const realTabs = tabs.filter(Boolean) as LemonTab<T>[]
     const activeTab = realTabs.find((tab) => tab.key === activeKey)
 
-    if (!activeTab) {
-        throw new Error(`No tab found with key ${activeKey}`)
-    }
-
     return (
         <div
             className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning')}
@@ -97,7 +93,7 @@ export function LemonTabs<T extends string>({
                     </Tooltip>
                 ))}
             </ul>
-            {'content' in activeTab && (
+            {activeTab && 'content' in activeTab && (
                 <div className="LemonTabs__content" key={activeKey}>
                     {activeTab.content}
                 </div>

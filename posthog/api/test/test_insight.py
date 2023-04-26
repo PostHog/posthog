@@ -482,6 +482,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "a created dashboard",
                         "short_id": response_data["short_id"],
                     },
@@ -722,6 +723,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
                         "trigger": None,
+                        "type": None,
                     },
                     "item_id": str(insight_id),
                     "scope": "Insight",
@@ -746,6 +748,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
                         "trigger": None,
+                        "type": None,
                     },
                     "item_id": str(insight_id),
                     "scope": "Insight",
@@ -759,6 +762,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
                         "trigger": None,
+                        "type": None,
                     },
                     "item_id": str(insight_id),
                     "scope": "Insight",
@@ -848,6 +852,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "pageview unique users",
                         "short_id": response_data["short_id"],
                     },
@@ -911,6 +916,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                 },
                             ],
                             "trigger": None,
+                            "type": None,
                             "name": "insight new name",
                             "short_id": short_id,
                         },
@@ -924,6 +930,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "detail": {
                             "changes": None,
                             "trigger": None,
+                            "type": None,
                             "name": "insight name",
                             "short_id": short_id,
                         },
@@ -982,6 +989,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -1003,6 +1011,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -1024,6 +1033,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },

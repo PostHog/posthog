@@ -22,8 +22,7 @@ from posthog.hogql.escape_sql import (
     escape_hogql_string,
 )
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_types
-from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
-from posthog.hogql.transforms.macros import expand_macros
+from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
@@ -60,12 +59,9 @@ def prepare_ast_for_printing(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> ast.Expr:
-    type = stack[-1].type if stack else None
 
     context.database = context.database or create_hogql_database(context.team_id)
-    node = expand_macros(node, stack)
-    resolve_types(node, context.database, type)
-    expand_asterisks(node)
+    node = resolve_types(node, context.database, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
@@ -153,7 +149,8 @@ class _Printer(Visitor):
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
             if next_join.type is None:
-                raise HogQLException("Printing queries with a FROM clause is not permitted before type resolution")
+                if self.dialect == "clickhouse":
+                    raise HogQLException("Printing queries with a FROM clause is not permitted before type resolution")
 
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
@@ -456,7 +453,9 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
-                if clickhouse_name == "now64" and len(args) == 0:
+                if (clickhouse_name == "now64" and len(args) == 0) or (
+                    clickhouse_name == "parseDateTime64BestEffortOrNull" and len(args) == 1
+                ):
                     # must add precision if adding timezone in the next step
                     args.append("6")
                 if node.name in ADD_TIMEZONE_TO_FUNCTIONS:

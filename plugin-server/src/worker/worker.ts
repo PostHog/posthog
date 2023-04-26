@@ -8,6 +8,7 @@ import { processError } from '../utils/db/error'
 import { createHub } from '../utils/db/hub'
 import { status } from '../utils/status'
 import { cloneObject, pluginConfigIdFromStack } from '../utils/utils'
+import { setupMmdb } from './plugins/mmdb'
 import { setupPlugins } from './plugins/setup'
 import { workerTasks } from './tasks'
 import { TimeoutError } from './vm/vm'
@@ -32,10 +33,14 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
                 })
             })
 
+            const updateJob = await setupMmdb(hub)
             await setupPlugins(hub)
 
             for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
                 process.on(signal, closeHub)
+                if (updateJob) {
+                    process.on(signal, updateJob.cancel)
+                }
             }
 
             return createTaskRunner(hub)

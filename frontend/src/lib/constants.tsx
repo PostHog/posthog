@@ -125,7 +125,6 @@ export const FEATURE_FLAGS = {
     HOG_BOOK: 'hog-book', // owner: @pauldambra
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
-    EXPOSURES_ON_FEATURE_FLAGS: 'exposures-on-feature-flags', // owner: @EDsCODE
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
     ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth
     FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
@@ -144,8 +143,11 @@ export const FEATURE_FLAGS = {
     HOGQL: 'hogql', // owner: #team-product-analytics
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
     ARUBUG: 'arubug', // owner: #team-arubug
+    HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     BILLING_BY_PRODUCTS: 'billing-by-products', // owner: @raquelmsmith
     RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
+    AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
+    DATA_MANAGEMENT_HISTORY: 'data-management-history', // owner: @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

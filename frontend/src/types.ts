@@ -1584,7 +1584,6 @@ export interface TrendsFilterType extends FilterType {
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
-
     show_values_on_series?: boolean
 }
 export interface StickinessFilterType extends FilterType {
@@ -1594,7 +1593,6 @@ export interface StickinessFilterType extends FilterType {
     stickiness_days?: number
     shown_as?: ShownAsValue
     display?: ChartDisplayType
-
     show_values_on_series?: boolean
 }
 export interface FunnelsFilterType extends FilterType {
@@ -2140,7 +2138,8 @@ export type HotKey =
     | 'z'
     | 'escape'
     | 'enter'
-    | ' '
+    | 'space'
+    | 'tab'
     | 'arrowleft'
     | 'arrowright'
     | 'arrowdown'

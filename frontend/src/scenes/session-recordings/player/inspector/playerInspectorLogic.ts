@@ -9,7 +9,7 @@ import {
 } from '~/types'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -119,9 +119,9 @@ export type InspectorListItem = InspectorListItemEvent | InspectorListItemConsol
 
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerInspectorLogic', key]),
-    props({} as SessionRecordingPlayerLogicProps),
-    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect((props: SessionRecordingPlayerLogicProps) => ({
+    props({} as SessionRecordingLogicProps),
+    key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect((props: SessionRecordingLogicProps) => ({
         actions: [
             playerSettingsLogic,
             ['setTab', 'setMiniFilter', 'setSyncScroll'],
@@ -272,10 +272,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             snapshot.data.plugin === NETWORK_PLUGIN_NAME
                         ) {
                             const properties = snapshot.data.payload as any
-                            const data = {
+
+                            const data: Partial<PerformanceEvent> = {
                                 timestamp: snapshot.timestamp,
-                                windowId: windowId,
-                            } as Partial<PerformanceEvent>
+                                window_id: windowId,
+                            }
 
                             Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
                                 if (key in properties) {
