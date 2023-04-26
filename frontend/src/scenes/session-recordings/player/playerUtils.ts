@@ -131,26 +131,6 @@ export function getEpochTimeFromPlayerPosition(
     return null
 }
 
-export const convertXToPlayerPosition = (
-    xValue: number,
-    containerWidth: number,
-    segments: RecordingSegment[],
-    durationMs: number
-): PlayerPosition | null => {
-    const playerTime = (xValue / containerWidth) * durationMs
-    return getPlayerPositionFromPlayerTime(playerTime, segments)
-}
-
-export const convertPlayerPositionToX = (
-    playerPosition: PlayerPosition,
-    containerWidth: number,
-    segments: RecordingSegment[],
-    durationMs: number
-): number => {
-    const playerTime = getPlayerTimeFromPlayerPosition(playerPosition, segments)
-    return ((playerTime ?? 0) / durationMs) * containerWidth
-}
-
 // Determines whether a given PlayerList row should be expanded or not.
 //
 // Checks if the row should be expanded depending on the expandable prop that was passed into the component,

@@ -3,8 +3,6 @@ import { parseMetadataResponse } from './sessionRecordingDataLogic'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import {
     comparePlayerPositions,
-    convertPlayerPositionToX,
-    convertXToPlayerPosition,
     getEpochTimeFromPlayerPosition,
     getPlayerPositionFromPlayerTime,
     getPlayerTimeFromPlayerPosition,
@@ -135,27 +133,5 @@ describe('getEpochTimeFromPlayerPosition', () => {
                 metadata.startAndEndTimesByWindowId ?? {}
             )
         ).toEqual(null)
-    })
-})
-
-describe('convertXToPlayerPosition', () => {
-    it('calculates PlayerPosition based on x Value', () => {
-        expect(convertXToPlayerPosition(50, 100, segments, 100000)).toEqual({
-            time: 9087,
-            windowId: '17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b',
-        })
-    })
-})
-
-describe('convertPlayerPositionToX', () => {
-    it('calculates PlayerPosition based on x Value', () => {
-        expect(
-            convertPlayerPositionToX(
-                { time: 9087, windowId: '17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b' },
-                100,
-                segments,
-                100000
-            )
-        ).toEqual(50)
     })
 })

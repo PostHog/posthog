@@ -6,11 +6,8 @@ import {
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { clamp } from 'lib/utils'
-import { PlayerPosition } from '~/types'
 
 import {
-    convertPlayerPositionToX,
-    convertXToPlayerPosition,
     getPlayerTimeFromPlayerPosition,
     getXPos,
     InteractEvent,
@@ -24,8 +21,14 @@ export const seekbarLogic = kea<seekbarLogicType>([
     props({} as SessionRecordingLogicProps),
     key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingLogicProps) => ({
-        values: [sessionRecordingPlayerLogic(props), ['sessionPlayerData', 'currentPlayerPosition']],
-        actions: [sessionRecordingPlayerLogic(props), ['seek', 'startScrub', 'endScrub', 'setCurrentPlayerPosition']],
+        values: [
+            sessionRecordingPlayerLogic(props),
+            ['sessionPlayerData', 'currentPlayerPosition', 'currentPlayerTime'],
+        ],
+        actions: [
+            sessionRecordingPlayerLogic(props),
+            ['seekToTime', 'startScrub', 'endScrub', 'setCurrentPlayerPosition'],
+        ],
     })),
     actions({
         setThumbLeftPos: (thumbLeftPos: number, shouldSeek: boolean) => ({ thumbLeftPos, shouldSeek }),
@@ -35,7 +38,6 @@ export const seekbarLogic = kea<seekbarLogicType>([
         handleUp: (event: InteractEvent) => ({ event }),
         handleDown: (event: ReactInteractEvent) => ({ event }),
         handleClick: (event: ReactInteractEvent) => ({ event }),
-        handleTickClick: (playerPosition: PlayerPosition) => ({ playerPosition }),
         setSlider: (ref: MutableRefObject<HTMLDivElement | null>) => ({ ref }),
         setThumb: (ref: MutableRefObject<HTMLDivElement | null>) => ({ ref }),
         debouncedSetTime: (time: number) => ({ time }),
@@ -118,19 +120,9 @@ export const seekbarLogic = kea<seekbarLogicType>([
             // Don't update thumb position if seekbar logic is already seeking and setting the thumb position.
             // Except in one case when the updated thumb position is at the start. This happens when the user
             // scrubs to the end of the recording while playing, and then the player loop restarts the recording.
-            if (
-                !values.isSeeking ||
-                values.currentPlayerPosition === values.sessionPlayerData.segments[0]?.startPlayerPosition
-            ) {
-                const xValue = values.currentPlayerPosition
-                    ? convertPlayerPositionToX(
-                          values.currentPlayerPosition,
-                          values.slider.offsetWidth,
-                          values.sessionPlayerData.segments,
-                          values.sessionPlayerData.durationMs
-                      )
-                    : 0
-
+            if (!values.isSeeking) {
+                const xValue =
+                    ((values.currentPlayerTime ?? 0) / values.sessionPlayerData.durationMs) * values.slider.offsetWidth
                 actions.setThumbLeftPos(xValue - THUMB_OFFSET, false)
             }
         },
@@ -139,14 +131,10 @@ export const seekbarLogic = kea<seekbarLogicType>([
             if (!values.slider) {
                 return
             }
-            if (shouldSeek && values.sessionPlayerData) {
-                const playerPosition = convertXToPlayerPosition(
-                    thumbLeftPos + THUMB_OFFSET,
-                    values.slider.offsetWidth,
-                    values.sessionPlayerData.segments,
-                    values.sessionPlayerData.durationMs
-                )
-                actions.seek(playerPosition)
+            if (shouldSeek) {
+                const playerTime =
+                    ((thumbLeftPos + THUMB_OFFSET) / values.slider.offsetWidth) * values.sessionPlayerData.durationMs
+                actions.seekToTime(playerTime)
             }
         },
         handleSeek: async ({ newX, shouldSeek }) => {
@@ -193,18 +181,6 @@ export const seekbarLogic = kea<seekbarLogicType>([
             document.addEventListener('touchend', actions.handleUp)
             document.addEventListener('mousemove', actions.handleMove)
             document.addEventListener('mouseup', actions.handleUp)
-        },
-        handleTickClick: ({ playerPosition }) => {
-            if (!values.isSeeking && values.slider) {
-                actions.handleSeek(
-                    convertPlayerPositionToX(
-                        playerPosition,
-                        values.slider.offsetWidth,
-                        values.sessionPlayerData.segments,
-                        values.sessionPlayerData.durationMs
-                    )
-                )
-            }
         },
     })),
     afterMount(({ actions, values, cache }) => {
