@@ -191,17 +191,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
     })),
     selectors(({}) => ({
-        recordingTimeInfo: [
-            (s) => [s.sessionPlayerMetaData],
-            (sessionPlayerMetaData): { start: Dayjs; end: Dayjs; duration: number } => {
-                const { startTimeEpochMs } = sessionPlayerMetaData?.metadata?.segments[0] || {}
-                const start = dayjs(startTimeEpochMs)
-                const duration = sessionPlayerMetaData?.metadata?.recordingDurationMs || 0
-                const end = start.add(duration, 'ms')
-                return { start, end, duration }
-            },
-        ],
-
         matchingEvents: [
             () => [(_, props) => props.matching],
             (matchingEvents): MatchedRecordingEvent[] => {
@@ -296,12 +285,26 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         allItems: [
-            (s) => [s.recordingTimeInfo, s.allPerformanceEvents, s.consoleLogs, s.sessionEventsData, s.matchingEvents],
-            (recordingTimeInfo, performanceEvents, consoleLogs, eventsData, matchingEvents): InspectorListItem[] => {
+            (s) => [
+                s.sessionPlayerMetaData,
+                s.allPerformanceEvents,
+                s.consoleLogs,
+                s.sessionEventsData,
+                s.matchingEvents,
+            ],
+            (
+                sessionPlayerMetaData,
+                performanceEvents,
+                consoleLogs,
+                eventsData,
+                matchingEvents
+            ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
                 // ALSO: We could move the individual filtering logic into the MiniFilters themselves
                 const items: InspectorListItem[] = []
+
+                console.log(sessionPlayerMetaData)
 
                 // PERFORMANCE EVENTS
                 const performanceEventsArr = performanceEvents || []
@@ -331,7 +334,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push({
                         type: SessionRecordingPlayerTab.NETWORK,
                         timestamp,
-                        timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
+                        timeInRecording: timestamp.diff(sessionPlayerMetaData.start, 'ms'),
                         search: event.name || '',
                         data: event,
                         highlightColor: responseStatus >= 400 ? 'danger' : undefined,
@@ -345,7 +348,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push({
                         type: SessionRecordingPlayerTab.CONSOLE,
                         timestamp,
-                        timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
+                        timeInRecording: timestamp.diff(sessionPlayerMetaData.start, 'ms'),
                         search: event.content,
                         data: event,
                         highlightColor:
@@ -365,7 +368,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push({
                         type: SessionRecordingPlayerTab.EVENTS,
                         timestamp,
-                        timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
+                        timeInRecording: timestamp.diff(sessionPlayerMetaData.start, 'ms'),
                         search: search,
                         data: event,
                         highlightColor: isMatchingEvent ? 'primary' : undefined,

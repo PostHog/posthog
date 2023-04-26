@@ -65,10 +65,10 @@ describe('sessionRecordingDataLogic', () => {
                 sessionPlayerData: {
                     bufferedTo: null,
                     metadata: {
-                        recordingDurationMs: 0,
+                        durationMs: 0,
                         pinnedCount: 0,
-                        startTimestamp: expect.anything(),
-                        endTimestamp: expect.anything(),
+                        start: expect.anything(),
+                        end: expect.anything(),
                         segments: [],
                         startAndEndTimesByWindowId: {},
                     },
@@ -121,9 +121,9 @@ describe('sessionRecordingDataLogic', () => {
                     sessionPlayerData: {
                         bufferedTo: null,
                         metadata: {
-                            startTimestamp: expect.anything(),
-                            endTimestamp: expect.anything(),
-                            recordingDurationMs: 0,
+                            start: expect.anything(),
+                            end: expect.anything(),
+                            durationMs: 0,
                             pinnedCount: 0,
                             segments: [],
                             startAndEndTimesByWindowId: {},

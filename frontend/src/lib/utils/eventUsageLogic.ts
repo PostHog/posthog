@@ -939,8 +939,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 performance_events_load_time: durations.performanceEvents?.duration,
                 first_paint_load_time: durations.firstPaint?.duration,
                 duration: eventIndex.getDuration(),
-                start_time: playerData.metadata.segments[0]?.startTimeEpochMs,
-                end_time: playerData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
+                start_time: +playerData.start,
+                end_time: +playerData.end,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
                 load_time: durations.firstPaint?.duration ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break

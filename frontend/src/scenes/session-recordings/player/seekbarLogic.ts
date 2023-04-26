@@ -85,24 +85,17 @@ export const seekbarLogic = kea<seekbarLogicType>([
         endTimeMs: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
-                return sessionPlayerData?.metadata?.recordingDurationMs ?? 0
+                return sessionPlayerData?.durationMs ?? 0
             },
         ],
 
         bufferPercent: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
-                if (
-                    sessionPlayerData?.bufferedTo &&
-                    sessionPlayerData?.metadata?.segments &&
-                    sessionPlayerData?.metadata?.recordingDurationMs
-                ) {
+                if (sessionPlayerData?.bufferedTo && sessionPlayerData?.segments && sessionPlayerData?.durationMs) {
                     const bufferedToPlayerTime =
-                        getPlayerTimeFromPlayerPosition(
-                            sessionPlayerData.bufferedTo,
-                            sessionPlayerData.metadata.segments
-                        ) ?? 0
-                    return (100 * bufferedToPlayerTime) / sessionPlayerData.metadata.recordingDurationMs
+                        getPlayerTimeFromPlayerPosition(sessionPlayerData.bufferedTo, sessionPlayerData.segments) ?? 0
+                    return (100 * bufferedToPlayerTime) / sessionPlayerData.durationMs
                 }
                 return 0
             },
@@ -110,11 +103,8 @@ export const seekbarLogic = kea<seekbarLogicType>([
         scrubbingTime: [
             (selectors) => [selectors.thumbLeftPos, selectors.slider, selectors.sessionPlayerData],
             (thumbLeftPos, slider, sessionPlayerData) => {
-                if (thumbLeftPos && slider && sessionPlayerData?.metadata?.recordingDurationMs) {
-                    return (
-                        ((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth) *
-                        sessionPlayerData.metadata.recordingDurationMs
-                    )
+                if (thumbLeftPos && slider && sessionPlayerData?.durationMs) {
+                    return ((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth) * sessionPlayerData.durationMs
                 }
                 return 0
             },
@@ -130,14 +120,14 @@ export const seekbarLogic = kea<seekbarLogicType>([
             // scrubs to the end of the recording while playing, and then the player loop restarts the recording.
             if (
                 !values.isSeeking ||
-                values.currentPlayerPosition === values.sessionPlayerData?.metadata?.segments[0]?.startPlayerPosition
+                values.currentPlayerPosition === values.sessionPlayerData.segments[0]?.startPlayerPosition
             ) {
                 const xValue = values.currentPlayerPosition
                     ? convertPlayerPositionToX(
                           values.currentPlayerPosition,
                           values.slider.offsetWidth,
-                          values.sessionPlayerData.metadata.segments,
-                          values.sessionPlayerData.metadata.recordingDurationMs
+                          values.sessionPlayerData.segments,
+                          values.sessionPlayerData.durationMs
                       )
                     : 0
 
@@ -149,12 +139,12 @@ export const seekbarLogic = kea<seekbarLogicType>([
             if (!values.slider) {
                 return
             }
-            if (shouldSeek && values.sessionPlayerData?.metadata) {
+            if (shouldSeek && values.sessionPlayerData) {
                 const playerPosition = convertXToPlayerPosition(
                     thumbLeftPos + THUMB_OFFSET,
                     values.slider.offsetWidth,
-                    values.sessionPlayerData.metadata.segments,
-                    values.sessionPlayerData.metadata.recordingDurationMs
+                    values.sessionPlayerData.segments,
+                    values.sessionPlayerData.durationMs
                 )
                 actions.seek(playerPosition)
             }
@@ -210,8 +200,8 @@ export const seekbarLogic = kea<seekbarLogicType>([
                     convertPlayerPositionToX(
                         playerPosition,
                         values.slider.offsetWidth,
-                        values.sessionPlayerData.metadata.segments,
-                        values.sessionPlayerData.metadata.recordingDurationMs
+                        values.sessionPlayerData.segments,
+                        values.sessionPlayerData.durationMs
                     )
                 )
             }

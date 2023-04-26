@@ -42,7 +42,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 const currentEpochTime =
                     getEpochTimeFromPlayerPosition(
                         currentPlayerPosition,
-                        sessionPlayerData.metadata.startAndEndTimesByWindowId
+                        sessionPlayerData.startAndEndTimesByWindowId
                     ) ?? 0
 
                 const currIndex = findLastIndex(
@@ -69,8 +69,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         recordingStartTime: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
-                const startTimeFromMeta = sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
-                return startTimeFromMeta ?? null
+                return sessionPlayerData.start ?? null
             },
         ],
         currentWindowIndex: [

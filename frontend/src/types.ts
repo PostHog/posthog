@@ -600,23 +600,21 @@ export interface RecordingStartAndEndTime {
     endTimeEpochMs: number
 }
 
-export interface SessionRecordingMeta {
-    pinnedCount: number
-    segments: RecordingSegment[]
-    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
-    recordingDurationMs: number
-    startTimestamp: Dayjs
-    endTimestamp: Dayjs
-}
-
 export interface SessionPlayerSnapshotData {
     snapshotsByWindowId: Record<string, eventWithTime[]>
     next?: string
 }
 
 export interface SessionPlayerMetaData {
+    start: Dayjs
+    end: Dayjs
+    durationMs: number
+    pinnedCount: number
     person: PersonType | null
-    metadata: SessionRecordingMeta
+
+    // TODO: Remove these
+    segments: RecordingSegment[]
+    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
 }
 
 export interface SessionPlayerData extends SessionPlayerSnapshotData, SessionPlayerMetaData {

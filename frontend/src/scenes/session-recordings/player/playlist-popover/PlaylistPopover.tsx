@@ -16,7 +16,7 @@ import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sess
 export function PlaylistPopover(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const dataLogic = sessionRecordingDataLogic(logicProps)
-    const { sessionPlayerData } = useValues(dataLogic)
+    const { sessionPlayerMetaData } = useValues(dataLogic)
     const logic = playlistPopoverLogic(logicProps)
     const {
         playlistsLoading,
@@ -31,7 +31,7 @@ export function PlaylistPopover(): JSX.Element {
         useActions(logic)
 
     return (
-        <IconWithCount count={sessionPlayerData.metadata.pinnedCount ?? 0} showZero={false}>
+        <IconWithCount count={sessionPlayerMetaData.pinnedCount ?? 0} showZero={false}>
             <Popover
                 visible={showPlaylistPopover}
                 onClickOutside={() => setShowPlaylistPopover(false)}
