@@ -9,19 +9,17 @@ from posthog.api.geoip import geoip, get_geoip_properties
 
 australia_ip = "13.106.122.3"
 uk_ip = "31.28.64.3"
-uk_ip_v6 = "2a01:4b00:875f:cf01:109e:dbfd:8cb9:a5d4"
+us_ip_v6 = "2600:6c52:7a00:11c:1b6:b7b0:ea19:6365"
 local_ip = "127.0.0.1"
 
 
 @pytest.mark.parametrize(
-    "test_input,expected", [(australia_ip, "Australia"), (uk_ip, "United Kingdom"), (uk_ip_v6, "United Kingdom")]
+    "test_input,expected", [(australia_ip, "Australia"), (uk_ip, "United Kingdom"), (us_ip_v6, "United States")]
 )
 def test_geoip_results(test_input, expected):
     properties = get_geoip_properties(test_input)
     assert properties["$geoip_country_name"] == expected
-    # The GeoIP2 database changed to remove the postal code for the uk_ip_v6 address, so for that one we only expect 5 properties.
-    # if this test starts to fail again in production, just assert len(properties) == 6
-    assert len(properties) == 5 if test_input == uk_ip_v6 else 6
+    assert len(properties) == 6
 
 
 class TestGeoIPDBError(TestCase):
