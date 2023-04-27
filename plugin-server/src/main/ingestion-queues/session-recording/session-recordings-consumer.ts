@@ -295,7 +295,6 @@ const eachMessage =
                             messagePayload.uuid,
                             team.id,
                             messagePayload.distinct_id,
-                            parseEventTimestamp(event as PluginEvent),
                             event.ip,
                             event.properties || {}
                         )
