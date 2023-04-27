@@ -6,6 +6,22 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 
 SESSION_REPLAY_EVENTS_DATA_TABLE = lambda: "sharded_session_replay_events"
 
+"""Kafka needs slightly different column setup. It receives individual events, not aggregates."""
+KAFKA_SESSION_REPLAY_EVENTS_TABLE_BASE_SQL = """
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+(
+    session_id VARCHAR,
+    team_id Int64,
+    distinct_id VARCHAR,
+    first_timestamp DateTime64(6, 'UTC'),
+    last_timestamp DateTime64(6, 'UTC'),
+    first_url Nullable(VARCHAR),
+    click_count Int64,
+    keypress_count Int64,
+    mouse_activity_count Int64
+) ENGINE = {engine}
+"""
+
 SESSION_REPLAY_EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
@@ -37,7 +53,7 @@ SETTINGS index_granularity=512
     engine=SESSION_REPLAY_EVENTS_DATA_TABLE_ENGINE(),
 )
 
-KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
+KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: KAFKA_SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_session_replay_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS),

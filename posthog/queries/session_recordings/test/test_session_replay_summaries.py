@@ -93,8 +93,9 @@ class TestReceiveSummarizedSessionReplays(ClickhouseDestroyTablesMixin, Clickhou
         produce_replay_summary(
             session_id=session_id,
             team_id=self.team.pk,
-            first_timestamp="2023-04-26T19:17:38.116",
-            last_timestamp="2023-04-26T19:17:38.116",
+            # can CH handle a timestamp with no T
+            first_timestamp="2023-04-27 14:20:40.309",
+            last_timestamp="2023-04-27 14:20:42.237",
             distinct_id=str(self.user.distinct_id),
             first_url=None,
             click_count=2,
@@ -132,7 +133,7 @@ class TestReceiveSummarizedSessionReplays(ClickhouseDestroyTablesMixin, Clickhou
                 self.team.pk,
                 str(self.user.distinct_id),
                 datetime(2023, 4, 26, 19, 17, 38, 116000, tzinfo=pytz.UTC),
-                datetime(2023, 4, 26, 19, 20, 24, 597000, tzinfo=pytz.UTC),
+                datetime(2023, 4, 27, 14, 20, 42, 237000, tzinfo=pytz.UTC),
                 6,
                 6,
                 6,
