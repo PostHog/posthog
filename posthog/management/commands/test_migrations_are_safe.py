@@ -16,7 +16,7 @@ class Command(BaseCommand):
         match = re.match(r'.*{} "([a-zA-Z0-9_]*)"'.format(search_string), operation_sql)
         if match:
             return match[1]
-        return
+        return None
 
     def handle(self, *args, **options):
         def run_and_check_migration(variable):
