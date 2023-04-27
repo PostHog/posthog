@@ -416,6 +416,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const minimalEvents = [...sessionEvents.results, ...relatedEvents.results].map(
                         (event: any): RecordingEventType => {
+                            const currentUrl = event[5]
+                            // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small
+                            let pathname = undefined
+                            try {
+                                pathname = event[5] ? new URL(event[5]).pathname : undefined
+                            } catch {}
+
                             return {
                                 id: event[0],
                                 event: event[1],
@@ -423,8 +430,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                 elements: chainToElements(event[3]),
                                 properties: {
                                     $window_id: event[4],
-                                    $current_url: event[5],
+                                    $current_url: currentUrl,
                                     $event_type: event[6],
+                                    $pathname: pathname,
                                 },
                                 playerTime: +dayjs(event[2]) - +startTimestamp,
                                 fullyLoaded: false,
@@ -449,7 +457,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     // TODO: Somehow check whether or not we need to load more data.
                     const res: any = await api.query({
                         kind: 'HogQLQuery',
-                        query: `select properties from events where uuid = '${event.id}' limit 1`,
+                        query: `select properties from events where uuid = '${event.id}' and timestamp = toDateTime('${event.timestamp}') limit 1`,
                     })
 
                     if (res.results[0]) {
