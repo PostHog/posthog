@@ -395,6 +395,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         ].map((properties) =>
                             api.query({
                                 kind: 'EventsQuery',
+                                // NOTE: Be careful adding fields here. We want to keep the payload as small as possible to load all events quickly
                                 select: [
                                     'uuid',
                                     'event',
