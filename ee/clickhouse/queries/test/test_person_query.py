@@ -6,7 +6,8 @@ from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.person_query import PersonQuery
 from posthog.test.base import _create_person
-
+from posthog.models.cohort import Cohort
+from posthog.models.property import Property
 
 def person_query(team: Team, filter: Filter, **kwargs):
     return PersonQuery(filter, team.pk, **kwargs).get_query()[0]
@@ -40,8 +41,7 @@ def testdata(db, team):
         team_id=team.pk,
         properties={"email": "karl@example.com", "$os": "windows", "$browser": "mozilla"},
     )
-
-
+    
 def test_person_query(testdata, team, snapshot):
     filter = Filter(data={"properties": []})
 
@@ -60,6 +60,84 @@ def test_person_query(testdata, team, snapshot):
     assert person_query(team, filter) == snapshot
     assert run_query(team, filter) == {"rows": 2, "columns": 1}
 
+
+def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
+    filter = Filter(data={"properties": []})
+    
+    for i in range(10):
+        _create_person(team_id=team.pk, distinct_ids=[f"person{i}"], properties={"group": i, "email": f"{i}@hey.com"})
+
+    cohort1 = Cohort.objects.create(
+        team=team,
+        filters={
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {"key": "group", "value": "none", "type": "person"},
+                            {"key": "group", "value": [1, 2, 3], "type": "person"},
+                        ],
+                    }
+                ],
+            }
+        },
+        name="cohort1",
+    )
+    
+
+    cohort2 = Cohort.objects.create(
+        team=team,
+        filters={
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {"key": "group", "value": [1, 2, 3, 4, 5, 6], "type": "person"},
+                        ],
+                    }
+                ],
+            }
+        },
+        name="cohort2",
+    )
+    
+    cohort1.calculate_people_ch(pending_version=0)
+    cohort2.calculate_people_ch(pending_version=0)
+
+
+    cohort_filters = [
+        Property(key="id", type="cohort", value=cohort1.pk),
+        Property(key="id", type="cohort", value=cohort2.pk)
+    ]
+    
+
+    filter = Filter(
+        data={
+            "properties": [
+                {"key": "email", "type": "person", "value": "posthog", "operator": "icontains"},
+            ]
+        }
+    )
+
+    filter2 = Filter(
+        data={
+            "properties": [
+                {"key": "email", "type": "person", "value": "hey", "operator": "icontains"},
+            ]
+        }
+    )
+    
+    assert run_query(team, filter) == {"rows": 2, "columns": 1}
+
+    # 3 rows because the intersection between cohorts 1 and 2 is person1, person2, and person3, 
+    # with their respective group properties
+    assert run_query(team, filter2, cohort_filters=cohort_filters) == {"rows": 3, "columns": 1}
+    assert person_query(team, filter2, cohort_filters=cohort_filters) == snapshot
+    
 
 def test_person_query_with_anded_property_groups(testdata, team, snapshot):
     filter = Filter(
