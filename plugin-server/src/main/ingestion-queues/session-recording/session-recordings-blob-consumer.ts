@@ -63,7 +63,7 @@ export class SessionRecordingBlobIngester {
             )
 
             this.sessions.set(key, sessionManager)
-            status.info('📦', 'blob_ingester_session_manager created', { key, partition, topic })
+            status.info('📦', 'Blob ingestion consumer started session manager', { key, partition, topic })
         }
 
         this.offsetManager?.addOffset(topic, partition, offset)
