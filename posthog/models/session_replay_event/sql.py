@@ -6,23 +6,12 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 
 SESSION_REPLAY_EVENTS_DATA_TABLE = lambda: "sharded_session_replay_events"
 
-"""
-These base tables have an optional timestamp column
-
-When writing a single event to kafka for ingestion timestamp is provided
-Those events are ingested in a batch and each batch
-has interim min and max aggregates for timestamp.
-
-This lets the aggregating table only store min and max timestamp
-instead of e.g. an array of timestamps
-"""
 SESSION_REPLAY_EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     session_id VARCHAR,
     team_id Int64,
     distinct_id VARCHAR,
-    {optionalTimestampColumn}
     first_timestamp AggregateFunction(min, DateTime64(6, 'UTC')),
     last_timestamp AggregateFunction(max, DateTime64(6, 'UTC')),
     first_url Nullable(VARCHAR),
@@ -43,14 +32,12 @@ SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: (
 SETTINGS index_granularity=512
 """
 ).format(
-    optionalTimestampColumn="",
     table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=SESSION_REPLAY_EVENTS_DATA_TABLE_ENGINE(),
 )
 
 KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
-    optionalTimestampColumn="timestamp DateTime64(6, 'UTC'),",
     table_name="kafka_session_replay_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS),
@@ -63,8 +50,8 @@ AS SELECT
 session_id,
 team_id,
 any(distinct_id) as distinct_id,
-minState(timestamp) AS first_timestamp,
-maxState(timestamp) AS last_timestamp,
+minState(first_timestamp) AS first_timestamp,
+maxState(last_timestamp) AS last_timestamp,
 any(first_url) AS first_url,
 sum(click_count) as click_count,
 sum(keypress_count) as keypress_count,
@@ -82,7 +69,6 @@ group by session_id, team_id
 
 # This table is responsible for writing to sharded_session_replay_events based on a sharding key.
 WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
-    optionalTimestampColumn="",
     table_name="writable_session_replay_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
@@ -90,7 +76,6 @@ WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_B
 
 # This table is responsible for reading from session_replay_events on a cluster setting
 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
-    optionalTimestampColumn="",
     table_name="session_replay_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),

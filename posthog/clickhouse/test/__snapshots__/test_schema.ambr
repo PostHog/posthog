@@ -326,7 +326,6 @@
       session_id VARCHAR,
       team_id Int64,
       distinct_id VARCHAR,
-      timestamp DateTime64(6, 'UTC'),
       first_timestamp AggregateFunction(min, DateTime64(6, 'UTC')),
       last_timestamp AggregateFunction(max, DateTime64(6, 'UTC')),
       first_url Nullable(VARCHAR),
@@ -907,7 +906,6 @@
       session_id VARCHAR,
       team_id Int64,
       distinct_id VARCHAR,
-      timestamp DateTime64(6, 'UTC'),
       first_timestamp AggregateFunction(min, DateTime64(6, 'UTC')),
       last_timestamp AggregateFunction(max, DateTime64(6, 'UTC')),
       first_url Nullable(VARCHAR),
@@ -1319,7 +1317,6 @@
       session_id VARCHAR,
       team_id Int64,
       distinct_id VARCHAR,
-      timestamp DateTime64(6, 'UTC'),
       first_timestamp AggregateFunction(min, DateTime64(6, 'UTC')),
       last_timestamp AggregateFunction(max, DateTime64(6, 'UTC')),
       first_url Nullable(VARCHAR),
@@ -1338,14 +1335,13 @@
   AS SELECT
   session_id,
   team_id,
-  any(distinct_id),
-  any(timestamp),
-  minState(timestamp) AS first_timestamp,
-  maxState(timestamp) AS last_timestamp,
-  any(first_url),
-  sumState(click_count),
-  sumState(keypress_count),
-  sumState(mouse_activity_count)
+  any(distinct_id) as distinct_id,
+  minState(first_timestamp) AS first_timestamp,
+  maxState(last_timestamp) AS last_timestamp,
+  any(first_url) AS first_url,
+  sum(click_count) as click_count,
+  sum(keypress_count) as keypress_count,
+  sum(mouse_activity_count) as mouse_activity_count
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -1561,7 +1557,6 @@
       session_id VARCHAR,
       team_id Int64,
       distinct_id VARCHAR,
-      timestamp DateTime64(6, 'UTC'),
       first_timestamp AggregateFunction(min, DateTime64(6, 'UTC')),
       last_timestamp AggregateFunction(max, DateTime64(6, 'UTC')),
       first_url Nullable(VARCHAR),
@@ -1569,8 +1564,7 @@
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
-  PARTITION BY toYYYYMM(timestamp)
-  ORDER BY (team_id, session_id, toStartOfHour(timestamp))
+  ORDER BY (team_id, session_id)
   SETTINGS index_granularity=512
   
   '
@@ -2159,7 +2153,6 @@
       session_id VARCHAR,
       team_id Int64,
       distinct_id VARCHAR,
-      timestamp DateTime64(6, 'UTC'),
       first_timestamp AggregateFunction(min, DateTime64(6, 'UTC')),
       last_timestamp AggregateFunction(max, DateTime64(6, 'UTC')),
       first_url Nullable(VARCHAR),
@@ -2167,8 +2160,7 @@
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
-  PARTITION BY toYYYYMM(timestamp)
-  ORDER BY (team_id, session_id, toStartOfHour(timestamp))
+  ORDER BY (team_id, session_id)
   SETTINGS index_granularity=512
   
   '

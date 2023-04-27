@@ -281,7 +281,8 @@ export const createSessionRecordingEvent = (
 
 export interface SummarizedSessionRecordingEvent {
     uuid: string
-    timestamp: string
+    first_timestamp: string
+    last_timestamp: string
     team_id: number
     distinct_id: string
     session_id: string
@@ -294,9 +295,10 @@ export interface SummarizedSessionRecordingEvent {
 interface RRWebEventSummaryData {
     href?: string
     source?: number
+    payload?: Record<string, any>
 }
 
-interface RRWebEventSummary {
+export interface RRWebEventSummary {
     timestamp: number
     type: number
     data: RRWebEventSummaryData
@@ -306,15 +308,21 @@ export const createSessionReplayEvent = (
     uuid: string,
     team_id: number,
     distinct_id: string,
-    timestamp: DateTime,
     ip: string | null,
     properties: Properties
 ) => {
-    const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
-
     const eventsSummaries: RRWebEventSummary[] = properties['$snapshot_data']?.['events_summary'] || []
 
-    if (eventsSummaries.length === 0) {
+    const timestamps = eventsSummaries
+        .filter((eventSummary: RRWebEventSummary) => {
+            return !!eventSummary?.timestamp
+        })
+        .map((eventSummary: RRWebEventSummary) => {
+            return castTimestampOrNow(DateTime.fromMillis(eventSummary.timestamp), TimestampFormat.ClickHouse)
+        })
+        .sort()
+
+    if (eventsSummaries.length === 0 || timestamps.length === 0) {
         return null
     }
 
@@ -342,7 +350,8 @@ export const createSessionReplayEvent = (
         team_id: team_id,
         distinct_id: distinct_id,
         session_id: properties['$session_id'],
-        timestamp: timestampString,
+        first_timestamp: timestamps[0],
+        last_timestamp: timestamps[timestamps.length - 1],
         click_count: clickCount,
         keypress_count: keypressCount,
         mouse_activity_count: mouseActivity,

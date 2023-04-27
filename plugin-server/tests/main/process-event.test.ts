@@ -31,6 +31,7 @@ import {
     createSessionRecordingEvent,
     createSessionReplayEvent,
     EventsProcessor,
+    RRWebEventSummary,
     SummarizedSessionRecordingEvent,
 } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
@@ -1210,24 +1211,42 @@ test('snapshot event stored as session_recording_event', () => {
         window_id: undefined,
     })
 })
-;[
+const sessionReplayEventTestCases: {
+    snapshotData: { events_summary: RRWebEventSummary[] }
+    expected: Pick<
+        SummarizedSessionRecordingEvent,
+        'click_count' | 'keypress_count' | 'mouse_activity_count' | 'first_url' | 'first_timestamp' | 'last_timestamp'
+    >
+}[] = [
     {
-        snapshotData: { timestamp: 123, events_summary: [{ type: 3, data: { source: 2 } }] },
-        expected: { click_count: 1, keypress_count: 0, mouse_activity_count: 1, first_url: undefined },
+        snapshotData: { events_summary: [{ timestamp: 1682449093469, type: 3, data: { source: 2 } }] },
+        expected: {
+            click_count: 1,
+            keypress_count: 0,
+            mouse_activity_count: 1,
+            first_url: undefined,
+            first_timestamp: '2023-04-25 18:58:13.469',
+            last_timestamp: '2023-04-25 18:58:13.469',
+        },
     },
     {
-        snapshotData: { timestamp: 123, events_summary: [{ type: 3, data: { source: 5 } }] },
-        expected: { click_count: 0, keypress_count: 1, mouse_activity_count: 1, first_url: undefined },
+        snapshotData: { events_summary: [{ timestamp: 1682449093469, type: 3, data: { source: 5 } }] },
+        expected: {
+            click_count: 0,
+            keypress_count: 1,
+            mouse_activity_count: 1,
+            first_url: undefined,
+            first_timestamp: '2023-04-25 18:58:13.469',
+            last_timestamp: '2023-04-25 18:58:13.469',
+        },
     },
     {
         snapshotData: {
-            timestamp: 123,
             events_summary: [
                 {
                     timestamp: 1682449093693,
                     type: 5,
                     data: {
-                        tag: '$pageview',
                         payload: {
                             // doesn't match because href is nested in payload
                             href: 'http://127.0.0.1:8000/home',
@@ -1239,8 +1258,6 @@ test('snapshot event stored as session_recording_event', () => {
                     type: 4,
                     data: {
                         href: 'http://127.0.0.1:8000/second/url',
-                        width: 1512,
-                        height: 833,
                     },
                 },
             ],
@@ -1250,27 +1267,22 @@ test('snapshot event stored as session_recording_event', () => {
             keypress_count: 0,
             mouse_activity_count: 0,
             first_url: 'http://127.0.0.1:8000/second/url',
+            first_timestamp: '2023-04-25 18:58:13.469',
+            last_timestamp: '2023-04-25 18:58:13.693',
         },
     },
-].forEach(({ snapshotData, expected }) => {
+]
+sessionReplayEventTestCases.forEach(({ snapshotData, expected }) => {
     test(`snapshot event ${JSON.stringify(snapshotData)} can be stored as session_replay_event`, () => {
-        const data = createSessionReplayEvent(
-            'some-id',
-            team.id,
-            '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
-            now,
-            '',
-            {
-                $session_id: 'abcf-efg',
-                $snapshot_data: snapshotData,
-            } as any as Properties
-        )
+        const data = createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', '', {
+            $session_id: 'abcf-efg',
+            $snapshot_data: snapshotData,
+        } as any as Properties)
 
         const expectedEvent: SummarizedSessionRecordingEvent = {
             distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
             session_id: 'abcf-efg',
             team_id: 2,
-            timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2} [\d\s:]+/),
             uuid: 'some-id',
             ...expected,
         }
@@ -1279,9 +1291,36 @@ test('snapshot event stored as session_recording_event', () => {
 })
 
 test(`snapshot event with no event summary is ignored`, () => {
-    const data = createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', now, '', {
+    const data = createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', '', {
         $session_id: 'abcf-efg',
         $snapshot_data: {},
+    } as any as Properties)
+
+    expect(data).toEqual(null)
+})
+
+test(`snapshot event with no event summary timestamps is ignored`, () => {
+    const data = createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', '', {
+        $session_id: 'abcf-efg',
+        $snapshot_data: {
+            events_summary: [
+                {
+                    type: 5,
+                    data: {
+                        payload: {
+                            // doesn't match because href is nested in payload
+                            href: 'http://127.0.0.1:8000/home',
+                        },
+                    },
+                },
+                {
+                    type: 4,
+                    data: {
+                        href: 'http://127.0.0.1:8000/second/url',
+                    },
+                },
+            ],
+        },
     } as any as Properties)
 
     expect(data).toEqual(null)
