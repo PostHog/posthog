@@ -42,13 +42,13 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionR
             const segmentEndTime = dayjs(segment.end_time)
             const startPlayerPosition: PlayerPosition = {
                 windowId: segment.window_id,
-                time: +segmentStartTime - +windowStartTime,
+                time: segmentStartTime.valueOf() - windowStartTime.valueOf(),
             }
             const endPlayerPosition: PlayerPosition = {
                 windowId: segment.window_id,
-                time: +segmentEndTime - +windowStartTime,
+                time: segmentEndTime.valueOf() - windowStartTime.valueOf(),
             }
-            const durationMs = +segmentEndTime - +segmentStartTime
+            const durationMs = segmentEndTime.valueOf() - segmentStartTime.valueOf()
 
             if (!startTimestamp || segmentStartTime.isBefore(startTimestamp)) {
                 startTimestamp = segmentStartTime
@@ -61,8 +61,8 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionR
                 startPlayerPosition,
                 endPlayerPosition,
                 durationMs,
-                startTimeEpochMs: +segmentStartTime,
-                endTimeEpochMs: +segmentEndTime,
+                startTimeEpochMs: segmentStartTime.valueOf(),
+                endTimeEpochMs: segmentEndTime.valueOf(),
                 windowId: segment.window_id,
                 isActive: segment.is_active,
             }
