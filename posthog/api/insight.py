@@ -585,6 +585,7 @@ class InsightViewSet(
         else:
             queryset = Insight.objects.all()
 
+        queryset = self.filter_queryset_by_parents_lookups(queryset)
         queryset = queryset.prefetch_related(
             Prefetch(
                 # TODO deprecate this field entirely
