@@ -722,7 +722,7 @@ class TestResolver(BaseTest):
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_table(self):
-        self.setUp()  # run again to enable PERSON_ON_EVENTS_OVERRIDE
+        self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = parse_select("select * from events")
         node = resolve_types(node, self.database)
 
@@ -744,6 +744,7 @@ class TestResolver(BaseTest):
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_table_alias(self):
+        self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = parse_select("select * from events e")
         node = resolve_types(node, self.database)
 
@@ -824,6 +825,7 @@ class TestResolver(BaseTest):
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_from_subquery_table(self):
+        self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = parse_select("select * from (select * from events)")
         node = resolve_types(node, self.database)
 
@@ -869,6 +871,7 @@ class TestResolver(BaseTest):
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_select_union(self):
+        self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = parse_select("select * from (select * from events union all select * from events)")
         node = resolve_types(node, self.database)
 
