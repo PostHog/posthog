@@ -97,7 +97,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     return (
         <>
-            {insight.short_id !== 'new' && (
+            {hasDashboardItemId && (
                 <>
                     <SubscriptionsModal
                         isOpen={insightMode === ItemMode.Subscriptions}
@@ -288,23 +288,25 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <LemonDivider vertical />
                             </>
                         ) : null}
-                        {insightMode === ItemMode.Edit && insight.saved && (
+                        {insightMode === ItemMode.Edit && hasDashboardItemId && (
                             <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
                                 Cancel
                             </LemonButton>
                         )}
-                        {insightMode !== ItemMode.Edit && insight.short_id && (
+                        {insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
 
-                        {insightMode !== ItemMode.Edit && insight.short_id && featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
-                            <AddToNotebook
-                                node={NotebookNodeType.Insight}
-                                properties={{ shortId: insight.short_id }}
-                                type="secondary"
-                                size="medium"
-                            />
-                        )}
+                        {insightMode !== ItemMode.Edit &&
+                            hasDashboardItemId &&
+                            featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
+                                <AddToNotebook
+                                    node={NotebookNodeType.Insight}
+                                    properties={{ shortId: insight.short_id }}
+                                    type="secondary"
+                                    size="medium"
+                                />
+                            )}
 
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
@@ -320,7 +322,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <InsightSaveButton
                                 saveAs={saveAs}
                                 saveInsight={saveQueryBasedInsight}
-                                isSaved={insight.saved}
+                                isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged || queryChanged}
@@ -349,12 +351,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 tooltipPlacement="bottomRight"
                                 type={'secondary'}
                                 onClick={() => {
-                                    toggleQueryEditorPanel()
-                                    if (insightMode !== ItemMode.Edit) {
+                                    // for an existing insight in view mode
+                                    if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                        // enter edit mode
                                         setInsightMode(ItemMode.Edit, null)
-                                    } else if (insightMode === ItemMode.Edit && insight.saved) {
-                                        setInsightMode(ItemMode.View, null)
+
+                                        // exit early if query editor doesn't need to be toggled
+                                        if (showQueryEditor === false) {
+                                            return
+                                        }
                                     }
+                                    toggleQueryEditorPanel()
                                 }}
                                 icon={<IconDataObject fontSize="18" />}
                             />
