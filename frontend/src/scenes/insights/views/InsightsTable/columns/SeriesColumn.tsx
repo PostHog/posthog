@@ -31,6 +31,7 @@ export function SeriesColumnItem({
                 action={item.action}
                 fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                 hasMultipleSeries={indexedResults.length > 1}
+                showEventName
                 showCountedByTag={showCountedByTag}
                 breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
                 hideBreakdown
