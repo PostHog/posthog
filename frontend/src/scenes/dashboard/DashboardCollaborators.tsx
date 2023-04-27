@@ -73,7 +73,9 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                                             placeholder="Search for team members to add…"
                                             value={explicitCollaboratorsToBeAdded}
                                             loading={explicitCollaboratorsLoading}
-                                            onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
+                                            onChange={(newValues: string[]) =>
+                                                setExplicitCollaboratorsToBeAdded(newValues)
+                                            }
                                             filterOption={true}
                                             mode="multiple"
                                             data-attr="subscribed-emails"

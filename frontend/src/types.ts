@@ -1985,6 +1985,7 @@ export interface FeatureFlagGroupType {
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number
+    feature_preview?: string
 }
 
 export interface MultivariateFlagVariant {
@@ -2004,19 +2005,27 @@ export interface FeatureFlagFilters {
     payloads: Record<string, JsonType>
 }
 
-export interface FeatureFlagType {
-    id: number | null
+export interface FeatureFlagBasicType {
+    id: number
+    team_id: TeamType['id']
     key: string
-    name: string // Used as description
+    /* The description field (the name is a misnomer because of its legacy). */
+    name: string
     filters: FeatureFlagFilters
     deleted: boolean
     active: boolean
+    ensure_experience_continuity: boolean | null
+}
+
+export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team_id'> {
+    /** Null means that the flag has never been saved yet (it's new). */
+    id: number | null
     created_by: UserBasicType | null
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
-    ensure_experience_continuity: boolean | null
     experiment_set: string[] | null
+    features: EarlyAccsesFeatureType[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -2034,6 +2043,22 @@ export interface FeatureFlagRollbackConditions {
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
+}
+
+export interface EarlyAccsesFeatureType {
+    /** UUID */
+    id: string
+    feature_flag: FeatureFlagBasicType
+    name: string
+    description: string
+    stage: 'concept' | 'alpha' | 'beta' | 'general-availability'
+    /** Documentation URL. Can be empty. */
+    documentation_url: string
+    created_at: string
+}
+
+export interface NewEarlyAccessFeatureType extends Omit<EarlyAccsesFeatureType, 'id' | 'created_at' | 'feature_flag'> {
+    feature_flag_id: number | undefined
 }
 
 export interface UserBlastRadiusType {
