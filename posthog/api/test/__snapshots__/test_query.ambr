@@ -102,7 +102,8 @@
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-12 12:14:05.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS max_execution_time=60
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_events_query_all_time_date.1
@@ -113,7 +114,8 @@
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2022-01-12 00:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS max_execution_time=60
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_events_query_all_time_date.2
@@ -124,7 +126,8 @@
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2022-01-01 00:00:00.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2019-01-12 00:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS max_execution_time=60
+  OFFSET 0 SETTINGS readonly=1,
+                    max_execution_time=60
   '
 ---
 # name: TestQuery.test_full_hogql_query
