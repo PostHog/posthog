@@ -661,7 +661,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             const doExport = async (): Promise<void> => {
-                while (values.sessionPlayerData.next) {
+                while (values.sessionPlayerData.bufferedTo?.timestamp !== values.sessionPlayerData.end.valueOf()) {
                     await delay(1000)
                 }
 

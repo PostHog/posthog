@@ -548,7 +548,7 @@ export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGr
 export type SessionRecordingId = SessionRecordingType['id']
 
 export interface PlayerPosition {
-    time: number
+    time: number // This is relative to that window
     windowId: string
 }
 
@@ -611,8 +611,9 @@ export interface SessionPlayerMetaData {
     segments: RecordingSegment[]
 }
 
-export interface SessionPlayerData extends SessionPlayerSnapshotData, SessionPlayerMetaData {
+export interface SessionPlayerData extends SessionPlayerMetaData {
     bufferedTo: PlayerPosition | null
+    snapshotsByWindowId: Record<string, eventWithTime[]>
 }
 
 export enum SessionRecordingUsageType {

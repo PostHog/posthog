@@ -55,6 +55,7 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionP
                 isActive: segment.is_active,
             }
         }) || []
+
     return {
         pinnedCount: recording.pinned_count ?? 0,
         durationMs: recording.recording_duration * 1000,
@@ -173,8 +174,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshotsSuccess: () => {
             // If there is more data to poll for load the next batch.
             // This will keep calling loadRecording until `next` is empty.
-            if (!!values.sessionPlayerData.next) {
-                actions.loadRecordingSnapshots(values.sessionPlayerData.next)
+            if (!!values.sessionPlayerSnapshotData?.next) {
+                actions.loadRecordingSnapshots(values.sessionPlayerSnapshotData?.next)
             } else {
                 actions.reportUsageIfFullyLoaded()
             }
@@ -448,7 +449,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (meta, snapshots, segments, bufferedTo): SessionPlayerData => ({
                 ...meta,
                 snapshotsByWindowId: snapshots?.snapshotsByWindowId ?? {},
-                next: snapshots?.next,
                 segments,
                 bufferedTo,
             }),
@@ -465,11 +465,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
         bufferedTo: [
             (s) => [s.segments, s.sessionPlayerSnapshotData],
-            (segments, sessionPlayerSnapshotData): PlayerPosition | null => {
+            (segments, sessionPlayerSnapshotData): (PlayerPosition & { timestamp: number }) | null => {
                 // This is us building the snapshots live from the loaded snapshotData, instead of via the API
                 const snapshotsByWindowId = sessionPlayerSnapshotData?.snapshotsByWindowId || {}
 
-                let bufferedTo: PlayerPosition | null = null
+                let bufferedTo: (PlayerPosition & { timestamp: number }) | null = null
                 // If we don't have metadata or snapshots yet, then we can't calculate the bufferedTo.
                 if (!segments.length) {
                     return bufferedTo
@@ -483,12 +483,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (lastEventForWindowId && lastEventForWindowId.timestamp >= segment.startTimeEpochMs) {
                         // If we've buffered past the start of the segment, see how far.
                         const windowStartTime = windowSnapshots[0].timestamp
+                        const relativeTime = Math.min(
+                            lastEventForWindowId.timestamp - windowStartTime,
+                            segment.endPlayerPosition.time
+                        )
                         bufferedTo = {
                             windowId: segment.windowId,
-                            time: Math.min(
-                                lastEventForWindowId.timestamp - windowStartTime,
-                                segment.endPlayerPosition.time
-                            ),
+                            time: relativeTime,
+                            timestamp: windowStartTime + relativeTime,
                         }
                     }
                 }
