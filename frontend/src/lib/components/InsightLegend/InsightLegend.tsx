@@ -34,7 +34,7 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
                             hiddenLegendKeys={hiddenLegendKeys}
                             item={item}
                             rowIndex={index}
-                            hasMultipleSeries={indexedResults.length > 1}
+                            hasMultipleSeries={new Set(indexedResults.map((r) => r.action.order || -1)).size > 1}
                             highlighted={shouldHighlightThisRow(hiddenLegendKeys, index, highlightedSeries)}
                             toggleVisibility={toggleVisibility}
                             filters={filters}
