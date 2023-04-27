@@ -188,4 +188,4 @@ def early_access_features(request: Request):
         many=True,
     ).data
 
-    return cors_response(request, JsonResponse({"featurePreviews": early_access_features}))
+    return cors_response(request, JsonResponse({"earlyAccessFeatures": early_access_features}))

@@ -150,7 +150,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             response = self._get_features()
             self.assertEqual(response.status_code, 200)
             self.assertListEqual(
-                response.json()["featurePreviews"],
+                response.json()["earlyAccessFeatures"],
                 [
                     {
                         "id": str(feature.id),
