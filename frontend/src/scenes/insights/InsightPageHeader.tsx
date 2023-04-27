@@ -345,6 +345,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         </>
                                     )
                                 }
+                                aria-label={showQueryEditor ? 'Hide source (BETA)' : 'View source (BETA)'}
                                 tooltipPlacement="bottomRight"
                                 type={'secondary'}
                                 onClick={toggleQueryEditorPanel}
