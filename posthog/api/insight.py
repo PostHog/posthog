@@ -549,6 +549,8 @@ class InsightViewSet(
         else:
             queryset = Insight.objects.all()
 
+        # Optimize tag retrieval
+        queryset = self.prefetch_tagged_items_if_available(queryset)
         # Disallow access to other teams' insights
         queryset = self.filter_queryset_by_parents_lookups(queryset)
 

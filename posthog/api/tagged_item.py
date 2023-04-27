@@ -1,4 +1,4 @@
-from django.db.models import Prefetch, Q
+from django.db.models import Prefetch, Q, QuerySet
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.viewsets import GenericViewSet
 
@@ -85,13 +85,16 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
     def is_licensed(self):
         return is_licensed_for_tagged_items(self.request.user)  # type: ignore
 
-    def get_queryset(self):
-        queryset = super(TaggedItemViewSetMixin, self).get_queryset()
+    def prefetch_tagged_items_if_available(self, queryset: QuerySet) -> QuerySet:
         if self.is_licensed():
             return queryset.prefetch_related(
                 Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
             )
         return queryset
+
+    def get_queryset(self):
+        queryset = super(TaggedItemViewSetMixin, self).get_queryset()
+        return self.prefetch_tagged_items_if_available(queryset)
 
 
 class TaggedItemSerializer(serializers.Serializer):
