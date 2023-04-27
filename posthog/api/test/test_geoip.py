@@ -19,7 +19,9 @@ local_ip = "127.0.0.1"
 def test_geoip_results(test_input, expected):
     properties = get_geoip_properties(test_input)
     assert properties["$geoip_country_name"] == expected
-    assert len(properties) >= 5
+    # The GeoIP2 database changed to remove the postal code for the uk_ip_v6 address, so for that one we only expect 5 properties.
+    # if this test starts to fail again in production, just assert len(properties) == 6
+    assert len(properties) == 5 if test_input == uk_ip_v6 else 6
 
 
 class TestGeoIPDBError(TestCase):
