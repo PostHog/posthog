@@ -106,7 +106,7 @@ export function InsightTimeoutState({
                     </Link>
                     .
                 </p>
-                {!!queryId ? <div className="text-muted text-xs m-auto">Query ID: {queryId}</div> : null}
+                {!!queryId ? <div className="text-muted text-xs m-auto text-center">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )
@@ -149,7 +149,7 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                         </ol>
                     </div>
                 )}
-                {!!queryId ? <div className="text-muted text-xs">Query ID: {queryId}</div> : null}
+                {!!queryId ? <div className="text-muted text-xs text-center">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )

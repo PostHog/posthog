@@ -16,6 +16,7 @@ import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 import { compareFilters } from './utils/compareFilters'
 import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
+import { insightDataTimingLogic } from './insightDataTimingLogic'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
@@ -49,6 +50,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             ['loadData', 'loadDataSuccess'],
         ],
+        logic: [insightDataTimingLogic(props)],
     })),
 
     actions({
@@ -103,11 +105,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         queryChanged: [
-            (s) => [s.isQueryBasedInsight, s.query, s.insight, s.savedInsight],
-            (isQueryBasedInsight, query, insight, savedInsight) => {
+            (s) => [s.isQueryBasedInsight, s.isUsingDataExploration, s.query, s.insight, s.savedInsight],
+            (isQueryBasedInsight, isUsingDataExploration, query, insight, savedInsight) => {
                 if (isQueryBasedInsight) {
                     return !objectsEqual(query, insight.query)
-                } else {
+                } else if (isUsingDataExploration) {
                     const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
                     const savedFilters =
                         savedInsight.filters ||
@@ -118,6 +120,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     delete savedFilters.filter_test_accounts
 
                     return !compareFilters(currentFilters, savedFilters)
+                } else {
+                    return false
                 }
             },
         ],

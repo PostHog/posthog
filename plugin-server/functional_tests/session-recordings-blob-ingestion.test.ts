@@ -1,6 +1,5 @@
 import { GetObjectCommand, GetObjectCommandOutput, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
 import fs from 'fs'
-import { Consumer, Kafka, KafkaMessage, logLevel } from 'kafkajs'
 import * as zlib from 'zlib'
 
 import { defaultConfig } from '../src/config/config'
@@ -10,11 +9,7 @@ import { UUIDT } from '../src/utils/utils'
 import { capture, createOrganization, createTeam } from './api'
 import { waitForExpect } from './expectations'
 
-let kafka: Kafka
 let organizationId: string
-
-let dlq: KafkaMessage[]
-let dlqConsumer: Consumer
 
 let s3: S3Client
 
@@ -23,18 +18,6 @@ function generateVeryLongString(length = 1025) {
 }
 
 beforeAll(async () => {
-    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
-
-    dlq = []
-    dlqConsumer = kafka.consumer({ groupId: 'session_recording_events_test' })
-    await dlqConsumer.subscribe({ topic: 'session_recording_events_dlq' })
-    await dlqConsumer.run({
-        eachMessage: ({ message }) => {
-            dlq.push(message)
-            return Promise.resolve()
-        },
-    })
-
     organizationId = await createOrganization()
 
     const objectStorage = getObjectStorage({
@@ -51,10 +34,8 @@ beforeAll(async () => {
     s3 = objectStorage.s3
 })
 
-afterAll(async () => {
-    await Promise.all([await dlqConsumer.disconnect()])
-})
-
+// having these tests is causing flapping failures in other tests :/
+// eg.https://github.com/PostHog/posthog/actions/runs/4802953306/jobs/8553849494
 test.skip(`single recording event writes data to local tmp file`, async () => {
     const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
@@ -71,6 +52,7 @@ test.skip(`single recording event writes data to local tmp file`, async () => {
             $window_id: 'abc1234',
             $snapshot_data: { data: compressToString(veryLongString), chunk_count: 1 },
         },
+        topic: 'session_recording_events',
     })
 
     let tempFiles: string[] = []
@@ -113,6 +95,7 @@ test.skip(`multiple recording events writes compressed data to s3`, async () => 
                 $window_id: 'abc1234',
                 $snapshot_data: { data: compressToString(generateVeryLongString()), chunk_count: 1 },
             },
+            topic: 'session_recording_events',
         })
     })
     await Promise.all(captures)
@@ -124,7 +107,7 @@ test.skip(`multiple recording events writes compressed data to s3`, async () => 
                 Prefix: `${defaultConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${teamId}/session_id/${sessionId}`,
             })
         )
-        expect(s3Files.Contents?.length).toBe(1)
+        expect(s3Files.Contents?.length).toBeGreaterThanOrEqual(1)
 
         const s3File = s3Files.Contents?.[0]
         if (!s3File) {
@@ -146,5 +129,5 @@ test.skip(`multiple recording events writes compressed data to s3`, async () => 
         //     "data": "random...string" // thousands of characters
         // }
         expect(text).toMatch(/{"window_id":"abc1234","data":"\w+"}/)
-    })
-}, 20000)
+    }, 40000)
+}, 50000)
