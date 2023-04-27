@@ -63,7 +63,12 @@ export class SessionRecordingBlobIngester {
             )
 
             this.sessions.set(key, sessionManager)
-            status.info('📦', 'Blob ingestion consumer started session manager', { key, partition, topic })
+            status.info('📦', 'Blob ingestion consumer started session manager', {
+                key,
+                partition,
+                topic,
+                sessionId: session_id,
+            })
         }
 
         this.offsetManager?.addOffset(topic, partition, offset)
@@ -84,7 +89,7 @@ export class SessionRecordingBlobIngester {
         }
 
         if (!message.value) {
-            return statusWarn('empty')
+            return statusWarn('message value is empty')
         }
 
         let messagePayload: RawEventMessage
@@ -123,8 +128,6 @@ export class SessionRecordingBlobIngester {
             return
         }
 
-        status.info('⬆️', 'processing_session_recording_blob', { uuid: messagePayload.uuid })
-
         const $snapshot_data = event.properties?.$snapshot_data
 
         const recordingMessage: IncomingRecordingMessage = {
@@ -153,8 +156,6 @@ export class SessionRecordingBlobIngester {
     }
 
     private async handleEachBatch(messages: Message[]): Promise<void> {
-        status.info('🔁', 'Processing recordings blob batch', { size: messages.length })
-
         for (const message of messages) {
             await this.handleKafkaMessage(message)
         }
@@ -205,28 +206,24 @@ export class SessionRecordingBlobIngester {
              */
             status.info('🏘️', 'Blob ingestion consumer rebalanced')
             if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-                status.info('⚖️', 'Blob ingestion consumer has received assignments', { assignments })
-
                 const partitions = assignments.map((assignment) => assignment.partition)
+
+                const currentPartitions = [...this.sessions.values()].map((session) => session.partition)
+
+                const sessions = [...this.sessions.values()].filter(
+                    (session) => !partitions.includes(session.partition)
+                )
+
+                status.info('⚖️', 'Blob ingestion consumer assignments change', {
+                    assignedPartitions: partitions,
+                    currentPartitions: currentPartitions,
+                    droppedSessions: sessions.map((s) => s.sessionId),
+                })
 
                 this.offsetManager?.cleanPartitions(KAFKA_SESSION_RECORDING_EVENTS, partitions)
 
-                await Promise.all(
-                    [...this.sessions.values()]
-                        .filter((session) => !partitions.includes(session.partition))
-                        .map((session) => session.destroy())
-                )
-
-                // Assign partitions to the consumer
-                // TODO read offset position from partitions so we can read from the correct place
-                // TODO looking here https://github.com/Blizzard/node-rdkafka/blob/master/lib/kafka-consumer.js#L54
-                // TODO we should not need to handle the assignment ourself since rebalance_cb = true
-                // this.batchConsumer?.consumer.assign(assignments)
+                await Promise.all(sessions.map((session) => session.destroy()))
             } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-                status.info('⚖️', 'Blob ingestion consumer has had assignments revoked', {
-                    assignments,
-                    trackedSessions: Array.from(this.sessions).map(([sessionId]) => sessionId),
-                })
                 /**
                  * The revoke_partitions event occurs when the Kafka Consumer is part of a consumer group and the group rebalances.
                  * As a result, some partitions previously assigned to a consumer might be taken away (revoked) and reassigned to another consumer.
@@ -239,7 +236,9 @@ export class SessionRecordingBlobIngester {
                  * This is where we could act to reduce raciness/duplication when partitions are reassigned to different consumers
                  * e.g. stop the `flushInterval` and wait for the `assign_partitions` event to start it again.
                  */
-                // this.batchConsumer?.consumer.unassign()
+                status.info('⚖️', 'Blob ingestion consumer has had assignments revoked', {
+                    assignments,
+                })
             } else {
                 // We had a "real" error
                 status.error('🔥', 'Blob ingestion consumer rebalancing error', { err })
@@ -265,7 +264,7 @@ export class SessionRecordingBlobIngester {
         // We trigger the flushes from this level to reduce the number of running timers
         this.flushInterval = setInterval(() => {
             this.sessions.forEach((sessionManager) => {
-                void sessionManager.flushIfNeccessary()
+                void sessionManager.flushIfNecessary()
             })
         }, 10000)
     }
