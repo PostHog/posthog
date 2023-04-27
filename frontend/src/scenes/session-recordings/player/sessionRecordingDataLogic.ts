@@ -25,6 +25,7 @@ import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicT
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
+import { captureException } from '@sentry/react'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -37,20 +38,20 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionP
             const segmentEndTime = dayjs(segment.end_time)
             const startPlayerPosition: PlayerPosition = {
                 windowId: segment.window_id,
-                time: +segmentStartTime - +windowStartTime,
+                time: segmentStartTime.valueOf() - windowStartTime.valueOf(),
             }
             const endPlayerPosition: PlayerPosition = {
                 windowId: segment.window_id,
-                time: +segmentEndTime - +windowStartTime,
+                time: segmentEndTime.valueOf() - windowStartTime.valueOf(),
             }
-            const durationMs = +segmentEndTime - +segmentStartTime
+            const durationMs = segmentEndTime.valueOf() - segmentStartTime.valueOf()
 
             return {
                 startPlayerPosition,
                 endPlayerPosition,
                 durationMs,
-                startTimeEpochMs: +segmentStartTime,
-                endTimeEpochMs: +segmentEndTime,
+                startTimeEpochMs: segmentStartTime.valueOf(),
+                endTimeEpochMs: segmentEndTime.valueOf(),
                 windowId: segment.window_id,
                 isActive: segment.is_active,
             }
@@ -377,6 +378,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         ].map((properties) =>
                             api.query({
                                 kind: 'EventsQuery',
+                                // NOTE: Be careful adding fields here. We want to keep the payload as small as possible to load all events quickly
                                 select: [
                                     'uuid',
                                     'event',
@@ -398,6 +400,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const minimalEvents = [...sessionEvents.results, ...relatedEvents.results].map(
                         (event: any): RecordingEventType => {
+                            const currentUrl = event[5]
+                            // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small
+                            let pathname = undefined
+                            try {
+                                pathname = event[5] ? new URL(event[5]).pathname : undefined
+                            } catch {}
+
                             return {
                                 id: event[0],
                                 event: event[1],
@@ -405,19 +414,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                 elements: chainToElements(event[3]),
                                 properties: {
                                     $window_id: event[4],
-                                    $current_url: event[5],
+                                    $current_url: currentUrl,
                                     $event_type: event[6],
+                                    $pathname: pathname,
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,
                             }
                         }
                     )
-                    // We should add a buffer here as some events may fall slightly outside the range
-                    // .filter(
-                    //     (x: RecordingEventType) =>
-                    //         x.playerTime !== null && x.playerTime > 0 && x.playerTime < durationMs
-                    // )
 
                     return minimalEvents
                 },
@@ -429,14 +434,20 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     // TODO: Somehow check whether or not we need to load more data.
-                    const res: any = await api.query({
-                        kind: 'HogQLQuery',
-                        query: `select properties from events where uuid = '${event.id}' limit 1`,
-                    })
+                    try {
+                        const res: any = await api.query({
+                            kind: 'HogQLQuery',
+                            query: `select properties from events where uuid = '${event.id}' and timestamp = toDateTime('${event.timestamp}') limit 1`,
+                        })
 
-                    if (res.results[0]) {
-                        existingEvent.properties = JSON.parse(res.results[0])
+                        if (res.results[0]) {
+                            existingEvent.properties = JSON.parse(res.results[0])
+                            existingEvent.fullyLoaded = true
+                        }
+                    } catch (e) {
+                        // NOTE: This is not ideal but should happen so rarely that it is tolerable.
                         existingEvent.fullyLoaded = true
+                        captureException(e)
                     }
 
                     return values.sessionEventsData

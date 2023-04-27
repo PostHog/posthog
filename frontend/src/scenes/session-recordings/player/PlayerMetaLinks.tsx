@@ -17,8 +17,10 @@ export function PlayerMetaLinks(): JSX.Element {
 
     const onShare = (): void => {
         setPause()
+        // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
+        const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
         openPlayerShareDialog({
-            seconds: Math.floor((sessionRecordingPlayerLogic.values.currentPlayerTime || 0) / 1000),
+            seconds: Math.floor(currentPlayerTime / 1000),
             id: sessionRecordingId,
         })
     }
