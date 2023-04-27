@@ -46,7 +46,7 @@ export const accessoryGroups = ['headwear', 'eyewear', 'other'] as const
 export type AccessoryInfo = {
     /** Path to the img */
     img: string
-    group: typeof accessoryGroups[number]
+    group: (typeof accessoryGroups)[number]
     topOffset?: number
 }
 
