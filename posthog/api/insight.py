@@ -582,7 +582,7 @@ class InsightViewSet(
             and len(self.request.data) == 1
         ):
             # an insight can be un-deleted by patching {"deleted": False}
-            queryset: QuerySet = Insight.objects_including_soft_deleted
+            queryset = Insight.objects_including_soft_deleted
         else:
             queryset = super().get_queryset()
 
