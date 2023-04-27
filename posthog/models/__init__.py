@@ -17,6 +17,7 @@ from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
 from .exported_asset import ExportedAsset
+from .early_access_feature import EarlyAccessFeature
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -68,6 +69,7 @@ __all__ = [
     "Experiment",
     "ExportedAsset",
     "FeatureFlag",
+    "EarlyAccessFeature",
     "Filter",
     "Group",
     "GroupTypeMapping",

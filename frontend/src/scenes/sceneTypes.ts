@@ -33,6 +33,8 @@ export enum Scene {
     Experiment = 'Experiment',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
+    EarlyAccessFeatures = 'EarlyAccessFeatures',
+    EarlyAccessFeature = 'EarlyAccessFeature',
     OrganizationSettings = 'OrganizationSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
