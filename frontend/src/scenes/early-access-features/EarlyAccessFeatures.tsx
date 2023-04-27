@@ -4,7 +4,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { FeatureType } from '~/types'
+import { EarlyAccsesFeatureType } from '~/types'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
 export const scene: SceneExport = {
@@ -12,7 +12,7 @@ export const scene: SceneExport = {
     logic: earlyAccessFeaturesLogic,
 }
 
-const STAGES_IN_ORDER: Record<FeatureType['stage'], number> = {
+const STAGES_IN_ORDER: Record<EarlyAccsesFeatureType['stage'], number> = {
     concept: 0,
     alpha: 1,
     beta: 2,
@@ -20,7 +20,7 @@ const STAGES_IN_ORDER: Record<FeatureType['stage'], number> = {
 }
 
 export function EarlyAccessFeatures(): JSX.Element {
-    const { features, featuresLoading } = useValues(earlyAccessFeaturesLogic)
+    const { earlyAccessFeatures, earlyAccessFeaturesLoading } = useValues(earlyAccessFeaturesLogic)
 
     return (
         <>
@@ -35,7 +35,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                 delimited
             />
             <LemonTable
-                loading={featuresLoading}
+                loading={earlyAccessFeaturesLoading}
                 columns={[
                     {
                         title: 'Name',
@@ -108,7 +108,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                         },
                     },
                 ]}
-                dataSource={features}
+                dataSource={earlyAccessFeatures}
             />
         </>
     )

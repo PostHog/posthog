@@ -5,7 +5,7 @@ import { Field, PureField } from 'lib/forms/Field'
 import { SceneExport } from 'scenes/sceneTypes'
 import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { Field as KeaField, Form } from 'kea-forms'
-import { FeatureType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
+import { EarlyAccsesFeatureType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
 import { PersonsScene } from 'scenes/persons/Persons'
 import { IconDelete, IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
@@ -30,21 +30,24 @@ export const scene: SceneExport = {
 }
 
 export function EarlyAccessFeature(): JSX.Element {
-    const { feature, featureLoading, isFeatureSubmitting, isEditingFeature } = useValues(earlyAccessFeatureLogic)
-    const { submitFeatureRequest, cancel, editFeature } = useActions(earlyAccessFeatureLogic)
+    const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
+        useValues(earlyAccessFeatureLogic)
+    const { submitEarlyAccessFeatureRequest, cancel, editFeature } = useActions(earlyAccessFeatureLogic)
 
     return (
         <Form formKey="feature" logic={earlyAccessFeatureLogic}>
             <PageHeader
-                title={isEditingFeature && !('id' in feature) ? 'New Feature Release' : feature.name}
+                title={
+                    isEditingFeature && !('id' in earlyAccessFeature) ? 'New Feature Release' : earlyAccessFeature.name
+                }
                 buttons={
-                    !featureLoading ? (
+                    !earlyAccessFeatureLoading ? (
                         isEditingFeature ? (
                             <>
                                 <LemonButton
                                     type="secondary"
                                     onClick={() => cancel()}
-                                    disabledReason={isFeatureSubmitting ? 'Saving…' : undefined}
+                                    disabledReason={isEarlyAccessFeatureSubmitting ? 'Saving…' : undefined}
                                 >
                                     Cancel
                                 </LemonButton>
@@ -52,9 +55,9 @@ export function EarlyAccessFeature(): JSX.Element {
                                     type="primary"
                                     htmlType="submit"
                                     onClick={() => {
-                                        submitFeatureRequest(feature)
+                                        submitEarlyAccessFeatureRequest(earlyAccessFeature)
                                     }}
-                                    loading={isFeatureSubmitting}
+                                    loading={isEarlyAccessFeatureSubmitting}
                                 >
                                     Save
                                 </LemonButton>
@@ -77,23 +80,23 @@ export function EarlyAccessFeature(): JSX.Element {
             />
             <div className={clsx('flex', 'flex-row', 'gap-6', isEditingFeature ? 'max-w-160' : null)}>
                 <div className="flex flex-col gap-4" style={{ flex: 2 }}>
-                    {isEditingFeature && !('id' in feature) && (
+                    {isEditingFeature && !('id' in earlyAccessFeature) && (
                         <Field name="name" label="Name">
                             <LemonInput data-attr="feature-name" />
                         </Field>
                     )}
-                    {'feature_flag' in feature ? (
+                    {'feature_flag' in earlyAccessFeature ? (
                         <PureField label="Connected Feature flag">
                             <div>
                                 <LemonButton
                                     type="secondary"
                                     onClick={() =>
-                                        feature.feature_flag &&
-                                        router.actions.push(urls.featureFlag(feature.feature_flag.id))
+                                        earlyAccessFeature.feature_flag &&
+                                        router.actions.push(urls.featureFlag(earlyAccessFeature.feature_flag.id))
                                     }
                                     icon={<IconFlag />}
                                 >
-                                    {feature.feature_flag.key}
+                                    {earlyAccessFeature.feature_flag.key}
                                 </LemonButton>
                             </div>
                         </PureField>
@@ -140,7 +143,7 @@ export function EarlyAccessFeature(): JSX.Element {
                             <b>Stage</b>
                             <div>
                                 <LemonTag type="highlight" className="mt-2 uppercase">
-                                    {feature.stage}
+                                    {earlyAccessFeature.stage}
                                 </LemonTag>
                             </div>
                         </div>
@@ -156,8 +159,8 @@ export function EarlyAccessFeature(): JSX.Element {
                         <div className="mb-2">
                             <b>Description</b>
                             <div>
-                                {feature.description ? (
-                                    feature.description
+                                {earlyAccessFeature.description ? (
+                                    earlyAccessFeature.description
                                 ) : (
                                     <span className="text-muted">No description</span>
                                 )}
@@ -172,8 +175,8 @@ export function EarlyAccessFeature(): JSX.Element {
                         <div className="mb-2">
                             <b>Documentation Url</b>
                             <div>
-                                {feature.documentation_url ? (
-                                    feature.documentation_url
+                                {earlyAccessFeature.documentation_url ? (
+                                    earlyAccessFeature.documentation_url
                                 ) : (
                                     <span className="text-muted">No documentation url</span>
                                 )}
@@ -181,9 +184,9 @@ export function EarlyAccessFeature(): JSX.Element {
                         </div>
                     )}
                 </div>
-                {!isEditingFeature && 'id' in feature && (
+                {!isEditingFeature && 'id' in earlyAccessFeature && (
                     <div style={{ flex: 3 }}>
-                        <PersonList feature={feature} />
+                        <PersonList earlyAccessFeature={earlyAccessFeature} />
                     </div>
                 )}
             </div>
@@ -231,14 +234,14 @@ function FlagSelector({ value, onChange }: FlagSelectorProps): JSX.Element {
 }
 
 interface PersonListProps {
-    feature: FeatureType
+    earlyAccessFeature: EarlyAccsesFeatureType
 }
 
-function PersonList({ feature }: PersonListProps): JSX.Element {
+function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
     const { implementOptInInstructionsModal } = useValues(earlyAccessFeatureLogic)
     const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
 
-    const key = '$feature_enrollment/' + feature.feature_flag.key
+    const key = '$feature_enrollment/' + earlyAccessFeature.feature_flag.key
     const personLogicProps: PersonLogicProps = {
         cohort: undefined,
         syncWithUrl: false,
@@ -254,7 +257,7 @@ function PersonList({ feature }: PersonListProps): JSX.Element {
     const logic = personsLogic(personLogicProps)
     const { persons } = useValues(logic)
 
-    const { featureFlag } = useValues(featureFlagLogic({ id: feature.feature_flag.id || 'link' }))
+    const { featureFlag } = useValues(featureFlagLogic({ id: earlyAccessFeature.feature_flag.id || 'link' }))
 
     const optUserOut = async (person: PersonType): Promise<void> => {
         await api.persons.updateProperty(person.id as string, key, false)
@@ -271,7 +274,7 @@ function PersonList({ feature }: PersonListProps): JSX.Element {
                     {
                         render: function Render(_, person: PersonType) {
                             return (
-                                person.properties['$feature_enrollment/' + feature.feature_flag.key] && (
+                                person.properties['$feature_enrollment/' + earlyAccessFeature.feature_flag.key] && (
                                     <LemonButton
                                         onClick={() => optUserOut(person)}
                                         icon={<IconDelete />}

@@ -2015,7 +2015,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_simple_flag: boolean
     rollout_percentage: number | null
     experiment_set: string[] | null
-    features: FeatureType[] | null
+    features: EarlyAccsesFeatureType[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -2035,7 +2035,7 @@ export interface CombinedFeatureFlagAndValueType {
     value: boolean | string
 }
 
-export interface FeatureType {
+export interface EarlyAccsesFeatureType {
     /** UUID */
     id: string
     feature_flag: FeatureFlagBasicType
@@ -2047,7 +2047,7 @@ export interface FeatureType {
     created_at: string
 }
 
-export interface NewFeatureType extends Omit<FeatureType, 'id' | 'created_at' | 'feature_flag'> {
+export interface NewEarlyAccessFeatureType extends Omit<EarlyAccsesFeatureType, 'id' | 'created_at' | 'feature_flag'> {
     feature_flag_id: number | undefined
 }
 

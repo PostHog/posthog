@@ -37,8 +37,8 @@ import {
     RecentPerformancePageView,
     DashboardTemplateType,
     DashboardTemplateEditorType,
-    FeatureType,
-    NewFeatureType,
+    EarlyAccsesFeatureType,
+    NewEarlyAccessFeatureType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -392,12 +392,12 @@ class ApiRequest {
     }
 
     // # Features
-    public features(teamId?: TeamType['id']): ApiRequest {
+    public earlyAccessFeatures(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('early_access_feature')
     }
 
-    public feature(id: FeatureType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.features(teamId).addPathComponent(id)
+    public earlyAccessFeature(id: EarlyAccsesFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.earlyAccessFeatures(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -1103,21 +1103,21 @@ const api = {
         },
     },
 
-    features: {
-        async get(featureId: FeatureType['id']): Promise<FeatureType> {
-            return await new ApiRequest().feature(featureId).get()
+    earlyAccessFeatures: {
+        async get(featureId: EarlyAccsesFeatureType['id']): Promise<EarlyAccsesFeatureType> {
+            return await new ApiRequest().earlyAccessFeature(featureId).get()
         },
-        async create(data: NewFeatureType): Promise<FeatureType> {
-            return await new ApiRequest().features().create({ data })
+        async create(data: NewEarlyAccessFeatureType): Promise<EarlyAccsesFeatureType> {
+            return await new ApiRequest().earlyAccessFeatures().create({ data })
         },
         async update(
-            featureId: FeatureType['id'],
-            data: Pick<FeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
-        ): Promise<FeatureType> {
-            return await new ApiRequest().feature(featureId).update({ data })
+            featureId: EarlyAccsesFeatureType['id'],
+            data: Pick<EarlyAccsesFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
+        ): Promise<EarlyAccsesFeatureType> {
+            return await new ApiRequest().earlyAccessFeature(featureId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<FeatureType>> {
-            return await new ApiRequest().features().get()
+        async list(): Promise<PaginatedResponse<EarlyAccsesFeatureType>> {
+            return await new ApiRequest().earlyAccessFeatures().get()
         },
     },
 
