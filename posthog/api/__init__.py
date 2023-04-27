@@ -9,11 +9,11 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
+    beta_management,
     dead_letter_queue,
     event_definition,
     exports,
     feature_flag,
-    feature,
     ingestion_warnings,
     instance_settings,
     instance_status,
@@ -84,9 +84,9 @@ project_feature_flags_router = projects_router.register(
     ["team_id"],
 )
 project_features_router = projects_router.register(
-    r"features",
-    feature.FeatureViewSet,
-    "project_features",
+    r"beta_management",
+    beta_management.BetaManagementViewSet,
+    "project_beta_management",
     ["team_id"],
 )
 

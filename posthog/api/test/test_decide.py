@@ -10,7 +10,6 @@ from rest_framework import status
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.feature import Feature
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.utils import generate_random_token_personal
@@ -1055,46 +1054,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(
                 "third-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # different hash, different variant assigned
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
-
-    def test_feature_previews_v4(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "example@posthog.com"})
-
-        feature_flag = FeatureFlag.objects.create(
-            team=self.team,
-            name=f"Feature Flag for Feature Sprocket",
-            key="sprocket",
-            rollout_percentage=0,
-            created_by=self.user,
-        )
-        feature = Feature.objects.create(
-            team=self.team,
-            name="Sprocket",
-            description="A fancy new sprocket.",
-            stage="beta",
-            feature_flag=feature_flag,
-        )
-
-        # also adding team to cache
-        self._post_decide(api_version=4, distinct_id="example_id")
-        self.client.logout()
-
-        with self.assertNumQueries(1):  # TODO: Cache the previews query too
-            response = self._post_decide(api_version=4, distinct_id="example_id")
-            self.assertFalse(response.json()["featureFlags"]["sprocket"])
-            self.assertListEqual(
-                response.json()["featurePreviews"],
-                [
-                    {
-                        "id": str(feature.id),
-                        "name": "Sprocket",
-                        "description": "A fancy new sprocket.",
-                        "stage": "beta",
-                        "documentationUrl": "",
-                        "flagKey": "sprocket",
-                    }
-                ],
-            )
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")

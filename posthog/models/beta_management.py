@@ -2,7 +2,7 @@ from django.db import models
 from posthog.models.utils import UUIDModel, sane_repr
 
 
-class Feature(UUIDModel):
+class BetaManagement(UUIDModel):
     class Stage(models.TextChoices):
         CONCEPT = "concept", "concept"
         ALPHA = "alpha", "alpha"
