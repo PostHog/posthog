@@ -26,6 +26,7 @@ import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicT
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
+import { captureException } from '@sentry/react'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -440,11 +441,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             }
                         }
                     )
-                    // We should add a buffer here as some events may fall slightly outside the range
-                    // .filter(
-                    //     (x: RecordingEventType) =>
-                    //         x.playerTime !== null && x.playerTime > 0 && x.playerTime < recordingDurationMs
-                    // )
 
                     return minimalEvents
                 },
@@ -456,14 +452,20 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     // TODO: Somehow check whether or not we need to load more data.
-                    const res: any = await api.query({
-                        kind: 'HogQLQuery',
-                        query: `select properties from events where uuid = '${event.id}' and timestamp = toDateTime('${event.timestamp}') limit 1`,
-                    })
+                    try {
+                        const res: any = await api.query({
+                            kind: 'HogQLQuery',
+                            query: `select properties from events where uuid = '${event.id}' and timestamp = toDateTime('${event.timestamp}') limit 1`,
+                        })
 
-                    if (res.results[0]) {
-                        existingEvent.properties = JSON.parse(res.results[0])
+                        if (res.results[0]) {
+                            existingEvent.properties = JSON.parse(res.results[0])
+                            existingEvent.fullyLoaded = true
+                        }
+                    } catch (e) {
+                        // NOTE: This is not ideal but should happen so rarely that it is tolerable.
                         existingEvent.fullyLoaded = true
+                        captureException(e)
                     }
 
                     return values.sessionEventsData
