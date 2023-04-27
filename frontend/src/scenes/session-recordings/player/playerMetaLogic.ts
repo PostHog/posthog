@@ -47,7 +47,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     (s: eventWithTime) => s.timestamp < absolutePlayerTime && (s.data as any).width
                 )
 
-                console.log(currIndex, absolutePlayerTime, snapshots.length, snapshots[0]?.timestamp)
                 if (currIndex === -1) {
                     return null
                 }
@@ -65,7 +64,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 },
             },
         ],
-        recordingStartTime: [
+        startTime: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
                 return sessionPlayerData.start ?? null

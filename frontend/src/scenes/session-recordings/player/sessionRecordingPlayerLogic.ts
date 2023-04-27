@@ -198,6 +198,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     })),
     selectors({
+        // Prop references for use by other logics
         sessionRecordingId: [() => [(_, props) => props], (props): string => props.sessionRecordingId],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
 
@@ -245,10 +246,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         matchingEvents: [
             (s) => [s.matching],
             (matching) => (matching ?? []).map((filterMatches) => filterMatches.events).flat(),
-        ],
-        recordingStartTime: [
-            () => [(_, props) => props.recordingStartTime],
-            (recordingStartTime) => recordingStartTime ?? null,
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
