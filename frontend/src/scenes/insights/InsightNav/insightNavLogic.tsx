@@ -13,6 +13,7 @@ import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter
 import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { examples, TotalEventsTable } from '~/queries/examples'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 
 export interface Tab {
     label: string | JSX.Element
@@ -32,6 +33,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             ['featureFlags'],
             insightDataLogic(props),
             ['query'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
         ],
         actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuery']],
     })),
@@ -161,17 +164,17 @@ export const insightNavLogic = kea<insightNavLogicType>([
             } else {
                 if (values.isUsingDataExploration) {
                     if (view === InsightType.TRENDS) {
-                        actions.setQuery(queryFromKind(NodeKind.TrendsQuery))
+                        actions.setQuery(queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault))
                     } else if (view === InsightType.FUNNELS) {
-                        actions.setQuery(queryFromKind(NodeKind.FunnelsQuery))
+                        actions.setQuery(queryFromKind(NodeKind.FunnelsQuery, values.filterTestAccountsDefault))
                     } else if (view === InsightType.RETENTION) {
-                        actions.setQuery(queryFromKind(NodeKind.RetentionQuery))
+                        actions.setQuery(queryFromKind(NodeKind.RetentionQuery, values.filterTestAccountsDefault))
                     } else if (view === InsightType.PATHS) {
-                        actions.setQuery(queryFromKind(NodeKind.PathsQuery))
+                        actions.setQuery(queryFromKind(NodeKind.PathsQuery, values.filterTestAccountsDefault))
                     } else if (view === InsightType.STICKINESS) {
-                        actions.setQuery(queryFromKind(NodeKind.StickinessQuery))
+                        actions.setQuery(queryFromKind(NodeKind.StickinessQuery, values.filterTestAccountsDefault))
                     } else if (view === InsightType.LIFECYCLE) {
-                        actions.setQuery(queryFromKind(NodeKind.LifecycleQuery))
+                        actions.setQuery(queryFromKind(NodeKind.LifecycleQuery, values.filterTestAccountsDefault))
                     }
                 } else {
                     actions.setFilters(
