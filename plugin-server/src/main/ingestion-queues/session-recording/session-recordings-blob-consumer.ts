@@ -63,6 +63,7 @@ export class SessionRecordingBlobIngester {
             )
 
             this.sessions.set(key, sessionManager)
+            status.info('📦', 'blob_ingester_session_manager created', { key, partition, topic })
         }
 
         this.offsetManager?.addOffset(topic, partition, offset)
@@ -222,7 +223,10 @@ export class SessionRecordingBlobIngester {
                 // TODO we should not need to handle the assignment ourself since rebalance_cb = true
                 // this.batchConsumer?.consumer.assign(assignments)
             } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-                status.info('⚖️', 'Blob ingestion consumer has had assignments revoked', { assignments })
+                status.info('⚖️', 'Blob ingestion consumer has had assignments revoked', {
+                    assignments,
+                    trackedSessions: Array.from(this.sessions).map(([sessionId]) => sessionId),
+                })
                 /**
                  * The revoke_partitions event occurs when the Kafka Consumer is part of a consumer group and the group rebalances.
                  * As a result, some partitions previously assigned to a consumer might be taken away (revoked) and reassigned to another consumer.
