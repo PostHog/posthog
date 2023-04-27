@@ -24,7 +24,7 @@ import { InstructionsModal } from './InstructionsModal'
 export const scene: SceneExport = {
     component: Feature,
     logic: featureLogic,
-    paramsToProps: ({ params: { id } }): typeof featureLogic['props'] => ({
+    paramsToProps: ({ params: { id } }): (typeof featureLogic)['props'] => ({
         id,
     }),
 }
