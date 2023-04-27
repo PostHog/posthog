@@ -516,6 +516,7 @@ class InsightViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
+    queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [
         IsAuthenticated,
@@ -581,11 +582,10 @@ class InsightViewSet(
             and len(self.request.data) == 1
         ):
             # an insight can be un-deleted by patching {"deleted": False}
-            queryset = Insight.objects_including_soft_deleted.all()
+            queryset: QuerySet = Insight.objects_including_soft_deleted
         else:
-            queryset = Insight.objects.all()
+            queryset = super().get_queryset()
 
-        queryset = self.filter_queryset_by_parents_lookups(queryset)
         queryset = queryset.prefetch_related(
             Prefetch(
                 # TODO deprecate this field entirely

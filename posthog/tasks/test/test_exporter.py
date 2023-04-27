@@ -8,6 +8,14 @@ from posthog.tasks.exports.image_exporter import get_driver
 from posthog.test.base import APIBaseTest
 
 
+class MockWebDriver(MagicMock):
+    def find_element_by_css_selector(self, name):
+        return MagicMock()  # Always return something for wait_for_css_selector
+
+    def find_element_by_class_name(self, name):
+        return None  # Never return anything for Spinner
+
+
 @patch("posthog.tasks.exports.image_exporter.uuid")
 class TestExporterTask(APIBaseTest):
     exported_asset: ExportedAsset = None  # type: ignore
@@ -28,6 +36,7 @@ class TestExporterTask(APIBaseTest):
     @patch("posthog.tasks.exports.image_exporter.get_driver")
     def test_exporter_runs(self, mock_get_driver: MagicMock, mock_uuid: MagicMock) -> None:
         mock_uuid.uuid4.return_value = "posthog_test_exporter"
+        mock_get_driver.return_value = MockWebDriver()
 
         assert self.exported_asset.content is None
         assert self.exported_asset.content_location is None
