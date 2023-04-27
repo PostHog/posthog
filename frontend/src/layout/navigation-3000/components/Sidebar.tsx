@@ -22,7 +22,7 @@ export function Sidebar(): JSX.Element {
         isSearchShown,
         searchTerm,
     } = useValues(navigation3000Logic({ inputElement: inputElementRef.current }))
-    const { beginResize, setIsSearchShown, setSearchTerm } = useActions(
+    const { beginResize, setIsSearchShown, setSearchTerm, focusNextItem, setLastFocusedItemIndex } = useActions(
         navigation3000Logic({ inputElement: inputElementRef.current })
     )
 
@@ -55,6 +55,7 @@ export function Sidebar(): JSX.Element {
                                     Find <KeyboardShortcut shift command f />
                                 </>
                             }
+                            tooltipPlacement="bottom"
                         />
                     )}
                 </div>
@@ -67,7 +68,20 @@ export function Sidebar(): JSX.Element {
                             onChange={(value) => setSearchTerm(value)}
                             size="small"
                             placeholder="Search..."
+                            onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                    setIsSearchShown(false)
+                                    e.preventDefault()
+                                } else if (e.key === 'ArrowDown') {
+                                    focusNextItem()
+                                    e.preventDefault()
+                                }
+                            }}
+                            onFocus={() => {
+                                setLastFocusedItemIndex(-1)
+                            }}
                             autoFocus
+                            suffix={<KeyboardShortcut muted arrowdown arrowup />}
                         />
                     </div>
                 )}

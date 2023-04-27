@@ -6,7 +6,16 @@ type RoutePart = string | Record<string, any>
 
 export type LinkProps = Pick<
     React.HTMLProps<HTMLAnchorElement>,
-    'target' | 'className' | 'onClick' | 'onMouseDown' | 'onMouseEnter' | 'onMouseLeave' | 'children' | 'title'
+    | 'target'
+    | 'className'
+    | 'onClick'
+    | 'onMouseDown'
+    | 'onMouseEnter'
+    | 'onMouseLeave'
+    | 'children'
+    | 'title'
+    | 'onKeyDown'
+    | 'onFocus'
 > & {
     /** The location to go to. This can be a kea-location or a "href"-like string */
     to?: string | [string, RoutePart?, RoutePart?]

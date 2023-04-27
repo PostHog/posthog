@@ -1517,7 +1517,12 @@ export interface Breakdown {
 
 export interface FilterType {
     // used by all
+    from_dashboard?: boolean | number
     insight?: InsightType
+    filter_test_accounts?: boolean
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    sampling_factor?: number | null
+
     date_from?: string | null
     date_to?: string | null
     /**
@@ -1526,13 +1531,9 @@ export interface FilterType {
      */
     explicit_date?: boolean | string | null
 
-    properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     new_entity?: Record<string, any>[]
-
-    filter_test_accounts?: boolean
-    from_dashboard?: boolean | number
 
     // persons modal
     entity_id?: string | number
@@ -1549,7 +1550,6 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
-    sampling_factor?: number | null
 }
 
 export interface PropertiesTimelineFilterType {
@@ -1655,7 +1655,6 @@ export type AnyFilterType =
     | PathsFilterType
     | RetentionFilterType
     | LifecycleFilterType
-    | PropertiesTimelineFilterType
     | FilterType
 
 export type AnyPartialFilterType =
@@ -2134,7 +2133,8 @@ export type HotKey =
     | 'z'
     | 'escape'
     | 'enter'
-    | ' '
+    | 'space'
+    | 'tab'
     | 'arrowleft'
     | 'arrowright'
     | 'arrowdown'
