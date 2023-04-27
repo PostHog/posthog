@@ -5,8 +5,8 @@ export interface ActivityChange {
     type: 'FeatureFlag' | 'Person' | 'Insight' | 'Plugin' | 'PluginConfig'
     action: 'changed' | 'created' | 'deleted' | 'exported' | 'split'
     field?: string
-    before?: string | Record<string, any> | boolean
-    after?: string | Record<string, any> | boolean
+    before?: string | Record<string, any> | boolean | null
+    after?: string | Record<string, any> | boolean | null
 }
 
 export interface PersonMerge {

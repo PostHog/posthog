@@ -56,7 +56,9 @@ export const capture = async ({
     sentAt = new Date(),
     eventTime = new Date(),
     now = new Date(),
-    topic = 'events_plugin_ingestion',
+    topic = ['$performance_event', '$snapshot'].includes(event)
+        ? 'session_recording_events'
+        : 'events_plugin_ingestion',
 }: {
     teamId: number | null
     distinctId: string

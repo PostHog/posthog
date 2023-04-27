@@ -7,9 +7,26 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { ExtendedListItem } from '../types'
 import type { featureFlagsSidebarLogicType } from './featureFlagsSidebarLogicType'
+import Fuse from 'fuse.js'
+import { FeatureFlagType } from '~/types'
+import { subscriptions } from 'kea-subscriptions'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { navigation3000Logic } from '../navigationLogic'
+
+const fuse = new Fuse<FeatureFlagType>([], {
+    // Note: For feature flags `name` is the description field
+    keys: [{ name: 'key', weight: 2 }, 'name', 'tags'],
+    threshold: 0.3,
+    ignoreLocation: true,
+    includeMatches: true,
+})
+
+export interface SearchMatch {
+    indices: readonly [number, number][]
+    key: string
+}
 
 export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'featureFlagsSidebarLogic']),
@@ -27,9 +44,9 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
     selectors(({ actions }) => ({
         isLoading: [(s) => [s.featureFlagsLoading], (featureFlagsLoading) => featureFlagsLoading],
         contents: [
-            (s) => [s.featureFlags, s.currentTeamId],
-            (featureFlags, currentTeamId) =>
-                featureFlags.map((featureFlag) => {
+            (s) => [s.relevantFeatureFlags, s.currentTeamId],
+            (relevantFeatureFlags, currentTeamId) =>
+                relevantFeatureFlags.map(([featureFlag, matches]) => {
                     if (!featureFlag.id) {
                         throw new Error('Feature flag ID should never be missing in the sidebar')
                     }
@@ -41,6 +58,14 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                         extraContextTop: dayjs(featureFlag.created_at),
                         extraContextBottom: `by ${featureFlag.created_by?.first_name || 'unknown'}`,
                         marker: { type: 'ribbon', status: featureFlag.active ? 'success' : 'danger' },
+                        searchMatch: matches
+                            ? {
+                                  matchingFields: matches.map((match) =>
+                                      match.key === 'name' ? 'description' : match.key
+                                  ),
+                                  nameHighlightRanges: matches.find((match) => match.key === 'key')?.indices,
+                              }
+                            : null,
                         menuItems: [
                             {
                                 items: [
@@ -117,5 +142,19 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                     : null
             },
         ],
+        relevantFeatureFlags: [
+            (s) => [s.featureFlags, navigation3000Logic.selectors.searchTerm],
+            (featureFlags, searchTerm): [FeatureFlagType, SearchMatch[] | null][] => {
+                if (searchTerm) {
+                    return fuse.search(searchTerm).map((result) => [result.item, result.matches as SearchMatch[]])
+                }
+                return featureFlags.map((featureFlag) => [featureFlag, null])
+            },
+        ],
     })),
+    subscriptions({
+        featureFlags: (featureFlags) => {
+            fuse.setCollection(featureFlags)
+        },
+    }),
 ])

@@ -7,6 +7,7 @@ import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
 import { UserType } from '~/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 function getSessionReplayLink(): string {
     const LOOK_BACK = 30
@@ -39,18 +40,19 @@ export const TargetAreaToName = {
     experiments: 'Experiments',
     feature_flags: 'Feature Flags',
     login: 'Login / Sign up / Invites',
-    session_reply: 'Session Replay',
+    session_replay: 'Session Replay',
 }
 export type supportTicketTargetArea = keyof typeof TargetAreaToName | null
 export type supportTicketKind = 'bug' | 'feedback' | null
 
 export const URLPathToTargetArea: Record<string, supportTicketTargetArea> = {
     insights: 'analytics',
-    recordings: 'session_reply',
+    recordings: 'session_replay',
+    replay: 'session_replay',
     dashboard: 'analytics',
     feature_flags: 'feature_flags',
     experiments: 'experiments',
-    'web-performance': 'session_reply',
+    'web-performance': 'session_replay',
     events: 'analytics',
     'data-management': 'data_management',
     cohorts: 'cohorts',
@@ -169,4 +171,35 @@ export const supportLogic = kea<supportLogicType>([
                 })
         },
     })),
+
+    urlToAction(({ actions, values }) => ({
+        '*': (_, _search, hashParams) => {
+            if ('supportModal' in hashParams && !values.isSupportFormOpen) {
+                const [kind, area] = (hashParams['supportModal'] || '').split(':')
+
+                actions.openSupportForm(
+                    ['bug', 'feedback'].includes(kind) ? kind : null,
+                    Object.keys(TargetAreaToName).includes(area) ? area : null
+                )
+            }
+        },
+    })),
+    actionToUrl(({ values }) => {
+        const updateUrl = (): any => {
+            const hashParams = router.values.hashParams
+            hashParams['supportModal'] = `${values.sendSupportRequest.kind || ''}:${
+                values.sendSupportRequest.target_area || ''
+            }`
+            return [router.values.location.pathname, router.values.searchParams, hashParams]
+        }
+        return {
+            openSupportForm: () => updateUrl(),
+            setSendSupportRequestValue: () => updateUrl(),
+            closeSupportForm: () => {
+                const hashParams = router.values.hashParams
+                delete hashParams['supportModal']
+                return [router.values.location.pathname, router.values.searchParams, hashParams]
+            },
+        }
+    }),
 ])

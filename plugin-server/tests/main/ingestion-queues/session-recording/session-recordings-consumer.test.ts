@@ -1,10 +1,10 @@
-import LibrdKafkaError from 'node-rdkafka/lib/error'
+import LibrdKafkaError from 'node-rdkafka-acosom/lib/error'
 import { Pool } from 'pg'
 
-import { defaultConfig } from '../../../src/config/config'
-import { eachBatch } from '../../../src/main/ingestion-queues/session-recordings-consumer'
-import { TeamManager } from '../../../src/worker/ingestion/team-manager'
-import { createOrganization, createTeam } from '../../helpers/sql'
+import { defaultConfig } from '../../../../src/config/config'
+import { eachBatch } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
+import { TeamManager } from '../../../../src/worker/ingestion/team-manager'
+import { createOrganization, createTeam } from '../../../helpers/sql'
 
 describe('session-recordings-consumer', () => {
     const producer = {

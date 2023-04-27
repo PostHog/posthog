@@ -1,23 +1,23 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka'
+import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka-acosom'
 
 import {
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
     KAFKA_PERFORMANCE_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS_DLQ,
-} from '../../config/kafka-topics'
-import { startBatchConsumer } from '../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
-import { retryOnDependencyUnavailableError } from '../../kafka/error-handling'
-import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../kafka/producer'
-import { PipelineEvent, RawEventMessage, Team } from '../../types'
-import { KafkaConfig } from '../../utils/db/hub'
-import { status } from '../../utils/status'
-import { createPerformanceEvent, createSessionRecordingEvent } from '../../worker/ingestion/process-event'
-import { TeamManager } from '../../worker/ingestion/team-manager'
-import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
-import { eventDroppedCounter } from './metrics'
+} from '../../../config/kafka-topics'
+import { startBatchConsumer } from '../../../kafka/batch-consumer'
+import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { retryOnDependencyUnavailableError } from '../../../kafka/error-handling'
+import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../kafka/producer'
+import { PipelineEvent, RawEventMessage, Team } from '../../../types'
+import { KafkaConfig } from '../../../utils/db/hub'
+import { status } from '../../../utils/status'
+import { createPerformanceEvent, createSessionRecordingEvent } from '../../../worker/ingestion/process-event'
+import { TeamManager } from '../../../worker/ingestion/team-manager'
+import { parseEventTimestamp } from '../../../worker/ingestion/timestamps'
+import { eventDroppedCounter } from '../metrics'
 
 export const startSessionRecordingEventsConsumer = async ({
     teamManager,

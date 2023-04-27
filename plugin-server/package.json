@@ -35,6 +35,8 @@
     "repository": "https://github.com/PostHog/posthog-plugin-server",
     "license": "MIT",
     "dependencies": {
+        "@aws-sdk/client-s3": "^3.315.0",
+        "@aws-sdk/lib-storage": "^3.315.0",
         "@babel/core": "^7.18.10",
         "@babel/plugin-transform-react-jsx": "^7.18.10",
         "@babel/preset-env": "^7.18.10",
@@ -68,7 +70,7 @@
         "lru-cache": "^6.0.0",
         "luxon": "^1.27.0",
         "node-fetch": "^2.6.1",
-        "node-rdkafka": "^2.15.0",
+        "node-rdkafka-acosom": "2.16.1",
         "node-schedule": "^2.1.0",
         "pg": "^8.6.0",
         "pino": "^8.6.0",
@@ -79,7 +81,7 @@
         "safe-stable-stringify": "^2.4.0",
         "snowflake-sdk": "^1.6.10",
         "uuid": "^8.3.2",
-        "vm2": "3.9.11"
+        "vm2": "3.9.17"
     },
     "devDependencies": {
         "0x": "^5.5.0",
