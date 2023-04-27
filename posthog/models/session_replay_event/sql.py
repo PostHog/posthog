@@ -109,6 +109,7 @@ select
    any(distinct_id),
    minMerge(first_timestamp),
    maxMerge(last_timestamp),
+   dateDiff('SECOND', minMerge(first_timestamp), maxMerge(last_timestamp)) as duration,
    sum(click_count),
    sum(keypress_count),
    sum(mouse_activity_count)

@@ -76,7 +76,7 @@ class SessionReplaySummaryQuery:
     def __init__(self, team: Team):
         self.team = team
 
-    def run(self):
+    def list_all(self):
         results = sync_execute(
             SELECT_ALL_SUMMARIZED_SESSIONS,
             # {"team_id": self.team.pk, "from_date": format_clickhouse_timestamp(datetime.now() - timedelta(hours=24))},
@@ -126,7 +126,7 @@ class TestReceiveSummarizedSessionReplays(ClickhouseDestroyTablesMixin, Clickhou
             mouse_activity_count=2,
         )
 
-        results = SessionReplaySummaryQuery(self.team).run()
+        results = SessionReplaySummaryQuery(self.team).list_all()
         assert results == [
             (
                 session_id,
@@ -134,6 +134,7 @@ class TestReceiveSummarizedSessionReplays(ClickhouseDestroyTablesMixin, Clickhou
                 str(self.user.distinct_id),
                 datetime(2023, 4, 26, 19, 17, 38, 116000, tzinfo=pytz.UTC),
                 datetime(2023, 4, 27, 14, 20, 42, 237000, tzinfo=pytz.UTC),
+                68584,
                 6,
                 6,
                 6,
