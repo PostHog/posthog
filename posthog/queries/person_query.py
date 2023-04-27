@@ -103,7 +103,6 @@ class PersonQuery:
         )
         updated_after_clause, updated_after_params = self._get_updated_after_clause()
 
-
         cohort_subquery = (
             f"""AND id IN (
             SELECT id FROM person
