@@ -13,7 +13,7 @@ class Command(BaseCommand):
         return re.findall(r'CREATE TABLE "([a-zA-Z0-9_]*)"', sql)
 
     def _get_table(self, search_string: str, operation_sql: str) -> Optional[str]:
-        match = re.match(r'.* ON "([a-zA-Z0-9_]*)"', operation_sql)
+        match = re.match(r'.*{} "([a-zA-Z0-9_]*)"'.format(search_string), operation_sql)
         if match:
             return match[1]
         return
