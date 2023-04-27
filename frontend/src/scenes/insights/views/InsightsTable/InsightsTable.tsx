@@ -155,7 +155,7 @@ export function InsightsTableComponent({
     setAggregationType,
     handleSeriesEditClick,
 }: InsightsTableComponentProps): JSX.Element | null {
-    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
+    const { insightProps, isInDashboardContext, insight, isSingleSeries } = useValues(insightLogic)
     const { insightMode } = useValues(insightSceneLogic)
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -198,6 +198,7 @@ export function InsightsTableComponent({
                 canEditSeriesNameInline={canEditSeriesNameInline}
                 compare={compare}
                 handleEditClick={handleSeriesEditClick}
+                hasMultipleSeries={!isSingleSeries}
             />
         ),
         key: 'label',

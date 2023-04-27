@@ -13,6 +13,7 @@ type SeriesColumnItemProps = {
     canEditSeriesNameInline: boolean
     compare?: boolean
     handleEditClick: (item: IndexedTrendResult) => void
+    hasMultipleSeries?: boolean
 }
 
 export function SeriesColumnItem({
@@ -21,6 +22,7 @@ export function SeriesColumnItem({
     canEditSeriesNameInline,
     compare,
     handleEditClick,
+    hasMultipleSeries,
 }: SeriesColumnItemProps): JSX.Element {
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
@@ -30,7 +32,7 @@ export function SeriesColumnItem({
                 seriesColor={getSeriesColor(item.seriesIndex, compare)}
                 action={item.action}
                 fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                hasMultipleSeries={indexedResults.length > 1}
+                hasMultipleSeries={hasMultipleSeries}
                 showEventName
                 showCountedByTag={showCountedByTag}
                 breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
