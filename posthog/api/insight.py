@@ -566,6 +566,7 @@ class InsightViewSet(
         return super().get_permissions()
 
     def get_queryset(self) -> QuerySet:
+        queryset: QuerySet
         if not self.get_permissions():
             # If we have no permissions, we are retrieving shared insights and must filter down accordingly
             sharing_configuration = SharingConfiguration.objects.get(
