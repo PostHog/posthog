@@ -81,7 +81,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 export const scene: SceneExport = {
     component: FeatureFlag,
     logic: featureFlagLogic,
-    paramsToProps: ({ params: { id } }): typeof featureFlagLogic['props'] => ({
+    paramsToProps: ({ params: { id } }): (typeof featureFlagLogic)['props'] => ({
         id: id && id !== 'new' ? parseInt(id) : 'new',
     }),
 }

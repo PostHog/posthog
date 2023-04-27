@@ -105,6 +105,10 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
             }
         },
         querySource: (querySource) => {
+            if (!values.isUsingDataExploration) {
+                return
+            }
+
             const newSamplingPercentage = querySource?.samplingFactor ? querySource.samplingFactor * 100 : null
             if (newSamplingPercentage !== values.samplingPercentage) {
                 actions.setSamplingPercentage(newSamplingPercentage)
