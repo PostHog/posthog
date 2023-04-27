@@ -512,7 +512,6 @@ class InsightViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
-    queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [
         IsAuthenticated,
@@ -543,16 +542,17 @@ class InsightViewSet(
         return super().get_serializer_class()
 
     def get_queryset(self) -> QuerySet:
-        if (
-            self.action == "partial_update"
-            and "deleted" in self.request.data
-            and not self.request.data.get("deleted")
-            and len(self.request.data) == 1
-        ):
+        queryset: QuerySet
+        if self.action == "partial_update" and self.request.data.get("deleted") is False:
             # an insight can be un-deleted by patching {"deleted": False}
-            queryset: QuerySet = Insight.objects_including_soft_deleted
+            queryset = Insight.objects_including_soft_deleted.all()
         else:
-            queryset = super().get_queryset()
+            queryset = Insight.objects.all()
+
+        # Optimize tag retrieval
+        queryset = self.prefetch_tagged_items_if_available(queryset)
+        # Disallow access to other teams' insights
+        queryset = self.filter_queryset_by_parents_lookups(queryset)
 
         queryset = queryset.prefetch_related(
             Prefetch(
