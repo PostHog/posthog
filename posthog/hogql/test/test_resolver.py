@@ -722,6 +722,7 @@ class TestResolver(BaseTest):
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_table(self):
+        self.setUp()  # run again to enable PERSON_ON_EVENTS_OVERRIDE
         node = parse_select("select * from events")
         node = resolve_types(node, self.database)
 
