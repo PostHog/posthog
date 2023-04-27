@@ -10,7 +10,6 @@ import {
     RecordingEventType,
     RecordingReportLoadTimes,
     RecordingSegment,
-    RecordingStartAndEndTime,
     SessionPlayerData,
     SessionPlayerMetaData,
     SessionPlayerSnapshotData,
@@ -56,13 +55,6 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionP
                 isActive: segment.is_active,
             }
         }) || []
-    const startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime> = {}
-    Object.entries(recording.start_and_end_times_by_window_id || {}).forEach(([windowId, startAndEndTimes]) => {
-        startAndEndTimesByWindowId[windowId] = {
-            startTimeEpochMs: +dayjs(startAndEndTimes.start_time),
-            endTimeEpochMs: +dayjs(startAndEndTimes.end_time),
-        }
-    })
     return {
         pinnedCount: recording.pinned_count ?? 0,
         durationMs: recording.recording_duration * 1000,
@@ -72,7 +64,6 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionP
 
         // TODO: Build these ourselves later
         segments,
-        startAndEndTimesByWindowId,
     }
 }
 
@@ -102,37 +93,6 @@ const generateRecordingReportDurations = (
     }
 }
 
-// Returns the maximum player position that the recording has been buffered to.
-// Data can be received out of order (e.g. events from a later segment are received
-// before events from an earlier segment). So this function iterates through the
-// segments in their order and returns when it first detects data is not loaded.
-const calculateBufferedTo = (
-    segments: RecordingSegment[] = [],
-    snapshotsByWindowId: Record<string, eventWithTime[]> | undefined,
-    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime> = {}
-): PlayerPosition | null => {
-    let bufferedTo: PlayerPosition | null = null
-    // If we don't have metadata or snapshots yet, then we can't calculate the bufferedTo.
-    if (!segments || !snapshotsByWindowId || !startAndEndTimesByWindowId) {
-        return bufferedTo
-    }
-
-    for (const segment of segments) {
-        const lastEventForWindowId = (snapshotsByWindowId[segment.windowId] ?? []).slice(-1).pop()
-
-        if (lastEventForWindowId && lastEventForWindowId.timestamp >= segment.startTimeEpochMs) {
-            // If we've buffered past the start of the segment, see how far.
-            const windowStartTime = startAndEndTimesByWindowId[segment.windowId].startTimeEpochMs
-            bufferedTo = {
-                windowId: segment.windowId,
-                time: Math.min(lastEventForWindowId.timestamp - windowStartTime, segment.endPlayerPosition.time),
-            }
-        }
-    }
-
-    return bufferedTo
-}
-
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
     // Data can be preloaded (e.g. via browser import)
@@ -156,7 +116,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             start: dayjs(),
             end: dayjs(),
             segments: [],
-            startAndEndTimesByWindowId: {},
         } as SessionPlayerMetaData,
     }),
     actions({
@@ -485,19 +444,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     })),
     selectors({
         sessionPlayerData: [
-            (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData, s.segments],
-            (meta, snapshots, segments): SessionPlayerData => ({
+            (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData, s.segments, s.bufferedTo],
+            (meta, snapshots, segments, bufferedTo): SessionPlayerData => ({
                 ...meta,
-                ...(snapshots || {
-                    snapshotsByWindowId: {},
-                }),
+                snapshotsByWindowId: snapshots?.snapshotsByWindowId ?? {},
+                next: snapshots?.next,
                 segments,
-
-                bufferedTo: calculateBufferedTo(
-                    meta?.segments,
-                    snapshots?.snapshotsByWindowId,
-                    meta?.startAndEndTimesByWindowId
-                ),
+                bufferedTo,
             }),
         ],
 
@@ -510,10 +463,44 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
 
+        bufferedTo: [
+            (s) => [s.segments, s.sessionPlayerSnapshotData],
+            (segments, sessionPlayerSnapshotData): PlayerPosition | null => {
+                // This is us building the snapshots live from the loaded snapshotData, instead of via the API
+                const snapshotsByWindowId = sessionPlayerSnapshotData?.snapshotsByWindowId || {}
+
+                let bufferedTo: PlayerPosition | null = null
+                // If we don't have metadata or snapshots yet, then we can't calculate the bufferedTo.
+                if (!segments.length) {
+                    return bufferedTo
+                }
+
+                // NOTE: Once we derive segments from the snapshot data this should be much easier to derive as we can simply say "what is the final timestamp that we have for all windows"
+                for (const segment of segments) {
+                    const windowSnapshots = snapshotsByWindowId[segment.windowId] ?? []
+                    const lastEventForWindowId = windowSnapshots[windowSnapshots.length - 1]
+
+                    if (lastEventForWindowId && lastEventForWindowId.timestamp >= segment.startTimeEpochMs) {
+                        // If we've buffered past the start of the segment, see how far.
+                        const windowStartTime = windowSnapshots[0].timestamp
+                        bufferedTo = {
+                            windowId: segment.windowId,
+                            time: Math.min(
+                                lastEventForWindowId.timestamp - windowStartTime,
+                                segment.endPlayerPosition.time
+                            ),
+                        }
+                    }
+                }
+
+                return bufferedTo
+            },
+        ],
+
         windowIds: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData) => {
-                return Object.keys(sessionPlayerData?.startAndEndTimesByWindowId) ?? []
+                return Object.keys(sessionPlayerData?.snapshotsByWindowId) ?? []
             },
         ],
     }),

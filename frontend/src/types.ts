@@ -595,11 +595,6 @@ export interface RecordingSegment {
     isActive: boolean
 }
 
-export interface RecordingStartAndEndTime {
-    startTimeEpochMs: number
-    endTimeEpochMs: number
-}
-
 export interface SessionPlayerSnapshotData {
     snapshotsByWindowId: Record<string, eventWithTime[]>
     next?: string
@@ -614,7 +609,6 @@ export interface SessionPlayerMetaData {
 
     // TODO: Remove these
     segments: RecordingSegment[]
-    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
 }
 
 export interface SessionPlayerData extends SessionPlayerSnapshotData, SessionPlayerMetaData {
