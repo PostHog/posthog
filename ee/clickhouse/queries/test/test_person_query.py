@@ -9,6 +9,7 @@ from posthog.test.base import _create_person
 from posthog.models.cohort import Cohort
 from posthog.models.property import Property
 
+
 def person_query(team: Team, filter: Filter, **kwargs):
     return PersonQuery(filter, team.pk, **kwargs).get_query()[0]
 
@@ -41,7 +42,8 @@ def testdata(db, team):
         team_id=team.pk,
         properties={"email": "karl@example.com", "$os": "windows", "$browser": "mozilla"},
     )
-    
+
+
 def test_person_query(testdata, team, snapshot):
     filter = Filter(data={"properties": []})
 
@@ -63,7 +65,7 @@ def test_person_query(testdata, team, snapshot):
 
 def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
     filter = Filter(data={"properties": []})
-    
+
     for i in range(10):
         _create_person(team_id=team.pk, distinct_ids=[f"person{i}"], properties={"group": i, "email": f"{i}@hey.com"})
 
@@ -85,7 +87,6 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
         },
         name="cohort1",
     )
-    
 
     cohort2 = Cohort.objects.create(
         team=team,
@@ -104,16 +105,14 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
         },
         name="cohort2",
     )
-    
+
     cohort1.calculate_people_ch(pending_version=0)
     cohort2.calculate_people_ch(pending_version=0)
 
-
     cohort_filters = [
         Property(key="id", type="cohort", value=cohort1.pk),
-        Property(key="id", type="cohort", value=cohort2.pk)
+        Property(key="id", type="cohort", value=cohort2.pk),
     ]
-    
 
     filter = Filter(
         data={
@@ -130,14 +129,14 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
             ]
         }
     )
-    
+
     assert run_query(team, filter) == {"rows": 2, "columns": 1}
 
-    # 3 rows because the intersection between cohorts 1 and 2 is person1, person2, and person3, 
+    # 3 rows because the intersection between cohorts 1 and 2 is person1, person2, and person3,
     # with their respective group properties
     assert run_query(team, filter2, cohort_filters=cohort_filters) == {"rows": 3, "columns": 1}
     assert person_query(team, filter2, cohort_filters=cohort_filters) == snapshot
-    
+
 
 def test_person_query_with_anded_property_groups(testdata, team, snapshot):
     filter = Filter(
