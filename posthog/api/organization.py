@@ -77,6 +77,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "plugins_access_level",
             "teams",
             "available_features",
+            "available_product_features",
             "is_member_join_email_enabled",
             "metadata",
             "customer_id",
@@ -91,6 +92,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "plugins_access_level",
             "teams",
             "available_features",
+            "available_product_features",
             "metadata",
             "customer_id",
         ]

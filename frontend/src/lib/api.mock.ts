@@ -96,6 +96,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
         taxonomy_set_events_count: 60,
         taxonomy_set_properties_count: 17,
     },
+    available_product_features: [],
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {

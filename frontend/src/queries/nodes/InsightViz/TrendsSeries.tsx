@@ -20,6 +20,7 @@ import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNo
 
 import { getDisplay } from './utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 type TrendsSeriesProps = {
     insightProps: InsightLogicProps
@@ -29,9 +30,7 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
     const dataLogic = insightVizDataLogic(insightProps)
     const { querySource } = useValues(dataLogic)
     const { updateQuerySource } = useActions(dataLogic)
-    // TODO: implement isFormulaOn
-    // const { filters, isFormulaOn } = useValues(trendsLogic(insightProps))
-    const isFormulaOn = false
+    const { isFormulaOn } = useValues(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const propertiesTaxonomicGroupTypes = [

@@ -8,7 +8,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0311_dashboard_template_scope"),
+        ("posthog", "0312_organization_available_product_features"),
     ]
 
     operations = [

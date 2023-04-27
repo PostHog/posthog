@@ -79,6 +79,15 @@ export enum AvailableFeature {
     SUPPORT_SLAS = 'support_slas',
 }
 
+export type AvailableProductFeature = {
+    key: AvailableFeature
+    name: string
+    description?: string | null
+    limit?: number | null
+    note?: string | null
+    unit?: string | null
+}
+
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -184,6 +193,7 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
+    available_product_features: AvailableProductFeature[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null

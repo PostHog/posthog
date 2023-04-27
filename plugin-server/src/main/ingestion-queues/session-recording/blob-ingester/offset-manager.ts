@@ -76,14 +76,13 @@ export class OffsetManager {
         const key = `${topic}-${partition}`
         const inFlightOffsets = this.offsetsByPartitionTopic.get(key)
 
-        status.info('💾', `Current offsets: ${inFlightOffsets}`)
-        status.info('💾', `Removing offsets: ${offsets}`)
-
         if (!inFlightOffsets) {
             // TODO: Add a metric so that we can see if and when this happens
-            status.warn('💾', `No inflight offsets found for key: ${key}.`)
+            status.warn('💾', `No inflight offsets found to remove for key: ${key}.`)
             return
         }
+
+        status.info('💾', `Removing offsets`, { removing: offsetsToRemove, current: inFlightOffsets, partition })
 
         offsetsToRemove.forEach((offset) => {
             // Remove from the list. If it is the lowest value - set it
