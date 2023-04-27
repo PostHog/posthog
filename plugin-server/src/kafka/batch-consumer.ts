@@ -112,6 +112,7 @@ export const startBatchConsumer = async ({
     await ensureTopicExists(adminClient, topic)
     adminClient.disconnect()
 
+    consumer.setDefaultConsumeTimeout(consumerMaxWaitMs)
     consumer.subscribe([topic])
 
     const startConsuming = async () => {
