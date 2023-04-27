@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { EarlyAccsesFeatureType, NewEarlyAccessFeatureType } from '~/types'
+import { Breadcrumb, EarlyAccsesFeatureType, NewEarlyAccessFeatureType } from '~/types'
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
@@ -77,6 +77,16 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     }),
     selectors({
         mode: [(_, p) => [p.id], (id): 'view' | 'edit' => (id === 'new' ? 'edit' : 'view')],
+        breadcrumbs: [
+            (s) => [s.earlyAccessFeature],
+            (earlyAccessFeature: EarlyAccsesFeatureType): Breadcrumb[] => [
+                {
+                    name: 'Early Access Features',
+                    path: urls.earlyAccessFeatures(),
+                },
+                ...(earlyAccessFeature?.name ? [{ name: earlyAccessFeature.name }] : []),
+            ],
+        ],
     }),
     listeners(({ actions, values }) => ({
         cancel: () => {

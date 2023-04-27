@@ -35,7 +35,7 @@ export function EarlyAccessFeature(): JSX.Element {
     const { submitEarlyAccessFeatureRequest, cancel, editFeature } = useActions(earlyAccessFeatureLogic)
 
     return (
-        <Form formKey="feature" logic={earlyAccessFeatureLogic}>
+        <Form formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <PageHeader
                 title={
                     isEditingFeature && !('id' in earlyAccessFeature) ? 'New Feature Release' : earlyAccessFeature.name
