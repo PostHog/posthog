@@ -172,9 +172,9 @@ function Pages(): JSX.Element {
                     {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
                         <PageButton
                             icon={<IconRocketLaunch />}
-                            identifier={Scene.Features}
+                            identifier={Scene.EarlyAccessFeatures}
                             title={'Early Access Management'}
-                            to={urls.features()}
+                            to={urls.earlyAccessFeatures()}
                         />
                     )}
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||

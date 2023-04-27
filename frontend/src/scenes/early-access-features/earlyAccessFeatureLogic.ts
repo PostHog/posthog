@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import { FeatureType, NewFeatureType } from '~/types'
-import type { featureLogicType } from './featureLogicType'
+import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 
 const NEW_FEATURE: NewFeatureType = {
     name: '',
@@ -20,7 +20,7 @@ export interface FeatureLogicProps {
     id: string
 }
 
-export const featureLogic = kea<featureLogicType>([
+export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     path(['scenes', 'features', 'featureLogic']),
     props({} as FeatureLogicProps),
     key(({ id }) => id),
@@ -47,7 +47,7 @@ export const featureLogic = kea<featureLogicType>([
                 await breakpoint()
                 if (props.id === 'new') {
                     const result = await api.features.create(payload as NewFeatureType)
-                    router.actions.push(urls.feature(result.id))
+                    router.actions.push(urls.earlyAccessFeature(result.id))
                 } else {
                     await api.features.update(props.id, payload as FeatureType)
                 }
@@ -79,7 +79,7 @@ export const featureLogic = kea<featureLogicType>([
                 actions.editFeature(false)
             } else {
                 actions.resetFeature()
-                router.actions.push(urls.features())
+                router.actions.push(urls.earlyAccessFeatures())
             }
         },
     })),

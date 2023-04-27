@@ -135,7 +135,7 @@ export default {
 export function FeaturesList(): JSX.Element {
     useFeatureFlags([FEATURE_FLAGS.EARLY_ACCESS_FEATURE])
     useEffect(() => {
-        router.actions.push(urls.features())
+        router.actions.push(urls.earlyAccessFeatures())
     }, [])
     return <App />
 }
@@ -143,7 +143,7 @@ export function FeaturesList(): JSX.Element {
 export function NewFeatureFlag(): JSX.Element {
     useFeatureFlags([FEATURE_FLAGS.EARLY_ACCESS_FEATURE])
     useEffect(() => {
-        router.actions.push(urls.feature('new'))
+        router.actions.push(urls.earlyAccessFeature('new'))
     }, [])
     return <App />
 }

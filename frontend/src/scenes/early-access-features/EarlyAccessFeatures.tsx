@@ -5,11 +5,11 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { FeatureType } from '~/types'
-import { featuresLogic } from './featuresLogic'
+import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
 export const scene: SceneExport = {
-    component: Features,
-    logic: featuresLogic,
+    component: EarlyAccessFeatures,
+    logic: earlyAccessFeaturesLogic,
 }
 
 const STAGES_IN_ORDER: Record<FeatureType['stage'], number> = {
@@ -19,8 +19,8 @@ const STAGES_IN_ORDER: Record<FeatureType['stage'], number> = {
     'general-availability': 3,
 }
 
-export function Features(): JSX.Element {
-    const { features, featuresLoading } = useValues(featuresLogic)
+export function EarlyAccessFeatures(): JSX.Element {
+    const { features, featuresLoading } = useValues(earlyAccessFeaturesLogic)
 
     return (
         <>
@@ -28,7 +28,7 @@ export function Features(): JSX.Element {
                 title="Early Access Management"
                 caption="Release features in a controlled way. Track adoption in stages."
                 buttons={
-                    <LemonButton type="primary" to={urls.feature('new')}>
+                    <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
                         New release
                     </LemonButton>
                 }
@@ -43,7 +43,7 @@ export function Features(): JSX.Element {
                         render(_, feature) {
                             return (
                                 <>
-                                    <Link to={urls.feature(feature.id)}>
+                                    <Link to={urls.earlyAccessFeature(feature.id)}>
                                         <div className="row-name">{feature.name}</div>
                                     </Link>
                                     {feature.description && (
@@ -82,7 +82,11 @@ export function Features(): JSX.Element {
                                 <More
                                     overlay={
                                         <>
-                                            <LemonButton status="stealth" to={urls.feature(feature.id)} fullWidth>
+                                            <LemonButton
+                                                status="stealth"
+                                                to={urls.earlyAccessFeature(feature.id)}
+                                                fullWidth
+                                            >
                                                 View
                                             </LemonButton>
                                             <LemonDivider />

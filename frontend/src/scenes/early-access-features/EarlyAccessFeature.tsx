@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Field, PureField } from 'lib/forms/Field'
 import { SceneExport } from 'scenes/sceneTypes'
-import { featureLogic } from './featureLogic'
+import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { Field as KeaField, Form } from 'kea-forms'
 import { FeatureType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
@@ -22,19 +22,19 @@ import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
 
 export const scene: SceneExport = {
-    component: Feature,
-    logic: featureLogic,
-    paramsToProps: ({ params: { id } }): (typeof featureLogic)['props'] => ({
+    component: EarlyAccessFeature,
+    logic: earlyAccessFeatureLogic,
+    paramsToProps: ({ params: { id } }): (typeof earlyAccessFeatureLogic)['props'] => ({
         id,
     }),
 }
 
-export function Feature(): JSX.Element {
-    const { feature, featureLoading, isFeatureSubmitting, isEditingFeature } = useValues(featureLogic)
-    const { submitFeatureRequest, cancel, editFeature } = useActions(featureLogic)
+export function EarlyAccessFeature(): JSX.Element {
+    const { feature, featureLoading, isFeatureSubmitting, isEditingFeature } = useValues(earlyAccessFeatureLogic)
+    const { submitFeatureRequest, cancel, editFeature } = useActions(earlyAccessFeatureLogic)
 
     return (
-        <Form formKey="feature" logic={featureLogic}>
+        <Form formKey="feature" logic={earlyAccessFeatureLogic}>
             <PageHeader
                 title={isEditingFeature && !('id' in feature) ? 'New Feature Release' : feature.name}
                 buttons={
@@ -235,8 +235,8 @@ interface PersonListProps {
 }
 
 function PersonList({ feature }: PersonListProps): JSX.Element {
-    const { implementOptInInstructionsModal } = useValues(featureLogic)
-    const { toggleImplementOptInInstructionsModal } = useActions(featureLogic)
+    const { implementOptInInstructionsModal } = useValues(earlyAccessFeatureLogic)
+    const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
 
     const key = '$feature_enrollment/' + feature.feature_flag.key
     const personLogicProps: PersonLogicProps = {

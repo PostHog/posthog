@@ -1013,7 +1013,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                     {featureFlag.features?.map((feature) => (
                                         <LemonButton
                                             key={feature.id}
-                                            onClick={() => router.actions.push(urls.feature(feature.id))}
+                                            onClick={() => router.actions.push(urls.earlyAccessFeature(feature.id))}
                                         >
                                             {feature.name}
                                         </LemonButton>

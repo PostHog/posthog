@@ -3,9 +3,9 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FeatureType } from '~/types'
 
-import type { featuresLogicType } from './featuresLogicType'
+import type { earlyAccessFeaturesLogicType } from './earlyAccessFeaturesLogicType'
 
-export const featuresLogic = kea<featuresLogicType>([
+export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
     path(['scenes', 'features', 'featuresLogic']),
     loaders({
         features: {
