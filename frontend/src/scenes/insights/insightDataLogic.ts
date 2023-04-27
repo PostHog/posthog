@@ -15,15 +15,17 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 import { compareFilters } from './utils/compareFilters'
+import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
+import { insightDataTimingLogic } from './insightDataTimingLogic'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
     source: filtersToQueryNode(filters),
 })
 
-export const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
+export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
-    source: nodeKindToDefaultQuery[kind],
+    source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
 })
 
 export const insightDataLogic = kea<insightDataLogicType>([
@@ -38,6 +40,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             ['dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
         ],
         actions: [
             insightLogic,
@@ -46,6 +50,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             ['loadData', 'loadDataSuccess'],
         ],
+        logic: [insightDataTimingLogic(props)],
     })),
 
     actions({
@@ -72,12 +77,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         query: [
-            (s) => [s.insight, s.internalQuery],
-            (insight, internalQuery) =>
+            (s) => [s.insight, s.internalQuery, s.filterTestAccountsDefault],
+            (insight, internalQuery, filterTestAccountsDefault) =>
                 internalQuery ||
                 insight.query ||
                 (insight.filters && insight.filters.insight ? queryFromFilters(insight.filters) : undefined) ||
-                queryFromKind(NodeKind.TrendsQuery),
+                queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
         ],
 
         isQueryBasedInsight: [
@@ -100,11 +105,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         queryChanged: [
-            (s) => [s.isQueryBasedInsight, s.query, s.insight, s.savedInsight],
-            (isQueryBasedInsight, query, insight, savedInsight) => {
+            (s) => [s.isQueryBasedInsight, s.isUsingDataExploration, s.query, s.insight, s.savedInsight],
+            (isQueryBasedInsight, isUsingDataExploration, query, insight, savedInsight) => {
                 if (isQueryBasedInsight) {
                     return !objectsEqual(query, insight.query)
-                } else {
+                } else if (isUsingDataExploration) {
                     const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
                     const savedFilters =
                         savedInsight.filters ||
@@ -115,6 +120,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     delete savedFilters.filter_test_accounts
 
                     return !compareFilters(currentFilters, savedFilters)
+                } else {
+                    return false
                 }
             },
         ],

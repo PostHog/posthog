@@ -34,6 +34,9 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
     const jumpTimeSeconds = altKeyHeld ? 1 : jumpTimeMs / 1000
     const altKeyName = navigator.platform.includes('Mac') ? '⌥' : 'Alt'
 
+    const arrowSymbol = direction === 'forward' ? '→' : '←'
+    const arrowName = direction === 'forward' ? 'right' : 'left'
+
     return (
         <Tooltip
             placement="top"
@@ -42,10 +45,18 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 <div className="text-center">
                     {!altKeyHeld ? (
                         <>
-                            {capitalizeFirstLetter(direction)} {jumpTimeSeconds}s (<kbd>→ right arrow</kbd>) <br />
+                            {capitalizeFirstLetter(direction)} {jumpTimeSeconds}s (
+                            <kbd>
+                                {arrowSymbol} {arrowName} arrow
+                            </kbd>
+                            ) <br />
                         </>
                     ) : null}
-                    {capitalizeFirstLetter(direction)} 1 frame ({ONE_FRAME_MS}ms) (<kbd>{altKeyName} + →</kbd>)
+                    {capitalizeFirstLetter(direction)} 1 frame ({ONE_FRAME_MS}ms) (
+                    <kbd>
+                        {altKeyName} + {arrowSymbol}
+                    </kbd>
+                    )
                 </div>
             }
         >
