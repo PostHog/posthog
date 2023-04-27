@@ -240,11 +240,6 @@
                      (SELECT id
                       FROM person
                       WHERE team_id = 2
-                        AND id IN
-                          (SELECT id
-                           FROM person
-                           WHERE team_id = 2
-                             AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', '')))) )
                       GROUP BY id
                       HAVING max(is_deleted) = 0
                       AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))))
@@ -309,11 +304,6 @@
                      (SELECT id
                       FROM person
                       WHERE team_id = 2
-                        AND id IN
-                          (SELECT id
-                           FROM person
-                           WHERE team_id = 2
-                             AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', '')))) )
                       GROUP BY id
                       HAVING max(is_deleted) = 0
                       AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))))
