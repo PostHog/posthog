@@ -83,7 +83,7 @@ specifiers:
   pino: ^8.6.0
   pino-pretty: ^9.1.0
   posthog-node: 2.0.2
-  prettier: ^2.7.1
+  prettier: ^2.8.8
   pretty-bytes: ^5.6.0
   prom-client: ^14.2.0
   re2: ^1.17.7
