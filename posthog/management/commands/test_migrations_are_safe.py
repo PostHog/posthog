@@ -12,11 +12,11 @@ class Command(BaseCommand):
     def _get_new_tables(self, sql: str):
         return re.findall(r'CREATE TABLE "([a-zA-Z0-9_]*)"', sql)
 
-    def _get_table(self, search_string: str, operation_sql: str) -> Optional[bool]:
-        try:
-            return re.match(r'.* ON "([a-zA-Z0-9_]*)"', operation_sql)[1]
-        except IndexError:
-            return
+    def _get_table(self, search_string: str, operation_sql: str) -> Optional[str]:
+        match = re.match(r'.* ON "([a-zA-Z0-9_]*)"', operation_sql)
+        if match:
+            return match[1]
+        return
 
     def handle(self, *args, **options):
         def run_and_check_migration(variable):
