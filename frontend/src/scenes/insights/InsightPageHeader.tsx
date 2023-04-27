@@ -63,6 +63,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insight,
         insightChanged,
         insightSaving,
+        hasDashboardItemId,
         exporterResourceParams,
         isUsingDataExploration,
         isUsingDashboardQueries,
@@ -143,7 +144,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {insightMode === ItemMode.Edit ? (
+                        {!hasDashboardItemId ? (
                             <>
                                 <More
                                     overlay={
@@ -162,8 +163,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 />
                                 <LemonDivider vertical />
                             </>
-                        ) : null}
-                        {insightMode !== ItemMode.Edit && (
+                        ) : (
                             <>
                                 <More
                                     overlay={
