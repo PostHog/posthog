@@ -40,6 +40,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
+import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
@@ -57,6 +58,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             ['response as insightData', 'dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
         ],
         actions: [
             insightLogic,
@@ -168,7 +171,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateDateRange: ({ dateRange }) => {
             const localQuerySource = values.querySource
                 ? values.querySource
-                : queryFromKind(NodeKind.TrendsQuery).source
+                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
             if (isInsightQueryNode(localQuerySource)) {
                 const newQuerySource = { ...localQuerySource, dateRange }
                 actions.updateQuerySource(newQuerySource)
@@ -177,7 +180,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateBreakdown: ({ breakdown }) => {
             const localQuerySource = values.querySource
                 ? values.querySource
-                : queryFromKind(NodeKind.TrendsQuery).source
+                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
             if (isInsightQueryNode(localQuerySource)) {
                 const newQuerySource = { ...localQuerySource, breakdown }
                 actions.updateQuerySource(newQuerySource)
@@ -186,7 +189,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateInsightFilter: ({ insightFilter }) => {
             const localQuerySource = values.querySource
                 ? values.querySource
-                : queryFromKind(NodeKind.TrendsQuery).source
+                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
             if (isInsightQueryNode(localQuerySource)) {
                 const filterProperty = filterPropertyForQuery(localQuerySource)
                 const newQuerySource = { ...localQuerySource }
@@ -198,7 +201,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
         updateQuerySource: ({ querySource }) => {
-            const localQuery = values.query ? values.query : queryFromKind(NodeKind.TrendsQuery)
+            const localQuery = values.query
+                ? values.query
+                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault)
             if (localQuery && isInsightVizNode(localQuery)) {
                 actions.setQuery({
                     ...localQuery,
