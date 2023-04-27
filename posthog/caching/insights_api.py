@@ -2,9 +2,8 @@ from datetime import datetime, timedelta
 from math import ceil
 from time import sleep
 from typing import Optional, Tuple, Union
+import zoneinfo
 from rest_framework import request
-
-import pytz
 
 from posthog.caching.calculate_results import CLICKHOUSE_MAX_EXECUTION_TIME, calculate_cache_key
 from posthog.caching.insight_caching_state import InsightCachingState
@@ -32,19 +31,9 @@ def should_refresh_insight(
 
     If a refresh already is being processed somewhere else, this function will wait for that to finish (or time out).
     """
-    now = datetime.now(tz=pytz.timezone("UTC"))
     filter = get_filter(
         data=insight.dashboard_filters(dashboard_tile.dashboard if dashboard_tile is not None else None),
         team=insight.team,
-    )
-
-    target: Union[Insight, DashboardTile] = insight if dashboard_tile is None else dashboard_tile
-    cache_key = calculate_cache_key(target)
-    # Most recently queued caching state
-    caching_state = (
-        InsightCachingState.objects.filter(team_id=insight.team.pk, cache_key=cache_key, insight=insight)
-        .order_by("-last_refresh_queued_at")
-        .first()
     )
 
     delta_days: Optional[int] = None
@@ -60,16 +49,27 @@ def should_refresh_insight(
         # The interval is shorter for short-term insights
         refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
-    refresh_insight_now = refresh_requested_by_client(request) and (
-        caching_state is None
-        or caching_state.last_refresh is None
-        or (caching_state.last_refresh + refresh_frequency <= now)
-    )
+    refresh_insight_now = False
+    if refresh_requested_by_client(request):
+        now = datetime.now(tz=zoneinfo.ZoneInfo("UTC"))
+        target: Union[Insight, DashboardTile] = insight if dashboard_tile is None else dashboard_tile
+        cache_key = calculate_cache_key(target)
+        # Most recently queued caching state
+        caching_state = (
+            InsightCachingState.objects.filter(team_id=insight.team.pk, cache_key=cache_key, insight=insight)
+            .order_by("-last_refresh_queued_at")
+            .first()
+        )
+        refresh_insight_now = (
+            caching_state is None
+            or caching_state.last_refresh is None
+            or (caching_state.last_refresh + refresh_frequency <= now)
+        )
 
-    if refresh_insight_now:
-        has_refreshed_somewhere_else = _sleep_if_refresh_is_running_somewhere_else(caching_state, now)
-        if has_refreshed_somewhere_else:
-            refresh_insight_now = False
+        if refresh_insight_now:
+            has_refreshed_somewhere_else = _sleep_if_refresh_is_running_somewhere_else(caching_state, now)
+            if has_refreshed_somewhere_else:
+                refresh_insight_now = False
 
     return refresh_insight_now, refresh_frequency
 
@@ -89,7 +89,7 @@ def _sleep_if_refresh_is_running_somewhere_else(caching_state: Optional[InsightC
             if has_refresh_completed:
                 return True  # Refresh has completed while being intitiated from somewhere else!
             is_refresh_currently_running = _is_refresh_currently_running_somewhere_else(
-                caching_state, datetime.now(tz=pytz.timezone("UTC"))
+                caching_state, datetime.now(tz=zoneinfo.ZoneInfo("UTC"))
             )
     return False
 
