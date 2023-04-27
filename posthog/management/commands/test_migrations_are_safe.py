@@ -1,4 +1,5 @@
 import re
+from typing import Optional
 import sys
 
 from django.core.management import call_command
@@ -10,6 +11,12 @@ class Command(BaseCommand):
 
     def _get_new_tables(self, sql: str):
         return re.findall(r'CREATE TABLE "([a-zA-Z0-9_]*)"', sql)
+
+    def _get_table(self, search_string: str, operation_sql: str) -> Optional[bool]:
+        try:
+            return re.match(r'.* ON "([a-zA-Z0-9_]*)"', operation_sql)[1]
+        except IndexError:
+            return
 
     def handle(self, *args, **options):
         def run_and_check_migration(variable):
@@ -49,7 +56,7 @@ class Command(BaseCommand):
 
                     if (
                         "CONSTRAINT" in operation_sql
-                        and re.match(r'ALTER TABLE "([a-zA-Z0-9_]*)"', operation_sql)[1] not in new_tables
+                        and self._get_table("ALTER TABLE", operation_sql) not in new_tables
                     ):
                         print(
                             f"\n\n\033[91mFound a CONSTRAINT command. This locks tables which causes downtime. Please avoid adding constraints to existing tables.\nSource: `{operation_sql}`"
@@ -58,7 +65,7 @@ class Command(BaseCommand):
                     if (
                         "CREATE INDEX" in operation_sql
                         and "CONCURRENTLY" not in operation_sql
-                        and re.match(r'.* ON "([a-zA-Z0-9_]*)"', operation_sql)[1] not in new_tables
+                        and self._get_table(" ON", operation_sql) not in new_tables
                     ):
                         print(
                             f"\n\n\033[91mFound a CREATE INDEX command that isn't run CONCURRENTLY. This locks tables which causes downtime. Please add this index CONCURRENTLY instead.\nSource: `{operation_sql}`"
