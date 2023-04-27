@@ -7,14 +7,14 @@ import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
 import { FeatureType } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-const BETA_MANAGEMENT_RESULT = [
+const EARLY_ACCESS_FEATURE_RESULT = [
     {
         id: '0187c22c-06d9-0000-34fe-daa2e2afb503',
         feature_flag: {
             id: 7,
             team_id: 1,
             name: '',
-            key: 'beta-management',
+            key: 'early-access-feature',
             filters: {
                 groups: [
                     {
@@ -25,7 +25,7 @@ const BETA_MANAGEMENT_RESULT = [
                     {
                         properties: [
                             {
-                                key: '$feature_enrollment/beta-management',
+                                key: '$feature_enrollment/early-access-feature',
                                 type: 'person',
                                 value: ['true'],
                                 operator: 'exact',
@@ -36,7 +36,7 @@ const BETA_MANAGEMENT_RESULT = [
                     {
                         properties: [
                             {
-                                key: '$feature_enrollment/beta-management',
+                                key: '$feature_enrollment/early-access-feature',
                                 type: 'person',
                                 value: ['true'],
                                 operator: 'exact',
@@ -120,20 +120,20 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/beta_management': {
+                '/api/projects/:team_id/early-access-feature': {
                     count: 2,
-                    results: BETA_MANAGEMENT_RESULT as any[],
+                    results: EARLY_ACCESS_FEATURE_RESULT as any[],
                     next: null,
                     previous: null,
                 },
-                '/api/projects/:team_id/beta_management/:flagId/': BETA_MANAGEMENT_RESULT[0] as FeatureType,
+                '/api/projects/:team_id/early-access-feature/:flagId/': EARLY_ACCESS_FEATURE_RESULT[0] as FeatureType,
             },
         }),
     ],
 } as Meta
 
 export function FeaturesList(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.FEATURE_MANAGEMENT])
+    useFeatureFlags([FEATURE_FLAGS.EARLY_ACCESS_FEATURE])
     useEffect(() => {
         router.actions.push(urls.features())
     }, [])
@@ -141,7 +141,7 @@ export function FeaturesList(): JSX.Element {
 }
 
 export function NewFeatureFlag(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.FEATURE_MANAGEMENT])
+    useFeatureFlags([FEATURE_FLAGS.EARLY_ACCESS_FEATURE])
     useEffect(() => {
         router.actions.push(urls.feature('new'))
     }, [])

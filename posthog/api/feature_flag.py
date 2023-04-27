@@ -103,9 +103,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         )
 
     def get_features(self, feature_flag: FeatureFlag) -> Dict:
-        from posthog.api.beta_management import BetaManagementPreviewSerializer
+        from posthog.api.early_access_feature import MinimalEarlyAccessFeatureSerializer
 
-        return BetaManagementPreviewSerializer(feature_flag.features, many=True).data
+        return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):

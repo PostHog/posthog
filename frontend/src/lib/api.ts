@@ -393,7 +393,7 @@ class ApiRequest {
 
     // # Features
     public features(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('beta_management')
+        return this.projectsDetail(teamId).addPathComponent('early_access_feature')
     }
 
     public feature(id: FeatureType['id'], teamId?: TeamType['id']): ApiRequest {

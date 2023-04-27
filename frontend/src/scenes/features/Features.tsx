@@ -25,7 +25,7 @@ export function Features(): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Beta Management"
+                title="Early Access Management"
                 caption="Release features in a controlled way. Track adoption in stages."
                 buttons={
                     <LemonButton type="primary" to={urls.feature('new')}>

@@ -9,8 +9,8 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
-    beta_management,
     dead_letter_queue,
+    early_access_feature,
     event_definition,
     exports,
     feature_flag,
@@ -84,9 +84,9 @@ project_feature_flags_router = projects_router.register(
     ["team_id"],
 )
 project_features_router = projects_router.register(
-    r"beta_management",
-    beta_management.BetaManagementViewSet,
-    "project_beta_management",
+    r"early_access_feature",
+    early_access_feature.EarlyAccessFeatureViewSet,
+    "project_early_access_feature",
     ["team_id"],
 )
 

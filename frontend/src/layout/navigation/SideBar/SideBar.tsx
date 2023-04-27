@@ -169,11 +169,11 @@ function Pages(): JSX.Element {
                         to={urls.sessionRecordings()}
                     />
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
-                    {featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT] && (
+                    {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
                         <PageButton
                             icon={<IconRocketLaunch />}
                             identifier={Scene.Features}
-                            title={'Beta Management'}
+                            title={'Early Access Management'}
                             to={urls.features()}
                         />
                     )}

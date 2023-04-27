@@ -1,4 +1,4 @@
-# name: TestPreviewList.test_feature_previews
+# name: TestPreviewList.test_early_access_features
   '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -44,7 +44,7 @@
   LIMIT 21
   '
 ---
-# name: TestPreviewList.test_feature_previews.1
+# name: TestPreviewList.test_early_access_features.1
   '
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -66,7 +66,7 @@
          AND "posthog_featureflag"."team_id" = 2)
   '
 ---
-# name: TestPreviewList.test_feature_previews.2
+# name: TestPreviewList.test_early_access_features.2
   '
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -88,7 +88,7 @@
          AND "posthog_featureflag"."team_id" = 2)
   '
 ---
-# name: TestPreviewList.test_feature_previews.3
+# name: TestPreviewList.test_early_access_features.3
   '
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -116,7 +116,7 @@
   LIMIT 21
   '
 ---
-# name: TestPreviewList.test_feature_previews.4
+# name: TestPreviewList.test_early_access_features.4
   '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -152,19 +152,19 @@
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
-  LIMIT 21 /*controller='posthog.api.beta_management.feature_previews',route='%5Eapi/feature_previews/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+  LIMIT 21 /*controller='posthog.api.early_access_feature.early_access_features',route='%5Eapi/early_access_features/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
   '
 ---
-# name: TestPreviewList.test_feature_previews.5
+# name: TestPreviewList.test_early_access_features.5
   '
-  SELECT "posthog_betamanagement"."id",
-         "posthog_betamanagement"."team_id",
-         "posthog_betamanagement"."feature_flag_id",
-         "posthog_betamanagement"."name",
-         "posthog_betamanagement"."description",
-         "posthog_betamanagement"."stage",
-         "posthog_betamanagement"."documentation_url",
-         "posthog_betamanagement"."created_at",
+  SELECT "posthog_earlyaccessfeature"."id",
+         "posthog_earlyaccessfeature"."team_id",
+         "posthog_earlyaccessfeature"."feature_flag_id",
+         "posthog_earlyaccessfeature"."name",
+         "posthog_earlyaccessfeature"."description",
+         "posthog_earlyaccessfeature"."stage",
+         "posthog_earlyaccessfeature"."documentation_url",
+         "posthog_earlyaccessfeature"."created_at",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -179,9 +179,9 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id"
-  FROM "posthog_betamanagement"
-  LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_betamanagement"."feature_flag_id" = "posthog_featureflag"."id")
-  WHERE ("posthog_betamanagement"."team_id" = 2
-         AND NOT ("posthog_betamanagement"."stage" = 'general-availability')) /*controller='posthog.api.beta_management.feature_previews',route='%5Eapi/feature_previews/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+  FROM "posthog_earlyaccessfeature"
+  LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_earlyaccessfeature"."feature_flag_id" = "posthog_featureflag"."id")
+  WHERE ("posthog_earlyaccessfeature"."team_id" = 2
+         AND NOT ("posthog_earlyaccessfeature"."stage" = 'general-availability')) /*controller='posthog.api.early_access_feature.early_access_features',route='%5Eapi/early_access_features/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
   '
 ---

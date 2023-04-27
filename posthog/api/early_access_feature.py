@@ -5,7 +5,7 @@ from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
-from posthog.models.beta_management import BetaManagement
+from posthog.models.early_access_feature import EarlyAccessFeature
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -21,17 +21,17 @@ from django.views.decorators.csrf import csrf_exempt
 from posthog.utils import cors_response
 
 
-class BetaManagementPreviewSerializer(serializers.ModelSerializer):
+class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
     """
     A more minimal serializer, intended specificaly for non-generally-available features to be provided
-    to posthog-js via the /feature_previews/ endpoint. Sync with posthog-js's FeaturePreview interface!
+    to posthog-js via the /early_access_features/ endpoint. Sync with posthog-js's FeaturePreview interface!
     """
 
     documentationUrl = serializers.URLField(source="documentation_url")
     flagKey = serializers.CharField(source="feature_flag.key")
 
     class Meta:
-        model = BetaManagement
+        model = EarlyAccessFeature
         fields = [
             "id",
             "name",
@@ -43,11 +43,11 @@ class BetaManagementPreviewSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class BetaManagementSerializer(serializers.ModelSerializer):
+class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
 
     class Meta:
-        model = BetaManagement
+        model = EarlyAccessFeature
         fields = [
             "id",
             "feature_flag",
@@ -60,11 +60,11 @@ class BetaManagementSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "feature_flag", "created_at"]
 
 
-class BetaManagementSerializerCreateOnly(BetaManagementSerializer):
+class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
     feature_flag_id = serializers.IntegerField(required=False, write_only=True)
 
     class Meta:
-        model = BetaManagement
+        model = EarlyAccessFeature
         fields = [
             "id",
             "name",
@@ -113,7 +113,7 @@ class BetaManagementSerializerCreateOnly(BetaManagementSerializer):
             feature_flag_key = feature_flag.key
         validated_data["feature_flag_id"] = feature_flag.id
 
-        feature: BetaManagement = super().create(validated_data)
+        feature: EarlyAccessFeature = super().create(validated_data)
         feature_flag.filters = {
             "groups": [
                 *feature_flag.filters["groups"],
@@ -136,8 +136,8 @@ class BetaManagementSerializerCreateOnly(BetaManagementSerializer):
         return feature
 
 
-class BetaManagementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):  # TODO: Use ForbidDestroyModel
-    queryset = BetaManagement.objects.select_related("feature_flag").all()
+class EarlyAccessFeatureViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):  # TODO: Use ForbidDestroyModel
+    queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()
     permission_classes = [
         IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
@@ -146,13 +146,13 @@ class BetaManagementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):  # T
 
     def get_serializer_class(self) -> Type[serializers.Serializer]:
         if self.request.method == "POST":
-            return BetaManagementSerializerCreateOnly
+            return EarlyAccessFeatureSerializerCreateOnly
         else:
-            return BetaManagementSerializer
+            return EarlyAccessFeatureSerializer
 
 
 @csrf_exempt
-def feature_previews(request: Request):
+def early_access_features(request: Request):
 
     token = get_token(None, request)
 
@@ -160,7 +160,7 @@ def feature_previews(request: Request):
         return cors_response(
             request,
             generate_exception_response(
-                "feature_previews",
+                "early_access_features",
                 "API key not provided. You can find your project API key in PostHog project settings.",
                 type="authentication_error",
                 code="missing_api_key",
@@ -181,11 +181,11 @@ def feature_previews(request: Request):
             ),
         )
 
-    feature_previews = BetaManagementPreviewSerializer(
-        BetaManagement.objects.filter(team_id=team.id)
-        .exclude(stage=BetaManagement.Stage.GENERAL_AVAILABILITY)
+    early_access_features = MinimalEarlyAccessFeatureSerializer(
+        EarlyAccessFeature.objects.filter(team_id=team.id)
+        .exclude(stage=EarlyAccessFeature.Stage.GENERAL_AVAILABILITY)
         .select_related("feature_flag"),
         many=True,
     ).data
 
-    return cors_response(request, JsonResponse({"featurePreviews": feature_previews}))
+    return cors_response(request, JsonResponse({"featurePreviews": early_access_features}))
