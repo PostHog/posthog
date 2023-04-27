@@ -41,7 +41,7 @@ const { TabPane } = Tabs
 export const scene: SceneExport = {
     component: Person,
     logic: personsLogic,
-    paramsToProps: ({ params: { _: rawUrlId } }): typeof personsLogic['props'] => ({
+    paramsToProps: ({ params: { _: rawUrlId } }): (typeof personsLogic)['props'] => ({
         syncWithUrl: true,
         urlId: decodeURIComponent(rawUrlId),
     }),

@@ -11,12 +11,6 @@
     (SELECT id
      FROM person
      WHERE team_id = 2
-       AND id IN
-         (SELECT id
-          FROM person
-          WHERE team_id = 2
-            AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', ''))))
-                  AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(person.properties, '$another_prop'), '^"|"$', '')))))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))
@@ -47,11 +41,6 @@
     (SELECT id
      FROM person
      WHERE team_id = 2
-       AND id IN
-         (SELECT id
-          FROM person
-          WHERE team_id = 2
-            AND ((has(['something1'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))) as person
@@ -104,11 +93,6 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', ''))))))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
@@ -169,11 +153,6 @@
                       (SELECT id
                        FROM person
                        WHERE team_id = 2
-                         AND id IN
-                           (SELECT id
-                            FROM person
-                            WHERE team_id = 2
-                              AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', ''))))))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
                        AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
