@@ -85,6 +85,8 @@ export const urls = {
     experiments: (): string => '/experiments',
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
+    earlyAccessFeatures: (): string => '/early_access_features',
+    earlyAccessFeature: (id: ':id' | 'new' | string): string => `/early_access_features/${id}`,
     annotations: (): string => '/annotations',
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,

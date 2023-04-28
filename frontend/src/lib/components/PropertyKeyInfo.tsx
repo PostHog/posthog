@@ -739,6 +739,15 @@ export function getKeyMapping(
                 examples: ['true', 'variant-1a'],
             }
         }
+    } else if (value.startsWith('$feature_enrollment/')) {
+        const featureFlagKey = value.replace(/^\$feature_enrollment\//, '')
+        if (featureFlagKey) {
+            return {
+                label: `Feature Enrollment: ${featureFlagKey}`,
+                description: `Whether the user has opted into the "${featureFlagKey}" beta program.`,
+                examples: ['true', 'false'],
+            }
+        }
     }
     return null
 }

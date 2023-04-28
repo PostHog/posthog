@@ -3,6 +3,7 @@ import { range } from 'lib/utils'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import './LemonSelectMultiple.scss'
+import { ReactNode } from 'react'
 
 export interface LemonSelectMultipleOption {
     label: string
@@ -20,11 +21,12 @@ export type LemonSelectMultipleOptions = Record<string, LemonSelectMultipleOptio
 export interface LemonSelectMultipleProps {
     selectClassName?: string
     options?: LemonSelectMultipleOptions | LemonSelectMultipleOptionItem[]
-    value?: string[] | null
+    value?: string[] | null | LabelInValue[]
     disabled?: boolean
     loading?: boolean
     placeholder?: string
-    onChange?: (newValue: string[]) => void
+    labelInValue?: boolean
+    onChange?: ((newValue: string[]) => void) | ((newValue: LabelInValue[]) => void)
     onSearch?: (value: string) => void
     onFocus?: () => void
     onBlur?: () => void
@@ -33,12 +35,15 @@ export interface LemonSelectMultipleProps {
     'data-attr'?: string
 }
 
+export type LabelInValue = { value: string; label: ReactNode }
+
 export function LemonSelectMultiple({
     value,
     options,
     disabled,
     loading,
     placeholder,
+    labelInValue,
     onChange,
     onSearch,
     onFocus,
@@ -68,13 +73,26 @@ export function LemonSelectMultiple({
                 className={selectClassName}
                 mode={mode === 'multiple' ? 'multiple' : mode === 'multiple-custom' ? 'tags' : undefined}
                 showSearch
+                labelInValue={labelInValue}
                 disabled={disabled}
                 loading={loading}
                 onSearch={onSearch}
                 onFocus={onFocus}
                 onBlur={onBlur}
                 showAction={['focus']}
-                onChange={(v) => onChange?.(v)}
+                onChange={(v) => {
+                    if (onChange) {
+                        if (labelInValue) {
+                            const typedValues = v as LabelInValue[]
+                            const typedOnChange = onChange as (newValue: LabelInValue[]) => void
+                            typedOnChange(typedValues)
+                        } else {
+                            const typedValues = v as string[]
+                            const typedOnChange = onChange as (newValue: string[]) => void
+                            typedOnChange(typedValues)
+                        }
+                    }
+                }}
                 tokenSeparators={[',']}
                 value={value ? value : []}
                 dropdownRender={(menu) => <div className="LemonSelectMultipleDropdown">{menu}</div>}
