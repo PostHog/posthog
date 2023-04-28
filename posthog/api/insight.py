@@ -487,7 +487,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         target = insight if dashboard is None else dashboard_tile
 
         refresh_insight_now, refresh_frequency = should_refresh_insight(
-            insight, dashboard_tile, request=self.context["request"], is_shared=self.context.get("is_shared")
+            insight, dashboard_tile, request=self.context["request"], is_shared=self.context.get("is_shared", False)
         )
         if refresh_insight_now:
             return synchronously_update_cache(insight, dashboard, refresh_frequency)
@@ -553,23 +553,21 @@ class InsightViewSet(
 
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
-        context["is_shared"] = bool(self.request.GET.get("sharing_access_token"))
+        context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
 
     def get_permissions(self):
-        if (
-            self.action in ("retrieve", "list")
-            and self.request.user.is_anonymous
-            and self.request.query_params.get("sharing_access_token")
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication) and self.action in (
+            "retrieve",
+            "list",
         ):
-            # We only restrict based on SharingConfiguration for retrieval of insights from a shared insight/dashboard
+            # Anonymous users authenticated via SharingAccessTokenAuthentication get read-only access to insights
             return []
         return super().get_permissions()
 
     def get_queryset(self) -> QuerySet:
         queryset: QuerySet
-        if not self.get_permissions():
-            # If we have no permissions, we are retrieving shared insights and must filter down accordingly
+        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             sharing_configuration = SharingConfiguration.objects.get(
                 access_token=self.request.query_params["sharing_access_token"], enabled=True
             )
