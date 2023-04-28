@@ -418,7 +418,7 @@ ${clientSuffix}onFeatureFlags(function() {
     }
 })
 
-// Otherwise, you can just do
+// Otherwise, you can just do:
 
 if (${clientSuffix}${flagFunction}('${flagKey ?? ''}') ${variantSuffix}) {
     // do something

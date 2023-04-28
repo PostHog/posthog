@@ -32,6 +32,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Group]: Scene.Persons,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
+    [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
     [Scene.AppMetrics]: Scene.Plugins,
     [Scene.SessionRecording]: Scene.SessionRecordings,
     [Scene.SessionRecordingPlaylist]: Scene.SessionRecordingPlaylist,
@@ -70,8 +71,11 @@ export const sceneLogic = kea<sceneLogicType>({
             } = {
                 cloud: true,
                 selfHosted: true,
-            }
-        ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }),
+            },
+            // how much of the feature has been used (eg. number of recording playlists created),
+            // which will be compared to the limit for their subscriptions
+            currentUsage?: number
+        ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn, currentUsage }),
         hideUpgradeModal: true,
         reloadBrowserDueToImportError: true,
     },
@@ -199,7 +203,14 @@ export const sceneLogic = kea<sceneLogicType>({
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
-        guardAvailableFeature: ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }) => {
+        guardAvailableFeature: ({
+            featureKey,
+            featureName,
+            featureCaption,
+            featureAvailableCallback,
+            guardOn,
+            currentUsage,
+        }) => {
             const { preflight } = preflightLogic.values
             let featureAvailable: boolean
             if (!preflight) {
@@ -209,7 +220,7 @@ export const sceneLogic = kea<sceneLogicType>({
             } else if (!guardOn.selfHosted && !preflight.cloud) {
                 featureAvailable = true
             } else {
-                featureAvailable = userLogic.values.hasAvailableFeature(featureKey)
+                featureAvailable = userLogic.values.hasAvailableFeature(featureKey, currentUsage)
             }
             if (featureAvailable) {
                 featureAvailableCallback?.()

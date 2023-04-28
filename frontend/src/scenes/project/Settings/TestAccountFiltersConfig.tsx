@@ -7,9 +7,11 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
 
 export function TestAccountFiltersConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
+    const { setTeamDefault } = useActions(filterTestAccountsDefaultsLogic)
     const { reportTestAccountFiltersUpdated } = useActions(eventUsageLogic)
     const { currentTeam, currentTeamLoading, testAccountFilterWarningLabels, testAccountFilterFrequentMistakes } =
         useValues(teamLogic)
@@ -70,8 +72,8 @@ export function TestAccountFiltersConfig(): JSX.Element {
             </div>
             <LemonSwitch
                 onChange={(checked) => {
-                    localStorage.setItem('default_filter_test_accounts', checked.toString())
                     updateCurrentTeam({ test_account_filters_default_checked: checked })
+                    setTeamDefault(checked)
                 }}
                 checked={!!currentTeam?.test_account_filters_default_checked}
                 disabled={currentTeamLoading}

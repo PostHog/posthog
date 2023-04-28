@@ -30,7 +30,7 @@ export function PathsWildcardGroupsComponent({
 }: PathsWildcardGroupsComponentProps): JSX.Element {
     return (
         <LemonSelectMultiple
-            onChange={(path_groupings) => setFilter({ path_groupings })}
+            onChange={(path_groupings: string[]) => setFilter({ path_groupings })}
             value={path_groupings || []}
             filterOption={false}
             mode="multiple-custom"

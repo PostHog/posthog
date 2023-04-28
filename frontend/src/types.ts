@@ -79,6 +79,15 @@ export enum AvailableFeature {
     SUPPORT_SLAS = 'support_slas',
 }
 
+export type AvailableProductFeature = {
+    key: AvailableFeature
+    name: string
+    description?: string | null
+    limit?: number | null
+    note?: string | null
+    unit?: string | null
+}
+
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -184,6 +193,7 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
+    available_product_features: AvailableProductFeature[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
@@ -593,6 +603,14 @@ export interface RecordingSegment {
     durationMs: number
     windowId: string
     isActive: boolean
+}
+
+export interface SessionRecordingMeta {
+    pinnedCount: number
+    segments: RecordingSegment[]
+    recordingDurationMs: number
+    startTimestamp: Dayjs
+    endTimestamp: Dayjs
 }
 
 export type RecordingSnapshot = eventWithTime & {
@@ -1510,7 +1528,12 @@ export interface Breakdown {
 
 export interface FilterType {
     // used by all
+    from_dashboard?: boolean | number
     insight?: InsightType
+    filter_test_accounts?: boolean
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    sampling_factor?: number | null
+
     date_from?: string | null
     date_to?: string | null
     /**
@@ -1519,13 +1542,9 @@ export interface FilterType {
      */
     explicit_date?: boolean | string | null
 
-    properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     new_entity?: Record<string, any>[]
-
-    filter_test_accounts?: boolean
-    from_dashboard?: boolean | number
 
     // persons modal
     entity_id?: string | number
@@ -1542,7 +1561,6 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
-    sampling_factor?: number | null
 }
 
 export interface PropertiesTimelineFilterType {
@@ -1648,7 +1666,6 @@ export type AnyFilterType =
     | PathsFilterType
     | RetentionFilterType
     | LifecycleFilterType
-    | PropertiesTimelineFilterType
     | FilterType
 
 export type AnyPartialFilterType =
@@ -1969,6 +1986,7 @@ export interface FeatureFlagGroupType {
     rollout_percentage: number | null
     variant: string | null
     users_affected?: number
+    feature_preview?: string
 }
 
 export interface MultivariateFlagVariant {
@@ -1988,19 +2006,27 @@ export interface FeatureFlagFilters {
     payloads: Record<string, JsonType>
 }
 
-export interface FeatureFlagType {
-    id: number | null
+export interface FeatureFlagBasicType {
+    id: number
+    team_id: TeamType['id']
     key: string
-    name: string // Used as description
+    /* The description field (the name is a misnomer because of its legacy). */
+    name: string
     filters: FeatureFlagFilters
     deleted: boolean
     active: boolean
+    ensure_experience_continuity: boolean | null
+}
+
+export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team_id'> {
+    /** Null means that the flag has never been saved yet (it's new). */
+    id: number | null
     created_by: UserBasicType | null
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
-    ensure_experience_continuity: boolean | null
     experiment_set: string[] | null
+    features: EarlyAccsesFeatureType[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
@@ -2018,6 +2044,22 @@ export interface FeatureFlagRollbackConditions {
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
+}
+
+export interface EarlyAccsesFeatureType {
+    /** UUID */
+    id: string
+    feature_flag: FeatureFlagBasicType
+    name: string
+    description: string
+    stage: 'concept' | 'alpha' | 'beta' | 'general-availability'
+    /** Documentation URL. Can be empty. */
+    documentation_url: string
+    created_at: string
+}
+
+export interface NewEarlyAccessFeatureType extends Omit<EarlyAccsesFeatureType, 'id' | 'created_at' | 'feature_flag'> {
+    feature_flag_id: number | undefined
 }
 
 export interface UserBlastRadiusType {

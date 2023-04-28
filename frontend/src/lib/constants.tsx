@@ -142,6 +142,7 @@ export const FEATURE_FLAGS = {
     RECORDINGS_LIST_V2: 'recordings-list-v2-enabled', // owner: #team-session-recordings
     HOGQL: 'hogql', // owner: #team-product-analytics
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
+    EARLY_ACCESS_FEATURE: 'early-access-feature', // owner: @EDsCODE
     ARUBUG: 'arubug', // owner: #team-arubug
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     BILLING_BY_PRODUCTS: 'billing-by-products', // owner: @raquelmsmith

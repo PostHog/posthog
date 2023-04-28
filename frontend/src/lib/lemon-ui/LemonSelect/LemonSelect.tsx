@@ -43,7 +43,16 @@ export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<
 export interface LemonSelectProps<T>
     extends Pick<
         LemonButtonProps,
-        'id' | 'className' | 'loading' | 'fullWidth' | 'disabled' | 'data-attr' | 'aria-label' | 'onClick' | 'tabIndex'
+        | 'id'
+        | 'className'
+        | 'loading'
+        | 'fullWidth'
+        | 'disabled'
+        | 'disabledReason'
+        | 'data-attr'
+        | 'aria-label'
+        | 'onClick'
+        | 'tabIndex'
     > {
     options: LemonSelectOptions<T>
     /** Null only is valid for clearable selects. */

@@ -9,7 +9,7 @@ import {
     InsightShortId,
     ItemMode,
 } from '~/types'
-import { IconEvent, IconLock } from 'lib/lemon-ui/icons'
+import { IconDataObject, IconLock } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -37,7 +37,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { Tooltip } from 'antd'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { ThunderboltFilled } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -328,12 +328,29 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
                         {isUsingDataExploration && isInsightVizNode(query) ? (
                             <LemonButton
-                                tooltip={showQueryEditor ? 'Hide JSON editor' : 'Edit as JSON'}
+                                tooltip={
+                                    showQueryEditor ? (
+                                        <>
+                                            Hide source
+                                            <LemonTag className="ml-2" type="warning">
+                                                BETA
+                                            </LemonTag>
+                                        </>
+                                    ) : (
+                                        <>
+                                            View source
+                                            <LemonTag className="ml-2" type="warning">
+                                                BETA
+                                            </LemonTag>
+                                        </>
+                                    )
+                                }
+                                aria-label={showQueryEditor ? 'Hide source (BETA)' : 'View source (BETA)'}
+                                tooltipPlacement="bottomRight"
                                 type={'secondary'}
                                 onClick={toggleQueryEditorPanel}
-                            >
-                                <IconEvent />
-                            </LemonButton>
+                                icon={<IconDataObject fontSize="18" />}
+                            />
                         ) : null}
                     </div>
                 }
