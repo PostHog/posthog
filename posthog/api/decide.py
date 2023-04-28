@@ -169,7 +169,7 @@ def get_decide(request: HttpRequest):
 
             if api_version == 2:
                 response["featureFlags"] = active_flags
-            elif api_version == 3:
+            elif api_version >= 3:
                 # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
                 response["featureFlags"] = feature_flags
                 response["errorsWhileComputingFlags"] = errors

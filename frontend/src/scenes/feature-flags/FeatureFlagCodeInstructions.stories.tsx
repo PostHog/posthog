@@ -17,6 +17,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
         multivariate: null,
         payloads: { true: '' },
     },
+    features: [],
     active: true,
     deleted: false,
     created_at: '2021-05-05T12:00:00Z',

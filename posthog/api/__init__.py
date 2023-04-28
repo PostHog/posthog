@@ -10,6 +10,7 @@ from . import (
     async_migration,
     authentication,
     dead_letter_queue,
+    early_access_feature,
     event_definition,
     exports,
     feature_flag,
@@ -81,6 +82,12 @@ project_feature_flags_router = projects_router.register(
     r"feature_flags",
     feature_flag.FeatureFlagViewSet,
     "project_feature_flags",
+    ["team_id"],
+)
+project_features_router = projects_router.register(
+    r"early_access_feature",
+    early_access_feature.EarlyAccessFeatureViewSet,
+    "project_early_access_feature",
     ["team_id"],
 )
 

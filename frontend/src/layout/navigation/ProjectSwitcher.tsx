@@ -53,7 +53,9 @@ export function ProjectSwitcherOverlay(): JSX.Element {
                         AvailableFeature.ORGANIZATIONS_PROJECTS,
                         'multiple projects',
                         'Projects allow you to separate data and configuration for different products or environments.',
-                        showCreateProjectModal
+                        showCreateProjectModal,
+                        undefined,
+                        currentOrganization?.teams?.length
                     )
                 }}
             >

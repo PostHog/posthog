@@ -85,6 +85,7 @@ export const TrendsPieBreakdown = createInsightStory(require('./__mocks__/trends
 TrendsPieBreakdown.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-pie-graph] > canvas' } }
 
 export const TrendsWorldMap = createInsightStory(require('./__mocks__/trendsWorldMap.json'))
+TrendsWorldMap.parameters = { testOptions: { waitForLoadersToDisappear: '.WorldMap' } }
 
 // Funnels
 

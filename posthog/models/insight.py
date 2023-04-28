@@ -136,6 +136,8 @@ class Insight(models.Model):
                     filters["properties"] = dashboard_properties
                 else:
                     raise ValidationError("Unrecognized property format: ", self.filters["properties"])
+            elif self.filters.get("properties"):
+                filters["properties"] = self.filters.get("properties")
 
             return filters
         else:

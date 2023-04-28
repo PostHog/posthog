@@ -10,7 +10,7 @@ import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSett
 import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
-import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
+import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import api from 'lib/api'
@@ -27,10 +27,12 @@ describe('sessionRecordingPlayerLogic', () => {
             get: {
                 '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
-                '/api/projects/:team/events': { results: recordingEventsJson },
             },
             delete: {
                 '/api/projects/:team/session_recordings/:id': { success: true },
+            },
+            post: {
+                '/api/projects/:team/query': recordingEventsJson,
             },
         })
         initKeaTests()

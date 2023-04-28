@@ -106,6 +106,7 @@ function PlayerInspectorListItem({
                 // Style as we need it for the layout optimisation
                 marginTop: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
                 marginBottom: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
+                zIndex: isExpanded ? 1 : 0,
             }}
         >
             {!isExpanded && (showIcon || windowNumber) && (

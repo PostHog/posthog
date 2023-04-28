@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from django.test import override_settings
 
-from posthog.hogql.database import create_hogql_database, serialize_database
+from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.test.base import BaseTest
 
 

@@ -1,11 +1,12 @@
 from datetime import timezone, datetime, date
+from django.test import override_settings
 from uuid import UUID
 
 from freezegun import freeze_time
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database import create_hogql_database
+from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.resolver import ResolverException, resolve_types
@@ -719,7 +720,9 @@ class TestResolver(BaseTest):
             ),
         )
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_table(self):
+        self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = parse_select("select * from events")
         node = resolve_types(node, self.database)
 
@@ -739,7 +742,9 @@ class TestResolver(BaseTest):
             ],
         )
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_table_alias(self):
+        self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = parse_select("select * from events e")
         node = resolve_types(node, self.database)
 
@@ -818,7 +823,9 @@ class TestResolver(BaseTest):
             ],
         )
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_from_subquery_table(self):
+        self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = parse_select("select * from (select * from events)")
         node = resolve_types(node, self.database)
 
@@ -862,7 +869,9 @@ class TestResolver(BaseTest):
             str(e.exception), "Cannot use '*' without table name when there are multiple tables in the query"
         )
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     def test_asterisk_expander_select_union(self):
+        self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = parse_select("select * from (select * from events union all select * from events)")
         node = resolve_types(node, self.database)
 

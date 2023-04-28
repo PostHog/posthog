@@ -486,10 +486,11 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
         target = insight if dashboard is None else dashboard_tile
 
-        refresh_insight_now, refresh_frequency = should_refresh_insight(insight, dashboard_tile)
-        if insight.filters and refresh_requested_by_client(self.context["request"]):
-            if refresh_insight_now:
-                return synchronously_update_cache(insight, dashboard, refresh_frequency)
+        refresh_insight_now, refresh_frequency = should_refresh_insight(
+            insight, dashboard_tile, request=self.context["request"], is_shared=self.context.get("is_shared")
+        )
+        if refresh_insight_now:
+            return synchronously_update_cache(insight, dashboard, refresh_frequency)
 
         # :TODO: Clear up if tile can be null or not
         return fetch_cached_insight_result(target or insight, refresh_frequency)
@@ -516,7 +517,6 @@ class InsightViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
-    queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [
         IsAuthenticated,
@@ -575,16 +575,16 @@ class InsightViewSet(
             )
             # sharing_configuration must be non-None here, per SharingAccessTokenAuthentication
             queryset = Insight.objects.filter(id__in=sharing_configuration.get_connected_insight_ids())
-        elif (
-            self.action == "partial_update"
-            and "deleted" in self.request.data
-            and not self.request.data.get("deleted")
-            and len(self.request.data) == 1
-        ):
+        elif self.action == "partial_update" and self.request.data.get("deleted") is False:
             # an insight can be un-deleted by patching {"deleted": False}
-            queryset = Insight.objects_including_soft_deleted
+            queryset = Insight.objects_including_soft_deleted.all()
         else:
-            queryset = super().get_queryset()
+            queryset = Insight.objects.all()
+
+        # Optimize tag retrieval
+        queryset = self.prefetch_tagged_items_if_available(queryset)
+        # Disallow access to other teams' insights
+        queryset = self.filter_queryset_by_parents_lookups(queryset)
 
         queryset = queryset.prefetch_related(
             Prefetch(
