@@ -490,10 +490,11 @@
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
      LEFT OUTER JOIN
-       (SELECT override_person_id as person_id,
+       (SELECT argMax(override_person_id, version) as person_id,
                old_person_id
         FROM person_overrides
-        WHERE team_id = 2 ) AS overrides ON e.person_id = overrides.old_person_id
+        WHERE team_id = 2
+        GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
      WHERE team_id = 2
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')

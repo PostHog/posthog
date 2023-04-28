@@ -5532,6 +5532,94 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response[0]["data"], [1.0])
 
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @snapshot_clickhouse_queries
+    def test_same_day_with_person_on_events_v2_latest_override(self):
+        # In this test we check that we always prioritize the latest override (based on the `version`)
+        # To do so, we first create an override to a person 2 that did not perform the event we're building
+        # the insight on, which should lead us to have 2 DAUs. We then create an override to a person 3 that did
+        # have the event, which should lead us to have 1 DAU only, since persons 1 and 3 are now the same person.
+        # Lastly, we create an override back to person 2 and check that DAUs go back to 2.
+        person_id1 = str(uuid.uuid4())
+        person_id2 = str(uuid.uuid4())
+        person_id3 = str(uuid.uuid4())
+
+        _create_person(team_id=self.team.pk, distinct_ids=["distinctid1"], properties={})
+        _create_person(team_id=self.team.pk, distinct_ids=["distinctid2"], properties={})
+        _create_person(team_id=self.team.pk, distinct_ids=["distinctid3"], properties={})
+
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="distinctid1",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+            person_id=person_id1,
+        )
+
+        _create_event(
+            team=self.team,
+            event="some other event",
+            distinct_id="distinctid2",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+            person_id=person_id2,
+        )
+
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="distinctid3",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+            person_id=person_id3,
+        )
+
+        create_person_id_override_by_distinct_id("distinctid1", "distinctid2", self.team.pk, 0)
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [2.0])
+
+        create_person_id_override_by_distinct_id("distinctid1", "distinctid3", self.team.pk, 1)
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [1.0])
+
+        create_person_id_override_by_distinct_id("distinctid1", "distinctid2", self.team.pk, 2)
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up", "math": "dau"}],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [2.0])
+
     @also_test_with_materialized_columns(event_properties=["email", "name"], person_properties=["email", "name"])
     def test_ilike_regression_with_current_clickhouse_version(self):
         # CH upgrade to 22.3 has this problem: https://github.com/ClickHouse/ClickHouse/issues/36279
