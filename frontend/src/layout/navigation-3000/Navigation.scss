@@ -59,6 +59,7 @@
     padding: 0 0.375rem;
     border-right-width: 1px;
     background: var(--accent-3000);
+    overflow-y: auto;
 }
 
 // Sidebar
@@ -282,6 +283,7 @@
     --sidebar-list-item-status-color: var(--muted);
     --sidebar-list-item-fold-size: 0.5rem;
     --sidebar-list-item-ribbon-width: 0.1875rem;
+    --sidebar-list-item-background: var(--sidebar-background);
     position: relative;
     color: var(--muted);
     border-bottom-width: 1px;
@@ -289,11 +291,12 @@
     height: var(--sidebar-basic-leaf-row-height);
     cursor: pointer;
     opacity: 0.9; // Make items slightly lower contrast when not hovered
+    background: var(--sidebar-list-item-background);
 
     &:hover,
     &[aria-current='page'] {
         opacity: 1;
-        background: var(--border-3000);
+        --sidebar-list-item-background: var(--border-3000);
     }
     &:hover,
     &:focus-within,
@@ -315,7 +318,12 @@
                 right: 1px;
                 bottom: 1px;
                 width: 3.5rem;
-                background: linear-gradient(to left, var(--border-3000) 0%, var(--border-3000) 50%, transparent 100%);
+                background: linear-gradient(
+                    to left,
+                    var(--sidebar-list-item-background) 0%,
+                    var(--sidebar-list-item-background) 50%,
+                    transparent 100%
+                );
             }
         }
     }
@@ -382,7 +390,7 @@
         position: absolute;
         top: 0;
         left: 0;
-        bottom: 0;
+        bottom: -1px;
         right: 0;
         border: 1px solid var(--default);
     }
