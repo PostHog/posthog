@@ -98,7 +98,9 @@ def get_breakdown_prop_values(
             filter, team.pk, column_optimizer=column_optimizer, entity=entity if not use_all_funnel_entities else None
         )
         if person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
-            person_join_clauses = PERSON_OVERRIDES_JOIN_SQL.format(event_table_alias="e", person_overrides_table_alias="overrides")
+            person_join_clauses = PERSON_OVERRIDES_JOIN_SQL.format(
+                event_table_alias="e", person_overrides_table_alias="overrides"
+            )
         elif person_query.is_used:
             person_subquery, person_join_params = person_query.get_query()
             person_join_clauses = f"""
@@ -336,12 +338,22 @@ def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> 
     return " UNION ALL ".join(cohort_queries), ids, params
 
 
-def _parse_breakdown_cohorts(cohorts: List[Cohort], hogql_context: HogQLContext, person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED) -> Tuple[List[str], Dict]:
+def _parse_breakdown_cohorts(
+    cohorts: List[Cohort],
+    hogql_context: HogQLContext,
+    person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
+) -> Tuple[List[str], Dict]:
     queries = []
     params: Dict[str, Any] = {}
-    custom_match_field = f"if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)" if person_on_events_mode == PersonOnEventsMode.V2_ENABLED else "person_id"
+    custom_match_field = (
+        f"if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)"
+        if person_on_events_mode == PersonOnEventsMode.V2_ENABLED
+        else "person_id"
+    )
     for idx, cohort in enumerate(cohorts):
-        person_id_query, cohort_filter_params = format_filter_query(cohort, idx, hogql_context, custom_match_field=custom_match_field)
+        person_id_query, cohort_filter_params = format_filter_query(
+            cohort, idx, hogql_context, custom_match_field=custom_match_field
+        )
         params = {**params, **cohort_filter_params}
         cohort_query = person_id_query.replace(
             "SELECT distinct_id", f"SELECT distinct_id, {cohort.pk} as value", 1

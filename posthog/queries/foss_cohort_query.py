@@ -276,14 +276,14 @@ class FOSSCohortQuery(EventQuery):
                         # when using person-on-events, instead of inner join, we filter inside
                         # the event query itself
                         continue
-                    
+
                     q = f"{q} {inner_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
-                    
+
                     if self._person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
                         fields = "if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) AS person_id"
                     else:
                         fields = f"{subq_alias}.person_id"
-                    
+
                 else:
                     q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
                     fields = if_condition(

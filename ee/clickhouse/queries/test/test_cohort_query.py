@@ -17,7 +17,7 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    also_test_with_person_on_events_v2
+    also_test_with_person_on_events_v2,
 )
 
 
