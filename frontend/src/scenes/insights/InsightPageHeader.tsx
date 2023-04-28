@@ -357,7 +357,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         setInsightMode(ItemMode.Edit, null)
 
                                         // exit early if query editor doesn't need to be toggled
-                                        if (showQueryEditor === false) {
+                                        if (showQueryEditor !== false) {
                                             return
                                         }
                                     }
