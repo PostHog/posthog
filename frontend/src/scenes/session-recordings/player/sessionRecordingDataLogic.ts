@@ -451,15 +451,25 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return values.sessionEventsData
                     }
 
+                    const { person } = values.sessionPlayerData
+
                     // TODO: Somehow check whether or not we need to load more data.
                     try {
                         const res: any = await api.query({
-                            kind: 'HogQLQuery',
-                            query: `select properties from events where uuid = '${event.id}' and timestamp = toDateTime('${event.timestamp}') limit 1`,
+                            kind: 'EventsQuery',
+                            select: ['properties', 'timestamp'],
+                            orderBy: ['timestamp ASC'],
+                            limit: 100,
+                            personId: person?.id,
+                            after: dayjs(event.timestamp).subtract(1000, 'ms').format(),
+                            before: dayjs(event.timestamp).add(1000, 'ms').format(),
+                            event: existingEvent.event,
                         })
 
-                        if (res.results[0]) {
-                            existingEvent.properties = JSON.parse(res.results[0])
+                        const result = res.results.find((x: any) => x[1] === event.timestamp)
+
+                        if (result) {
+                            existingEvent.properties = JSON.parse(result[0])
                             existingEvent.fullyLoaded = true
                         }
                     } catch (e) {
