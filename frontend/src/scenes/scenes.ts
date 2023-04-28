@@ -4,6 +4,7 @@ import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
 import { InsightShortId, SessionRecordingsTabs } from '~/types'
+import { combineUrl } from 'kea-router'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -137,6 +138,12 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.FeatureFlag]: {
         projectBased: true,
     },
+    [Scene.EarlyAccessFeatures]: {
+        projectBased: true,
+    },
+    [Scene.EarlyAccessFeature]: {
+        projectBased: true,
+    },
     [Scene.Annotations]: {
         projectBased: true,
         name: 'Annotations',
@@ -255,11 +262,17 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
 }
 
+const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
+    const combined = combineUrl(url, searchParams, hashParams)
+    return combined.url
+}
+
+// NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use the above `preserveParams` function.
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
-    '/': urls.projectHomepage(),
+    '/': preserveParams(urls.projectHomepage()),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.projectApps(),
@@ -327,6 +340,8 @@ export const routes: Record<string, Scene> = {
     [urls.cohorts()]: Scene.Cohorts,
     [urls.experiments()]: Scene.Experiments,
     [urls.experiment(':id')]: Scene.Experiment,
+    [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
+    [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,

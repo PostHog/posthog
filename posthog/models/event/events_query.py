@@ -101,11 +101,12 @@ def run_events_query(
 
     # limit to the last 24h by default
     after = query.after or "-24h"
-    try:
-        parsed_date = isoparse(after)
-    except ValueError:
-        parsed_date = relative_date_parse(after)
-    where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
+    if after != "all":
+        try:
+            parsed_date = isoparse(after)
+        except ValueError:
+            parsed_date = relative_date_parse(after)
+        where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
 
     # where & having
     where_list = [expr for expr in where_exprs if not has_aggregation(expr)]

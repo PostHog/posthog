@@ -15,8 +15,12 @@ import { convertToPersistedMessage } from './utils'
 
 export const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
-    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
-    labelNames: ['partition_key'],
+    help: 'A single file flushed to S3',
+})
+
+export const counterS3WriteErrored = new Counter({
+    name: 'recording_s3_write_errored',
+    help: 'Indicates that we failed to flush to S3 without recovering',
 })
 
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
@@ -77,34 +81,17 @@ export class SessionManager {
             await this.addToChunks(message)
         }
 
-        await this.flushIfNeccessary(true)
+        await this.flushIfNecessary()
     }
 
     public get isEmpty(): boolean {
         return this.buffer.count === 0 && this.chunks.size === 0
     }
 
-    public async flushIfNeccessary(shouldLog = false): Promise<void> {
+    public async flushIfNecessary(): Promise<void> {
         const bufferSizeKb = this.buffer.size / 1024
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
         const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
-
-        if (shouldLog) {
-            status.info(
-                '🚽',
-                `blob_ingester_session_manager Buffer ${this.sessionId}:: buffer size: ${
-                    this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
-                }kb capacity: ${(gzippedCapacity * 100).toFixed(2)}%: count: ${this.buffer.count} ${Math.round(
-                    bufferSizeKb
-                )}KB (~ ${Math.round(gzipSizeKb)}KB GZIP) chunks: ${this.chunks.size})`,
-                {
-                    sizeInBufferKB: bufferSizeKb,
-                    estimatedSizeInGzipKB: gzipSizeKb,
-                    bufferThreshold: this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB,
-                    calculatedCapacity: gzippedCapacity,
-                }
-            )
-        }
 
         const overCapacity = gzippedCapacity > 1
         const timeSinceLastFlushTooLong =
@@ -113,7 +100,6 @@ export class SessionManager {
         const readyToFlush = overCapacity || timeSinceLastFlushTooLong
 
         if (readyToFlush) {
-            status.info('🚽', `blob_ingester_session_manager Flushing buffer ${this.sessionId}...`)
             await this.flush()
         }
     }
@@ -127,6 +113,20 @@ export class SessionManager {
             status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing")
             return
         }
+
+        const bufferSizeKb = this.buffer.size / 1024
+        const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
+        const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
+        status.info('🚽', `blob_ingester_session_manager flushing buffer ${this.sessionId}`, {
+            sizeInBufferKB: bufferSizeKb,
+            chunksSize: this.chunks.size,
+            estimatedSizeInGzipKB: Math.round(gzipSizeKb),
+            bufferThreshold: this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB,
+            calculatedCapacity: gzippedCapacity,
+            percentageCapacityUsed: (gzippedCapacity * 100).toFixed(2),
+            count: this.buffer.count,
+            sessionId: this.sessionId,
+        })
 
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
@@ -150,24 +150,18 @@ export class SessionManager {
             await parallelUploads3.done()
 
             counterS3FilesWritten.inc(1)
-            // TODO: Add prometheus metric for the size of the file as well
-            // counterS3FilesWritten.add(1, {
-            //     bytes: this.flushBuffer.size, // since the file is compressed this is wrong, and we don't know the compressed size 🤔
-            // })
+            status.info('🚽', `blob_ingester_session_manager Flushed buffer ${this.sessionId}`)
         } catch (error) {
             // TODO: If we fail to write to S3 we should be do something about it
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', error)
             captureException(error)
+            counterS3WriteErrored.inc()
         } finally {
             await deleteFile(this.flushBuffer.file)
 
             const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
 
-            status.debug(
-                '🚽',
-                `blob_ingester_session_manager Flushed buffer ${this.sessionId} (removing offsets: ${offsets})`
-            )
             // TODO: Sync the last processed offset to redis
             this.onFinish(offsets)
         }

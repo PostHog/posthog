@@ -697,7 +697,7 @@ export function truncate(str: string, maxLength: number): string {
 }
 
 export function eventToDescription(
-    event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>,
+    event: Pick<EventType, 'elements' | 'event' | 'properties'>,
     shortForm: boolean = false
 ): string {
     if (['$pageview', '$pageleave'].includes(event.event)) {
@@ -1621,7 +1621,7 @@ export function downloadFile(file: File): void {
     }, 0)
 }
 
-export function insightUrlForEvent(event: EventType): string | undefined {
+export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
     let insightParams: Partial<TrendsFilterType> | undefined
     if (event.event === '$pageview') {
         insightParams = {

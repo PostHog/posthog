@@ -160,7 +160,6 @@ class EventType(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    colonTimestamp: Optional[str] = Field(None, description="Used in session recording events list")
     distinct_id: str
     elements: List[ElementType]
     elements_chain: Optional[str] = None

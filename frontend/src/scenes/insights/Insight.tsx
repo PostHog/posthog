@@ -74,9 +74,8 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     }
 
     const actuallyShowQueryEditor =
-        isUsingDashboardQueries &&
         insightMode === ItemMode.Edit &&
-        ((isQueryBasedInsight && !containsHogQLQuery(query)) || showQueryEditor)
+        ((isQueryBasedInsight && !containsHogQLQuery(query)) || (!isQueryBasedInsight && showQueryEditor))
 
     const insightScene = (
         <div className={'insights-page'}>

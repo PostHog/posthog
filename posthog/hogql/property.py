@@ -183,7 +183,7 @@ def property_to_expr(
         if cohort.is_static:
             sql = "person_id in (SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
         else:
-            sql = "person_id in (SELECT person_id FROM cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+            sql = "person_id in (SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
 
         return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort.pk)})
     # "group",

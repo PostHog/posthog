@@ -32,6 +32,8 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
+    [Scene.EarlyAccessFeatures]: () => import('./early-access-features/EarlyAccessFeatures'),
+    [Scene.EarlyAccessFeature]: () => import('./early-access-features/EarlyAccessFeature'),
     [Scene.OrganizationSettings]: () => import('./organization/Settings'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
