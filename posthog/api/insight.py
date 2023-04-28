@@ -325,7 +325,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         dashboards_before_change: List[Union[str, Dict]] = []
         try:
-            before_update = Insight.objects.prefetch_related("tagged_items__tag", "dashboards").get(pk=instance.id)
+            # since it is possible to be undeleting a soft deleted insight
+            # the state captured before the update has to include soft deleted insights
+            # or we can't capture undeletes to the activity log
+            before_update = Insight.objects_including_soft_deleted.prefetch_related(
+                "tagged_items__tag", "dashboards"
+            ).get(pk=instance.id)
             dashboards_before_change = [describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()]
         except Insight.DoesNotExist:
             before_update = None

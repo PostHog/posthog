@@ -2551,6 +2551,21 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             status.HTTP_200_OK,
         )
 
+        # assert that undeletes end up in the activity log
+        activity_response = self.dashboard_api.get_insight_activity(insight_id)
+
+        activity: List[Dict] = activity_response["results"]
+        # we will have three logged activities (in reverse order) undelete, delete, create
+        assert [a["activity"] for a in activity] == ["updated", "updated", "created"]
+        undelete_change_log = activity[0]["detail"]["changes"][0]
+        assert undelete_change_log == {
+            "action": "changed",
+            "after": False,
+            "before": True,
+            "field": "deleted",
+            "type": "Insight",
+        }
+
     def test_soft_delete_cannot_be_reversed_for_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
         other_insight = Insight.objects.create(
