@@ -1166,6 +1166,7 @@ export interface BillingV2PlanType {
     plan_key?: string
     current_plan?: any
     tiers?: BillingV2TierType[]
+    included_if?: 'no_active_subscription' | 'has_subscription' | null
 }
 
 export interface PlanInterface {
