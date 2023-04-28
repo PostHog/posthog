@@ -615,6 +615,8 @@ export interface SessionRecordingMeta {
     segments: RecordingSegment[]
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
+    startTimestamp: Dayjs
+    endTimestamp: Dayjs
 }
 
 export interface SessionPlayerSnapshotData {
@@ -882,6 +884,12 @@ export interface EventsTableAction {
     id: string
 }
 
+export interface EventsTableRowItem {
+    event?: EventType
+    date_break?: string
+    new_events?: boolean
+}
+
 export interface EventType {
     // fields from the API
     id: string
@@ -892,24 +900,17 @@ export interface EventType {
     person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     elements: ElementType[]
     elements_chain?: string | null
-    /** Used in session recording events list */
-    colonTimestamp?: string
     uuid?: string
 }
 
 export interface RecordingTimeMixinType {
     playerTime: number | null
-    playerPosition: PlayerPosition | null
-    colonTimestamp?: string
-    capturedInWindow?: boolean // Did the event or console log not originate from the same client library as the recording
 }
 
-export interface RecordingEventType extends EventType, RecordingTimeMixinType {}
-
-export interface EventsTableRowItem {
-    event?: EventType
-    date_break?: string
-    new_events?: boolean
+export interface RecordingEventType
+    extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>,
+        RecordingTimeMixinType {
+    fullyLoaded: boolean
 }
 
 export interface SessionRecordingPlaylistType {
@@ -967,11 +968,6 @@ export interface SessionRecordingType {
 export interface SessionRecordingPropertiesType {
     id: string
     properties?: Record<string, any>
-}
-
-export interface SessionRecordingEvents {
-    next?: string
-    events: RecordingEventType[]
 }
 
 export interface PerformancePageView {

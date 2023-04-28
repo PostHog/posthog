@@ -127,6 +127,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['setTab', 'setMiniFilter', 'setSyncScroll'],
             eventUsageLogic,
             ['reportRecordingInspectorItemExpanded'],
+            sessionRecordingDataLogic(props),
+            ['loadFullEventData'],
         ],
         values: [
             playerSettingsLogic,
@@ -352,7 +354,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     })
                 }
 
-                for (const event of eventsData?.events || []) {
+                for (const event of eventsData || []) {
                     const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
 
                     const timestamp = dayjs(event.timestamp)
@@ -619,11 +621,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 return {
                     [SessionRecordingPlayerTab.ALL]: 'ready',
                     [SessionRecordingPlayerTab.EVENTS]:
-                        sessionEventsDataLoading || !events?.events
-                            ? 'loading'
-                            : events?.events.length
-                            ? 'ready'
-                            : 'empty',
+                        sessionEventsDataLoading || !events ? 'loading' : events?.length ? 'ready' : 'empty',
                     [SessionRecordingPlayerTab.CONSOLE]:
                         sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !logs
                             ? 'loading'
@@ -683,10 +681,16 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
                 eventUsageLogic.actions.reportRecordingInspectorItemExpanded(values.tab, index)
+
+                const item = values.items[index]
+
+                if (item.type === SessionRecordingPlayerTab.EVENTS) {
+                    actions.loadFullEventData(item.data)
+                }
             }
         },
     })),

@@ -120,48 +120,6 @@ export function getPlayerPositionFromPlayerTime(
     return null
 }
 
-// Gets the player position from an epoch-time without a window-id
-// Used to place backend events in a recording even though, they don't
-// have a window id
-export function guessPlayerPositionFromEpochTimeWithoutWindowId(
-    epochTime: number,
-    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>,
-    segments: RecordingSegment[]
-): PlayerPosition | null {
-    for (const segment of segments) {
-        if (epochTime >= segment.startTimeEpochMs && epochTime <= segment.endTimeEpochMs) {
-            return getPlayerPositionFromEpochTime(epochTime, segment.windowId, startAndEndTimesByWindowId)
-        }
-    }
-    return null
-}
-
-export function getPlayerPositionFromEpochTime(
-    epochTime: number,
-    windowId: string,
-    startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
-): PlayerPosition | null {
-    if (startAndEndTimesByWindowId && windowId in startAndEndTimesByWindowId) {
-        const windowStartTime = startAndEndTimesByWindowId[windowId].startTimeEpochMs
-        const windowEndTime = startAndEndTimesByWindowId[windowId].endTimeEpochMs
-
-        // We clamp the events to always be within the window range
-        // This way events that are offset by a few seconds don't get lost
-        if (windowStartTime > epochTime) {
-            epochTime = windowStartTime
-        }
-        if (windowEndTime < epochTime) {
-            epochTime = windowEndTime
-        }
-
-        return {
-            windowId,
-            time: epochTime - windowStartTime,
-        }
-    }
-    return null
-}
-
 export function getEpochTimeFromPlayerPosition(
     playerPosition: PlayerPosition,
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
