@@ -105,7 +105,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 }
                             />
                         </>
-                    ) : addon.included ? (
+                    ) : addon.included_with_main_product ? (
                         <LemonTag type="purple" icon={<IconCheckmark />}>
                             Included with plan
                         </LemonTag>

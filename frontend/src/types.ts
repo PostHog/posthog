@@ -1102,7 +1102,7 @@ export interface BillingProductV2Type {
     addons: BillingProductV2AddonType[]
 
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
-    included?: boolean
+    included_with_main_product?: boolean
 }
 
 export interface BillingProductV2AddonType {
@@ -1116,7 +1116,7 @@ export interface BillingProductV2AddonType {
     tiered: boolean
     subscribed: boolean
     // sometimes addons are included with the base product, but they aren't subscribed individually
-    included?: boolean
+    included_with_main_product?: boolean
     contact_support?: boolean
     unit: string | null
     unit_amount_usd: string | null
