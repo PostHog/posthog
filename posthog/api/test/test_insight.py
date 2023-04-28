@@ -1732,6 +1732,29 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.not_found_response(),
         )
 
+    def test_logged_out_user_cannot_update_insight_with_correct_insight_sharing_access_token(self) -> None:
+        self.client.logout()
+        insight = Insight.objects.create(
+            name="Foobar",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+        )
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, insight=insight, enabled=True, access_token="ghi"
+        )
+
+        response_retrieve = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
+            {"name": "Barfoo"},
+        )
+
+        self.assertEqual(response_retrieve.status_code, 403, response_retrieve.json())
+        self.assertEqual(
+            response_retrieve.json(),
+            self.permission_denied_response(),
+        )
+
     def test_logged_out_user_cannot_retrieve_insight_with_disabled_insight_sharing_access_token(self) -> None:
         self.client.logout()
         insight = Insight.objects.create(
