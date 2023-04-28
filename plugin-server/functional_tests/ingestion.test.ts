@@ -1,13 +1,5 @@
 import { UUIDT } from '../src/utils/utils'
-import {
-    capture,
-    createOrganization,
-    createTeam,
-    fetchEvents,
-    fetchPersons,
-    getMetric,
-    reloadDictionaries,
-} from './api'
+import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from './api'
 import { waitForExpect } from './expectations'
 
 let organizationId: string
@@ -573,11 +565,6 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
     })
 
     await waitForExpect(async () => {
-        const result = await reloadDictionaries()
-        expect(result).toBe('')
-    })
-
-    await waitForExpect(async () => {
         const events = await fetchEvents(teamId)
         expect(events.length).toBe(5)
         expect(events[0].person_id).toBeDefined()
@@ -645,12 +632,6 @@ testIfPoEEmbraceJoinEnabled(
                 distinct_id: secondDistinctId,
                 alias: thirdDistinctId,
             },
-        })
-
-        await waitForExpect(async () => {
-            const result = await reloadDictionaries()
-            // This should return 'ok' according to ClickHouse JS docs but apparently it's empty string.
-            expect(result).toBe('')
         })
 
         await waitForExpect(async () => {
