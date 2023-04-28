@@ -15,6 +15,7 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
+    also_test_with_person_on_events_v2
 )
 
 
@@ -22,6 +23,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(
         event_properties=["$host", "distinct_id"], person_properties=["$browser", "email"]
     )
+    @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_breakdown_person_props(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
@@ -62,8 +64,9 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                     "funnel_window_days": 14,
                 }
             )
+            
             res = get_breakdown_prop_values(
-                filter, Entity({"id": "$pageview", "type": "events"}), "count(*)", self.team
+                filter, Entity({"id": "$pageview", "type": "events"}), "count(*)", self.team, person_on_events_mode=self.team.person_on_events_mode
             )
             self.assertEqual(res, ["test"])
 
@@ -120,7 +123,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 )
                 res = get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team)
                 self.assertEqual(res, ["test"])
-
+                
     @snapshot_clickhouse_queries
     def test_breakdown_person_props_with_entity_filter_and_or_props_with_partial_pushdown(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test", "$os": "test"})
@@ -182,7 +185,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "funnel_window_days": 14,
                     }
                 )
-                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team))
+                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team, person_on_events_mode=self.team.person_on_events_mode),)
                 self.assertEqual(res, ["test", "test2"])
 
     @snapshot_clickhouse_queries

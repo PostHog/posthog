@@ -14,7 +14,7 @@ from django.apps import apps
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
-from django.test.utils import CaptureQueriesContext
+from django.test.utils import CaptureQueriesContext, override_settings
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog.clickhouse.client import sync_execute
@@ -763,6 +763,17 @@ def also_test_with_different_timezones(fn):
 
     return fn
 
+def also_test_with_person_on_events_v2(fn):
+    
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    def fn_with_poe_v2(self, *args, **kwargs):
+        fn(self, *args, **kwargs)
+
+    # To add the test, we inspect the frame this function was called in and add the test there
+    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
+
+    return fn
 
 def _create_insight(
     team: Team, insight_filters: Dict[str, Any], dashboard_filters: Dict[str, Any]

@@ -34,6 +34,7 @@ from posthog.test.base import (
     _create_person,
     cleanup_materialized_columns,
     snapshot_clickhouse_queries,
+    also_test_with_person_on_events_v2
 )
 
 
@@ -384,6 +385,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         with self.assertRaises(ValidationError):
             self._run_query(filter)
 
+    @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_parse_groups_persons(self):
         _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"email": "1@posthog.com"})

@@ -49,6 +49,8 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.session_query import SessionQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import is_json, is_valid_regex
+from posthog.utils import PersonOnEventsMode
+
 
 # Property Groups Example:
 # {type: 'AND', groups: [
@@ -78,6 +80,7 @@ def parse_prop_grouped_clauses(
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
     _top_level: bool = True,
+    person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
 ) -> Tuple[str, Dict]:
     if not property_group or len(property_group.values) == 0:
         return "", {}
@@ -98,6 +101,7 @@ def parse_prop_grouped_clauses(
                     person_id_joined_alias=person_id_joined_alias,
                     group_properties_joined=group_properties_joined,
                     hogql_context=hogql_context,
+                    person_on_events_mode=person_on_events_mode,
                     _top_level=False,
                 )
                 group_clauses.append(clause)
@@ -119,6 +123,7 @@ def parse_prop_grouped_clauses(
             property_operator=property_group.type,
             team_id=team_id,
             hogql_context=hogql_context,
+            person_on_events_mode=person_on_events_mode
         )
 
     if not _final:
@@ -150,6 +155,7 @@ def parse_prop_clauses(
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
     property_operator: PropertyOperatorType = PropertyOperatorType.AND,
+    person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}

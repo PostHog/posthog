@@ -55,6 +55,53 @@
                      WHERE has(['2@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')) ) )))
   '
 ---
+# name: TestPropFormat.test_parse_groups_persons_poe_v2
+  '
+  SELECT uuid
+  FROM events
+  WHERE team_id = 2
+    AND ((distinct_id IN
+            (SELECT distinct_id
+             FROM
+               (SELECT distinct_id,
+                       argMax(person_id, version) as person_id
+                FROM person_distinct_id2
+                WHERE team_id = 2
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0)
+             WHERE person_id IN
+                 (SELECT id
+                  FROM
+                    (SELECT id,
+                            argMax(properties, person._timestamp) as properties,
+                            max(is_deleted) as is_deleted
+                     FROM person
+                     WHERE team_id = 2
+                     GROUP BY id
+                     HAVING is_deleted = 0)
+                  WHERE has(['1@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')) ) ))
+         OR (distinct_id IN
+               (SELECT distinct_id
+                FROM
+                  (SELECT distinct_id,
+                          argMax(person_id, version) as person_id
+                   FROM person_distinct_id2
+                   WHERE team_id = 2
+                   GROUP BY distinct_id
+                   HAVING argMax(is_deleted, version) = 0)
+                WHERE person_id IN
+                    (SELECT id
+                     FROM
+                       (SELECT id,
+                               argMax(properties, person._timestamp) as properties,
+                               max(is_deleted) as is_deleted
+                        FROM person
+                        WHERE team_id = 2
+                        GROUP BY id
+                        HAVING is_deleted = 0)
+                     WHERE has(['2@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')) ) )))
+  '
+---
 # name: test_parse_groups_persons_edge_case_with_single_filter
   <class 'tuple'> (
     'AND (  has(%(vglobalperson_0)s, "pmat_email"))',
@@ -146,7 +193,7 @@
       ))
     ',
     <class 'dict'> {
-      'global_cohort_id_0': 28,
+      'global_cohort_id_0': 221,
       'global_version_0': None,
     },
   )

@@ -24,6 +24,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
+    also_test_with_person_on_events_v2
 )
 from posthog.utils import PersonOnEventsMode
 
@@ -740,6 +741,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
 
+    @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation(self):
         _create_person(distinct_ids=["1"], team_id=self.team.pk, properties={"$some_prop": "something1"})
@@ -797,7 +799,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
         query, params = parse_prop_grouped_clauses(
-            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context, person_id_joined_alias="if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) AS person_id"
         )
         final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
         self.assertIn("\nFROM person_distinct_id2\n", final_query)
