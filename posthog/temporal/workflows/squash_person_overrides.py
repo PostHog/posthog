@@ -38,17 +38,17 @@ SELECT
 FROM {database}.person_overrides;
 """
 
-CREATE_JOIN_TABLE_QUERY = """
-CREATE OR REPLACE TABLE {database}.{table_name} (
+CREATE_DICTIONARY_TABLE_QUERY = """
+CREATE OR REPLACE TABLE {database}.{dictionary_name}_table (
     team_id INT NOT NULL,
     old_person_id UUID NOT NULL,
     override_person_id UUID NOT NULL
 )
-ENGINE = Join(ANY, LEFT, team_id, old_person_id);
+ENGINE = TinyLog();
 """
 
-INSERT_INTO_JOIN_TABLE_QUERY = """
-INSERT INTO {database}.{table_name}
+INSERT_INTO_DICTIONARY_TABLE_QUERY = """
+INSERT INTO {database}.{dictionary_name}_table
     SELECT
         team_id,
         old_person_id,
@@ -58,19 +58,31 @@ INSERT INTO {database}.{table_name}
     GROUP BY team_id, old_person_id;
 """
 
+CREATE_DICTIONARY_QUERY = """
+CREATE OR REPLACE DICTIONARY {database}.{dictionary_name} ON CLUSTER {cluster_name} (
+    `team_id` INT,
+    `old_person_id` UUID,
+    `override_person_id` UUID
+)
+PRIMARY KEY team_id, old_person_id
+SOURCE(CLICKHOUSE(USER '{user}' PASSWORD '{password}' TABLE '{dictionary_name}_table' DB '{database}'))
+LAYOUT(complex_key_hashed())
+LIFETIME(0)
+"""
+
 SQUASH_EVENTS_QUERY = """
 ALTER TABLE
     {database}.sharded_events
 UPDATE
-    person_id = joinGet({database}.{table_name}, 'override_person_id', toInt32(team_id), person_id)
+    person_id = dictGet('{database}.{dictionary_name}', 'override_person_id', (toInt32(team_id), person_id))
 IN PARTITION
     %(partition_id)s
 WHERE
-    true;
+    dictHas('{database}.{dictionary_name}', (toInt32(team_id), person_id));
 """
 
-DROP_JOIN_TABLE_QUERY = """
-DROP TABLE {database}.{table_name};
+DROP_DICTIONARY_QUERY = """
+DROP DICTIONARY {database}.{dictionary_name};
 """
 
 DELETE_SQUASHED_PERSON_OVERRIDES_QUERY = """
@@ -177,14 +189,19 @@ class QueryInputs:
         partition_ids: When necessary, the partition ids this query should run on.
         person_overrides_to_delete: For delete queries, a list of PersonOverrideToDelete.
         database: The database where the query is supposed to run.
-        join_table_name: The table name for a new join table.
+        user:
+        password:
+        dictionary_name: The name for a dictionary used in the join.
         _latest_created_at: A timestamp representing an upper bound for creation.
     """
 
     partition_ids: list[str] = field(default_factory=list)
     person_overrides_to_delete: list[SerializablePersonOverrideToDelete] = field(default_factory=list)
     database: str = "default"
-    join_table_name: str = "person_overrides_join"
+    user: str = ""
+    password: str = ""
+    cluster_name: str = ""
+    dictionary_name: str = "person_overrides_dict"
     _latest_created_at: str | datetime | None = None
 
     def __post_init__(self):
@@ -216,23 +233,45 @@ class QueryInputs:
 
 
 @activity.defn
-async def prepare_join_table(inputs: QueryInputs) -> str:
-    """Prepare the JOIN table to be used in the squash workflow.
+async def prepare_dictionary(inputs: QueryInputs) -> str:
+    """Prepare the DICTIONARY to be used in the squash workflow.
 
     We also lock in the latest merged_at to ensure we do not process overrides that arrive after
     we have started the job.
     """
-    activity.logger.info("Preparing JOIN table table %s.%s", inputs.database, inputs.join_table_name)
+    activity.logger.info("Preparing DICTIONARY %s.%s", inputs.database, inputs.dictionary_name)
 
     latest_created_at = sync_execute(SELECT_LATEST_CREATED_AT_QUERY.format(database=inputs.database))[0][0]
-
-    activity.logger.info("Creating JOIN table %s.%s", inputs.database, inputs.join_table_name)
-    sync_execute(CREATE_JOIN_TABLE_QUERY.format(database=inputs.database, table_name=inputs.join_table_name))
-
-    activity.logger.info("Populating JOIN table %s.%s", inputs.database, inputs.join_table_name)
+    activity.logger.info("Populating underlying TABLE %s.%s_table", inputs.database, inputs.dictionary_name)
     sync_execute(
-        INSERT_INTO_JOIN_TABLE_QUERY.format(database=inputs.database, table_name=inputs.join_table_name),
+        CREATE_DICTIONARY_TABLE_QUERY.format(
+            database=inputs.database,
+            dictionary_name=inputs.dictionary_name,
+            user=inputs.user,
+            password=inputs.password,
+            cluster_name=inputs.cluster_name,
+        )
+    )
+    sync_execute(
+        INSERT_INTO_DICTIONARY_TABLE_QUERY.format(
+            database=inputs.database,
+            dictionary_name=inputs.dictionary_name,
+            user=inputs.user,
+            password=inputs.password,
+            cluster_name=inputs.cluster_name,
+        ),
         {"latest_created_at": latest_created_at},
+    )
+
+    activity.logger.info("Creating DICTIONARY %s.%s", inputs.database, inputs.dictionary_name)
+    sync_execute(
+        CREATE_DICTIONARY_QUERY.format(
+            database=inputs.database,
+            dictionary_name=inputs.dictionary_name,
+            user=inputs.user,
+            password=inputs.password,
+            cluster_name=inputs.cluster_name,
+        )
     )
 
     return latest_created_at.isoformat()
@@ -335,16 +374,16 @@ async def squash_events_partition(inputs: QueryInputs):
     for partition_id in inputs.partition_ids:
         activity.logger.info("Executing squash query on partition %s", partition_id)
         sync_execute(
-            SQUASH_EVENTS_QUERY.format(database=inputs.database, table_name=inputs.join_table_name),
+            SQUASH_EVENTS_QUERY.format(database=inputs.database, dictionary_name=inputs.dictionary_name),
             {"partition_id": partition_id},
         )
 
 
 @activity.defn
-async def drop_join_table(inputs: QueryInputs):
+async def drop_dictionary(inputs: QueryInputs):
     """DROP the JOIN table used in the squash workflow."""
-    activity.logger.info("Dropping JOIN table %s.%s", inputs.database, inputs.join_table_name)
-    sync_execute(DROP_JOIN_TABLE_QUERY.format(database=inputs.database, table_name=inputs.join_table_name))
+    activity.logger.info("Dropping DICTIONARY %s.%s", inputs.database, inputs.dictionary_name)
+    sync_execute(DROP_DICTIONARY_QUERY.format(database=inputs.database, dictionary_name=inputs.dictionary_name))
 
 
 @activity.defn
@@ -441,7 +480,7 @@ class SquashPersonOverridesInputs:
     Attributes:
         clickhouse_database: The name of the ClickHouse database where to perform the squash.
         postgres_database: The name of the Postgres database where to delete overrides once done.
-        join_table_name: A name for the JOIN table created for the squash.
+        dictionary_name: A name for the JOIN table created for the squash.
         partition_ids: Partitions to squash, preferred over last_n_months.
         last_n_months: Execute the squash on the partitions for the last_n_months.
     """
@@ -449,7 +488,7 @@ class SquashPersonOverridesInputs:
     clickhouse_database: str = "default"
     postgres_database: str = "posthog"
     partition_ids: list[str] | None = None
-    join_table_name: str = "person_overrides_join"
+    dictionary_name: str = "person_overrides_join"
     last_n_months: int = 1
 
     def iter_partition_ids(self) -> Iterator[str]:
@@ -568,8 +607,14 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
         retry_policy = RetryPolicy(maximum_attempts=3)
 
         latest_created_at = await workflow.execute_activity(
-            prepare_join_table,
-            QueryInputs(database=inputs.clickhouse_database, join_table_name=inputs.join_table_name),
+            prepare_dictionary,
+            QueryInputs(
+                database=inputs.clickhouse_database,
+                dictionary_name=inputs.dictionary_name,
+                user=settings.CLICKHOUSE_USER,
+                password=settings.CLICKHOUSE_PASSWORD,
+                cluster_name=settings.CLICKHOUSE_CLUSTER,
+            ),
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=retry_policy,
         )
@@ -590,7 +635,7 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
             QueryInputs(
                 partition_ids=list(inputs.iter_partition_ids()),
                 database=inputs.clickhouse_database,
-                join_table_name=inputs.join_table_name,
+                dictionary_name=inputs.dictionary_name,
             ),
             start_to_close_timeout=timedelta(seconds=300),
             retry_policy=retry_policy,
@@ -598,8 +643,8 @@ class SquashPersonOverridesWorkflow(CommandableWorkflow):
 
         workflow.logger.info("Squash finished for all requested partitions, running clean up activities")
         await workflow.execute_activity(
-            drop_join_table,
-            QueryInputs(database=inputs.clickhouse_database, join_table_name=inputs.join_table_name),
+            drop_dictionary,
+            QueryInputs(database=inputs.clickhouse_database, dictionary_name=inputs.dictionary_name),
             start_to_close_timeout=timedelta(seconds=300),
             retry_policy=retry_policy,
         )

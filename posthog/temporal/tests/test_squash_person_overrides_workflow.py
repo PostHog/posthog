@@ -22,8 +22,8 @@ from posthog.temporal.workflows.squash_person_overrides import (
     SquashPersonOverridesWorkflow,
     delete_squashed_person_overrides_from_clickhouse,
     delete_squashed_person_overrides_from_postgres,
-    drop_join_table,
-    prepare_join_table,
+    drop_dictionary,
+    prepare_dictionary,
     select_persons_to_delete,
     squash_events_partition,
 )
@@ -104,14 +104,17 @@ def person_overrides_data(person_overrides_table):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_prepare_join_table(activity_environment, person_overrides_data):
-    """Test a JOIN table is created by the prepare_join_table activity."""
+async def test_prepare_dictionary(activity_environment, person_overrides_data):
+    """Test a DICTIONARY is created by the prepare_join_table activity."""
     query_inputs = QueryInputs(
         database=settings.CLICKHOUSE_DATABASE,
-        join_table_name="fancy_join_table",
+        dictionary_name="fancy_dictionary",
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster_name=settings.CLICKHOUSE_CLUSTER,
     )
 
-    latest_merge_at = await activity_environment.run(prepare_join_table, query_inputs)
+    latest_merge_at = await activity_environment.run(prepare_dictionary, query_inputs)
 
     assert latest_merge_at == OVERRIDES_CREATED_AT.isoformat()
 
@@ -121,11 +124,10 @@ async def test_prepare_join_table(activity_environment, person_overrides_data):
                 f"""
                 SELECT
                     old_person_id,
-                    joinGet(
-                        {settings.CLICKHOUSE_DATABASE}.fancy_join_table,
+                    dictGet(
+                        '{settings.CLICKHOUSE_DATABASE}.fancy_dictionary',
                         'override_person_id',
-                        toInt32(team_id),
-                        old_person_id
+                        (toInt32(team_id), old_person_id)
                     ) AS override_person_id
                 FROM (
                     SELECT
@@ -138,7 +140,7 @@ async def test_prepare_join_table(activity_environment, person_overrides_data):
             assert result[0][0] == person_override.old_person_id
             assert result[0][1] == person_override.override_person_id
 
-    await activity_environment.run(drop_join_table, query_inputs)
+    await activity_environment.run(drop_dictionary, query_inputs)
 
 
 @pytest.fixture
@@ -197,16 +199,19 @@ def newer_overrides(person_overrides_data):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_prepare_join_table_with_older_overrides_present(
+async def test_prepare_dictionary_with_older_overrides_present(
     activity_environment, person_overrides_data, older_overrides
 ):
-    """Test a JOIN table contains latest available mappings."""
+    """Test a DICTIONARY contains latest available mappings."""
     query_inputs = QueryInputs(
         database=settings.CLICKHOUSE_DATABASE,
-        join_table_name="fancy_join_table",
+        dictionary_name="fancy_dictionary",
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster_name=settings.CLICKHOUSE_CLUSTER,
     )
 
-    latest_merge_at = await activity_environment.run(prepare_join_table, query_inputs)
+    latest_merge_at = await activity_environment.run(prepare_dictionary, query_inputs)
 
     assert latest_merge_at == OVERRIDES_CREATED_AT.isoformat()
 
@@ -216,11 +221,10 @@ async def test_prepare_join_table_with_older_overrides_present(
                 f"""
                 SELECT
                     old_person_id,
-                    joinGet(
-                        {settings.CLICKHOUSE_DATABASE}.fancy_join_table,
+                    dictGet(
+                        {settings.CLICKHOUSE_DATABASE}.fancy_dictionary,
                         'override_person_id',
-                        toInt32(team_id),
-                        old_person_id
+                        (toInt32(team_id), old_person_id)
                     ) AS override_person_id
                 FROM (
                     SELECT
@@ -234,32 +238,35 @@ async def test_prepare_join_table_with_older_overrides_present(
             assert result[0][0] == person_override.old_person_id
             assert result[0][1] == person_override.override_person_id
 
-    await activity_environment.run(drop_join_table, query_inputs)
+    await activity_environment.run(drop_dictionary, query_inputs)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_drop_join_table(activity_environment, person_overrides_data):
-    """Test a JOIN table is dropped by drop_join_table activity."""
-    join_table_name = "extremely_fancy_join_table"
+async def test_drop_dictionary(activity_environment, person_overrides_data):
+    """Test a DICTIONARY is dropped by drop_join_table activity."""
+    dictionary_name = "extremely_fancy_join_table"
     query_inputs = QueryInputs(
         database=settings.CLICKHOUSE_DATABASE,
-        join_table_name=join_table_name,
+        dictionary_name=dictionary_name,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster_name=settings.CLICKHOUSE_CLUSTER,
     )
 
     # Ensure we are starting from scratch
-    sync_execute(f"DROP TABLE IF EXISTS {settings.CLICKHOUSE_DATABASE}.{join_table_name}")
-    before = sync_execute(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{join_table_name}")[0][0]
+    sync_execute(f"DROP DICTIONARY IF EXISTS {settings.CLICKHOUSE_DATABASE}.{dictionary_name}")
+    before = sync_execute(f"EXISTS DICTIONARY {settings.CLICKHOUSE_DATABASE}.{dictionary_name}")[0][0]
     assert before == 0
 
-    await activity_environment.run(prepare_join_table, query_inputs)
+    await activity_environment.run(prepare_dictionary, query_inputs)
 
-    during = sync_execute(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{join_table_name}")[0][0]
+    during = sync_execute(f"EXISTS DICTIONARY {settings.CLICKHOUSE_DATABASE}.{dictionary_name}")[0][0]
     assert during == 1
 
-    await activity_environment.run(drop_join_table, query_inputs)
+    await activity_environment.run(drop_dictionary, query_inputs)
 
-    after = sync_execute(f"EXISTS TABLE {settings.CLICKHOUSE_DATABASE}.{join_table_name}")[0][0]
+    after = sync_execute(f"EXISTS DICTIONARY {settings.CLICKHOUSE_DATABASE}.{dictionary_name}")[0][0]
     assert after == 0
 
 
@@ -531,18 +538,21 @@ async def test_squash_events_partition(activity_environment, person_overrides_da
     events_to_override and check the person_id associated with each of them. It should
     match the override_person_id associated with the old_person_id they used to be set to.
     """
-    join_table_name = "exciting_join_table"
+    dictionary_name = "exciting_dictionary"
 
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
-        join_table_name=join_table_name,
+        dictionary_name=dictionary_name,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster_name=settings.CLICKHOUSE_CLUSTER,
     )
-    await activity_environment.run(prepare_join_table, query_inputs)
+    await activity_environment.run(prepare_dictionary, query_inputs)
 
     await activity_environment.run(squash_events_partition, query_inputs)
 
-    await activity_environment.run(drop_join_table, query_inputs)
+    await activity_environment.run(drop_dictionary, query_inputs)
 
     assert_events_have_been_overriden(events_to_override, person_overrides_data)
 
@@ -554,7 +564,7 @@ async def test_squash_events_partition_with_older_overrides(
 ):
     """Test events are properly squashed even in the prescence of older overrides.
 
-    If we get an override from Postgres we can get be sure it's the only one for a given
+    If we get an override from Postgres we can be sure it's the only one for a given
     old_person_id as PG constraints enforce uniqueness on the mapping. However, ClickHouse
     doesn't enforce any kind of uniqueness constraints, so our queries need to be aware there
     could be duplicate overrides present, either in the partition we are currently working
@@ -563,12 +573,15 @@ async def test_squash_events_partition_with_older_overrides(
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster_name=settings.CLICKHOUSE_CLUSTER,
     )
-    await activity_environment.run(prepare_join_table, query_inputs)
+    await activity_environment.run(prepare_dictionary, query_inputs)
 
     await activity_environment.run(squash_events_partition, query_inputs)
 
-    await activity_environment.run(drop_join_table, query_inputs)
+    await activity_environment.run(drop_dictionary, query_inputs)
 
     assert_events_have_been_overriden(events_to_override, person_overrides_data)
 
@@ -589,12 +602,15 @@ async def test_squash_events_partition_with_newer_overrides(
     query_inputs = QueryInputs(
         partition_ids=["202001"],
         database=settings.CLICKHOUSE_DATABASE,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster_name=settings.CLICKHOUSE_CLUSTER,
     )
-    await activity_environment.run(prepare_join_table, query_inputs)
+    await activity_environment.run(prepare_dictionary, query_inputs)
 
     await activity_environment.run(squash_events_partition, query_inputs)
 
-    await activity_environment.run(drop_join_table, query_inputs)
+    await activity_environment.run(drop_dictionary, query_inputs)
 
     assert_events_have_been_overriden(events_to_override, newer_overrides)
 
@@ -1015,10 +1031,10 @@ async def test_squash_person_overrides_workflow(events_to_override, person_overr
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
-            prepare_join_table,
+            prepare_dictionary,
             select_persons_to_delete,
             squash_events_partition,
-            drop_join_table,
+            drop_dictionary,
             delete_squashed_person_overrides_from_clickhouse,
             delete_squashed_person_overrides_from_postgres,
         ],
@@ -1057,10 +1073,10 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[SquashPersonOverridesWorkflow],
         activities=[
-            prepare_join_table,
+            prepare_dictionary,
             select_persons_to_delete,
             squash_events_partition,
-            drop_join_table,
+            drop_dictionary,
             delete_squashed_person_overrides_from_clickhouse,
             delete_squashed_person_overrides_from_postgres,
         ],
