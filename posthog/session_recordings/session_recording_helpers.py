@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, DefaultDict, Dict, Generator, List, Optional
 
-from dateutil.parser import parse
+from dateutil.parser import parse, ParserError
 from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
@@ -342,15 +342,19 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
                     if type(value) in [str, int] and f"payload.{key}" in EVENT_SUMMARY_DATA_INCLUSIONS
                 }
 
-        events_summary.append(
-            SessionRecordingEventSummary(
-                timestamp=event["timestamp"]
-                if isinstance(event["timestamp"], int)
-                else convert_to_timestamp(event["timestamp"]),
-                type=event["type"],
-                data=data,
+        # noinspection PyBroadException
+        try:
+            events_summary.append(
+                SessionRecordingEventSummary(
+                    timestamp=event["timestamp"]
+                    if isinstance(event["timestamp"], int)
+                    else convert_to_timestamp(event["timestamp"]),
+                    type=event["type"],
+                    data=data,
+                )
             )
-        )
+        except ParserError:
+            capture_exception()
 
     # No guarantees are made about order so, we sort here to be sure
     events_summary.sort(key=lambda x: x["timestamp"])

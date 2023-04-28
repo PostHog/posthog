@@ -487,6 +487,12 @@ def test_get_events_summary_from_snapshot_data():
             "timestamp": "1987-04-28T17:17:17.590Z",
             "data": {"source": 3},
         },
+        # safely ignore string timestamps that aren't timestamps
+        {
+            "type": 1,
+            "timestamp": "it was about a hundred years ago, that I remember this happening",
+            "data": {"source": 3},
+        },
     ]
 
     assert get_events_summary_from_snapshot_data(snapshot_events) == [
