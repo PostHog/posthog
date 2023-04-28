@@ -43,7 +43,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         setBillingLimitInput(
             parseInt(customLimitUsd || '0') ||
                 (product.tiers
-                    ? parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers))
+                    ? parseInt(
+                          convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers, discountPercent)
+                      )
                     : 0) ||
                 DEFAULT_BILLING_LIMIT
         )
