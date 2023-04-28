@@ -348,7 +348,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 aria-label={showQueryEditor ? 'Hide source (BETA)' : 'View source (BETA)'}
                                 tooltipPlacement="bottomRight"
                                 type={'secondary'}
-                                onClick={toggleQueryEditorPanel}
+                                onClick={() => {
+                                    toggleQueryEditorPanel()
+                                    if (insightMode !== ItemMode.Edit) {
+                                        setInsightMode(ItemMode.Edit, null)
+                                    } else if (insightMode === ItemMode.Edit && insight.saved) {
+                                        setInsightMode(ItemMode.View, null)
+                                    }
+                                }}
                                 icon={<IconDataObject fontSize="18" />}
                             />
                         ) : null}
