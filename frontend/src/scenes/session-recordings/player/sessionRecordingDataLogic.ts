@@ -26,6 +26,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { captureException } from '@sentry/react'
+import { createSegments } from './utils/segmenter'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -239,7 +240,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             )
         },
     })),
-    loaders(({ values, props, cache, actions }) => ({
+    loaders(({ values, props, cache }) => ({
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
                 cache.metaStartTime = performance.now()
@@ -462,52 +463,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         segments: [
             (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData, s.snapshotsByWindowId],
             (sessionPlayerMetaData, sessionPlayerSnapshotData, snapshotsByWindowId): RecordingSegment[] => {
-                // TODO: Build this from snapshot data instead of using it from the API.
-                // Currently these are handed down from the remote api but we will now build them based on loaded snapshots
-
-                // First of all we turn the snapshotsByWindowId into segmentsByWindowId
-                // Then we derive the "segments" from this, priotizing those with an active state
-
-                // NOTE: Starting with a really dumb segmenter that is just based on the window id
-
-                const segments: RecordingSegment[] = []
-
-                const testSegment: Partial<RecordingSegment> = {
-                    startTimeEpochMs: undefined,
-                    endTimeEpochMs: undefined,
-                    windowId: undefined,
-                    isActive: true,
-                }
-
-                sessionPlayerSnapshotData?.snapshots.forEach((snapshot) => {
-                    if (!testSegment.windowId) {
-                        testSegment.windowId = snapshot.windowId
-                        testSegment.startTimeEpochMs = snapshot.timestamp
-                    }
-
-                    if (snapshot.windowId === testSegment.windowId) {
-                        testSegment.endTimeEpochMs = snapshot.timestamp
-                    }
-                })
-
-                const segment = testSegment as RecordingSegment
-                const windowStartTimestamp = snapshotsByWindowId[segment.windowId]?.[0]?.timestamp
-
-                segment.durationMs = segment.endTimeEpochMs - segment.startTimeEpochMs
-                segment.startPlayerPosition = {
-                    windowId: segment.windowId,
-                    time: segment.startTimeEpochMs - windowStartTimestamp,
-                }
-                segment.endPlayerPosition = {
-                    windowId: segment.windowId,
-                    time: segment.endTimeEpochMs - windowStartTimestamp,
-                }
-
-                segments.push(segment)
-
-                return segments
-
-                // return sessionPlayerMetaData.segments ?? []
+                return createSegments(sessionPlayerMetaData, sessionPlayerSnapshotData, snapshotsByWindowId)
             },
         ],
 
