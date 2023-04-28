@@ -1,5 +1,6 @@
 import { EventType, IncrementalSource, eventWithTime } from '@rrweb/types'
-import { RecordingSegment, SessionPlayerMetaData, SessionPlayerSnapshotData } from '~/types'
+import { Dayjs } from 'lib/dayjs'
+import { RecordingSegment, SessionPlayerSnapshotData } from '~/types'
 
 const activeSources = [
     IncrementalSource.MouseMove,
@@ -12,25 +13,17 @@ const activeSources = [
     IncrementalSource.Drag,
 ]
 
-const ACTIVITY_THRESHOLD_MS = 10_000
+const ACTIVITY_THRESHOLD_MS = 5_000
 
 const isActiveEvent = (event: eventWithTime): boolean => {
     return event.type === EventType.IncrementalSnapshot && activeSources.includes(event.data?.source)
 }
 
 export const createSegments = (
-    sessionPlayerMetaData: SessionPlayerMetaData,
     sessionPlayerSnapshotData: SessionPlayerSnapshotData | null,
-    snapshotsByWindowId: Record<string, eventWithTime[]>
+    snapshotsByWindowId: Record<string, eventWithTime[]>,
+    end: Dayjs
 ): RecordingSegment[] => {
-    // TODO: Build this from snapshot data instead of using it from the API.
-    // Currently these are handed down from the remote api but we will now build them based on loaded snapshots
-
-    // First of all we turn the snapshotsByWindowId into segmentsByWindowId
-    // Then we derive the "segments" from this, priotizing those with an active state
-
-    // NOTE: Starting with a really dumb segmenter that is just based on the window id
-
     if (!sessionPlayerSnapshotData?.snapshots?.length) {
         return []
     }
@@ -105,7 +98,7 @@ export const createSegments = (
 
     // As we don't necessarily have all the segments at once, we add a final segment to fill the gap between the last segment and the end of the recording
     const lastSegment = segments[segments.length - 1]
-    const endTimestamp = sessionPlayerMetaData.end.valueOf()
+    const endTimestamp = end.valueOf()
 
     if (lastSegment.endTimeEpochMs + 1 < endTimestamp) {
         segments.push({
@@ -131,6 +124,16 @@ export const createSegments = (
         }
 
         return segment
+    })
+
+    segments.forEach((segment) => {
+        console.log('segment', {
+            start: segment.startTimeEpochMs - segments[0].startTimeEpochMs,
+            end: segment.endTimeEpochMs - segments[0].startTimeEpochMs,
+            active: segment.isActive,
+            windowId: segment.windowId,
+            startTimestamp: segment.startTimeEpochMs,
+        })
     })
 
     return segments

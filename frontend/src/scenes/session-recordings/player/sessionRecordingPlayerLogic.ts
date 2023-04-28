@@ -27,7 +27,6 @@ import equal from 'fast-deep-equal'
 import { downloadFile, fromParamsGivenUrl } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
 import { delay } from 'kea-test-utils'
-import { ExportedSessionRecordingFile } from '../file-playback/sessionRecordingFilePlaybackLogic'
 import { userLogic } from 'scenes/userLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
@@ -35,6 +34,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
+import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackLogic'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -665,10 +665,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(1000)
                 }
 
-                const payload: ExportedSessionRecordingFile = {
-                    version: '2022-12-02',
-                    data: values.sessionPlayerData,
-                }
+                const payload = createExportedSessionRecording(sessionRecordingDataLogic(props))
+
                 const recordingFile = new File(
                     [JSON.stringify(payload)],
                     `export-${props.sessionRecordingId}.ph-recording.json`,

@@ -20,7 +20,7 @@ import {
 } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventWithTime } from '@rrweb/types'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -60,7 +60,6 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionP
 
     return {
         pinnedCount: recording.pinned_count ?? 0,
-        durationMs: recording.recording_duration * 1000,
         start: dayjs(recording.start_time),
         end: dayjs(recording.end_time),
         person: recording.person ?? null,
@@ -98,8 +97,6 @@ const generateRecordingReportDurations = (
 
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
-    // Data can be preloaded (e.g. via browser import)
-    sessionRecordingData?: SessionPlayerData
     recordingStartTime?: string
 }
 
@@ -451,19 +448,55 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     })),
     selectors({
         sessionPlayerData: [
-            (s) => [s.sessionPlayerMetaData, s.snapshotsByWindowId, s.segments, s.bufferedTo],
-            (meta, snapshotsByWindowId, segments, bufferedTo): SessionPlayerData => ({
+            (s) => [
+                s.sessionPlayerMetaData,
+                s.snapshotsByWindowId,
+                s.segments,
+                s.bufferedTo,
+                s.start,
+                s.end,
+                s.durationMs,
+            ],
+            (meta, snapshotsByWindowId, segments, bufferedTo, start, end, durationMs): SessionPlayerData => ({
                 ...meta,
+                start,
+                end,
+                durationMs,
                 snapshotsByWindowId,
                 segments,
                 bufferedTo,
             }),
         ],
 
+        start: [
+            (s) => [s.sessionPlayerMetaData],
+            (meta): Dayjs => {
+                return meta.start
+            },
+        ],
+
+        end: [
+            (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData],
+            (meta, sessionPlayerSnapshotData): Dayjs => {
+                // NOTE: We might end up with more snapshots than we knew about when we started the recording so we
+                // either use the metadata end point or the last snapshot, whichever is later.
+                const lastEvent = sessionPlayerSnapshotData?.snapshots?.slice(-1)[0]
+                return lastEvent?.timestamp && lastEvent.timestamp > +meta.end ? dayjs(lastEvent.timestamp) : meta.end
+            },
+        ],
+
+        durationMs: [
+            (s) => [s.start, s.end],
+            (start, end): number => {
+                return end.diff(start)
+            },
+        ],
+
         segments: [
-            (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData, s.snapshotsByWindowId],
-            (sessionPlayerMetaData, sessionPlayerSnapshotData, snapshotsByWindowId): RecordingSegment[] => {
-                return createSegments(sessionPlayerMetaData, sessionPlayerSnapshotData, snapshotsByWindowId)
+            (s) => [s.sessionPlayerSnapshotData, s.snapshotsByWindowId, s.end, s.sessionPlayerMetaData],
+            (sessionPlayerSnapshotData, snapshotsByWindowId, end): RecordingSegment[] => {
+                // return sessionPlayerMetaData.segments
+                return createSegments(sessionPlayerSnapshotData, snapshotsByWindowId, end)
             },
         ],
 
@@ -526,20 +559,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     afterMount(({ props, actions }) => {
         if (props.sessionRecordingId) {
             actions.loadEntireRecording()
-        }
-
-        if (props.sessionRecordingData) {
-            // TODO: Fix this
-            // actions.loadRecordingSnapshotsSuccess({
-            //     snapshotsByWindowId: props.sessionRecordingData.snapshotsByWindowId,
-            // })
-            // NOTE: If we have to change this at all then likely old exported formats will need to be handled
-            // TODO: Fix this to be backwards compatible with old format
-            // We should be able to use the minimal info (end, start, duration etc.)
-            // actions.loadRecordingMetaSuccess({
-            //     person: props.sessionRecordingData.person,
-            //     metadata: props.sessionRecordingData.metadata,
-            // })
         }
     }),
 ])

@@ -625,7 +625,6 @@ export interface SessionPlayerSnapshotData {
 export interface SessionPlayerMetaData {
     start: Dayjs
     end: Dayjs
-    durationMs: number
     pinnedCount: number
     person: PersonType | null
 
@@ -636,6 +635,7 @@ export interface SessionPlayerMetaData {
 export interface SessionPlayerData extends SessionPlayerMetaData {
     bufferedTo: (PlayerPosition & { timestamp: number }) | null
     snapshotsByWindowId: Record<string, eventWithTime[]>
+    durationMs: number
 }
 
 export enum SessionRecordingUsageType {
