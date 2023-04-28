@@ -10,7 +10,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import Annotation, Team
+from posthog.models import Annotation
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
@@ -48,9 +48,9 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
-        project = Team.objects.get(id=self.context["team_id"])
+        team = self.context["access_team"]()
         annotation = Annotation.objects.create(
-            organization=project.organization, team=project, created_by=request.user, **validated_data
+            organization_id=team.organization_id, team_id=team.id, created_by=request.user, **validated_data
         )
         return annotation
 

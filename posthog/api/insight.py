@@ -52,7 +52,7 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import DashboardTile, Filter, Insight, Team, User
+from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -282,14 +282,14 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
-        team = Team.objects.get(id=self.context["team_id"])
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
+        team_id = self.context["team_id"]
 
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
 
         insight = Insight.objects.create(
-            team=team,
+            team_id=team_id,
             created_by=created_by,
             last_modified_by=request.user,
             **validated_data,
@@ -312,7 +312,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             insight_id=insight.id,
             insight_short_id=insight.short_id,
             organization_id=self.context["request"].user.current_organization_id,
-            team_id=team.id,
+            team_id=team_id,
             user=self.context["request"].user,
         )
 
