@@ -5,7 +5,8 @@ import time
 import structlog
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from django.db import DatabaseError, IntegrityError
+from prometheus_client import Counter
+from django.db import DatabaseError, IntegrityError, OperationalError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
@@ -33,6 +34,12 @@ logger = structlog.get_logger(__name__)
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
 FLAG_MATCHING_QUERY_TIMEOUT_MS = 1 * 1000  # 1 second. Any longer and we'll just error out.
+
+FLAG_EVALUATION_ERROR_COUNTER = Counter(
+    "flag_evaluation_error_total",
+    "Failed decide requests with reason.",
+    labelnames=["reason"],
+)
 
 
 class FeatureFlagMatchReason(str, Enum):
@@ -180,7 +187,7 @@ class FeatureFlagMatcher:
                 }
             except Exception as err:
                 faced_error_computing_flags = True
-                capture_exception(err)
+                handle_feature_flag_exception(err, "[Feature Flags] Error computing flags")
 
         return flag_values, flag_evaluation_reasons, flag_payloads, faced_error_computing_flags
 
@@ -504,7 +511,7 @@ def get_all_feature_flags(
             # since the set_feature_flag_hash_key_overrides call will fail.
 
             # For this case, and for any other case, do not error out on decide, just continue assuming continuity couldn't happen.
-            capture_exception(e)
+            handle_feature_flag_exception(e, "[Feature Flags] Error while setting feature flag hash key overrides")
 
     # This is the read-path for experience continuity. We need to get the overrides, and to do that, we get the person_id.
     try:
@@ -593,3 +600,27 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
                 time.sleep(retry_delay)
             else:
                 raise e
+
+
+def handle_feature_flag_exception(err: Exception, log_message: str = ""):
+    logger.exception(log_message)
+    reason = parse_exception_for_error_message(err)
+    FLAG_EVALUATION_ERROR_COUNTER.labels(reason=reason).inc()
+    if reason == "unknown":
+        capture_exception(err)
+
+
+def parse_exception_for_error_message(err: Exception):
+    reason = "unknown"
+    if isinstance(err, OperationalError):
+        if "statement timeout" in str(err):
+            reason = "timeout"
+        elif "no more connections" in str(err):
+            reason = "no_more_connections"
+    elif isinstance(err, DatabaseError):
+        if "Failed to fetch conditions" in str(err):
+            reason = "flag_condition_retry"
+        elif "Failed to fetch group" in str(err):
+            reason = "group_mapping_retry"
+
+    return reason

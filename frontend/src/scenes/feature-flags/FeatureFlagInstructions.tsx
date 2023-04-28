@@ -64,7 +64,7 @@ export function CodeInstructions({
             ? groupTypes[featureFlag?.filters?.aggregation_group_type_index]
             : undefined
 
-    const { reportFlagsCodeExampleInteraction } = useActions(eventUsageLogic)
+    const { reportFlagsCodeExampleInteraction, reportFlagsCodeExampleLanguage } = useActions(eventUsageLogic)
     const getDocumentationLink = (): string => {
         const documentationLink = selectedOption.documentationLink
 
@@ -160,6 +160,7 @@ export function CodeInstructions({
                         onChange={(val) => {
                             if (val) {
                                 selectOption(val)
+                                reportFlagsCodeExampleLanguage(val)
                             }
                         }}
                         value={selectedOption.value}
@@ -232,7 +233,7 @@ export function CodeInstructions({
             <div className="mt-4 mb">
                 {showLocalEvalCode && (
                     <>
-                        <h3>Local evaluation</h3>
+                        <h4 className="l4">Local evaluation</h4>
                     </>
                 )}
                 <selectedOption.Snippet
@@ -244,7 +245,7 @@ export function CodeInstructions({
                 />
                 {showPayloadCode && (
                     <>
-                        <h3>Payload</h3>
+                        <h4 className="l4">Payload</h4>
                         <selectedOption.Snippet
                             data-attr="feature-flag-instructions-payload-snippet"
                             flagKey={featureFlagKey}
@@ -257,7 +258,7 @@ export function CodeInstructions({
                 )}
                 {showBootstrapCode && (
                     <>
-                        <h3>Bootstrap</h3>
+                        <h4 className="l4">Bootstrap</h4>
                         <bootstrapOption.Snippet flagKey={featureFlagKey} />
                     </>
                 )}

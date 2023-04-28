@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { BillingV2TierType, BillingV2Type } from '~/types'
+import { BillingProductV2Type, BillingV2TierType, BillingV2Type } from '~/types'
 
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
@@ -100,4 +100,56 @@ export const convertAmountToUsage = (amount: string, tiers: BillingV2TierType[])
     }
 
     return Math.round(usage)
+}
+
+export const getUpgradeAllProductsLink = (
+    product: BillingProductV2Type,
+    upgradeToPlanKey: string,
+    redirectPath?: string
+): string => {
+    let url = '/api/billing-v2/activation?products='
+    url += `${product.type}:${upgradeToPlanKey},`
+    if (product.addons?.length) {
+        for (const addon of product.addons) {
+            url += `${addon.type}:${addon.plans[0].plan_key},`
+        }
+    }
+    // remove the trailing comma that will be at the end of the url
+    url = url.slice(0, -1)
+    if (redirectPath) {
+        url += `&redirect_path=${redirectPath}`
+    }
+    return url
+}
+
+export const convertLargeNumberToWords = (
+    // The number to convert
+    num: number | null,
+    // The previous tier's number
+    previousNum: number | null,
+    // Whether we will be showing multiple tiers (to denote the first tier with 'first')
+    multipleTiers: boolean = false,
+    // The product type (to denote the unit)
+    productType: BillingProductV2Type['type'] | null = null
+): string => {
+    if (num === null && previousNum) {
+        return `${convertLargeNumberToWords(previousNum, null)} +`
+    }
+    if (num === null) {
+        return ''
+    }
+
+    let denominator = 1
+
+    if (num >= 1000000) {
+        denominator = 1000000
+    } else if (num >= 1000) {
+        denominator = 1000
+    }
+
+    return `${previousNum ? `${(previousNum / denominator).toFixed(0)}-` : multipleTiers ? 'First ' : ''}${(
+        num / denominator
+    ).toFixed(0)}${denominator === 1000000 ? ' million' : denominator === 1000 ? 'k' : ''}${
+        !previousNum && multipleTiers ? ` ${productType}s/mo` : ''
+    }`
 }

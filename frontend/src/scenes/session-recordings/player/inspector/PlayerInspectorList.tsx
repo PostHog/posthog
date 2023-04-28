@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from './playerInspectorLogic'
 import { ItemConsoleLog } from './components/ItemConsoleLog'
 import { ItemEvent } from './components/ItemEvent'
@@ -51,18 +51,17 @@ const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
 function PlayerInspectorListItem({
     item,
     index,
-    logicProps,
     onLayout,
 }: {
     item: InspectorListItem
     index: number
-    logicProps: SessionRecordingPlayerLogicProps
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { tab, recordingTimeInfo, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
     const { timestampMode } = useValues(playerSettingsLogic)
 
-    const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
     const showIcon = tab === SessionRecordingPlayerTab.ALL
     const fixedUnits = recordingTimeInfo.duration / 1000 > 3600 ? 3 : 2
@@ -107,6 +106,7 @@ function PlayerInspectorListItem({
                 // Style as we need it for the layout optimisation
                 marginTop: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
                 marginBottom: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
+                zIndex: isExpanded ? 1 : 0,
             }}
         >
             {!isExpanded && (showIcon || windowNumber) && (
@@ -265,10 +265,13 @@ function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: b
     )
 }
 
-export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlayerInspectorList(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const inspectorLogic = playerInspectorLogic(logicProps)
+
     const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollingPaused, tab } =
-        useValues(playerInspectorLogic(props))
-    const { setSyncScrollPaused } = useActions(playerInspectorLogic(props))
+        useValues(inspectorLogic)
+    const { setSyncScrollPaused } = useActions(inspectorLogic)
     const { syncScroll } = useValues(playerSettingsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -330,7 +333,6 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                             key={index}
                             item={items[index]}
                             index={index}
-                            logicProps={props}
                             onLayout={({ height }) => {
                                 // Optimization to ensure that we only call measure if the dimensions have actually changed
                                 if (height !== cellMeasurerCache.getHeight(index, 0)) {

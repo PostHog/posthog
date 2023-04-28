@@ -8,6 +8,7 @@ import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
 import { posthog } from '~/toolbar/posthog'
 import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
+import { HedgehogButton } from './HedgehogButton'
 
 export function DraggableButton(): JSX.Element {
     const {
@@ -47,7 +48,7 @@ export function DraggableButton(): JSX.Element {
                     <ToolbarButton />
                 </div>
             </Draggable>
-
+            <HedgehogButton />
             <ButtonWindow
                 name="heatmap"
                 label="Heatmap"
@@ -60,7 +61,6 @@ export function DraggableButton(): JSX.Element {
                     <HeatmapStats />
                 </div>
             </ButtonWindow>
-
             <ButtonWindow
                 name={'actions'}
                 label={'Actions'}
@@ -71,7 +71,6 @@ export function DraggableButton(): JSX.Element {
             >
                 <ActionsTab />
             </ButtonWindow>
-
             <ButtonWindow
                 name="flags"
                 label="Feature Flags"

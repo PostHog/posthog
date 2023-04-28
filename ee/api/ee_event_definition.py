@@ -100,6 +100,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             activity="changed",
             detail=Detail(name=str(event_definition.name), changes=changes),
         )
+
         return super().update(event_definition, validated_data)
 
     def to_representation(self, instance):

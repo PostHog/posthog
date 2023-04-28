@@ -480,6 +480,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "a created dashboard",
                         "short_id": response_data["short_id"],
                     },
@@ -720,6 +721,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
                         "trigger": None,
+                        "type": None,
                     },
                     "item_id": str(insight_id),
                     "scope": "Insight",
@@ -744,6 +746,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
                         "trigger": None,
+                        "type": None,
                     },
                     "item_id": str(insight_id),
                     "scope": "Insight",
@@ -757,6 +760,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
                         "trigger": None,
+                        "type": None,
                     },
                     "item_id": str(insight_id),
                     "scope": "Insight",
@@ -846,6 +850,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "pageview unique users",
                         "short_id": response_data["short_id"],
                     },
@@ -909,6 +914,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                 },
                             ],
                             "trigger": None,
+                            "type": None,
                             "name": "insight new name",
                             "short_id": short_id,
                         },
@@ -922,6 +928,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "detail": {
                             "changes": None,
                             "trigger": None,
+                            "type": None,
                             "name": "insight name",
                             "short_id": short_id,
                         },
@@ -980,6 +987,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "detail": {
                         "changes": None,
                         "trigger": None,
+                        "type": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -1001,6 +1009,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -1022,6 +1031,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
                     },
@@ -2316,20 +2326,40 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_soft_delete_can_be_reversed_by_patch(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "an insight"})
 
-        self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"deleted": True, "name": "an insight"},  # This request should work also if other fields are provided
+        )
 
         self.assertEqual(
             self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
             status.HTTP_404_NOT_FOUND,
         )
 
-        update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": False})
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"deleted": False, "name": "an insight"},  # This request should work also if other fields are provided
+        )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(
             self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
             status.HTTP_200_OK,
         )
+
+    def test_soft_delete_cannot_be_reversed_for_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        other_insight = Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=other_team,
+            short_id="abcabc",
+            deleted=True,
+        )
+
+        other_update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{other_insight.id}", {"deleted": False}
+        )
+        self.assertEqual(other_update_response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cancel_running_query(self) -> None:
         # There is no good way of writing a test that tests this without it being very slow

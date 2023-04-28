@@ -1,4 +1,4 @@
-import { GlobalConfig, Message } from 'node-rdkafka'
+import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka-acosom'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
 import { status } from '../utils/status'
@@ -11,6 +11,13 @@ import {
     instrumentConsumerMetrics,
 } from './consumer'
 
+export interface BatchConsumer {
+    consumer: KafkaConsumer
+    join: () => Promise<void>
+    stop: () => Promise<void>
+    isHealthy: () => boolean
+}
+
 export const startBatchConsumer = async ({
     connectionConfig,
     groupId,
@@ -21,6 +28,7 @@ export const startBatchConsumer = async ({
     consumerMaxWaitMs,
     fetchBatchSize,
     eachBatch,
+    autoCommit = true,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -31,7 +39,8 @@ export const startBatchConsumer = async ({
     consumerMaxWaitMs: number
     fetchBatchSize: number
     eachBatch: (messages: Message[]) => Promise<void>
-}) => {
+    autoCommit?: boolean
+}): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
     // to Kafka. We commit offsets after each batch has been processed,
@@ -65,7 +74,22 @@ export const startBatchConsumer = async ({
         'enable.partition.eof': true,
         'queued.min.messages': 100000, // 100000 is the default
         'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
-        'partition.assignment.strategy': 'roundrobin', // KafkaJS uses round robin, and we need to be compatible with it.
+        // Use cooperative-sticky rebalancing strategy, which is the
+        // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
+        // in the Java Kafka Client. There its actually
+        // RangeAssignor,CooperativeStickyAssignor i.e. it mixes eager and
+        // cooperative strategies. This is however explicitly mentioned to not
+        // be supported in the [librdkafka library config
+        // docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md#partitionassignmentstrategy)
+        // so we just use cooperative-sticky. If there are other consumer
+        // members with other strategies already running, you'll need to delete
+        // e.g. the replicaset for them if on k8s.
+        //
+        // See
+        // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
+        // for details on the advantages of this rebalancing strategy as well as
+        // how it works.
+        'partition.assignment.strategy': 'cooperative-sticky',
         rebalance_cb: true,
         offset_commit_cb: true,
     })
@@ -124,6 +148,11 @@ export const startBatchConsumer = async ({
                 const messages = await consumeMessages(consumer, fetchBatchSize)
                 status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
 
+                if (!messages.length) {
+                    // For now
+                    continue
+                }
+
                 consumerBatchSize.labels({ topic, groupId }).observe(messages.length)
                 for (const message of messages) {
                     consumedMessageSizeBytes.labels({ topic, groupId }).observe(message.size)
@@ -133,7 +162,9 @@ export const startBatchConsumer = async ({
                 // the implementation of `eachBatch`.
                 await eachBatch(messages)
 
-                commitOffsetsForMessages(messages, consumer)
+                if (autoCommit) {
+                    commitOffsetsForMessages(messages, consumer)
+                }
             }
         } catch (error) {
             status.error('🔁', 'main_loop_error', { error })
@@ -178,7 +209,7 @@ export const startBatchConsumer = async ({
         }
     }
 
-    return { isHealthy, stop, join }
+    return { isHealthy, stop, join, consumer }
 }
 
 export const consumerBatchSize = new Histogram({

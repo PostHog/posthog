@@ -114,7 +114,7 @@ specifiers:
   file-loader: ^6.1.0
   fs-extra: ^10.0.0
   fsevents: ^2.1.2
-  fuse.js: ^6.4.1
+  fuse.js: ^6.6.2
   givens: ^1.3.6
   history: ^5.0.1
   html-webpack-harddisk-plugin: ^1.0.2
@@ -148,9 +148,9 @@ specifiers:
   pngjs: ^6.0.0
   postcss: ^8.4.14
   postcss-loader: ^4.3.0
-  posthog-js: 1.53.3
+  posthog-js: 1.54.0
   posthog-js-lite: 2.0.0-alpha5
-  prettier: ^2.3.1
+  prettier: ^2.8.8
   prop-types: ^15.7.2
   query-selector-shadow-dom: ^1.0.0
   raw-loader: ^4.0.2
@@ -253,9 +253,9 @@ dependencies:
   kea-window-values: 3.0.0_kea@3.1.5
   md5: 2.3.0
   monaco-editor: 0.23.0
-  posthog-js: 1.53.3
+  posthog-js: 1.54.0
   posthog-js-lite: 2.0.0-alpha5
-  prettier: 2.7.1
+  prettier: 2.8.8
   prop-types: 15.8.1
   query-selector-shadow-dom: 1.0.0
   rc-field-form: 1.21.2_wcqkhtmu7mswc6yz4uyexck3ty
@@ -361,7 +361,7 @@ devDependencies:
   eslint-plugin-cypress: 2.12.1_eslint@7.32.0
   eslint-plugin-eslint-comments: 3.2.0_eslint@7.32.0
   eslint-plugin-no-only-tests: 3.1.0
-  eslint-plugin-prettier: 3.4.1_hv3zp2mmlduuje4zq4gkyksija
+  eslint-plugin-prettier: 3.4.1_wbjvq5l5nilmuxvc4ylcjwialu
   eslint-plugin-react: 7.32.2_eslint@7.32.0
   eslint-plugin-storybook: 0.6.11_jofidmxrjzhj7l6vknpw5ecvfe
   file-loader: 6.2.0_webpack@4.46.0
@@ -9548,7 +9548,7 @@ packages:
     engines: {node: '>=5.0.0'}
     dev: true
 
-  /eslint-plugin-prettier/3.4.1_hv3zp2mmlduuje4zq4gkyksija:
+  /eslint-plugin-prettier/3.4.1_wbjvq5l5nilmuxvc4ylcjwialu:
     resolution: {integrity: sha512-htg25EUYUeIhKHXjOinK4BgCcDwtLHjqaxCDsMy5nbnUMkKFvIhMVCp+5GFUXQ4Nr8lBsPqtGAqBenbpFqAA2g==}
     engines: {node: '>=6.0.0'}
     peerDependencies:
@@ -9561,7 +9561,7 @@ packages:
     dependencies:
       eslint: 7.32.0
       eslint-config-prettier: 8.8.0_eslint@7.32.0
-      prettier: 2.7.1
+      prettier: 2.8.8
       prettier-linter-helpers: 1.0.0
     dev: true
 
@@ -10488,7 +10488,7 @@ packages:
     resolution: {integrity: sha512-oWb1Z6mkHIskLzEJ/XWX0srkpkTQ7vaopMQkyaEIoq0fmtFVxOthb8cCxeT+p3ynTdkk/RZwbgG4brR5BeWECw==}
     engines: {node: '>= 4.0'}
     os: [darwin]
-    deprecated: fsevents 1 will break on node v14+ and could be using insecure binaries. Upgrade to fsevents 2.
+    deprecated: The v1 package contains DANGEROUS / INSECURE binaries. Upgrade to safe fsevents v2
     requiresBuild: true
     dependencies:
       bindings: 1.5.0
@@ -12834,7 +12834,7 @@ packages:
       '@types/node': 18.11.9
       chalk: 4.1.2
       ci-info: 3.5.0
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
       picomatch: 2.3.1
     dev: true
 
@@ -13120,7 +13120,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.11
+      graceful-fs: 4.2.10
 
   /jsprim/2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
@@ -13204,7 +13204,7 @@ packages:
       '@babel/preset-env': 7.20.2_@babel+core@7.20.2
       '@babel/preset-typescript': 7.21.0_@babel+core@7.20.2
       '@wessberg/ts-clone-node': 0.3.19_typescript@4.9.5
-      prettier: 2.7.1
+      prettier: 2.8.8
       recast: 0.20.5
       typescript: 4.9.5
       yargs: 16.2.0
@@ -15407,8 +15407,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js/1.53.3:
-    resolution: {integrity: sha512-BOfsuzzt+IcUB9bjHjCg3P0bp7gIjNEeC3NT/0zoTfajRvpNX5nQJ85xgAshRC8mKSXW6NiWEC70gsi+zMQVmQ==}
+  /posthog-js/1.54.0:
+    resolution: {integrity: sha512-5kT9zvmBrCshFkWqOrYxk13Y/2j7vtV0sF3XmQa5QDD0bVM1KGU4blyZySBt8SAcO1z3WsKvG4bFGxS7TPqjjw==}
     dependencies:
       fflate: 0.4.8
       rrweb-snapshot: 1.1.14
@@ -15437,8 +15437,8 @@ packages:
     hasBin: true
     dev: true
 
-  /prettier/2.7.1:
-    resolution: {integrity: sha512-ujppO+MkdPqoVINuDFDRLClm7D78qbDt0/NR+wp5FqEZOoTNAjPHWj17QRhu7geIHJfcNhRk1XVQmF8Bp3ye+g==}
+  /prettier/2.8.8:
+    resolution: {integrity: sha512-tdN8qQGvNjw4CHbY+XXk0JgCXn9QiF21a55rBe5LJAU+kDyC4WQn4+awm2Xfk2lQMk5fKup9XgzTZtGkjBdP9Q==}
     engines: {node: '>=10.13.0'}
     hasBin: true
 

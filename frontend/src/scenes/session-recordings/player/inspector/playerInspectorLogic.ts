@@ -9,7 +9,7 @@ import {
 } from '~/types'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -119,14 +119,16 @@ export type InspectorListItem = InspectorListItemEvent | InspectorListItemConsol
 
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerInspectorLogic', key]),
-    props({} as SessionRecordingPlayerLogicProps),
-    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect((props: SessionRecordingPlayerLogicProps) => ({
+    props({} as SessionRecordingLogicProps),
+    key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect((props: SessionRecordingLogicProps) => ({
         actions: [
             playerSettingsLogic,
             ['setTab', 'setMiniFilter', 'setSyncScroll'],
             eventUsageLogic,
             ['reportRecordingInspectorItemExpanded'],
+            sessionRecordingDataLogic(props),
+            ['loadFullEventData'],
         ],
         values: [
             playerSettingsLogic,
@@ -272,10 +274,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             snapshot.data.plugin === NETWORK_PLUGIN_NAME
                         ) {
                             const properties = snapshot.data.payload as any
-                            const data = {
+
+                            const data: Partial<PerformanceEvent> = {
                                 timestamp: snapshot.timestamp,
-                                windowId: windowId,
-                            } as Partial<PerformanceEvent>
+                                window_id: windowId,
+                            }
 
                             Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
                                 if (key in properties) {
@@ -351,7 +354,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     })
                 }
 
-                for (const event of eventsData?.events || []) {
+                for (const event of eventsData || []) {
                     const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
 
                     const timestamp = dayjs(event.timestamp)
@@ -618,11 +621,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 return {
                     [SessionRecordingPlayerTab.ALL]: 'ready',
                     [SessionRecordingPlayerTab.EVENTS]:
-                        sessionEventsDataLoading || !events?.events
-                            ? 'loading'
-                            : events?.events.length
-                            ? 'ready'
-                            : 'empty',
+                        sessionEventsDataLoading || !events ? 'loading' : events?.length ? 'ready' : 'empty',
                     [SessionRecordingPlayerTab.CONSOLE]:
                         sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !logs
                             ? 'loading'
@@ -682,10 +681,16 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
                 eventUsageLogic.actions.reportRecordingInspectorItemExpanded(values.tab, index)
+
+                const item = values.items[index]
+
+                if (item.type === SessionRecordingPlayerTab.EVENTS) {
+                    actions.loadFullEventData(item.data)
+                }
             }
         },
     })),

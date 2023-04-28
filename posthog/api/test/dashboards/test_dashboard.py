@@ -9,6 +9,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
@@ -56,6 +57,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             AvailableFeature.PROJECT_BASED_PERMISSIONING,
             AvailableFeature.DASHBOARD_PERMISSIONING,
         ]
+        self.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
         self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
@@ -971,7 +973,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
     def test_create_from_template_json(self) -> None:
-
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
             {"template": valid_template},

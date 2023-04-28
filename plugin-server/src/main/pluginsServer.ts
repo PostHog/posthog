@@ -27,8 +27,10 @@ import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
-import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recordings-consumer'
+import { SessionRecordingBlobIngester } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
+import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { createHttpServer } from './services/http-server'
+import { getObjectStorage } from './services/object_storage'
 
 const { version } = require('../../package.json')
 
@@ -87,7 +89,9 @@ export async function startPluginsServer(
     // meantime.
     let bufferConsumer: Consumer | undefined
     let stopSessionRecordingEventsConsumer: (() => void) | undefined
+    let stopSessionRecordingBlobConsumer: (() => void) | undefined
     let joinSessionRecordingEventsConsumer: ((timeout?: number) => Promise<void>) | undefined
+    let joinSessionRecordingBlobConsumer: ((timeout?: number) => Promise<void>) | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
@@ -126,6 +130,7 @@ export async function startPluginsServer(
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
             stopSessionRecordingEventsConsumer?.(),
+            stopSessionRecordingBlobConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
         ])
 
@@ -148,6 +153,13 @@ export async function startPluginsServer(
         process.exit(0)
     })
 
+    // Code list in https://kafka.apache.org/0100/protocol.html
+    const kafkaJSIgnorableCodes = new Set([
+        22, // ILLEGAL_GENERATION
+        25, // UNKNOWN_MEMBER_ID
+        27, // REBALANCE_IN_PROGRESS
+    ])
+
     process.on('unhandledRejection', (error: Error) => {
         status.error('🤮', `Unhandled Promise Rejection: ${error.stack}`)
 
@@ -158,18 +170,14 @@ export async function startPluginsServer(
             })
 
             // Ignore some "business as usual" Kafka errors, send the rest to sentry
-            // Code list in https://kafka.apache.org/0100/protocol.html
-            switch (error.code) {
-                case 27: // REBALANCE_IN_PROGRESS
-                    hub!.statsd?.increment(`kafka_consumer_group_rebalancing`)
-                    return
-                case 22: // ILLEGAL_GENERATION
-                    hub!.statsd?.increment(`kafka_consumer_invalid_group_generation_id`)
-                    return
+            if (error.code in kafkaJSIgnorableCodes) {
+                return
             }
         }
 
-        Sentry.captureException(error)
+        Sentry.captureException(error, {
+            extra: { detected_at: `pluginServer.ts on unhandledRejection` },
+        })
     })
 
     process.on('uncaughtException', async (error: Error) => {
@@ -416,6 +424,23 @@ export async function startPluginsServer(
             healthChecks['session-recordings'] = isSessionRecordingsHealthy
         }
 
+        if (capabilities.sessionRecordingBlobIngestion) {
+            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
+            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
+            const s3 = hub?.objectStorage ?? getObjectStorage(serverConfig)
+            if (!s3) {
+                throw new Error("Can't start session recording blob ingestion without object storage")
+            }
+            const ingester = new SessionRecordingBlobIngester(teamManager, serverConfig, s3)
+            await ingester.start()
+            const batchConsumer = ingester.batchConsumer
+            if (batchConsumer) {
+                stopSessionRecordingBlobConsumer = () => ingester.stop()
+                joinSessionRecordingBlobConsumer = () => batchConsumer.join()
+                healthChecks['session-recordings-blob'] = () => batchConsumer.isHealthy() ?? false
+            }
+        }
+
         if (capabilities.http) {
             httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer, piscina)
         }
@@ -440,6 +465,9 @@ export async function startPluginsServer(
         // ```
         if (joinSessionRecordingEventsConsumer) {
             joinSessionRecordingEventsConsumer().catch(closeJobs)
+        }
+        if (joinSessionRecordingBlobConsumer) {
+            joinSessionRecordingBlobConsumer().catch(closeJobs)
         }
 
         return serverInstance ?? { stop: closeJobs }
