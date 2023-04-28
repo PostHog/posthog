@@ -34,6 +34,7 @@ export function Navbar(): JSX.Element {
                             {section.map((item) => (
                                 <NavbarButton
                                     key={item.identifier}
+                                    title={item.label}
                                     identifier={item.identifier}
                                     icon={item.icon}
                                     // TODO: Simplify all the pointer handling below
