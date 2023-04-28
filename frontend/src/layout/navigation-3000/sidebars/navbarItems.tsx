@@ -27,8 +27,6 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             icon: <IconCottage />, // This is in a separate section as it uniquely is a direct URL
             pointer: urls.projectHomepage(),
         },
-    ],
-    [
         {
             identifier: Scene.Dashboards,
             label: 'Dashboards',
@@ -36,13 +34,40 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             pointer: dashboardsSidebarLogic,
         },
         {
+            identifier: Scene.Cohorts,
+            label: 'Cohorts',
+            icon: <IconCohort />,
+        },
+        {
+            identifier: Scene.Persons,
+            label: 'Persons',
+            icon: <IconPerson />,
+        },
+        {
+            identifier: Scene.Events,
+            label: 'Events',
+            icon: <IconLive />,
+        },
+        {
+            identifier: Scene.DataManagement,
+            label: 'Data management',
+            icon: <IconUnverifiedEvent />,
+        },
+        {
+            identifier: Scene.Annotations,
+            label: 'Annotations',
+            icon: <IconComment />,
+        },
+    ],
+    [
+        {
             identifier: Scene.SavedInsights,
-            label: 'Insights',
+            label: 'Analytics',
             icon: <IconBarChart />,
         },
         {
             identifier: Scene.SessionRecordings,
-            label: 'Recordings',
+            label: 'Session replay',
             icon: <IconRecording />,
         },
         {
@@ -59,33 +84,8 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
     ],
     [
         {
-            identifier: Scene.Events,
-            label: 'Events',
-            icon: <IconLive />,
-        },
-        {
-            identifier: Scene.DataManagement,
-            label: 'Data management',
-            icon: <IconUnverifiedEvent />,
-        },
-        {
-            identifier: Scene.Persons,
-            label: 'Persons',
-            icon: <IconPerson />,
-        },
-        {
-            identifier: Scene.Cohorts,
-            label: 'Cohorts',
-            icon: <IconCohort />,
-        },
-        {
-            identifier: Scene.Annotations,
-            label: 'Annotations',
-            icon: <IconComment />,
-        },
-        {
             identifier: Scene.Plugins,
-            label: 'Plugins',
+            label: 'Apps',
             icon: <IconApps />,
         },
     ],
