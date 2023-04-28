@@ -346,8 +346,8 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
         try:
             events_summary.append(
                 SessionRecordingEventSummary(
-                    timestamp=event["timestamp"]
-                    if isinstance(event["timestamp"], int)
+                    timestamp=int(event["timestamp"])
+                    if isinstance(event["timestamp"], (int, float))
                     else convert_to_timestamp(event["timestamp"]),
                     type=event["type"],
                     data=data,
