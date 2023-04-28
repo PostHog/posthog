@@ -45,15 +45,14 @@ class CreateBatchExportRunInputs:
 
     Attributes:
         team_id: The id of the team the BatchExportRun belongs to.
-        destination_id: The id of the destination the BatchExportRun is targetting.
-        schedule_id: If this BatchExportRun was triggered by a schedule, it's id, otherwise None.
+        batch_export_id:
+        run_id:
         data_interval_start: Start of this BatchExportRun's data interval.
         data_interval_end: End of this BatchExportRun's data interval.
     """
 
     team_id: int
-    destination_id: str
-    schedule_id: str | None
+    batch_export_id: str
     data_interval_start: str
     data_interval_end: str
 
@@ -65,22 +64,21 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
-    activity.logger.info("Creating BatchExportRun model instance.")
+    activity.logger.info(f"Creating BatchExportRun model instance in team {inputs.team_id}.")
 
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
     run = await sync_to_async(BatchExportRun.objects.create)(  # type: ignore
         team_id=inputs.team_id,
-        destination_id=UUID(inputs.destination_id),
-        schedule_id=UUID(inputs.schedule_id) if inputs.schedule_id else None,
+        workflow_id=activity.info().workflow_id,
+        run_id=activity.info().workflow_run_id,
+        batch_export_id=UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
 
-    activity.logger.info(
-        f"Creating BatchExportRun {run.id} targetting destination {run.destination.id} in team {run.team.id}."
-    )
+    activity.logger.info(f"Created BatchExportRun {run.id} in team {inputs.team_id}.")
 
     return str(run.id)
 
@@ -89,7 +87,7 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
 class UpdateBatchExportRunStatusInputs:
     """Inputs to the update_export_run_status activity."""
 
-    run_id: str
+    id: str
     status: str
 
 
@@ -97,4 +95,4 @@ class UpdateBatchExportRunStatusInputs:
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
     update_run_status = sync_to_async(BatchExportRun.objects.update_status)
-    await update_run_status(export_run_id=UUID(inputs.run_id), status=inputs.status)  # type: ignore
+    await update_run_status(id=UUID(inputs.id), status=inputs.status)  # type: ignore

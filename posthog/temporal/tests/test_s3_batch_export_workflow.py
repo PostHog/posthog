@@ -15,7 +15,12 @@ from temporalio.common import RetryPolicy
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import BatchExportDestination, BatchExportRun
+from posthog.models import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportRun,
+    BatchExportSchedule,
+)
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -172,7 +177,7 @@ def s3_bucket():
 
 
 @pytest.fixture
-def destination(team):
+def destination(team, s3_bucket):
     """A test BatchExportDestination targetting an S3 bucket.
 
     Technically, we are using a MinIO bucket. But the API is the same, so we also support it!
@@ -182,6 +187,10 @@ def destination(team):
         type="S3",
         team=team,
         config={
+            "bucket_name": s3_bucket.name,
+            "region": "us-east-1",
+            "key_template": f"{TEST_ROOT_BUCKET}/posthog-{{table_name}}/events.csv",
+            "batch_window_size": 3600,
             "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
             "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
         },
@@ -191,6 +200,19 @@ def destination(team):
     yield dest
 
     dest.delete()
+
+
+@pytest.fixture
+def batch_export(destination, team):
+    """A test BatchExport."""
+    schedule = BatchExportSchedule.objects.create(team=team, paused=True)
+    batch_export = BatchExport.objects.create(team=team, destination=destination, schedule=schedule)
+
+    batch_export.save()
+
+    yield batch_export
+
+    batch_export.delete()
 
 
 @pytest.fixture
@@ -231,13 +253,13 @@ def events_to_export(team, max_datetime):
 
     yield all_test_events
 
-    # sync_execute("TRUNCATE TABLE sharded_events")
+    sync_execute("TRUNCATE TABLE sharded_events")
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_s3_export_workflow_with_minio_bucket(
-    s3_bucket, destination, team, organization, events_to_export, max_datetime
+    s3_bucket, destination, team, organization, events_to_export, max_datetime, batch_export
 ):
     """Test the S3BatchExportWorkflow targetting a local MinIO bucket.
 
@@ -256,18 +278,14 @@ async def test_s3_export_workflow_with_minio_bucket(
     await sync_to_async(organization.save)()
     await sync_to_async(team.save)()
     await sync_to_async(destination.save)()
+    await sync_to_async(batch_export.save)()
 
     workflow_id = str(uuid4())
     inputs = S3BatchExportInputs(
-        bucket_name=s3_bucket.name,
-        region="us-east-1",
-        key_template=f"{TEST_ROOT_BUCKET}/posthog-{{table_name}}/events.csv",
-        batch_window_size=3600,
-        team_id=destination.team.id,
-        destination_id=str(destination.id),
-        aws_access_key_id=destination.config["aws_access_key_id"],
-        aws_secret_access_key=destination.config["aws_secret_access_key"],
+        team_id=batch_export.team.id,
+        batch_export_id=str(batch_export.id),
         data_interval_end=max_datetime.isoformat(),
+        **batch_export.destination.config,
     )
 
     async with Worker(

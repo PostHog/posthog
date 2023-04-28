@@ -13,4 +13,5 @@ temporal operator search-attribute create -y --namespace default \
         --name DestinationType --type Text \
         --name ScheduleId --type Text \
         --name TeamId --type Int \
-        --name TeamName --type Text
+        --name TeamName --type Text \
+        --name BatchExportId --type Text

@@ -5,7 +5,7 @@ from .activity_logging.notification_viewed import NotificationViewed
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
-from .batch_export import BatchExportDestination, BatchExportRun, BatchExportSchedule
+from .batch_export import BatchExport, BatchExportDestination, BatchExportRun, BatchExportSchedule
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile, Text
@@ -54,6 +54,7 @@ __all__ = [
     "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
+    "BatchExport",
     "BatchExportDestination",
     "BatchExportRun",
     "BatchExportSchedule",

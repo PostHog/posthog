@@ -119,12 +119,11 @@ app_metrics_router.register(
 )
 
 batch_exports_router = projects_router.register(
-    r"batch_exports", batch_exports.BatchExportDestinationViewSet, "batch_exports", ["team_id"]
+    r"batch_exports", batch_exports.BatchExportViewSet, "batch_exports", ["team_id"]
 )
-# batch_exports_router.register(r"destinations", batch_exports.BatchExportDestinationViewSet, "destinations", ["team_id"])
-batch_exports_router.register(r"runs", batch_exports.BatchExportRunViewSet, "runs", ["team_id", "destination_id"])
-batch_exports_router.register(
-    r"schedules", batch_exports.BatchExportScheduleViewSet, "schedules", ["team_id", "destination_id"]
+batch_exports_router.register(r"runs", batch_exports.BatchExportRunViewSet, "runs", ["team_id", "batch_export_id"])
+projects_router.register(
+    r"batch_export_destinations", batch_exports.BatchExportDestinationViewSet, "batch_export_destinations", ["team_id"]
 )
 
 

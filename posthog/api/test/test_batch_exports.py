@@ -1,57 +1,23 @@
-import logging
-from itertools import count
+import datetime as dt
+from uuid import uuid4
 
-from asgiref.sync import async_to_sync
 from rest_framework import status
-from temporalio.client import Client
+from temporalio.client import ScheduleRange
 from temporalio.service import RPCError
 
-from posthog.models import BatchExportDestination, BatchExportSchedule
-from posthog.temporal.client import sync_connect
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.api.test.test_team import create_team
+from posthog.models import (
+    BatchExportDestination,
+    BatchExportRun,
+)
+from posthog.test.base import APIBaseTest, BaseTemporalTest
 
 
-class TestBatchBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.temporal: Client = sync_connect()
-        self.id_generator = count()
-        self.schedules_to_tear_down = []
+class TestBatchBatchExportsAPI(BaseTemporalTest, APIBaseTest):
+    """Test the REST API for BatchExports."""
 
-    def tearDown(self):
-        """Tear-down test cases by cleaning up any Temporal Schedules created during the test."""
-        for schedule_name in self.schedules_to_tear_down:
-            handle = self.temporal.get_schedule_handle(schedule_name)
-            try:
-                async_to_sync(handle.delete)()
-            except RPCError:
-                # Assume this was expected as we are tearing down, but don't fail silently.
-                logging.warn("Schedule %s has already been deleted, ignoring.", schedule_name)
-                continue
-
-    def describe_schedule(self, schedule_id: str):
-        """Return the description of a Temporal Schedule with the given id."""
-        handle = self.temporal.get_schedule_handle(schedule_id)
-        temporal_schedule = async_to_sync(handle.describe)()
-        return temporal_schedule
-
-    def get_test_schedule_name(self, prefix: str = "test-schedule") -> str:
-        """Return a Temporal Schedule test name after appending it for tear-down after used.
-
-        To construct a Temporal Schedule test name, we append a strictly increasing numeric id to the given
-        prefix.
-        """
-        schedule_name = f"{prefix}-{next(self.id_generator)}"
-        self.schedules_to_tear_down.append(schedule_name)
-        return schedule_name
-
-    def test_create_export_destination(self):
-        """Test creating an BatchExportDestionation for S3.
-
-        As we are passing Schedule information, this should also create a Schedule.
-        """
-        schedule_name = self.get_test_schedule_name()
-
+    def test_create_batch_export_destination(self):
+        """Test creating an BatchExportDestionation for S3."""
         destination_data = {
             "name": "my-production-s3-bucket-destination",
             "type": "S3",
@@ -63,40 +29,75 @@ class TestBatchBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
-            "schedule": {
-                "name": schedule_name,
-                "cron_expressions": ["0 0 * * *"],
-            },
         }
         self.assertEqual(BatchExportDestination.objects.count(), 0)
 
-        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", destination_data)
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response = self.client.post(f"/api/projects/{self.team.id}/batch_export_destinations", destination_data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, msg=response.json())
         self.assertEqual(BatchExportDestination.objects.count(), 1)
 
         data = response.json()
         self.assertEqual(data["name"], destination_data["name"])
         self.assertEqual(data["type"], destination_data["type"])
-        self.assertEqual(data["config"], destination_data["config"])
-        self.assertEqual(
-            data["schedule"]["cron_expressions"],
-            # Apparently, 'destination_data["schedule"]' is not indexable.
-            # Maybe a mypy bug, as of writing, PostHog still uses mypy<1.0.
-            destination_data["schedule"]["cron_expressions"],  # type: ignore
-        )
 
-        export_schedule = BatchExportSchedule.objects.filter(name=schedule_name)[0]
-        temporal_schedule = self.describe_schedule(str(export_schedule.id))
-        self.assertEqual(temporal_schedule.id, str(export_schedule.id))
+        expected_config = {
+            k: v
+            for k, v in destination_data["config"].items()
+            if k not in ("aws_access_key_id", "aws_secret_access_key")
+        }
+        self.assertEqual(data["config"], expected_config)
 
-    def test_create_export_schedule(self):
-        """Test creating an BatchExportSchedule.
+    def test_list_batch_export_destination(self):
+        """Test listing BatchExportDestionations"""
+        destination_names = [f"my-production-s3-bucket-{n}" for n in range(3)]
+        destination_data = {
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "key_template": "posthog-events/{table_name}.csv",
+                "batch_window_size": 3600,
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+            },
+        }
+        for name in destination_names:
+            destination_data["name"] = name
+            response = self.client.post(f"/api/projects/{self.team.id}/batch_export_destinations", destination_data)
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        An BatchExportSchedule is created in supposed to be created in Temporal too.
+        # Create a BatchExportDestination for a different team to assert it's not included in the response.
+        team = create_team(organization=self.organization)
+        destination_data["name"] = "destination-from-different-team"
+        response = self.client.post(f"/api/projects/{team.id}/batch_export_destinations", destination_data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, msg=response.json())
+
+        response = self.client.get(f"/api/projects/{self.team.id}/batch_export_destinations")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, msg=response.json())
+
+        data = response.json()
+        self.assertEqual(data["count"], 3)
+
+        expected_config = {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "key_template": "posthog-events/{table_name}.csv",
+            "batch_window_size": 3600,
+        }
+
+        for destination in data["results"]:
+            self.assertNotEqual(destination["name"], "destination-from-different-team")
+            self.assertIn(destination["name"], destination_names)
+            self.assertEqual(destination["type"], "S3")
+            self.assertEqual(destination["config"], expected_config)
+
+    def test_create_batch_export_with_empty_schedule(self):
+        """Test creating a BatchExport.
+
+        When creating a BatchExport, we should create a corresponding Schedule in Temporal as described
+        by the associated BatchExportSchedule model. In this test we assert this Schedule is created in
+        Temporal.
         """
-        schedule_name = self.get_test_schedule_name()
-
         destination_data = {
             "name": "my-production-s3-bucket-destination",
             "type": "S3",
@@ -108,49 +109,44 @@ class TestBatchBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
-            "schedule": {
-                "name": schedule_name,
-                "cron_expressions": ["0 0 * * *"],
-            },
         }
-
-        self.assertEqual(BatchExportDestination.objects.count(), 0)
-        self.assertEqual(BatchExportSchedule.objects.count(), 0)
-
-        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", destination_data)
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(BatchExportDestination.objects.count(), 1)
-        self.assertEqual(BatchExportSchedule.objects.count(), 1)
-
-        schedule_name = self.get_test_schedule_name("one-off-schedule")
-        manual_schedule_data = {
-            "name": schedule_name,
-            "start_at": "2021-01-01T00:00:00+00:00",
+        schedule_data = {
+            "paused": False,
         }
+        batch_export_data = {
+            "destination": destination_data,
+            "schedule": schedule_data,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", batch_export_data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, msg=response.json())
 
-        schedule_response = self.client.post(
-            f"/api/projects/{self.team.id}/batch_exports/{response.json()['id']}/schedules", manual_schedule_data
-        )
+        data = response.json()
 
-        self.assertEqual(schedule_response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(BatchExportSchedule.objects.count(), 2)
+        expected_config = {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "key_template": "posthog-events/{table_name}.csv",
+            "batch_window_size": 3600,
+        }
+        self.assertEqual(data["destination"]["name"], destination_data["name"])
+        self.assertEqual(data["destination"]["type"], destination_data["type"])
+        self.assertEqual(data["destination"]["config"], expected_config)
+        self.assertEqual(data["schedule"]["cron_expressions"], [])
+        self.assertEqual(data["schedule"]["calendars"], [])
+        self.assertEqual(data["schedule"]["intervals"], [])
+        self.assertEqual(data["schedule"]["skip"], [])
 
-        export_schedule = BatchExportSchedule.objects.filter(name=schedule_name)[0]
+        schedule_desc = self.describe_schedule(data["schedule"]["id"])
+        self.assertEqual(schedule_desc.id, data["schedule"]["id"])
+        self.assertEqual(len(schedule_desc.schedule.spec.calendars), 0)
 
-        self.assertEqual(export_schedule.name, manual_schedule_data["name"])
-        self.assertEqual(export_schedule.start_at.isoformat(), manual_schedule_data["start_at"])
+    def test_create_batch_export_with_cron_schedule(self):
+        """Test creating a BatchExport.
 
-        temporal_schedule = self.describe_schedule(str(export_schedule.id))
-        self.assertEqual(temporal_schedule.id, str(export_schedule.id))
-
-    def test_delete_export_schedule(self):
-        """Test deleting an BatchExportSchedule.
-
-        This call should clean-up state from both the database and Temporal.
+        When creating a BatchExport, we should create a corresponding Schedule in Temporal as described
+        by the associated BatchExportSchedule model. In this test we assert this Schedule is created in
+        Temporal.
         """
-        schedule_name = self.get_test_schedule_name()
-
         destination_data = {
             "name": "my-production-s3-bucket-destination",
             "type": "S3",
@@ -162,49 +158,247 @@ class TestBatchBatchExportsAPI(ClickhouseTestMixin, APIBaseTest):
                 "aws_access_key_id": "abc123",
                 "aws_secret_access_key": "secret",
             },
-            "schedule": {
-                "name": schedule_name,
-                "cron_expressions": ["0 0 * * *"],
-            },
         }
-
-        self.assertEqual(BatchExportDestination.objects.count(), 0)
-        self.assertEqual(BatchExportSchedule.objects.count(), 0)
-
-        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", destination_data)
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(BatchExportDestination.objects.count(), 1)
-        self.assertEqual(BatchExportSchedule.objects.count(), 1)
-
-        schedule_name = self.get_test_schedule_name("one-off-schedule")
-        manual_schedule_data = {
-            "name": schedule_name,
-            "start_at": "2021-01-01T00:00:00+00:00",
+        schedule_data = {
+            "paused": True,
             "cron_expressions": ["0 0 * * *"],
         }
+        batch_export_data = {
+            "destination": destination_data,
+            "schedule": schedule_data,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", batch_export_data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, msg=response.json())
 
-        schedule_response = self.client.post(
-            f"/api/projects/{self.team.id}/batch_exports/{response.json()['id']}/schedules", manual_schedule_data
-        )
+        data = response.json()
 
-        self.assertEqual(schedule_response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(BatchExportSchedule.objects.count(), 2)
+        expected_config = {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "key_template": "posthog-events/{table_name}.csv",
+            "batch_window_size": 3600,
+        }
+        self.assertEqual(data["destination"]["name"], destination_data["name"])
+        self.assertEqual(data["destination"]["type"], destination_data["type"])
+        self.assertEqual(data["destination"]["config"], expected_config)
+        self.assertEqual(data["schedule"]["cron_expressions"], schedule_data["cron_expressions"])
+        self.assertEqual(data["schedule"]["calendars"], [])
+        self.assertEqual(data["schedule"]["intervals"], [])
+        self.assertEqual(data["schedule"]["skip"], [])
 
-        export_schedule = BatchExportSchedule.objects.filter(name=schedule_name)[0]
+        schedule_desc = self.describe_schedule(data["schedule"]["id"])
+        self.assertEqual(schedule_desc.id, data["schedule"]["id"])
 
-        handle = self.temporal.get_schedule_handle(
-            str(export_schedule.id),
-        )
+        # When passing a Cron expression, Temporal ✨ magically ✨ transforms it to a ScheduleCalendarSpec
+        self.assertEqual(len(schedule_desc.schedule.spec.calendars), 1)
+        spec = schedule_desc.schedule.spec.calendars[0]
+        self.assertEqual(spec.second[0], ScheduleRange(start=0, end=0, step=0))
+        self.assertEqual(spec.minute[0], ScheduleRange(start=0, end=0, step=0))
+        self.assertEqual(spec.hour[0], ScheduleRange(start=0, end=0, step=0))
+        self.assertEqual(spec.day_of_month[0], ScheduleRange(start=1, end=31, step=0))
+        self.assertEqual(spec.day_of_week[0], ScheduleRange(start=0, end=6, step=0))
+        self.assertEqual(spec.month[0], ScheduleRange(start=1, end=12, step=0))
+
+        self.assertEqual(schedule_desc.schedule.state.paused, True)
+
+    def test_create_batch_export_with_calendar_schedule(self):
+        """Test creating a BatchExport with a calendar schedule.
+
+        When creating a BatchExport, we should create a corresponding Schedule in Temporal as described
+        by the associated BatchExportSchedule model. In this test we assert this Schedule is created in
+        Temporal.
+        """
+        destination_data = {
+            "name": "my-production-s3-bucket-destination",
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "key_template": "posthog-events/{table_name}.csv",
+                "batch_window_size": 3600,
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+            },
+        }
+        schedule_data = {
+            "paused": True,
+            # At every 30-minute mark between the hours of 1 and 10.
+            "calendars": [{"hour": [{"start": 1, "end": 10, "step": 0}], "minute": [{"start": 30}]}],
+        }
+        batch_export_data = {
+            "destination": destination_data,
+            "schedule": schedule_data,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", batch_export_data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, msg=response.json())
+
+        data = response.json()
+
+        expected_config = {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "key_template": "posthog-events/{table_name}.csv",
+            "batch_window_size": 3600,
+        }
+        self.assertEqual(data["destination"]["name"], destination_data["name"])
+        self.assertEqual(data["destination"]["type"], destination_data["type"])
+        self.assertEqual(data["destination"]["config"], expected_config)
+        self.assertEqual(data["schedule"]["cron_expressions"], [])
+        self.assertEqual(data["schedule"]["calendars"], schedule_data["calendars"])
+        self.assertEqual(data["schedule"]["intervals"], [])
+        self.assertEqual(data["schedule"]["skip"], [])
+
+        schedule_desc = self.describe_schedule(data["schedule"]["id"])
+        self.assertEqual(schedule_desc.id, data["schedule"]["id"])
+
+        self.assertEqual(len(schedule_desc.schedule.spec.calendars), 1)
+        spec = schedule_desc.schedule.spec.calendars[0]
+        self.assertEqual(spec.second[0], ScheduleRange(start=0, end=0, step=0))
+        self.assertEqual(spec.minute[0], ScheduleRange(start=30, end=0, step=0))
+        self.assertEqual(spec.hour[0], ScheduleRange(start=1, end=10, step=0))
+        self.assertEqual(spec.day_of_month[0], ScheduleRange(start=1, end=31, step=0))
+        self.assertEqual(spec.day_of_week[0], ScheduleRange(start=0, end=6, step=0))
+        self.assertEqual(spec.month[0], ScheduleRange(start=1, end=12, step=0))
+
+        self.assertEqual(schedule_desc.schedule.state.paused, True)
+
+    def test_pause_and_unpause_batch_export(self):
+        """Test pausing and unpausing a BatchExport."""
+        destination_data = {
+            "name": "my-production-s3-bucket-destination",
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "key_template": "posthog-events/{table_name}.csv",
+                "batch_window_size": 3600,
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+            },
+        }
+        # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
+        schedule_data = {
+            "paused": False,
+        }
+        batch_export_data = {
+            "destination": destination_data,
+            "schedule": schedule_data,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", batch_export_data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, msg=response.json())
+
+        batch_export = response.json()
+        self.assertEqual(batch_export["schedule"]["paused"], False)
+        schedule_desc = self.describe_schedule(batch_export["schedule"]["id"])
+        self.assertEqual(schedule_desc.schedule.state.paused, False)
+
+        batch_export_id = batch_export["id"]
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/batch_exports/{batch_export_id}/pause")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, msg=response.json())
+
+        data = response.json()
+        self.assertEqual(data["schedule"]["paused"], True)
+        schedule_desc = self.describe_schedule(data["schedule"]["id"])
+        self.assertEqual(schedule_desc.schedule.state.paused, True)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/batch_exports/{batch_export_id}/pause")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, msg=response.json())
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/batch_exports/{batch_export_id}/unpause")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, msg=response.json())
+
+        data = response.json()
+        self.assertEqual(data["schedule"]["paused"], False)
+        schedule_desc = self.describe_schedule(data["schedule"]["id"])
+        self.assertEqual(schedule_desc.schedule.state.paused, False)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/batch_exports/{batch_export_id}/unpause")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, msg=response.json())
+
+    def test_delete_batch_export(self):
+        """Test deleting a BatchExport."""
+        destination_data = {
+            "name": "my-production-s3-bucket-destination",
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "key_template": "posthog-events/{table_name}.csv",
+                "batch_window_size": 3600,
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+            },
+        }
+        schedule_data = {
+            "paused": True,
+        }
+        batch_export_data = {
+            "destination": destination_data,
+            "schedule": schedule_data,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", batch_export_data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, msg=response.json())
+        batch_export = response.json()
+        batch_export_id = batch_export["id"]
 
         response = self.client.delete(
-            f"/api/projects/{self.team.id}/batch_exports/{response.json()['id']}/schedules/{export_schedule.id}"
+            f"/api/projects/{self.team.id}/batch_exports/{batch_export_id}", batch_export_data
         )
-
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        post_export_schedule = BatchExportSchedule.objects.filter(name=schedule_name)
-        assert not post_export_schedule.exists()
+        with self.assertRaises(RPCError):
+            self.describe_schedule(batch_export_id)
 
-        with self.assertRaisesRegex(RPCError, "schedule not found"):
-            async_to_sync(handle.describe)()
+    def test_retrieve_batch_export(self):
+        """Test retrieving a BatchExport."""
+        destination_data = {
+            "name": "my-production-s3-bucket-destination",
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-production-s3-bucket",
+                "region": "us-east-1",
+                "key_template": "posthog-events/{table_name}.csv",
+                "batch_window_size": 3600,
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+            },
+        }
+        schedule_data = {
+            "paused": True,
+        }
+        batch_export_data = {
+            "destination": destination_data,
+            "schedule": schedule_data,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/batch_exports", batch_export_data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, msg=response.json())
+        batch_export = response.json()
+        batch_export_id = batch_export["id"]
+
+        data_interval_start = dt.datetime.utcnow().isoformat()
+        data_interval_end = dt.datetime.utcnow().isoformat()
+
+        # Create a few runs so that we have something to return
+        for n in range(10):
+            BatchExportRun.objects.create(
+                team_id=self.team.id,
+                run_id=str(uuid4()),
+                workflow_id=f"batch-export-run-{n}",
+                batch_export_id=batch_export_id,
+                data_interval_start=data_interval_start,
+                data_interval_end=data_interval_end,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/batch_exports")
+        data = response.json()
+
+        self.assertEqual(data["count"], 1)
+
+        batch_export = data["results"][0]
+        self.assertEqual(batch_export["id"], batch_export_id)
+        self.assertEqual(batch_export["destination"]["type"], "S3")
+        self.assertEqual(batch_export["schedule"]["paused"], True)
+        self.assertEqual(len(batch_export["runs"]), 10)
+        self.assertTrue(all(run["data_interval_start"] == f"{data_interval_start}Z" for run in batch_export["runs"]))
+        self.assertTrue(all(run["data_interval_end"] == f"{data_interval_end}Z" for run in batch_export["runs"]))

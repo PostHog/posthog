@@ -84,10 +84,18 @@ def build_s3_url(bucket: str, region: str, key_template: str, **template_vars):
 
 
 def prepare_template_vars(inputs: S3InsertInputs):
+    end_at = dt.datetime.fromisoformat(inputs.data_interval_end)
     return {
         "partition_id": "{_partition_id}",
         "table_name": inputs.table_name,
         "file_format": inputs.file_format,
+        "datetime": inputs.data_interval_end,
+        "year": end_at.year,
+        "month": end_at.month,
+        "day": end_at.day,
+        "hour": end_at.hour,
+        "minute": end_at.minute,
+        "second": end_at.second,
     }
 
 
@@ -190,7 +198,7 @@ class S3BatchExportInputs:
     key_template: str
     batch_window_size: int
     team_id: int
-    destination_id: str
+    batch_export_id: str
     table_name: str = "events"
     file_format: str = "CSVWithNames"
     partition_key: str | None = None
@@ -221,16 +229,9 @@ class S3BatchExportWorkflow(PostHogWorkflow):
 
         data_interval_start, data_interval_end = get_data_interval_from_workflow_inputs(inputs)
 
-        parent = workflow.info().parent
-        if not parent:
-            parent_id = None
-        else:
-            parent_id = parent.workflow_id
-
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
-            destination_id=inputs.destination_id,
-            schedule_id=parent_id,
+            batch_export_id=inputs.batch_export_id,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
         )
@@ -245,7 +246,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(run_id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
@@ -310,26 +311,32 @@ def get_data_interval_from_workflow_inputs(inputs: S3BatchExportInputs) -> tuple
         data_interval_end_search_attr = workflow.info().search_attributes.get("TemporalScheduledStartTime")
 
         # These two if-checks are a bit pedantic, but Temporal SDK is heavily typed.
-        # So they exist to make mypy happy.
+        # So, they exist to make mypy happy.
         if data_interval_end_search_attr is None:
             msg = (
-                "Expected 'TemporalScheduledStartTime' of type 'list[str]', found 'NoneType'."
+                "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
                 "This should be set by the Temporal Schedule unless triggering workflow manually."
                 "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
             )
             raise TypeError(msg)
 
-        # If `TemporalScheduledStartTime` is set, failing this would be a Temporal bug.
-        if not isinstance(data_interval_end_search_attr[0], str):
+        # Failing here would perhaps be a bug in Temporal.
+        if isinstance(data_interval_end_search_attr[0], str):
+            data_interval_end_str = data_interval_end_search_attr[0]
+            data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
+
+        elif isinstance(data_interval_end_search_attr[0], dt.datetime):
+            data_interval_end = data_interval_end_search_attr[0]
+
+        else:
             msg = (
-                "Expected 'data_interval_end_str' of type 'str' found '{data_interval_end_str}' "
-                "of type '{type(data_interval_end_str)}'."
+                f"Expected search attribute to be of type 'str' or 'datetime' found '{data_interval_end_search_attr[0]}' "
+                f"of type '{type(data_interval_end_search_attr[0])}'."
             )
             raise TypeError(msg)
+    else:
+        data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
 
-        data_interval_end_str = data_interval_end_search_attr[0]
-
-    data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
     data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
 
     return (data_interval_start, data_interval_end)
