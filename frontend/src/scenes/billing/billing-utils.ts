@@ -64,7 +64,7 @@ export const convertUsageToAmount = (usage: number, tiers: BillingV2TierType[], 
     return amount.toFixed(2)
 }
 
-export const convertAmountToUsage = (amount: string, tiers: BillingV2TierType[], percentDiscount?: number): number => {
+export const convertAmountToUsage = (amount: string, tiers: BillingV2TierType[], discountPercent?: number): number => {
     if (!amount) {
         return 0
     }
@@ -84,8 +84,8 @@ export const convertAmountToUsage = (amount: string, tiers: BillingV2TierType[],
     }
 
     // add discount to remaining amount so user knows what unit amount they'll be throttled at
-    if (percentDiscount) {
-        const discount = remainingAmount * (percentDiscount / 100)
+    if (discountPercent) {
+        const discount = remainingAmount * (discountPercent / 100)
         remainingAmount += discount
     }
 
