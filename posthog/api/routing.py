@@ -150,7 +150,13 @@ class StructuredViewSetMixin(_GenericViewSet):
         return result
 
     def get_serializer_context(self) -> Dict[str, Any]:
-        return {**super().get_serializer_context(), **self.parents_query_dict}
+        serializer_context = super().get_serializer_context()
+        serializer_context.update(self.parents_query_dict)
+        if "team_id" in serializer_context:
+            serializer_context["team"] = self.team
+        if "organization_id" in serializer_context:
+            serializer_context["organization"] = self.organization
+        return serializer_context
 
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None
