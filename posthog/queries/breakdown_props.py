@@ -29,6 +29,7 @@ from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import PersonOnEventsMode
 from posthog.queries.util import get_person_properties_mode
+from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 
 ALL_USERS_COHORT_ID = 0
 
@@ -97,7 +98,7 @@ def get_breakdown_prop_values(
             filter, team.pk, column_optimizer=column_optimizer, entity=entity if not use_all_funnel_entities else None
         )
         if person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
-            person_join_clauses = 
+            person_join_clauses = PERSON_OVERRIDES_JOIN_SQL.format(event_table_alias="e", person_overrides_table_alias="overrides")
         elif person_query.is_used:
             person_subquery, person_join_params = person_query.get_query()
             person_join_clauses = f"""
