@@ -3,7 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { BasicListItem, ExtendedListItem, SidebarNavbarItem } from './types'
 
 import type { navigation3000LogicType } from './navigationLogicType'
-import { NAVBAR_ITEM_ID_TO_ITEM } from './sidebars/navbarItems'
+import { NAVBAR_ITEM_ID_TO_ITEM } from './navbarItems'
 import { Scene } from 'scenes/sceneTypes'
 
 const MINIMUM_SIDEBAR_WIDTH_PX: number = 192

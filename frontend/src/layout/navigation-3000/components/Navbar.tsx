@@ -9,7 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
 import { navigation3000Logic } from '../navigationLogic'
-import { NAVBAR_ITEMS } from '../sidebars/navbarItems'
+import { NAVBAR_ITEMS } from '../navbarItems'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
 

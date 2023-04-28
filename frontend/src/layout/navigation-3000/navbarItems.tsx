@@ -14,9 +14,10 @@ import {
 } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { NavbarItem } from '../types'
-import { dashboardsSidebarLogic } from './dashboardsSidebarLogic'
-import { featureFlagsSidebarLogic } from './featureFlagsSidebarLogic'
+import { NavbarItem } from './types'
+import { dashboardsSidebarLogic } from './sidebars/dashboardsSidebarLogic'
+import { featureFlagsSidebarLogic } from './sidebars/featureFlagsSidebarLogic'
+import { cohortsSidebarLogic } from './sidebars/cohortsSidebarLogic'
 
 /** A list of navbar sections with items. */
 export const NAVBAR_ITEMS: NavbarItem[][] = [
@@ -37,6 +38,7 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             identifier: Scene.Cohorts,
             label: 'Cohorts',
             icon: <IconCohort />,
+            pointer: cohortsSidebarLogic,
         },
         {
             identifier: Scene.Persons,
