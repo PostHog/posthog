@@ -453,7 +453,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const { person } = values.sessionPlayerData
 
-                    // TODO: Somehow check whether or not we need to load more data.
+                    // TODO: Move this to an optimised HoqQL query when available...
                     try {
                         const res: any = await api.query({
                             kind: 'EventsQuery',
