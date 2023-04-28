@@ -152,10 +152,11 @@ export const fetchEvents = async (teamId: number, uuid?: string) => {
                if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id
         FROM events e
                  LEFT OUTER JOIN
-             (SELECT override_person_id as person_id,
+             (SELECT argMax(override_person_id, version) as person_id,
                      old_person_id
               FROM person_overrides
-              WHERE team_id = ${teamId}) AS overrides ON e.person_id = overrides.old_person_id
+              WHERE team_id = ${teamId}
+              GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
         WHERE team_id = ${teamId} ${uuid ? `AND uuid = '${uuid}'` : ``}
         ORDER BY timestamp ASC
     `)) as unknown as ClickHouse.ObjectQueryResult<RawClickHouseEvent>
