@@ -228,11 +228,13 @@ export function Billing(): JSX.Element {
             </div>
             <LemonDivider className="mt-2 mb-8" />
 
-            {products?.map((x) => (
-                <div key={x.type}>
-                    <BillingProduct product={x} />
-                </div>
-            ))}
+            {products
+                ?.filter((product) => !product.inclusion_only || product.contact_support)
+                ?.map((x) => (
+                    <div key={x.type}>
+                        <BillingProduct product={x} />
+                    </div>
+                ))}
         </div>
     )
 }

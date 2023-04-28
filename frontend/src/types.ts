@@ -1092,6 +1092,7 @@ export interface BillingProductV2Type {
     unit_amount_usd: string | null
     plans: BillingV2PlanType[]
     contact_support: boolean
+    inclusion_only: any
     feature_groups: {
         // deprecated, remove after removing the billing plans table
         group: string
@@ -1099,7 +1100,8 @@ export interface BillingProductV2Type {
         features: BillingV2FeatureType[]
     }[]
     addons: BillingProductV2AddonType[]
-    // sometimes addons are included with the base product, but they aren't subscribed individually
+
+    // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included?: boolean
 }
 
