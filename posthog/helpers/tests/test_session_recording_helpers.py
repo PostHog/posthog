@@ -478,9 +478,19 @@ def test_get_events_summary_from_snapshot_data():
                 },
             },
         },
+        # payload has iso string timestamp instead of number and is out of order by timestamp sort
+        # in https://posthog.sentry.io/issues/4089255349/?project=1899813&referrer=slack we saw a client
+        # send this event, which caused the backend sorting to fail because we treat the rrweb timestamp
+        # as if it is always a number
+        {
+            "type": 1,
+            "timestamp": "1987-04-28T17:17:17.590Z",
+            "data": {"source": 3},
+        },
     ]
 
     assert get_events_summary_from_snapshot_data(snapshot_events) == [
+        {"data": {"source": 3}, "timestamp": 546628637590, "type": 1},
         {"timestamp": timestamp, "type": 2, "data": {}},
         {"timestamp": timestamp, "type": 1, "data": {"source": 3}},
         {"timestamp": timestamp, "type": 1, "data": {"source": 3}},

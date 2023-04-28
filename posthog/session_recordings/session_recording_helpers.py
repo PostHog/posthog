@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, DefaultDict, Dict, Generator, List, Optional
 
+from dateutil.parser import parse
 from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
@@ -309,6 +310,10 @@ def get_active_segments_from_event_list(
     return active_recording_segments
 
 
+def convert_to_timestamp(source: str) -> int:
+    return int(parse(source).timestamp() * 1000)
+
+
 def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> List[SessionRecordingEventSummary]:
     """
     Extract a minimal representation of the snapshot data events for easier querying.
@@ -339,13 +344,15 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
 
         events_summary.append(
             SessionRecordingEventSummary(
-                timestamp=event["timestamp"],
+                timestamp=event["timestamp"]
+                if isinstance(event["timestamp"], int)
+                else convert_to_timestamp(event["timestamp"]),
                 type=event["type"],
                 data=data,
             )
         )
 
-    # No guarantees are made about order so we sort here to be sure
+    # No guarantees are made about order so, we sort here to be sure
     events_summary.sort(key=lambda x: x["timestamp"])
 
     return events_summary
