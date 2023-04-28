@@ -595,8 +595,12 @@ export interface RecordingSegment {
     isActive: boolean
 }
 
+export type RecordingSnapshot = eventWithTime & {
+    windowId: string
+}
+
 export interface SessionPlayerSnapshotData {
-    snapshotsByWindowId: Record<string, eventWithTime[]>
+    snapshots: RecordingSnapshot[]
     next?: string
 }
 
@@ -612,7 +616,7 @@ export interface SessionPlayerMetaData {
 }
 
 export interface SessionPlayerData extends SessionPlayerMetaData {
-    bufferedTo: PlayerPosition | null
+    bufferedTo: (PlayerPosition & { timestamp: number }) | null
     snapshotsByWindowId: Record<string, eventWithTime[]>
 }
 
