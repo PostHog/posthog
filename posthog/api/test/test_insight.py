@@ -28,6 +28,7 @@ from posthog.models import (
     User,
     SharingConfiguration,
     OrganizationMembership,
+    Text,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -1653,7 +1654,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             team=self.team,
             short_id="12345678",
         )
-        Insight.objects.create(
+        Insight.objects.create(  # This one isn't shared
             name="Foobar",
             filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
             team=self.team,
@@ -1708,6 +1709,29 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             response_correct_token_list.json()["results"][0],
         )
 
+    def test_logged_out_user_cannot_retrieve_deleted_insight_with_correct_insight_sharing_access_token(self) -> None:
+        self.client.logout()
+        deleted_insight = Insight.objects.create(
+            name="Foobar",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+            deleted=True,
+        )
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, insight=deleted_insight, enabled=True, access_token="ghi"
+        )
+
+        response_retrieve = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{deleted_insight.id}/?sharing_access_token={sharing_configuration.access_token}",
+        )
+
+        self.assertEqual(response_retrieve.status_code, 404, response_retrieve.json())
+        self.assertEqual(
+            response_retrieve.json(),
+            self.not_found_response(),
+        )
+
     def test_logged_out_user_cannot_retrieve_insight_with_disabled_insight_sharing_access_token(self) -> None:
         self.client.logout()
         insight = Insight.objects.create(
@@ -1757,26 +1781,71 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             team=self.team,
             short_id="12345678",
         )
+        deleted_insight = Insight.objects.create(
+            name="Barfoo",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="87654321",
+            deleted=True,
+        )
+        deleted_tile_insight = Insight.objects.create(
+            name="Foobaz",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="abcdabcd",
+        )
+        random_text = Text.objects.create(team=self.team)
         dashboard = Dashboard.objects.create(team=self.team, name="Test dashboard")
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=deleted_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=deleted_tile_insight, deleted=True)
+        DashboardTile.objects.create(dashboard=dashboard, text=random_text)
         sharing_configuration = SharingConfiguration.objects.create(
-            team=self.team, insight=insight, enabled=True, access_token="xyz"
+            team=self.team, dashboard=dashboard, enabled=True, access_token="xyz"
         )
 
-        response_incorrect_token = self.client.get(
+        response_incorrect_token_retrieve = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token=abc",
         )
-        response_correct_token = self.client.get(
+        response_correct_token_retrieve = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.id}/?sharing_access_token={sharing_configuration.access_token}",
         )
+        response_correct_token_list = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?sharing_access_token={sharing_configuration.access_token}",
+        )
 
-        self.assertEqual(response_incorrect_token.status_code, 401, response_incorrect_token.json())
+        self.assertEqual(response_incorrect_token_retrieve.status_code, 401, response_incorrect_token_retrieve.json())
         self.assertEqual(
-            response_incorrect_token.json(),
+            response_incorrect_token_retrieve.json(),
             self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
         )
-        self.assertEqual(response_correct_token.status_code, 200, response_correct_token.json())
-        self.assertDictContainsSubset({"name": "Foobar"}, response_correct_token.json())
+        self.assertEqual(response_correct_token_retrieve.status_code, 200, response_correct_token_retrieve.json())
+        self.assertDictContainsSubset({"name": "Foobar"}, response_correct_token_retrieve.json())
+        # Below checks that the deleted insight and non-deleted insight whose tile is deleted are not be retrievable
+        # Also, the text tile should not affect things
+        self.assertEqual(response_correct_token_list.status_code, 200, response_correct_token_list.json())
+        self.assertEqual(response_correct_token_list.json()["count"], 1)
+
+    def test_logged_out_user_cannot_retrieve_insight_with_correct_deleted_dashboard_sharing_access_token(self) -> None:
+        self.client.logout()
+        insight = Insight.objects.create(
+            name="Foobar",
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id="12345678",
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="Test dashboard", deleted=True)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, dashboard=dashboard, enabled=True, access_token="xyz"
+        )
+
+        response_correct_token_list = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?sharing_access_token={sharing_configuration.access_token}",
+        )
+
+        self.assertEqual(response_correct_token_list.status_code, 200, response_correct_token_list.json())
+        self.assertEqual(response_correct_token_list.json()["count"], 0)
 
     def test_insight_trends_csv(self) -> None:
         with freeze_time("2012-01-14T03:21:34.000Z"):

@@ -23,12 +23,12 @@ class SharingConfiguration(models.Model):
 
     def get_connected_insight_ids(self) -> List[int]:
         if self.insight:
+            if self.insight.deleted:
+                return []
             return [self.insight.id]
         elif self.dashboard:
+            if self.dashboard.deleted:
+                return []
             # Check whether this sharing configuration's dashboard contains this insight
-            return list(
-                self.dashboard.tiles.exclude(deleted=True, insight__isnull=True, insight__deleted=True).values_list(
-                    "insight__id", flat=True
-                )
-            )
+            return list(self.dashboard.tiles.exclude(insight__deleted=True).values_list("insight__id", flat=True))
         return []
