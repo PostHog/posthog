@@ -149,12 +149,7 @@ export class SessionManager {
             })
             await parallelUploads3.done()
 
-            counterS3FilesWritten.inc(
-                {
-                    estimatedBytes: Math.round(gzipSizeKb),
-                },
-                1
-            )
+            counterS3FilesWritten.inc(1)
             status.info('🚽', `blob_ingester_session_manager Flushed buffer ${this.sessionId}`)
         } catch (error) {
             // TODO: If we fail to write to S3 we should be do something about it
