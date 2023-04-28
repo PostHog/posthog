@@ -15,8 +15,12 @@ import { convertToPersistedMessage } from './utils'
 
 export const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
-    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
-    labelNames: ['partition_key'],
+    help: 'A single file flushed to S3',
+})
+
+export const counterS3WriteErrored = new Counter({
+    name: 'recording_s3_write_errored',
+    help: 'Indicates that we failed to flush to S3 without recovering',
 })
 
 const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
@@ -145,16 +149,18 @@ export class SessionManager {
             })
             await parallelUploads3.done()
 
-            counterS3FilesWritten.inc(1)
-            // TODO: Add prometheus metric for the size of the file as well
-            // counterS3FilesWritten.add(1, {
-            //     bytes: this.flushBuffer.size, // since the file is compressed this is wrong, and we don't know the compressed size 🤔
-            // })
+            counterS3FilesWritten.inc(
+                {
+                    estimatedBytes: Math.round(gzipSizeKb),
+                },
+                1
+            )
             status.info('🚽', `blob_ingester_session_manager Flushed buffer ${this.sessionId}`)
         } catch (error) {
             // TODO: If we fail to write to S3 we should be do something about it
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', error)
             captureException(error)
+            counterS3WriteErrored.inc()
         } finally {
             await deleteFile(this.flushBuffer.file)
 
