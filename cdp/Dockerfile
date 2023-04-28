@@ -27,7 +27,7 @@ RUN apt-get update && \
 # Install SQLx CLI.
 RUN cargo install --version 0.6.3 sqlx-cli --no-default-features --features native-tls,postgres
 
-FROM node:18.12.1-bullseye-slim AS cdp-build
+FROM node:18.15.0-bullseye-slim AS cdp-build
 
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -57,7 +57,7 @@ RUN rm -rf node_modules && \
     rm -rf /tmp/pnpm-store
 
 # Build the final image.
-FROM node:18.12.1-bullseye-slim
+FROM node:18.15.0-bullseye-slim
 
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]

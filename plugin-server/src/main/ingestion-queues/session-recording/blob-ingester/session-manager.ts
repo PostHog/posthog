@@ -10,6 +10,7 @@ import * as zlib from 'zlib'
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
+import { DiskSpaceAwareLimits } from './disk-space-aware-limits'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
 
@@ -60,10 +61,10 @@ export class SessionManager {
         public readonly sessionId: string,
         public readonly partition: number,
         public readonly topic: string,
+        private readonly diskSpaceAwareBufferSize: DiskSpaceAwareLimits,
         private readonly onFinish: (offsetsToRemove: number[]) => void
     ) {
         this.buffer = this.createBuffer()
-
         // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
     }
 
@@ -87,7 +88,7 @@ export class SessionManager {
     public async flushIfNecessary(): Promise<void> {
         const bufferSizeKb = this.buffer.size / 1024
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
-        const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
+        const gzippedCapacity = gzipSizeKb / this.diskSpaceAwareBufferSize.currentBufferSizeKB
 
         const overCapacity = gzippedCapacity > 1
         const timeSinceLastFlushTooLong =
@@ -112,12 +113,12 @@ export class SessionManager {
 
         const bufferSizeKb = this.buffer.size / 1024
         const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
-        const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
+        const gzippedCapacity = gzipSizeKb / this.diskSpaceAwareBufferSize.currentBufferSizeKB
         status.info('🚽', `blob_ingester_session_manager flushing buffer ${this.sessionId}`, {
             sizeInBufferKB: bufferSizeKb,
             chunksSize: this.chunks.size,
             estimatedSizeInGzipKB: Math.round(gzipSizeKb),
-            bufferThreshold: this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB,
+            bufferThreshold: this.diskSpaceAwareBufferSize.currentBufferSizeKB,
             calculatedCapacity: gzippedCapacity,
             percentageCapacityUsed: (gzippedCapacity * 100).toFixed(2),
             count: this.buffer.count,

@@ -18,7 +18,7 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:18.12.1-bullseye-slim AS frontend-build
+FROM node:18.15.0-bullseye-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -37,7 +37,7 @@ RUN pnpm build
 #
 # ---------------------------------------------------------
 #
-FROM node:18.12.1-bullseye-slim AS plugin-server-build
+FROM node:18.15.0-bullseye-slim AS plugin-server-build
 WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 

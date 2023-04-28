@@ -10,6 +10,7 @@ import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
+import { DiskSpaceAwareLimits } from './blob-ingester/disk-space-aware-limits'
 import { OffsetManager } from './blob-ingester/offset-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import { IncomingRecordingMessage } from './blob-ingester/types'
@@ -21,6 +22,7 @@ const fetchBatchSize = 500
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
     offsetManager?: OffsetManager
+    diskSpaceAwareLimits: DiskSpaceAwareLimits
     batchConsumer?: BatchConsumer
     producer?: RdKafkaProducer
     lastHeartbeat: number = Date.now()
@@ -34,6 +36,12 @@ export class SessionRecordingBlobIngester {
     ) {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
         this.enabledTeams = enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').map(parseInt)
+        this.diskSpaceAwareLimits = new DiskSpaceAwareLimits(
+            this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY,
+            this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB,
+            10_000,
+            1
+        )
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<void> {
@@ -52,6 +60,7 @@ export class SessionRecordingBlobIngester {
                 session_id,
                 partition,
                 topic,
+                this.diskSpaceAwareLimits,
                 (offsets) => {
                     this.offsetManager?.removeOffsets(topic, partition, offsets)
 
@@ -262,11 +271,13 @@ export class SessionRecordingBlobIngester {
         })
 
         // We trigger the flushes from this level to reduce the number of running timers
-        this.flushInterval = setInterval(() => {
+        const idleFLushHandler = () => {
             this.sessions.forEach((sessionManager) => {
                 void sessionManager.flushIfNecessary()
             })
-        }, 10000)
+            this.flushInterval = setTimeout(idleFLushHandler, this.diskSpaceAwareLimits.currentIdleFlushInterval)
+        }
+        this.flushInterval = setTimeout(idleFLushHandler, this.diskSpaceAwareLimits.currentIdleFlushInterval)
     }
 
     public async stop(): Promise<void> {
