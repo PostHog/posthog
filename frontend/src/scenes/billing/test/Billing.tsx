@@ -81,7 +81,7 @@ export function Billing(): JSX.Element {
         }
         let url = '/api/billing-v2/activation?products='
         for (const product of products) {
-            if (product.subscribed || product.contact_support) {
+            if (product.subscribed || product.contact_support || product.inclusion_only) {
                 continue
             }
             const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
